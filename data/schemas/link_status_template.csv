@@ -1,0 +1,2 @@
+record_id,timestamp,link_id,snr_db,ber,packet_loss_rate,delay_ms,throughput_kbps,status,source,remark
+LS001,待确认,TL001,待填写,待填写,待填写,待填写,待填写,normal,synthetic,链路状态示例

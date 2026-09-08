@@ -1,0 +1,2 @@
+scenario_id,interference_id,longitude,latitude,frequency_mhz,bandwidth_khz,power_w,interference_type,start_time,end_time,source,remark
+INT_SCENE_001,INT001,待填写,待填写,待填写,待填写,待填写,待填写,待确认,待确认,synthetic,干扰源示例

@@ -1,0 +1,2 @@
+rule_id,condition_expression,fault_category,fault_component,root_cause,action_suggestion,priority,source,remark
+RULE001,待填写,待填写,待填写,待填写,待填写,1,manual_or_synthetic,故障规则示例

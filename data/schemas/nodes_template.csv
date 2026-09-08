@@ -1,0 +1,3 @@
+node_id,node_name,network_type,node_type,is_fixed,longitude,latitude,elevation_m,radio_model,status,source,remark
+HF001,待填写,HF,fixed,true,待填写,待填写,待填写,待填写,normal,synthetic,短波节点示例
+VHF001,待填写,VHF,mobile,false,待填写,待填写,待填写,待填写,normal,synthetic,超短波节点示例

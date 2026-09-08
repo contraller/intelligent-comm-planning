@@ -1,0 +1,2 @@
+topology_id,link_id,source_node_id,target_node_id,link_type,distance_km,frequency_resource_id,tx_power_w,link_status,source,remark
+TOP001,TL001,HF001,HF002,planned,待填写,FR001,待填写,available,synthetic,拓扑链路示例

@@ -1,0 +1,2 @@
+triple_id,subject,predicate,object,confidence,source,remark
+KG001,待填写,has_cause,待填写,待填写,manual_or_synthetic,故障知识图谱三元组示例

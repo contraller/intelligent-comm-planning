@@ -1,0 +1,2 @@
+task_id,link_id,source_node_id,target_node_id,priority,required_band,required_rate_kbps,max_delay_ms,start_time,end_time,source,remark
+TASK001,L001,HF001,HF002,1,HF,待填写,待填写,待确认,待确认,synthetic,任务通联关系示例
