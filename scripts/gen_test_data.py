@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """基础测试数据集生成器（第 1 周交付物）。
 
-生成"自行构造"的 7 类数据 + 构造版故障案例，全部符合 docs/01_数据字典.md。
+生成"自行构造"的 7 类数据 + 构造版故障案例，全部符合 docs/design/01_数据字典.md。
 纯标准库，无需安装任何包：
     python3 scripts/gen_test_data.py
 
