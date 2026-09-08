@@ -1,2 +1,2 @@
-topology_id,link_id,source_node_id,target_node_id,link_type,distance_km,frequency_resource_id,tx_power_w,link_status,source,remark
-TOP001,TL001,HF001,HF002,planned,待填写,FR001,待填写,available,synthetic,拓扑链路示例
+link_id,node_a_id,node_b_id,device_a_id,device_b_id,device_class,freq_khz,bandwidth_khz,distance_m,path_loss_db,rx_power_dbm,link_margin_db,is_available,link_state,is_backup
+LK-0001,ND-0013,ND-0115,DV-0013,DV-0115,VUHF,31325,25.0,187.7,56.83,-21.83,85.19,true,EXCELLENT,false

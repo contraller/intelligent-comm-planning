@@ -1,0 +1,2 @@
+device_id,node_id,model_id,antenna_id,antenna_height_m,tilt_deg,azimuth_deg,tx_power_dbm,work_freq_khz,status,install_time
+DV-0001,ND-0001,DM-0003,AM-0002,11.9,,,56.0,,NORMAL,2026-09-08T08:00:00+08:00

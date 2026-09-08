@@ -1,0 +1,3 @@
+model_id,model_name,manufacturer,device_class,category,freq_min_khz,freq_max_khz,tx_power_max_dbm,tx_power_levels_dbm,rx_sensitivity_dbm,bandwidth_khz,modulation,work_mode,service_type,data_rate_kbps,antenna_type_default,power_consumption_w,constraint_note,source_doc
+DM-0001,示例-短波车载电台,示例厂家,HF,车载电台,1600,29999,50,37;43;47;50,-110,3;6,USB;LSB;CW;FSK,定频;跳频;自适应ALE,话音;数据,2.4;4.8;9.6,鞭状天线/双极天线,300,跳频模式下不支持最大功率发射,示例说明书.pdf
+DM-0002,示例-超短波背负电台,示例厂家,VUHF,背负电台,30000,88000,37,30;33;37,-116,12.5;25,FM;QPSK,定频;跳频,话音;数据,16;64,鞭状天线,25,,示例说明书.pdf

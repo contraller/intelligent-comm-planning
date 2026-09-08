@@ -6,12 +6,13 @@
 """
 import csv, json, os, sys, collections
 
-OUT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "data", "generated")
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from datapaths import path as dpath
 ERR, WARN = [], []
 
 
 def load(name):
-    p = os.path.join(OUT, name)
+    p = dpath(name)
     if not os.path.exists(p):
         ERR.append("缺少文件 %s" % name)
         return []
@@ -198,7 +199,7 @@ def main():
     print("\n[7] 故障场景适配性（SR-5.1）")
     ALLOW = {"HW_FAILURE": {"DEVICE", "NODE"}, "SW_CONFIG": {"DEVICE", "NODE"},
              "LINK_DOWN": {"LINK"}, "EMI": {"LINK", "NODE"}}
-    p = os.path.join(OUT, "fault_scenario.json")
+    p = dpath("fault_scenario.json")
     n_f = 0
     if os.path.exists(p):
         with open(p, encoding="utf-8") as f:

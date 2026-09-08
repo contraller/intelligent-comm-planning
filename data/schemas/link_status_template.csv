@@ -1,2 +1,2 @@
-record_id,timestamp,link_id,snr_db,ber,packet_loss_rate,delay_ms,throughput_kbps,status,source,remark
-LS001,待确认,TL001,待填写,待填写,待填写,待填写,待填写,normal,synthetic,链路状态示例
+record_id,link_id,timestamp,snr_db,ber,packet_loss_rate,delay_ms,throughput_kbps,link_state
+LM-000001,LK-0001,2026-09-08T08:02:00+08:00,104.01,1.00e-09,0.0,40.1,64.0,EXCELLENT

@@ -1,2 +1,2 @@
-task_id,link_id,source_node_id,target_node_id,priority,required_band,required_rate_kbps,max_delay_ms,start_time,end_time,source,remark
-TASK001,L001,HF001,HF002,1,HF,待填写,待填写,待确认,待确认,synthetic,任务通联关系示例
+demand_id,task_id,src_node_id,dst_node_id,priority,is_mandatory,data_volume_mb,required_rate_kbps,max_delay_ms,min_reliability,service_type,preferred_class
+CD-0001,TS-0001,ND-0143,ND-0155,P3,false,230.8,32,400,0.99,数据,VUHF

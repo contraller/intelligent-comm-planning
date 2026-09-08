@@ -1,2 +1,2 @@
-scenario_id,interference_id,longitude,latitude,frequency_mhz,bandwidth_khz,power_w,interference_type,start_time,end_time,source,remark
-INT_SCENE_001,INT001,待填写,待填写,待填写,待填写,待填写,待填写,待确认,待确认,synthetic,干扰源示例
+interference_id,name,lon,lat,elevation_m,antenna_height_m,center_freq_khz,bandwidth_khz,tx_power_dbm,antenna_gain_dbi,interference_type,pattern_type,azimuth_deg,duty_cycle,active
+IF-0001,干扰源01,114.35734,37.667639,1501.2,32.9,35457.9,3,38.8,11.6,BROADBAND,DIRECTIONAL,68.1,0.1,true

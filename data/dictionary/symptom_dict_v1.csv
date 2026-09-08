@@ -1,0 +1,16 @@
+symptom_id,symptom_name,observable_from,metric_field,threshold_expr
+SY-0001,发射时驻波比告警,DEVICE_STATUS,,
+SY-0002,功率表读数接近零,DEVICE_STATUS,,
+SY-0003,设备自检报功放故障码,DEVICE_STATUS,,
+SY-0004,电源指示灯熄灭,DEVICE_STATUS,,
+SY-0005,对端完全失联,LINK_METRIC,packet_loss_rate,packet_loss_rate > 0.95
+SY-0006,误码率突增至不可用,LINK_METRIC,ber,ber > 1e-2
+SY-0007,握手超时,LINK_METRIC,delay_ms,delay_ms > 2000
+SY-0008,吞吐率跌至零,LINK_METRIC,throughput_kbps,throughput_kbps < 0.1
+SY-0009,收信底噪明显抬升,LINK_METRIC,snr_db,snr_db < 6
+SY-0010,特定频点不可用其余正常,MANUAL,,
+SY-0011,信噪比骤降但发射自检正常,LINK_METRIC,snr_db,snr_db < 8
+SY-0012,频率配置与对端不一致,MANUAL,,
+SY-0013,加密参数不匹配无法建链,MANUAL,,
+SY-0014,跳频图案不同步,MANUAL,,
+SY-0015,协议版本不一致,MANUAL,,

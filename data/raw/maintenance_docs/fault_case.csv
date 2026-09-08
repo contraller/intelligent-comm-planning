@@ -1,0 +1,3 @@
+case_id,fault_type,fault_subtype,object_type,device_class,symptom_ids,symptom_text,snr_db,ber,packet_loss_rate,delay_ms,throughput_kbps,device_selftest,root_cause,fault_component,diagnosis_steps,solution,repair_time_min,source_doc
+FC-0001,HW_FAILURE,功放失效,DEVICE,HF,,发射时前面板驻波比告警,功率表读数接近0,,,,,,ALARM_VSWR,功放模块输出级晶体管击穿,功率放大模块,测量静态电流;检查驻波比;拆机测量输出级,更换功放模块,90,示例维修手册.pdf
+FC-0002,EMI,同频干扰,LINK,VUHF,,收信底噪明显抬升,通信断续,发射机自检正常,3.2,2.5e-3,0.35,,,NORMAL,邻近区域存在同频段大功率辐射源,无(外部干扰),测量底噪;频谱扫描定位干扰源;更换频点验证,切换至备用频点并上报干扰,20,示例维修手册.pdf

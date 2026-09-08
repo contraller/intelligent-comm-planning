@@ -12,9 +12,9 @@ import csv, json, math, os, random, sys, datetime as dt
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from terrain import SyntheticTerrain, BBOX, haversine_m, los_clearance
 from propagation import vuhf_path_loss, hf_path_loss, link_budget, margin_to_state
+from datapaths import path as dpath, RAW_DEVICE_MODEL, RAW_ANTENNA_MODEL
 
 SEED = 20260908
-OUT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "data", "generated")
 LON0, LAT0, LON1, LAT1 = BBOX
 T0 = dt.datetime(2026, 9, 8, 8, 0, 0, tzinfo=dt.timezone(dt.timedelta(hours=8)))
 
@@ -33,7 +33,8 @@ def sid(p, n): return "%s-%04d" % (p, n)
 
 
 def write_csv(name, rows, header):
-    path = os.path.join(OUT, name)
+    path = dpath(name)
+    os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, "w", newline="", encoding="utf-8") as f:
         w = csv.DictWriter(f, fieldnames=header, extrasaction="ignore")
         w.writeheader()
@@ -108,7 +109,7 @@ DEFAULT_ANTENNAS = [
 
 def load_models():
     """优先用师弟采集的真实型号库；未到位或仍是示例行则用构造型号。"""
-    p = os.path.join(OUT, "..", "raw", "device", "device_model.csv")
+    p = RAW_DEVICE_MODEL
     if os.path.exists(p):
         with open(p, encoding="utf-8") as f:
             rows = [r for r in csv.DictReader(f)
@@ -121,7 +122,7 @@ def load_models():
 
 
 def load_antennas():
-    p = os.path.join(OUT, "..", "raw", "device", "antenna_model.csv")
+    p = RAW_ANTENNA_MODEL
     if os.path.exists(p):
         with open(p, encoding="utf-8") as f:
             rows = [r for r in csv.DictReader(f)
@@ -639,7 +640,6 @@ def gen_fault_scenarios(links, devices, nodes):
 
 # ─────────────────────────── 主流程 ───────────────────────────
 def main():
-    os.makedirs(OUT, exist_ok=True)
     print("生成基础测试数据集  seed=%d  地形=%s" % (SEED, terrain.name))
     print("规划区 %.4f,%.4f - %.4f,%.4f\n" % BBOX)
 
@@ -696,7 +696,9 @@ def main():
                "symptom_ids", "symptom_text", "snr_db", "ber", "packet_loss_rate",
                "delay_ms", "throughput_kbps", "device_selftest", "root_cause",
                "fault_component", "diagnosis_steps", "solution", "repair_time_min", "source_doc"])
-    with open(os.path.join(OUT, "fault_scenario.json"), "w", encoding="utf-8") as f:
+    _p = dpath("fault_scenario.json")
+    os.makedirs(os.path.dirname(_p), exist_ok=True)
+    with open(_p, "w", encoding="utf-8") as f:
         json.dump(scenarios, f, ensure_ascii=False, indent=2)
     print("  %-26s %5d 个" % ("fault_scenario.json", len(scenarios)))
 
@@ -732,7 +734,7 @@ def main():
              sum(1 for f in freq_pool if f["device_class"] == "VUHF"), len(inters)))
     print("\n设备型号来源: %s   天线来源: %s" % (msrc, asrc))
     if msrc == "CONSTRUCTED":
-        print("  → 师弟的真实型号库到位后放到 data/raw/device/，重跑本脚本自动切换")
+        print("  → 师弟的真实型号库到位后放到 data/raw/equipment_docs/，重跑本脚本自动切换")
 
 
 if __name__ == "__main__":

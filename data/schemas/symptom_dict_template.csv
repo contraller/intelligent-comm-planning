@@ -1,0 +1,2 @@
+symptom_id,symptom_name,observable_from,metric_field,threshold_expr
+SY-0001,发射时驻波比告警,DEVICE_STATUS,,

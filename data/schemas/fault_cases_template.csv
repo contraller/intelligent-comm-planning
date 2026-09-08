@@ -1,2 +1,2 @@
-case_id,fault_category,symptom,equipment_model,equipment_status,fault_component,root_cause,impact_scope,solution,source,remark
-FC001,待填写,待填写,待填写,待填写,待填写,待填写,待填写,待填写,manual_or_synthetic,故障案例示例
+case_id,fault_type,fault_subtype,object_type,device_class,symptom_ids,symptom_text,snr_db,ber,packet_loss_rate,delay_ms,throughput_kbps,device_selftest,root_cause,fault_component,diagnosis_steps,solution,repair_time_min,source_doc
+FC-0001,HW_FAILURE,功率放大模块,DEVICE,HF,SY-0001;SY-0002,,,,,,,ALARM_PA,功放模块输出级晶体管击穿,功率放大模块,核对故障现象;读取设备自检码;测量链路指标;定位故障部件,更换功放模块,30,CONSTRUCTED

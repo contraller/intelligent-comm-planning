@@ -1,0 +1,2 @@
+task_id,task_name,area_bbox,start_time,duration_h,description
+TS-0001,西山任务区任务场景1,114.2724;36.7610;115.6276;37.8390,2026-09-08T08:00:00+08:00,12,构造测试场景

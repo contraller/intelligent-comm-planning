@@ -1,0 +1,105 @@
+[
+  {
+    "scenario_id": "FS-0001",
+    "scenario_name": "设备硬件故障-关键中继功放失效",
+    "faults": [
+      {
+        "object_type": "DEVICE",
+        "object_id": "DV-0008",
+        "fault_type": "HW_FAILURE",
+        "symptom_ids": [
+          "SY-0001",
+          "SY-0002"
+        ],
+        "occur_time": "2026-09-08T09:00:00+08:00",
+        "params": {}
+      }
+    ],
+    "create_time": "2026-09-08T08:00:00+08:00"
+  },
+  {
+    "scenario_id": "FS-0002",
+    "scenario_name": "链路中断-骨干链路失联",
+    "faults": [
+      {
+        "object_type": "LINK",
+        "object_id": "LK-0172",
+        "fault_type": "LINK_DOWN",
+        "symptom_ids": [
+          "SY-0005"
+        ],
+        "occur_time": "2026-09-08T10:00:00+08:00",
+        "params": {}
+      }
+    ],
+    "create_time": "2026-09-08T08:00:00+08:00"
+  },
+  {
+    "scenario_id": "FS-0003",
+    "scenario_name": "软件配置异常-频率配置不一致",
+    "faults": [
+      {
+        "object_type": "DEVICE",
+        "object_id": "DV-0019",
+        "fault_type": "SW_CONFIG",
+        "symptom_ids": [
+          "SY-0012"
+        ],
+        "occur_time": "2026-09-08T11:00:00+08:00",
+        "params": {}
+      }
+    ],
+    "create_time": "2026-09-08T08:00:00+08:00"
+  },
+  {
+    "scenario_id": "FS-0004",
+    "scenario_name": "电磁干扰-东部平原区受扰",
+    "faults": [
+      {
+        "object_type": "LINK",
+        "object_id": "LK-0171",
+        "fault_type": "EMI",
+        "symptom_ids": [
+          "SY-0009",
+          "SY-0011"
+        ],
+        "occur_time": "2026-09-08T12:00:00+08:00",
+        "params": {
+          "interference_id": "IF-0001"
+        }
+      }
+    ],
+    "create_time": "2026-09-08T08:00:00+08:00"
+  },
+  {
+    "scenario_id": "FS-0005",
+    "scenario_name": "复合场景-硬件故障叠加电磁干扰",
+    "faults": [
+      {
+        "object_type": "DEVICE",
+        "object_id": "DV-0007",
+        "fault_type": "HW_FAILURE",
+        "symptom_ids": [
+          "SY-0001",
+          "SY-0003"
+        ],
+        "occur_time": "2026-09-08T10:00:00+08:00",
+        "params": {}
+      },
+      {
+        "object_type": "LINK",
+        "object_id": "LK-0115",
+        "fault_type": "EMI",
+        "symptom_ids": [
+          "SY-0009",
+          "SY-0011"
+        ],
+        "occur_time": "2026-09-08T10:25:00+08:00",
+        "params": {
+          "interference_id": "IF-0002"
+        }
+      }
+    ],
+    "create_time": "2026-09-08T08:00:00+08:00"
+  }
+]

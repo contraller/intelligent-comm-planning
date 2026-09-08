@@ -1,0 +1,7 @@
+model_id,model_name,manufacturer,device_class,category,freq_min_khz,freq_max_khz,tx_power_max_dbm,tx_power_levels_dbm,rx_sensitivity_dbm,bandwidth_khz,modulation,work_mode,service_type,data_rate_kbps,antenna_type_default,power_consumption_w,constraint_note,source_doc
+DM-0001,XB-150 短波车载电台,构造厂家A,HF,车载电台,1600,29999,51.8,37;43;47;51.8,-110,3,USB;LSB;CW;FSK,定频;跳频;自适应ALE,话音;数据,2.4;4.8,鞭状/双极,350,跳频模式下最大功率降至 47 dBm,CONSTRUCTED
+DM-0002,XB-050 短波背负电台,构造厂家A,HF,背负电台,1600,29999,47,33;37;43;47,-108,3,USB;LSB;CW,定频;自适应ALE,话音;短消息,2.4,鞭状/双极,90,,CONSTRUCTED
+DM-0003,XB-400 短波固定台,构造厂家B,HF,固定台,1600,29999,56,47;50;53;56,-112,3;6,USB;LSB;CW;FSK,定频;跳频;自适应ALE,话音;数据,2.4;4.8;9.6,双极/对数周期,900,需固定馈线与地网,CONSTRUCTED
+DM-0011,CD-020 超短波车载电台,构造厂家A,VUHF,车载电台,30000,88000,43,30;37;43,-116,25,FM;QPSK,定频;跳频,话音;数据,16;64,鞭状,110,,CONSTRUCTED
+DM-0012,CD-005 超短波背负电台,构造厂家A,VUHF,背负电台,30000,88000,37,27;33;37,-116,25,FM,定频;跳频,话音,16,鞭状,22,,CONSTRUCTED
+DM-0013,CD-400 超短波中继台,构造厂家B,VUHF,中继台,225000,400000,40,30;35;40,-114,25,FM;QPSK,定频,话音;数据,64;256,八木/全向,75,UHF 频段依赖通视,CONSTRUCTED

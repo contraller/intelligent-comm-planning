@@ -1,0 +1,5 @@
+antenna_id,antenna_name,device_class,gain_dbi,pattern_type,hbeamwidth_deg,vbeamwidth_deg,height_range_m,polarization
+AM-0001,示例-短波鞭状天线3m,HF,-2,OMNI,360,60,2-4,V
+AM-0002,示例-短波双极天线(NVIS),HF,2,NVIS,360,80,4-12,H
+AM-0003,示例-超短波鞭状天线1.5m,VUHF,2,OMNI,360,50,1-6,V
+AM-0004,示例-超短波八木天线,VUHF,10,DIRECTIONAL,55,45,4-12,V

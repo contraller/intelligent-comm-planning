@@ -1,3 +1,2 @@
-resource_id,network_type,band_name,center_frequency_mhz,bandwidth_khz,channel_no,occupied,reuse_limit,power_limit_w,source,remark
-FR001,HF,待填写,待填写,待填写,待填写,false,待填写,待填写,synthetic,频率资源示例
-FR002,VHF,待填写,待填写,待填写,待填写,false,待填写,待填写,synthetic,频率资源示例
+freq_id,device_class,center_freq_khz,bandwidth_khz,channel_no,is_available,occupied_by,reuse_min_distance_m,adjacent_guard_khz,note
+FQ-0001,HF,3000,3,1,false,,60000,3,禁用-预留应急频点
