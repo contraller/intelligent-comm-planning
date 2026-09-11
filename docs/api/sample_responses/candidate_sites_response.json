@@ -1,0 +1,33 @@
+{
+  "code": 0,
+  "message": "success",
+  "request_id": "req-20260911-candidate-0001",
+  "data": {
+    "task_id": "TS-0001",
+    "candidate_count": 120,
+    "deployable_count": 74,
+    "candidates": [
+      {
+        "site_id": "CS-0001",
+        "lon": 115.356297,
+        "lat": 37.156916,
+        "elevation_m": 140.1,
+        "slope_deg": 1.91,
+        "landcover_type": "建成区",
+        "nearest_road_distance_m": 2197.3,
+        "nearest_node_distance_m": 26214.0,
+        "candidate_role": "MOBILE_STATION",
+        "is_deployable": true,
+        "recommendation_level": "A",
+        "score": 91.74,
+        "reject_reason": ""
+      }
+    ],
+    "rejected_stats": {
+      "slope": 11,
+      "landcover": 22,
+      "road": 19,
+      "spacing": 0
+    }
+  }
+}

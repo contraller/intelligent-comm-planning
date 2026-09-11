@@ -20,8 +20,12 @@ PATHS = {
     "frequency_resource.csv":  "synthetic/frequency/frequency_resources_v1.csv",
     "interference_source.csv": "synthetic/interference/interference_sources_v1.csv",
     "link.csv":                "synthetic/topology/topology_links_v1.csv",
+    "candidate_site.csv":      "synthetic/nodes/candidate_sites_v1.csv",
+    "route.json":              "synthetic/topology/routes_v1.json",
+    "frequency_conflict.csv":  "synthetic/topology/frequency_conflicts_v1.csv",
     "link_metric.csv":         "synthetic/link_status/link_status_v1.csv",
     "fault_case.csv":          "fault/cases/fault_cases_v1.csv",
+    "fault_rule.csv":          "fault/rules/fault_rules_v1.csv",
     "fault_scenario.json":     "fault/cases/fault_scenarios_v1.json",
     "symptom_dict.csv":        "dictionary/symptom_dict_v1.csv",
 }

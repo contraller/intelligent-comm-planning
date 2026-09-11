@@ -34,10 +34,14 @@ ENUMS = {
     "fault_case.object_type": {"DEVICE", "LINK", "NODE"},
     "interference_source.interference_type":
         {"NARROWBAND", "BROADBAND", "SWEEP", "PULSE", "NOISE"},
+    "candidate_site.candidate_role": {"RELAY", "MOBILE_STATION", "TEMP_FIXED_STATION"},
+    "candidate_site.recommendation_level": {"A", "B", "C", "D"},
+    "frequency_conflict.conflict_type": {"SHARED_NODE", "ADJACENT_CHANNEL_NEAR_PATH"},
 }
 BOOLS = [("node", "is_key"), ("link", "is_available"), ("link", "is_backup"),
          ("comm_demand", "is_mandatory"), ("frequency_resource", "is_available"),
-         ("interference_source", "active")]
+         ("interference_source", "active"), ("candidate_site", "is_deployable"),
+         ("frequency_conflict", "hard_constraint")]
 
 
 def main():
@@ -47,9 +51,14 @@ def main():
     tasks = load("task_scenario.csv"); freqs = load("frequency_resource.csv")
     inters = load("interference_source.csv"); metrics = load("link_metric.csv")
     cases = load("fault_case.csv"); symptoms = load("symptom_dict.csv")
+    candidate_sites = load("candidate_site.csv")
+    freq_conflicts = load("frequency_conflict.csv")
+    fault_rules = load("fault_rule.csv")
     tables = dict(node=nodes, device=devices, link=links, comm_demand=demands,
                   frequency_resource=freqs, interference_source=inters,
-                  link_metric=metrics, fault_case=cases)
+                  link_metric=metrics, fault_case=cases,
+                  candidate_site=candidate_sites, frequency_conflict=freq_conflicts,
+                  fault_rule=fault_rules)
 
     print("=" * 70)
     print("测试数据集校验")
@@ -64,6 +73,7 @@ def main():
     lid = {l["link_id"] for l in links}
     tid = {t["task_id"] for t in tasks}
     sid_ = {s["symptom_id"] for s in symptoms}
+    cid = {c["case_id"] for c in cases}
     checks = [
         ("device.node_id → node", [d["node_id"] for d in devices], nid),
         ("device.model_id → device_model", [d["model_id"] for d in devices], mid),
@@ -76,6 +86,12 @@ def main():
         ("comm_demand.src_node_id → node", [d["src_node_id"] for d in demands], nid),
         ("comm_demand.dst_node_id → node", [d["dst_node_id"] for d in demands], nid),
         ("link_metric.link_id → link", [m["link_id"] for m in metrics], lid),
+        ("frequency_conflict.link_id_a → link",
+         [c["link_id_a"] for c in freq_conflicts], lid),
+        ("frequency_conflict.link_id_b → link",
+         [c["link_id_b"] for c in freq_conflicts], lid),
+        ("fault_rule.source_case_id → fault_case",
+         [r["source_case_id"] for r in fault_rules], cid),
     ]
     for label, vals, universe in checks:
         bad = {v for v in vals if v not in universe}
@@ -133,6 +149,13 @@ def main():
               [float(d["min_reliability"]) for d in demands], 0.0, 1.0)
     rng_check("device.antenna_height_m",
               [float(d["antenna_height_m"]) for d in devices], 0.5, 30.0)
+    if candidate_sites:
+        rng_check("candidate_site.lon", [float(s["lon"]) for s in candidate_sites],
+                  114.2724, 115.6276)
+        rng_check("candidate_site.lat", [float(s["lat"]) for s in candidate_sites],
+                  36.7610, 37.8390)
+        rng_check("candidate_site.score", [float(s["score"]) for s in candidate_sites],
+                  0.0, 100.0)
 
     # ── 4 拓扑连通性 ──
     print("\n[4] 拓扑连通性（按设备类别分别计算）")
@@ -218,6 +241,34 @@ def main():
     print("   %s fault_case 共 %d 条，适配性检查%s"
           % ("✓" if not any("案例" in e for e in ERR) else "✗", len(cases),
              "通过" if not any("案例" in e for e in ERR) else "未通过"))
+
+    # ── 8 算法设计补充数据 ──
+    print("\n[8] 算法设计补充数据")
+    route_p = dpath("route.json")
+    routes = []
+    if os.path.exists(route_p):
+        with open(route_p, encoding="utf-8") as f:
+            routes = json.load(f)
+        bad_route_ref = []
+        demand_ids = {d["demand_id"] for d in demands}
+        task_ids = {t["task_id"] for t in tasks}
+        for r in routes:
+            if r["demand_id"] not in demand_ids or r["task_id"] not in task_ids:
+                bad_route_ref.append(r["route_id"])
+            if any(n not in nid for n in r["node_path"]):
+                bad_route_ref.append(r["route_id"])
+            if any(l not in lid for l in r["link_path"]):
+                bad_route_ref.append(r["route_id"])
+        if bad_route_ref:
+            ERR.append("routes_v1.json 存在悬空引用: %s" % bad_route_ref[:5])
+            print("   ✗ routes_v1.json 存在 %d 条悬空引用" % len(bad_route_ref))
+        else:
+            print("   ✓ routes_v1.json                  %d 条路由引用全部有效" % len(routes))
+    else:
+        ERR.append("缺少文件 route.json")
+    print("   ✓ candidate_sites_v1.csv          %d 个候选点" % len(candidate_sites))
+    print("   ✓ frequency_conflicts_v1.csv      %d 条频率冲突约束" % len(freq_conflicts))
+    print("   ✓ fault_rules_v1.csv              %d 条故障规则" % len(fault_rules))
 
     # ── 汇总 ──
     print("\n" + "=" * 70)

@@ -1,0 +1,81 @@
+rule_id,fault_type,device_class,object_type,condition_expression,fault_subtype,fault_component,root_cause,action_suggestion,confidence,priority,source_case_id,source
+RULE-0001,EMI,HF,LINK,has_symptom('SY-0010') and device_selftest == 'NORMAL',无(外部干扰),无(外部干扰),宽带噪声干扰抬升底噪,启用跳频模式规避,0.85,2,FC-0182,CONSTRUCTED
+RULE-0002,EMI,HF,LINK,has_symptom('SY-0009') and has_symptom('SY-0006') and device_selftest == 'NORMAL',无(外部干扰),无(外部干扰),宽带噪声干扰抬升底噪,启用跳频模式规避,0.85,2,FC-0187,CONSTRUCTED
+RULE-0003,EMI,HF,LINK,has_symptom('SY-0009') and has_symptom('SY-0011') and device_selftest == 'NORMAL',无(外部干扰),无(外部干扰),宽带噪声干扰抬升底噪,启用跳频模式规避,0.85,2,FC-0197,CONSTRUCTED
+RULE-0004,EMI,HF,LINK,has_symptom('SY-0011') and device_selftest == 'NORMAL',无(外部干扰),无(外部干扰),邻频泄漏导致互调,提升发射功率改善信干比,0.85,2,FC-0224,CONSTRUCTED
+RULE-0005,EMI,VUHF,LINK,has_symptom('SY-0009') and has_symptom('SY-0011') and device_selftest == 'NORMAL',无(外部干扰),无(外部干扰),邻近区域同频大功率辐射源,切换至备用频点并上报干扰,0.85,2,FC-0181,CONSTRUCTED
+RULE-0006,EMI,VUHF,LINK,has_symptom('SY-0009') and has_symptom('SY-0006') and device_selftest == 'NORMAL',无(外部干扰),无(外部干扰),扫频干扰周期性覆盖工作频点,调整天线方位形成零陷,0.85,2,FC-0183,CONSTRUCTED
+RULE-0007,EMI,VUHF,LINK,has_symptom('SY-0011') and device_selftest == 'NORMAL',无(外部干扰),无(外部干扰),邻频泄漏导致互调,提升发射功率改善信干比,0.85,2,FC-0184,CONSTRUCTED
+RULE-0008,EMI,VUHF,LINK,has_symptom('SY-0010') and device_selftest == 'NORMAL',无(外部干扰),无(外部干扰),邻近区域同频大功率辐射源,切换至备用频点并上报干扰,0.85,2,FC-0186,CONSTRUCTED
+RULE-0009,HW_FAILURE,HF,DEVICE,has_symptom('SY-0001') and has_symptom('SY-0002') and device_selftest == 'ALARM_PA',功率放大模块,功率放大模块,功放模块输出级晶体管击穿,更换功放模块,0.85,1,FC-0001,CONSTRUCTED
+RULE-0010,HW_FAILURE,HF,DEVICE,has_symptom('SY-0001') and has_symptom('SY-0003') and device_selftest == 'ALARM_PWR',功率放大模块,功率放大模块,功放模块输出级晶体管击穿,更换功放模块,0.85,1,FC-0016,CONSTRUCTED
+RULE-0011,HW_FAILURE,HF,DEVICE,has_symptom('SY-0003') and device_selftest == 'ALARM_PWR',功率放大模块,功率放大模块,功放模块输出级晶体管击穿,更换功放模块,0.85,1,FC-0046,CONSTRUCTED
+RULE-0012,HW_FAILURE,HF,DEVICE,has_symptom('SY-0003') and device_selftest == 'ALARM_PA',天线馈线,天线馈线,天线馈线接头进水短路,更换馈线及接头并做防水处理,0.85,1,FC-0002,CONSTRUCTED
+RULE-0013,HW_FAILURE,HF,DEVICE,has_symptom('SY-0001') and has_symptom('SY-0002') and device_selftest == 'ALARM_PWR',天线馈线,天线馈线,天线馈线接头进水短路,更换馈线及接头并做防水处理,0.85,1,FC-0017,CONSTRUCTED
+RULE-0014,HW_FAILURE,HF,DEVICE,has_symptom('SY-0004') and device_selftest == 'ALARM_PWR',天线馈线,天线馈线,天线馈线接头进水短路,更换馈线及接头并做防水处理,0.85,1,FC-0027,CONSTRUCTED
+RULE-0015,HW_FAILURE,HF,DEVICE,has_symptom('SY-0001') and has_symptom('SY-0003') and device_selftest == 'FAULT_RF',天线馈线,天线馈线,天线馈线接头进水短路,更换馈线及接头并做防水处理,0.85,1,FC-0032,CONSTRUCTED
+RULE-0016,HW_FAILURE,HF,DEVICE,has_symptom('SY-0001') and has_symptom('SY-0002') and device_selftest == 'ALARM_PA',射频开关组件,射频开关组件,射频继电器触点氧化,更换射频继电器,0.85,1,FC-0009,CONSTRUCTED
+RULE-0017,HW_FAILURE,HF,DEVICE,has_symptom('SY-0004') and device_selftest == 'FAULT_RF',射频开关组件,射频开关组件,射频继电器触点氧化,更换射频继电器,0.85,1,FC-0019,CONSTRUCTED
+RULE-0018,HW_FAILURE,HF,DEVICE,has_symptom('SY-0001') and has_symptom('SY-0003') and device_selftest == 'ALARM_PWR',射频开关组件,射频开关组件,射频继电器触点氧化,更换射频继电器,0.85,1,FC-0024,CONSTRUCTED
+RULE-0019,HW_FAILURE,HF,DEVICE,has_symptom('SY-0003') and device_selftest == 'ALARM_PA',射频开关组件,射频开关组件,射频继电器触点氧化,更换射频继电器,0.85,1,FC-0034,CONSTRUCTED
+RULE-0020,HW_FAILURE,HF,DEVICE,has_symptom('SY-0004') and device_selftest == 'ALARM_VSWR',电源模块,电源模块,电源模块滤波电容失效,更换电源模块,0.85,1,FC-0023,CONSTRUCTED
+RULE-0021,HW_FAILURE,HF,DEVICE,has_symptom('SY-0001') and has_symptom('SY-0002') and device_selftest == 'ALARM_PWR',电源模块,电源模块,电源模块滤波电容失效,更换电源模块,0.85,1,FC-0033,CONSTRUCTED
+RULE-0022,HW_FAILURE,HF,DEVICE,has_symptom('SY-0003') and device_selftest == 'ALARM_PWR',电源模块,电源模块,电源模块滤波电容失效,更换电源模块,0.85,1,FC-0038,CONSTRUCTED
+RULE-0023,HW_FAILURE,HF,DEVICE,has_symptom('SY-0003') and device_selftest == 'FAULT_RF',频率合成模块,频率合成模块,合成器锁相环失锁,更换频率合成板,0.85,1,FC-0010,CONSTRUCTED
+RULE-0024,HW_FAILURE,HF,DEVICE,has_symptom('SY-0001') and has_symptom('SY-0003') and device_selftest == 'FAULT_RF',频率合成模块,频率合成模块,合成器锁相环失锁,更换频率合成板,0.85,1,FC-0020,CONSTRUCTED
+RULE-0025,HW_FAILURE,HF,DEVICE,has_symptom('SY-0001') and has_symptom('SY-0002') and device_selftest == 'FAULT_RF',频率合成模块,频率合成模块,合成器锁相环失锁,更换频率合成板,0.85,1,FC-0025,CONSTRUCTED
+RULE-0026,HW_FAILURE,HF,DEVICE,has_symptom('SY-0004') and device_selftest == 'ALARM_VSWR',频率合成模块,频率合成模块,合成器锁相环失锁,更换频率合成板,0.85,1,FC-0035,CONSTRUCTED
+RULE-0027,HW_FAILURE,VUHF,DEVICE,has_symptom('SY-0003') and device_selftest == 'ALARM_PWR',功率放大模块,功率放大模块,功放模块输出级晶体管击穿,更换功放模块,0.85,1,FC-0006,CONSTRUCTED
+RULE-0028,HW_FAILURE,VUHF,DEVICE,has_symptom('SY-0004') and device_selftest == 'ALARM_PA',功率放大模块,功率放大模块,功放模块输出级晶体管击穿,更换功放模块,0.85,1,FC-0011,CONSTRUCTED
+RULE-0029,HW_FAILURE,VUHF,DEVICE,has_symptom('SY-0001') and has_symptom('SY-0002') and device_selftest == 'ALARM_PA',功率放大模块,功率放大模块,功放模块输出级晶体管击穿,更换功放模块,0.85,1,FC-0021,CONSTRUCTED
+RULE-0030,HW_FAILURE,VUHF,DEVICE,has_symptom('SY-0001') and has_symptom('SY-0003') and device_selftest == 'FAULT_RF',功率放大模块,功率放大模块,功放模块输出级晶体管击穿,更换功放模块,0.85,1,FC-0036,CONSTRUCTED
+RULE-0031,HW_FAILURE,VUHF,DEVICE,has_symptom('SY-0004') and device_selftest == 'ALARM_PWR',天线馈线,天线馈线,天线馈线接头进水短路,更换馈线及接头并做防水处理,0.85,1,FC-0007,CONSTRUCTED
+RULE-0032,HW_FAILURE,VUHF,DEVICE,has_symptom('SY-0001') and has_symptom('SY-0003') and device_selftest == 'ALARM_PWR',天线馈线,天线馈线,天线馈线接头进水短路,更换馈线及接头并做防水处理,0.85,1,FC-0012,CONSTRUCTED
+RULE-0033,HW_FAILURE,VUHF,DEVICE,has_symptom('SY-0003') and device_selftest == 'ALARM_PA',天线馈线,天线馈线,天线馈线接头进水短路,更换馈线及接头并做防水处理,0.85,1,FC-0022,CONSTRUCTED
+RULE-0034,HW_FAILURE,VUHF,DEVICE,has_symptom('SY-0001') and has_symptom('SY-0002') and device_selftest == 'FAULT_RF',天线馈线,天线馈线,天线馈线接头进水短路,更换馈线及接头并做防水处理,0.85,1,FC-0037,CONSTRUCTED
+RULE-0035,HW_FAILURE,VUHF,DEVICE,has_symptom('SY-0001') and has_symptom('SY-0003') and device_selftest == 'ALARM_PWR',射频开关组件,射频开关组件,射频继电器触点氧化,更换射频继电器,0.85,1,FC-0004,CONSTRUCTED
+RULE-0036,HW_FAILURE,VUHF,DEVICE,has_symptom('SY-0003') and device_selftest == 'ALARM_PA',射频开关组件,射频开关组件,射频继电器触点氧化,更换射频继电器,0.85,1,FC-0014,CONSTRUCTED
+RULE-0037,HW_FAILURE,VUHF,DEVICE,has_symptom('SY-0001') and has_symptom('SY-0002') and device_selftest == 'ALARM_PA',射频开关组件,射频开关组件,射频继电器触点氧化,更换射频继电器,0.85,1,FC-0029,CONSTRUCTED
+RULE-0038,HW_FAILURE,VUHF,DEVICE,has_symptom('SY-0004') and device_selftest == 'ALARM_VSWR',射频开关组件,射频开关组件,射频继电器触点氧化,更换射频继电器,0.85,1,FC-0039,CONSTRUCTED
+RULE-0039,HW_FAILURE,VUHF,DEVICE,has_symptom('SY-0004') and device_selftest == 'ALARM_PWR',电源模块,电源模块,电源模块滤波电容失效,更换电源模块,0.85,1,FC-0003,CONSTRUCTED
+RULE-0040,HW_FAILURE,VUHF,DEVICE,has_symptom('SY-0001') and has_symptom('SY-0003') and device_selftest == 'FAULT_RF',电源模块,电源模块,电源模块滤波电容失效,更换电源模块,0.85,1,FC-0008,CONSTRUCTED
+RULE-0041,HW_FAILURE,VUHF,DEVICE,has_symptom('SY-0001') and has_symptom('SY-0002') and device_selftest == 'ALARM_PWR',电源模块,电源模块,电源模块滤波电容失效,更换电源模块,0.85,1,FC-0013,CONSTRUCTED
+RULE-0042,HW_FAILURE,VUHF,DEVICE,has_symptom('SY-0003') and device_selftest == 'ALARM_PA',电源模块,电源模块,电源模块滤波电容失效,更换电源模块,0.85,1,FC-0018,CONSTRUCTED
+RULE-0043,HW_FAILURE,VUHF,DEVICE,has_symptom('SY-0001') and has_symptom('SY-0002') and device_selftest == 'ALARM_PWR',频率合成模块,频率合成模块,合成器锁相环失锁,更换频率合成板,0.85,1,FC-0005,CONSTRUCTED
+RULE-0044,HW_FAILURE,VUHF,DEVICE,has_symptom('SY-0004') and device_selftest == 'FAULT_RF',频率合成模块,频率合成模块,合成器锁相环失锁,更换频率合成板,0.85,1,FC-0015,CONSTRUCTED
+RULE-0045,HW_FAILURE,VUHF,DEVICE,has_symptom('SY-0003') and device_selftest == 'ALARM_PA',频率合成模块,频率合成模块,合成器锁相环失锁,更换频率合成板,0.85,1,FC-0030,CONSTRUCTED
+RULE-0046,HW_FAILURE,VUHF,DEVICE,has_symptom('SY-0001') and has_symptom('SY-0003') and device_selftest == 'FAULT_RF',频率合成模块,频率合成模块,合成器锁相环失锁,更换频率合成板,0.85,1,FC-0040,CONSTRUCTED
+RULE-0047,LINK_DOWN,HF,LINK,has_symptom('SY-0005') and has_symptom('SY-0007') and device_selftest == 'LINK_LOSS',中继节点,中继节点,中继节点失效导致链路中断,启用备份中继并切换路由,0.85,1,FC-0068,CONSTRUCTED
+RULE-0048,LINK_DOWN,HF,LINK,has_symptom('SY-0007') and device_selftest == 'LINK_LOSS',中继节点,中继节点,中继节点失效导致链路中断,启用备份中继并切换路由,0.85,1,FC-0083,CONSTRUCTED
+RULE-0049,LINK_DOWN,HF,LINK,has_symptom('SY-0006') and has_symptom('SY-0008') and device_selftest == 'LINK_LOSS',中继节点,中继节点,中继节点失效导致链路中断,启用备份中继并切换路由,0.85,1,FC-0118,CONSTRUCTED
+RULE-0050,LINK_DOWN,HF,LINK,has_symptom('SY-0005') and has_symptom('SY-0007') and device_selftest == 'NORMAL',天线系统,天线系统,天线指向偏离,校正天线方位,0.85,1,FC-0064,CONSTRUCTED
+RULE-0051,LINK_DOWN,HF,LINK,has_symptom('SY-0005') and device_selftest == 'NORMAL',天线系统,天线系统,天线指向偏离,校正天线方位,0.85,1,FC-0069,CONSTRUCTED
+RULE-0052,LINK_DOWN,HF,LINK,has_symptom('SY-0007') and device_selftest == 'NORMAL',天线系统,天线系统,天线指向偏离,校正天线方位,0.85,1,FC-0099,CONSTRUCTED
+RULE-0053,LINK_DOWN,HF,LINK,has_symptom('SY-0006') and has_symptom('SY-0008') and device_selftest == 'LINK_LOSS',天线系统,天线系统,天线指向偏离,校正天线方位,0.85,1,FC-0114,CONSTRUCTED
+RULE-0054,LINK_DOWN,HF,LINK,has_symptom('SY-0005') and has_symptom('SY-0007') and device_selftest == 'NORMAL',无(传播),无(传播),传播条件恶化(电离层扰动),改用 NVIS 天线或降低工作频率,0.85,1,FC-0080,CONSTRUCTED
+RULE-0055,LINK_DOWN,HF,LINK,has_symptom('SY-0006') and has_symptom('SY-0008') and device_selftest == 'NORMAL',无(传播),无(传播),传播条件恶化(电离层扰动),改用 NVIS 天线或降低工作频率,0.85,1,FC-0090,CONSTRUCTED
+RULE-0056,LINK_DOWN,HF,LINK,has_symptom('SY-0007') and device_selftest == 'LINK_LOSS',无(传播),无(传播),传播条件恶化(电离层扰动),改用 NVIS 天线或降低工作频率,0.85,1,FC-0095,CONSTRUCTED
+RULE-0057,LINK_DOWN,HF,LINK,has_symptom('SY-0005') and device_selftest == 'LINK_LOSS',无(传播),无(传播),传播条件恶化(电离层扰动),改用 NVIS 天线或降低工作频率,0.85,1,FC-0105,CONSTRUCTED
+RULE-0058,LINK_DOWN,HF,LINK,has_symptom('SY-0007') and device_selftest == 'NORMAL',无(链路),无(链路),对端设备断电,恢复对端供电并重建链路,0.85,1,FC-0071,CONSTRUCTED
+RULE-0059,LINK_DOWN,HF,LINK,has_symptom('SY-0005') and has_symptom('SY-0007') and device_selftest == 'NORMAL',无(链路),无(链路),对端设备断电,恢复对端供电并重建链路,0.85,1,FC-0076,CONSTRUCTED
+RULE-0060,LINK_DOWN,HF,LINK,has_symptom('SY-0005') and device_selftest == 'LINK_LOSS',无(链路),无(链路),对端设备断电,恢复对端供电并重建链路,0.85,1,FC-0081,CONSTRUCTED
+RULE-0061,LINK_DOWN,HF,LINK,has_symptom('SY-0006') and has_symptom('SY-0008') and device_selftest == 'NORMAL',无(链路),无(链路),链路余量不足无法维持同步,提升发射功率或更换频点,0.85,1,FC-0102,CONSTRUCTED
+RULE-0062,LINK_DOWN,VUHF,LINK,has_symptom('SY-0007') and device_selftest == 'NORMAL',中继节点,中继节点,中继节点失效导致链路中断,启用备份中继并切换路由,0.85,1,FC-0063,CONSTRUCTED
+RULE-0063,LINK_DOWN,VUHF,LINK,has_symptom('SY-0005') and device_selftest == 'LINK_LOSS',中继节点,中继节点,中继节点失效导致链路中断,启用备份中继并切换路由,0.85,1,FC-0073,CONSTRUCTED
+RULE-0064,LINK_DOWN,VUHF,LINK,has_symptom('SY-0006') and has_symptom('SY-0008') and device_selftest == 'LINK_LOSS',中继节点,中继节点,中继节点失效导致链路中断,启用备份中继并切换路由,0.85,1,FC-0078,CONSTRUCTED
+RULE-0065,LINK_DOWN,VUHF,LINK,has_symptom('SY-0005') and has_symptom('SY-0007') and device_selftest == 'NORMAL',中继节点,中继节点,中继节点失效导致链路中断,启用备份中继并切换路由,0.85,1,FC-0088,CONSTRUCTED
+RULE-0066,LINK_DOWN,VUHF,LINK,has_symptom('SY-0006') and has_symptom('SY-0008') and device_selftest == 'NORMAL',天线系统,天线系统,天线指向偏离,校正天线方位,0.85,1,FC-0074,CONSTRUCTED
+RULE-0067,LINK_DOWN,VUHF,LINK,has_symptom('SY-0007') and device_selftest == 'NORMAL',天线系统,天线系统,天线指向偏离,校正天线方位,0.85,1,FC-0079,CONSTRUCTED
+RULE-0068,LINK_DOWN,VUHF,LINK,has_symptom('SY-0005') and has_symptom('SY-0007') and device_selftest == 'NORMAL',天线系统,天线系统,天线指向偏离,校正天线方位,0.85,1,FC-0084,CONSTRUCTED
+RULE-0069,LINK_DOWN,VUHF,LINK,has_symptom('SY-0005') and device_selftest == 'NORMAL',天线系统,天线系统,天线指向偏离,校正天线方位,0.85,1,FC-0089,CONSTRUCTED
+RULE-0070,LINK_DOWN,VUHF,LINK,has_symptom('SY-0005') and device_selftest == 'LINK_LOSS',无(传播),无(传播),传播条件恶化(电离层扰动),改用 NVIS 天线或降低工作频率,0.85,1,FC-0065,CONSTRUCTED
+RULE-0071,LINK_DOWN,VUHF,LINK,has_symptom('SY-0006') and has_symptom('SY-0008') and device_selftest == 'NORMAL',无(传播),无(传播),传播条件恶化(电离层扰动),改用 NVIS 天线或降低工作频率,0.85,1,FC-0070,CONSTRUCTED
+RULE-0072,LINK_DOWN,VUHF,LINK,has_symptom('SY-0007') and device_selftest == 'NORMAL',无(传播),无(传播),传播条件恶化(电离层扰动),改用 NVIS 天线或降低工作频率,0.85,1,FC-0075,CONSTRUCTED
+RULE-0073,LINK_DOWN,VUHF,LINK,has_symptom('SY-0005') and has_symptom('SY-0007') and device_selftest == 'NORMAL',无(传播),无(传播),传播条件恶化(电离层扰动),改用 NVIS 天线或降低工作频率,0.85,1,FC-0100,CONSTRUCTED
+RULE-0074,LINK_DOWN,VUHF,LINK,has_symptom('SY-0005') and device_selftest == 'LINK_LOSS',无(链路),无(链路),对端设备断电,恢复对端供电并重建链路,0.85,1,FC-0061,CONSTRUCTED
+RULE-0075,LINK_DOWN,VUHF,LINK,has_symptom('SY-0006') and has_symptom('SY-0008') and device_selftest == 'LINK_LOSS',无(链路),无(链路),链路余量不足无法维持同步,提升发射功率或更换频点,0.85,1,FC-0062,CONSTRUCTED
+RULE-0076,LINK_DOWN,VUHF,LINK,has_symptom('SY-0007') and device_selftest == 'LINK_LOSS',无(链路),无(链路),链路余量不足无法维持同步,提升发射功率或更换频点,0.85,1,FC-0067,CONSTRUCTED
+RULE-0077,LINK_DOWN,VUHF,LINK,has_symptom('SY-0005') and has_symptom('SY-0007') and device_selftest == 'LINK_LOSS',无(链路),无(链路),链路余量不足无法维持同步,提升发射功率或更换频点,0.85,1,FC-0072,CONSTRUCTED
+RULE-0078,SW_CONFIG,HF,DEVICE,has_symptom('SY-0013') and device_selftest == 'NORMAL',加密模块配置,加密模块配置,加密密钥版本不匹配,同步加密密钥版本,0.85,2,FC-0122,CONSTRUCTED
+RULE-0079,SW_CONFIG,HF,DEVICE,has_symptom('SY-0015') and device_selftest == 'CFG_MISMATCH',协议栈配置,协议栈配置,通信协议版本不一致,升级协议版本至一致,0.85,2,FC-0159,CONSTRUCTED
+RULE-0080,SW_CONFIG,HF,DEVICE,has_symptom('SY-0012') and has_symptom('SY-0014') and device_selftest == 'CFG_MISMATCH',网络配置,网络配置,网络地址重复配置,重新分配网络地址,0.85,2,FC-0150,CONSTRUCTED

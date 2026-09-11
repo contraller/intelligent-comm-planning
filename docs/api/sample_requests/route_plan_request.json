@@ -1,0 +1,12 @@
+{
+  "task_id": "TS-0001",
+  "deployment_solution_id": "PL-0001",
+  "demands": [
+    {
+      "demand_id": "CD-0009",
+      "strategy": "MAX_RELIABILITY",
+      "need_backup": true
+    }
+  ],
+  "manual_paths": []
+}

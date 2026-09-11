@@ -59,11 +59,15 @@
 
 - 算法可直接读取的测试数据位于 `synthetic/`、`fault/` 和 `dictionary/`。
 - `synthetic/nodes/nodes_v1.csv`：节点数据，包含短波和超短波节点。
+- `synthetic/nodes/candidate_sites_v1.csv`：候选部署点，用于第 2 周部署位置筛选。
 - `synthetic/tasks/task_links_v1.csv`：任务通联需求。
 - `synthetic/frequency/frequency_resources_v1.csv`：可用频率资源。
 - `synthetic/topology/topology_links_v1.csv`：网络拓扑链路。
+- `synthetic/topology/routes_v1.json`：主用/备用路由样例，用于路由规划接口设计。
+- `synthetic/topology/frequency_conflicts_v1.csv`：频率冲突约束，用于频率分配图约束。
 - `synthetic/link_status/link_status_v1.csv`：链路状态样例。
 - `fault/cases/fault_cases_v1.csv`：故障案例样例。
+- `fault/rules/fault_rules_v1.csv`：故障诊断规则样例。
 - `dictionary/symptom_dict_v1.csv`：故障现象字典。
 
 ## 导入数据批次

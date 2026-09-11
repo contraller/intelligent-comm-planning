@@ -1,0 +1,2 @@
+site_id,lon,lat,elevation_m,slope_deg,landcover_type,nearest_road_distance_m,nearest_node_distance_m,candidate_role,is_deployable,recommendation_level,score,reject_reason,source,remark
+CS-0001,待填写,待填写,待填写,待填写,待填写,待填写,待填写,RELAY,true,A,待填写,,SYNTHETIC_TERRAIN,候选部署点示例

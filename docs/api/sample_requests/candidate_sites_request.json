@@ -1,0 +1,16 @@
+{
+  "task_id": "TS-0001",
+  "area_bbox": [114.2724, 36.7610, 115.6276, 37.8390],
+  "constraints": {
+    "max_slope_deg": 18,
+    "elevation_range_m": [50, 1800],
+    "allowed_landcover": ["草地", "耕地", "林地", "建成区"],
+    "road_max_distance_m": 3500,
+    "min_site_spacing_m": 3000,
+    "los_required_node_ids": ["ND-0001", "ND-0002"],
+    "grid_step_m": 500
+  },
+  "forced_include": [],
+  "forced_exclude_polygons": [],
+  "callback_url": null
+}

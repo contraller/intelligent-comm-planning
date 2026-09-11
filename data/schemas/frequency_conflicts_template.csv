@@ -1,0 +1,2 @@
+conflict_id,link_id_a,link_id_b,device_class,conflict_type,min_frequency_separation_khz,min_spatial_separation_m,hard_constraint,reason,source
+CF-0001,LK-0001,LK-0002,VUHF,SHARED_NODE,25,0,true,共享节点不可同频复用,DERIVED_TOPOLOGY
