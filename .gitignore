@@ -10,3 +10,8 @@ venv/
 # Office 临时文件
 ~$*
 *.~vsdx
+
+# 大体量导入数据包仅本地保存，不直接提交到 GitHub
+/data.zip
+/data/imported/*/source/*.zip
+/data/imported/*/raw/

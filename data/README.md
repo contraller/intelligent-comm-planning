@@ -23,6 +23,7 @@
   - `rules/`：故障判断规则。
 - `schemas/`：数据字段模板和 JSON Schema。
 - `dictionary/`：数据字典、枚举值、字段说明。
+- `imported/`：外部导入的原始数据批次归档，通常体量较大，仅保留本地说明文件入库。
 
 ## 第一阶段数据量口径
 
@@ -53,6 +54,23 @@
 - `fault/cases/fault_cases_v1.csv`
 - `fault/knowledge_graph/fault_triples_v1.csv`
 - `fault/rules/fault_rules_v1.csv`
+
+## 当前可用数据
+
+- 算法可直接读取的测试数据位于 `synthetic/`、`fault/` 和 `dictionary/`。
+- `synthetic/nodes/nodes_v1.csv`：节点数据，包含短波和超短波节点。
+- `synthetic/tasks/task_links_v1.csv`：任务通联需求。
+- `synthetic/frequency/frequency_resources_v1.csv`：可用频率资源。
+- `synthetic/topology/topology_links_v1.csv`：网络拓扑链路。
+- `synthetic/link_status/link_status_v1.csv`：链路状态样例。
+- `fault/cases/fault_cases_v1.csv`：故障案例样例。
+- `dictionary/symptom_dict_v1.csv`：故障现象字典。
+
+## 导入数据批次
+
+- `imported/data_zip_20260911/`：2026-09-11 导入的原始数据包。
+- `imported/data_zip_20260911/raw/`：解压后的原始资料，包含设备参数、PDF 资料、故障案例、DEM、地物和道路数据。
+- `imported/data_zip_20260911/source/data.zip`：原始压缩包，仅本地保存，不提交到 GitHub。
 
 ## 注意事项
 
