@@ -5,29 +5,32 @@
   "data": {
     "task_id": "TS-0001",
     "candidate_count": 120,
-    "deployable_count": 74,
+    "deployable_count": 68,
     "candidates": [
       {
-        "site_id": "CS-0001",
-        "lon": 115.356297,
-        "lat": 37.156916,
-        "elevation_m": 140.1,
-        "slope_deg": 1.91,
-        "landcover_type": "建成区",
-        "nearest_road_distance_m": 2197.3,
-        "nearest_node_distance_m": 26214.0,
-        "candidate_role": "MOBILE_STATION",
+        "site_id": "CS-0011",
+        "lon": 115.453863,
+        "lat": 36.838623,
+        "elevation_m": 108.8,
+        "slope_deg": 0.91,
+        "landcover_type": "耕地",
+        "nearest_road_distance_m": 1192.8,
+        "nearest_node_distance_m": 51064.8,
+        "candidate_role": "TEMP_FIXED_STATION",
         "is_deployable": true,
         "recommendation_level": "A",
-        "score": 91.74,
+        "score": 100.0,
         "reject_reason": ""
       }
     ],
     "rejected_stats": {
-      "slope": 11,
-      "landcover": 22,
-      "road": 19,
-      "spacing": 0
+      "slope": 22,
+      "elevation": 0,
+      "landcover": 15,
+      "road": 29,
+      "spacing": 6,
+      "source_rule": 46,
+      "outside_bbox": 0
     }
   }
 }
