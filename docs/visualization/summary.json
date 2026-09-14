@@ -1,0 +1,99 @@
+{
+  "generated_files": {
+    "map": "docs/visualization/map_overview.html",
+    "figures": [
+      "candidate_reject_reasons.png",
+      "candidate_site_algorithm_funnel.png",
+      "candidate_site_result.png",
+      "fault_case_count.png",
+      "fault_rule_count.png",
+      "frequency_conflict_type_count.png",
+      "frequency_resource_count.png",
+      "landcover_candidate_overlay.png",
+      "link_margin_distribution.png",
+      "link_type_count.png",
+      "node_type_count.png",
+      "route_sample_map.png",
+      "slope_candidate_rejection.png",
+      "spatial_nodes_candidates.png",
+      "terrain_candidate_overlay.png",
+      "terrain_elevation_overview.png",
+      "topology_density_map.png"
+    ]
+  },
+  "data_summary": {
+    "node_counts": {
+      "VUHF": 104,
+      "HF": 52
+    },
+    "candidate_result_counts": {
+      "Deployable": 74,
+      "Rejected": 46
+    },
+    "candidate_algorithm_funnel": {
+      "total_candidates": 120,
+      "raw_deployable": 74,
+      "spacing_filtered": 6,
+      "after_spacing": 68
+    },
+    "candidate_rejection_reasons": {
+      "Landcover unsuitable": 15,
+      "Road distance over limit": 29,
+      "Slope over limit": 22
+    },
+    "link_counts": {
+      "VUHF": 353,
+      "HF": 147
+    },
+    "frequency_counts": {
+      "VUHF": 48,
+      "HF": 46
+    },
+    "fault_case_counts": {
+      "HW_FAILURE": 60,
+      "LINK_DOWN": 60,
+      "SW_CONFIG": 60,
+      "EMI": 60
+    },
+    "fault_rule_counts": {
+      "HW_FAILURE": 38,
+      "LINK_DOWN": 31,
+      "EMI": 8,
+      "SW_CONFIG": 3
+    },
+    "frequency_conflict_counts": {
+      "ADJACENT_CHANNEL_NEAR_PATH": 455,
+      "SHARED_NODE": 145
+    }
+  },
+  "map_summary": {
+    "route_polylines": 16,
+    "topology_lines": 500,
+    "route_sample_count": 12,
+    "terrain_available": true,
+    "dem_extent": {
+      "left": 114.04652777781672,
+      "right": 115.85319444448362,
+      "bottom": 36.58152777777468,
+      "top": 38.01874999999709
+    },
+    "dem_sample_shape": [
+      1113,
+      1400
+    ],
+    "landcover_sample_shape": [
+      1113,
+      1400
+    ],
+    "elevation_stats": {
+      "min_m": 15.0,
+      "mean_m": 104.21917724609375,
+      "max_m": 1630.0
+    },
+    "candidate_elevation_stats": {
+      "min_m": 68.9,
+      "mean_m": 503.5966666666666,
+      "max_m": 1682.1
+    }
+  }
+}
