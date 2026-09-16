@@ -5,12 +5,13 @@
 纯标准库，无需安装任何包：
     python3 scripts/gen_test_data.py
 
-DEM 到位后把 terrain.SyntheticTerrain 换成 DemTerrain，重跑本脚本即可。
+地形与地物默认读取 data/raw/ 下的真实网格（见 scripts/terrain.py），
+数据缺失时自动回退合成地形。
 """
 import csv, json, math, os, random, sys, datetime as dt
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from terrain import SyntheticTerrain, BBOX, haversine_m, los_clearance
+from terrain import default_terrain, BBOX, haversine_m, los_clearance
 from propagation import vuhf_path_loss, hf_path_loss, link_budget, margin_to_state
 from datapaths import path as dpath, RAW_DEVICE_MODEL, RAW_ANTENNA_MODEL
 
@@ -25,7 +26,7 @@ N_INTERFERENCE = 16
 MAX_LINKS = 500
 
 rng = random.Random(SEED)
-terrain = SyntheticTerrain()
+terrain = default_terrain()
 
 
 def iso(t): return t.isoformat()
@@ -133,11 +134,13 @@ def load_antennas():
 
 
 # ─────────────────────────── 节点 ───────────────────────────
+# 任务区分布在规划区内，覆盖山地、山前过渡与平原三类地形，
+# 使部署规划与传播计算都能落到有区分度的地形上。
 TASK_AREAS = [
-    ("西山任务区", 114.42, 37.55, 0.16),
-    ("中部走廊区", 114.86, 37.18, 0.20),
-    ("东部平原区", 115.34, 37.52, 0.22),
-    ("南部隘口区", 114.68, 36.92, 0.15),
+    ("太行山区", 114.16, 37.55, 0.14),
+    ("山前过渡区", 114.42, 37.25, 0.16),
+    ("中部平原区", 114.85, 37.65, 0.18),
+    ("东部平原区", 115.20, 37.20, 0.18),
 ]
 
 
@@ -734,7 +737,7 @@ def main():
              sum(1 for f in freq_pool if f["device_class"] == "VUHF"), len(inters)))
     print("\n设备型号来源: %s   天线来源: %s" % (msrc, asrc))
     if msrc == "CONSTRUCTED":
-        print("  → 师弟的真实型号库到位后放到 data/raw/equipment_docs/，重跑本脚本自动切换")
+        print("  → 真实型号库放到 data/raw/equipment_docs/ 后重跑本脚本自动切换")
 
 
 if __name__ == "__main__":

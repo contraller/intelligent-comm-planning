@@ -1,2 +1,2 @@
 link_id,node_a_id,node_b_id,device_a_id,device_b_id,device_class,freq_khz,bandwidth_khz,distance_m,path_loss_db,rx_power_dbm,link_margin_db,is_available,link_state,is_backup
-LK-0001,ND-0013,ND-0115,DV-0013,DV-0115,VUHF,31325,25.0,187.7,56.83,-21.83,85.19,true,EXCELLENT,false
+LK-0001,ND-0077,ND-0133,DV-0077,DV-0133,VUHF,31325,25.0,227.0,50.04,-9.04,97.98,true,EXCELLENT,false

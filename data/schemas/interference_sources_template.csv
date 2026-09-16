@@ -1,2 +1,2 @@
 interference_id,name,lon,lat,elevation_m,antenna_height_m,center_freq_khz,bandwidth_khz,tx_power_dbm,antenna_gain_dbi,interference_type,pattern_type,azimuth_deg,duty_cycle,active
-IF-0001,干扰源01,114.35734,37.667639,1501.2,32.9,35457.9,3,38.8,11.6,BROADBAND,DIRECTIONAL,68.1,0.1,true
+IF-0001,干扰源01,114.177084,37.794671,599.0,38.3,32765.3,200,58.0,2.9,NOISE,DIRECTIONAL,132.3,0.3,true

@@ -1,2 +1,2 @@
 demand_id,task_id,src_node_id,dst_node_id,priority,is_mandatory,data_volume_mb,required_rate_kbps,max_delay_ms,min_reliability,service_type,preferred_class
-CD-0001,TS-0001,ND-0143,ND-0155,P3,false,230.8,32,400,0.99,数据,VUHF
+CD-0001,TS-0001,ND-0012,ND-0016,P1,true,164.0,32,400,0.95,数据,VUHF

@@ -8,6 +8,9 @@ import csv, json, os, sys, collections
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from datapaths import path as dpath
+from terrain import BBOX          # 规划区范围以 terrain.BBOX 为唯一来源，避免硬编码漂移
+
+LON0, LAT0, LON1, LAT1 = BBOX
 ERR, WARN = [], []
 
 
@@ -140,8 +143,8 @@ def main():
             print("   ! %-34s %d 个越界, 例 %s" % (label, len(bad), bad[:3]))
         else:
             print("   ✓ %-34s 全部落在 [%s, %s]" % (label, lo, hi))
-    rng_check("node.lon", [float(n["lon"]) for n in nodes], 114.2724, 115.6276)
-    rng_check("node.lat", [float(n["lat"]) for n in nodes], 36.7610, 37.8390)
+    rng_check("node.lon", [float(n["lon"]) for n in nodes], LON0, LON1)
+    rng_check("node.lat", [float(n["lat"]) for n in nodes], LAT0, LAT1)
     rng_check("node.elevation_m", [float(n["elevation_m"]) for n in nodes], 0, 3000)
     rng_check("link_metric.packet_loss_rate",
               [float(m["packet_loss_rate"]) for m in metrics], 0.0, 1.0)
@@ -151,9 +154,9 @@ def main():
               [float(d["antenna_height_m"]) for d in devices], 0.5, 30.0)
     if candidate_sites:
         rng_check("candidate_site.lon", [float(s["lon"]) for s in candidate_sites],
-                  114.2724, 115.6276)
+                  LON0, LON1)
         rng_check("candidate_site.lat", [float(s["lat"]) for s in candidate_sites],
-                  36.7610, 37.8390)
+                  LAT0, LAT1)
         rng_check("candidate_site.score", [float(s["score"]) for s in candidate_sites],
                   0.0, 100.0)
 

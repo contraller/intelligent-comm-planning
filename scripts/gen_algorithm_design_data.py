@@ -15,14 +15,14 @@ import random
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from terrain import BBOX, SyntheticTerrain, haversine_m
+from terrain import BBOX, default_terrain, haversine_m
 
 
 ROOT = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 DATA = os.path.join(ROOT, "data")
 SEED = 20260911
 RNG = random.Random(SEED)
-TERRAIN = SyntheticTerrain()
+TERRAIN = default_terrain()
 
 
 def data_path(*parts):

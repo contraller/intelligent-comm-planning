@@ -27,8 +27,9 @@ ROOT = os.path.normpath(os.path.join(HERE, ".."))
 SRC = os.path.join(ROOT, "data", "imported", "data_zip_20260911", "raw")
 OUT = os.path.join(ROOT, "data", "raw")
 
-# 数据下载范围（外扩 20 km），见 docs/design/02_数据采集任务单.md
-BBOX_BUF = (114.0466, 36.5814, 115.8534, 38.0186)
+# 数据覆盖范围。以 terrain.BBOX_DATA 为唯一来源，避免与规划区常量各自漂移。
+sys.path.insert(0, HERE)
+from terrain import BBOX_DATA as BBOX_BUF  # noqa: E402
 LANDCOVER_STEP = 3          # 10 m -> 约 28 m，与 DEM 的 30 m 量级对齐
 
 STAMP = dt.datetime.now(dt.timezone(dt.timedelta(hours=8))).isoformat(timespec="seconds")

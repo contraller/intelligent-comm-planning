@@ -1,2 +1,2 @@
-rule_id,condition_expression,fault_category,fault_component,root_cause,action_suggestion,priority,source,remark
-RULE001,待填写,待填写,待填写,待填写,待填写,1,manual_or_synthetic,故障规则示例
+rule_id,fault_type,device_class,object_type,condition_expression,fault_subtype,fault_component,root_cause,action_suggestion,confidence,priority,source_case_id,source
+RULE-0001,EMI,HF,LINK,has_symptom('SY-0009') and has_symptom('SY-0011') and device_selftest == 'NORMAL',无(外部干扰),无(外部干扰),邻近区域同频大功率辐射源,切换至备用频点并上报干扰,0.85,2,FC-0181,CONSTRUCTED

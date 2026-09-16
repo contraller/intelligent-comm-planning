@@ -1,2 +1,2 @@
 record_id,link_id,timestamp,snr_db,ber,packet_loss_rate,delay_ms,throughput_kbps,link_state
-LM-000001,LK-0001,2026-09-08T08:02:00+08:00,104.01,1.00e-09,0.0,40.1,64.0,EXCELLENT
+LM-000001,LK-0001,2026-09-08T08:03:00+08:00,116.75,1.00e-09,0.0,30.5,64.0,EXCELLENT

@@ -8,7 +8,8 @@ from typing import Any
 from .data_loader import candidate_sites, task_scenarios, to_float
 
 
-DEFAULT_AREA_BBOX = [114.2724, 36.7610, 115.6276, 37.8390]
+# 规划区，与 scripts/terrain.py 的 BBOX 保持一致（2026-09-16 西移）
+DEFAULT_AREA_BBOX = [114.0465, 36.9110, 115.4045, 37.9890]
 
 
 @dataclass(frozen=True)
