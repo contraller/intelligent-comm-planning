@@ -185,11 +185,54 @@ def convert_roads():
     return sz
 
 
+# 导入的故障案例存在列错位：行尾多一个逗号使表头多出一个空列，
+# 内容整体右移——现象落在 fault_component、原因落在 diagnosis_steps、
+# 诊断步骤落在 solution、处置方案落在 repair_time_min、来源落在末尾空列。
+# 240 行错位完全一致，按位置重映射即可。
+FAULT_COL_REMAP = {14: "symptom_text", 15: "root_cause",
+                   16: "diagnosis_steps", 17: "solution", 19: "source_doc"}
+
+# 原始 object_type 为手册中的装备分类，归并到数据字典约定的三类
+OBJECT_TYPE_MAP = {"RADIO_SET": "DEVICE", "RADIO_EQUIPMENT": "DEVICE",
+                   "RADIO_TTY_SET": "DEVICE", "RADIO_LINK": "LINK",
+                   "RADIO_DATA_LINK": "LINK", "RADIO_SYSTEM": "NODE",
+                   "RADIO_TTY_SYSTEM": "NODE"}
+
+
+def fix_fault_cases(src, dst):
+    """修正列错位并规范 object_type，输出符合数据字典的故障案例表。"""
+    with open(src, encoding="utf-8-sig", newline="") as f:
+        rows = list(csv.reader(f))
+    header = [h for h in rows[0] if h.strip()]
+    out = []
+    for r in rows[1:]:
+        if len(r) < 20:
+            continue
+        rec = dict.fromkeys(header, "")
+        for i, name in enumerate(header):
+            if i < 14:
+                rec[name] = r[i].strip()
+        for idx, name in FAULT_COL_REMAP.items():
+            rec[name] = r[idx].strip()
+        rec["object_type"] = OBJECT_TYPE_MAP.get(rec["object_type"], rec["object_type"])
+        rec["repair_time_min"] = ""          # 原列被内容占用，实际无耗时数据
+        out.append(rec)
+    os.makedirs(os.path.dirname(dst), exist_ok=True)
+    with open(dst, "w", encoding="utf-8", newline="") as f:
+        w = csv.DictWriter(f, fieldnames=header)
+        w.writeheader()
+        w.writerows(out)
+    return len(out)
+
+
 def copy_small_csv():
     print("[4/4] 小体量 CSV")
-    jobs = [(os.path.join(SRC, "fault", "fault_case.csv"),
-             os.path.join(OUT, "maintenance_docs", "fault_case_imported.csv")),
-            (os.path.join(SRC, "docs", "index.csv"),
+    fsrc = os.path.join(SRC, "fault", "fault_case.csv")
+    fdst = os.path.join(OUT, "maintenance_docs", "fault_case_imported.csv")
+    if os.path.exists(fsrc):
+        n = fix_fault_cases(fsrc, fdst)
+        print("      %-28s %s（已修正列错位）" % (os.path.basename(fdst), human(os.path.getsize(fdst))))
+    jobs = [(os.path.join(SRC, "docs", "index.csv"),
              os.path.join(OUT, "maintenance_docs", "docs_index.csv"))]
     total = 0
     for s, d in jobs:

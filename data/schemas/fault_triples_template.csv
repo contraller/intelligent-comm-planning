@@ -1,2 +1,2 @@
-triple_id,subject,predicate,object,confidence,source,remark
-KG001,待填写,has_cause,待填写,待填写,manual_or_synthetic,故障知识图谱三元组示例
+triple_id,head,head_type,relation,tail,tail_type,weight,source_doc
+KG-0001,功放模块输出级晶体管击穿,Cause,locatedAt,功率放大模块,Component,0.95,示例_维修手册.pdf
