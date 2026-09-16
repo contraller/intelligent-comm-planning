@@ -7,6 +7,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "algorithm-service"))
 
 from app.candidate_sites import filter_candidate_sites
+from app.data_loader import candidate_sites
 
 
 def load_request(name):
@@ -20,7 +21,9 @@ def test_candidate_sites_sample_request_returns_candidates():
 
     assert result["code"] == 0
     assert result["data"]["task_id"] == "TS-0001"
-    assert result["data"]["candidate_count"] == 120
+    # 候选点由 SR-4.2.1.1 扫描生成，数量随约束与地形变化，
+    # 此处对齐数据集实际条数而非写死常量
+    assert result["data"]["candidate_count"] == len(candidate_sites())
     assert result["data"]["deployable_count"] >= 20
     assert result["data"]["candidates"]
 

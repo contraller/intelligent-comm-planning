@@ -3,32 +3,32 @@
   "message": "success",
   "data": {
     "task_id": "TS-0001",
-    "candidate_count": 120,
-    "deployable_count": 79,
+    "candidate_count": 1137,
+    "deployable_count": 1117,
     "candidates": [
       {
-        "site_id": "CS-0003",
-        "lon": 114.606496,
-        "lat": 37.438564,
-        "elevation_m": 51.0,
-        "slope_deg": 0.32,
-        "landcover_type": "耕地",
-        "nearest_road_distance_m": 721.5,
-        "nearest_node_distance_m": 18430.5,
+        "site_id": "CS-0001",
+        "lon": 114.091762,
+        "lat": 36.942441,
+        "elevation_m": 795.0,
+        "slope_deg": 2.84,
+        "landcover_type": "草地",
+        "nearest_road_distance_m": 250.0,
+        "nearest_node_distance_m": 31858.8,
         "candidate_role": "RELAY",
         "is_deployable": true,
         "recommendation_level": "A",
-        "score": 100.0,
+        "score": 85.17,
         "reject_reason": ""
       }
     ],
     "rejected_stats": {
-      "slope": 4,
+      "slope": 0,
       "elevation": 0,
-      "landcover": 2,
-      "road": 29,
-      "spacing": 9,
-      "source_rule": 32,
+      "landcover": 20,
+      "road": 0,
+      "spacing": 0,
+      "source_rule": 0,
       "outside_bbox": 0
     }
   },

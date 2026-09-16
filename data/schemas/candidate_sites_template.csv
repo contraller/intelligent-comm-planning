@@ -1,2 +1,2 @@
 site_id,lon,lat,elevation_m,slope_deg,landcover_type,nearest_road_distance_m,nearest_node_distance_m,candidate_role,is_deployable,recommendation_level,score,reject_reason,source,remark
-CS-0001,115.132662,37.306916,29.0,1.35,耕地,2197.3,1159.6,MOBILE_STATION,true,B,74.92,,SYNTHETIC_TERRAIN,第2周候选部署点筛选输入
+CS-0001,114.091762,36.942441,795.0,2.84,草地,250.0,31858.8,RELAY,true,A,85.17,,DEM_SCAN,网格500m;坡度<=15;距路<=2000m;站间距>=3000m;高程20-1800m

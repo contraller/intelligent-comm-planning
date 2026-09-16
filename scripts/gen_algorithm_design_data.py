@@ -17,6 +17,10 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from terrain import BBOX, default_terrain, haversine_m
 
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "planning"))
+import candidate_sites as CANDIDATE  # noqa: E402
+from roads import RoadDistanceField  # noqa: E402
+
 
 ROOT = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 DATA = os.path.join(ROOT, "data")
@@ -56,66 +60,52 @@ def nearest_distance_m(lon, lat, nodes):
     return min(haversine_m(lon, lat, float(n["lon"]), float(n["lat"])) for n in nodes)
 
 
+# 候选点扫描的默认约束。生成阶段取较宽口径，请求阶段再按用户约束收紧。
+# 站间距是密度的唯一控制手段：不能按分数截断取前 N 个，
+# 那样高分点全部集中在西部山区，东部平原会没有候选点，覆盖无从谈起。
+CANDIDATE_SCAN = dict(grid_step_m=500.0, max_slope_deg=15.0,
+                      elevation_range_m=(20.0, 1800.0),
+                      road_max_distance_m=2000.0, min_site_spacing_m=3000.0)
+
+
+def _candidate_role(site):
+    """按点位特征判定用途，而非轮流分配。"""
+    if site["elevation_m"] >= 300.0 and site["nearest_node_distance_m"] >= 5000.0:
+        return "RELAY"                      # 高地且远离已有节点，适合做中继
+    if site["nearest_road_distance_m"] <= 500.0 and site["slope_deg"] <= 5.0:
+        return "MOBILE_STATION"             # 紧邻道路且平坦，车载站易进驻
+    return "TEMP_FIXED_STATION"
+
+
 def gen_candidate_sites(nodes):
-    lon0, lat0, lon1, lat1 = BBOX
-    roles = ["RELAY", "MOBILE_STATION", "TEMP_FIXED_STATION"]
+    """遍历规划区域筛选候选部署位置（SR-4.2.1.1）。
+
+    实现见 scripts/planning/candidate_sites.py。约束按漏斗顺序施加：
+    高程 → 地物 → 交通可达性 → 禁部署区 → 坡度 → 通视，最后按最小站间距稀释。
+    """
+    road_field = RoadDistanceField(
+        os.path.join(DATA, "raw", "roads", "roads_taihang.geojson.gz"), BBOX)
+    cons = CANDIDATE.Constraints(**CANDIDATE_SCAN)
+    sites, reject, scanned = CANDIDATE.scan(TERRAIN, road_field, BBOX, nodes, cons)
+    note = ("网格%dm;坡度<=%g;距路<=%gm;站间距>=%gm;高程%g-%gm"
+            % (CANDIDATE_SCAN["grid_step_m"], CANDIDATE_SCAN["max_slope_deg"],
+               CANDIDATE_SCAN["road_max_distance_m"], CANDIDATE_SCAN["min_site_spacing_m"],
+               CANDIDATE_SCAN["elevation_range_m"][0], CANDIDATE_SCAN["elevation_range_m"][1]))
     out = []
-    for idx in range(1, 121):
-        lon = RNG.uniform(lon0 + 0.02, lon1 - 0.02)
-        lat = RNG.uniform(lat0 + 0.02, lat1 - 0.02)
-        elev = TERRAIN.elevation(lon, lat)
-        slope = TERRAIN.slope_deg(lon, lat)
-        landcover = TERRAIN.landcover(lon, lat)
-        road_distance_m = RNG.uniform(80, 4800)
-        existing_distance_m = nearest_distance_m(lon, lat, nodes)
-
-        forbidden_land = landcover in {"水域", "山地岩石"}
-        deployable = (not forbidden_land) and slope <= 18.0 and road_distance_m <= 3500
-        score = 100.0
-        score -= min(slope, 35.0) * 1.6
-        score -= min(road_distance_m, 5000.0) / 90.0
-        score += min(elev, 1800.0) / 55.0
-        score += min(existing_distance_m, 20000.0) / 1200.0
-        if forbidden_land:
-            score -= 30.0
-        score = max(0.0, min(100.0, score))
-
-        if score >= 75:
-            level = "A"
-        elif score >= 60:
-            level = "B"
-        elif score >= 45:
-            level = "C"
-        else:
-            level = "D"
-
-        reason = ""
-        if not deployable:
-            reasons = []
-            if forbidden_land:
-                reasons.append("地物类型不适宜")
-            if slope > 18.0:
-                reasons.append("坡度超过阈值")
-            if road_distance_m > 3500:
-                reasons.append("道路距离超过阈值")
-            reason = ";".join(reasons)
-
+    for site in sites:
         out.append(dict(
-            site_id="CS-%04d" % idx,
-            lon=round(lon, 6),
-            lat=round(lat, 6),
-            elevation_m=round(elev, 1),
-            slope_deg=round(slope, 2),
-            landcover_type=landcover,
-            nearest_road_distance_m=round(road_distance_m, 1),
-            nearest_node_distance_m=round(existing_distance_m, 1),
-            candidate_role=roles[idx % len(roles)],
-            is_deployable=str(deployable).lower(),
-            recommendation_level=level,
-            score=round(score, 2),
-            reject_reason=reason,
-            source="SYNTHETIC_TERRAIN",
-            remark="第2周候选部署点筛选输入"))
+            site_id=site["site_id"], lon=site["lon"], lat=site["lat"],
+            elevation_m=site["elevation_m"], slope_deg=site["slope_deg"],
+            landcover_type=site["landcover_type"],
+            nearest_road_distance_m=site["nearest_road_distance_m"],
+            nearest_node_distance_m=site["nearest_node_distance_m"],
+            candidate_role=_candidate_role(site),
+            is_deployable="true",           # 扫描输出的都是已通过全部约束的点位
+            recommendation_level=site["recommendation_level"],
+            score=site["score"], reject_reason="",
+            source="DEM_SCAN", remark=note))
+    gen_candidate_sites.last_reject = reject
+    gen_candidate_sites.last_scanned = scanned
     return out
 
 
@@ -321,6 +311,11 @@ def main():
     hard = sum(1 for c in conflicts if c["hard_constraint"] == "true")
     print("\nsummary")
     print("  candidate_sites deployable: %d/%d" % (deployable, len(candidate_sites)))
+    rej = getattr(gen_candidate_sites, "last_reject", {})
+    if rej:
+        print("    扫描格点 %d，筛除 %s"
+              % (getattr(gen_candidate_sites, "last_scanned", 0),
+                 "  ".join("%s=%d" % (k, v) for k, v in sorted(rej.items(), key=lambda x: -x[1]) if v)))
     print("  routes primary/backup: %d/%d" % (primary, backup))
     print("  frequency_conflicts hard/total: %d/%d" % (hard, len(conflicts)))
     print("  fault_rules: %d" % len(rules))
