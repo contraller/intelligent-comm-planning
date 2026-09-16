@@ -7,8 +7,8 @@
 
 | 线 | 负责人 | 目录 | 规范 |
 |---|---|---|---|
-| 需求文档 | contraller（Codex） | `docs/input/` `docs/draft/` `docs/output/` `docs/reference/` `skills/` | AGENTS.md |
-| 代码与数据 | yoii1（Claude Code） | `scripts/` `data/` `docs/design/` | 本文件 |
+| 需求文档 | contraller | `docs/input/` `docs/draft/` `docs/output/` `docs/reference/` `skills/` | AGENTS.md |
+| 代码与数据 | yoii1 | `scripts/` `data/` `docs/design/` | 本文件 |
 
 **不要跨线改对方的文件。** 需要对方配合的改动，先在群里说，不要直接改完推上去。
 
