@@ -1,0 +1,41 @@
+filename,title,note
+Alpha_HF_Flagpole_装配说明,Alpha Antenna HF Flagpole Antenna Assembly,10-40米旗杆天线；装配/选址/调谐提示，非维修资料
+APX-8000_技术规格书,Motorola APX 8000 Portable Radio,数字便携台；技术规格/数据表，无故障处理
+APX8000_数据表,Motorola APX 8000 Portable Radio,数字便携台；数据表，无故障处理
+APX8000_用户手册,Motorola APX 8000 Model 1 User Guide,数字便携台；操作/设置，非维修手册
+APX系列_附件目录,Motorola APX Radio Accessories,附件目录；肩麦/电池等，无维修内容
+AS-2259_GR_天线维护手册,TM 11-5985-379-14&P Antenna AS-2259/GR,美军NVIS背负天线；含安装/例行维护/简单修理/备件清单，非电台主机维修手册
+Barrett_4050_2050_PRC-2090_数字语音与安全数字语音_操作手册,Barrett HF Radio Digital Voice and Secure Digital Voice Operating Manual,4050/2050/PRC-2090数字语音与加密操作；密钥管理/加密呼叫，非维修手册
+Barrett_4050_操作与安装手册,Barrett 4050 HF SDR Transceiver Operating and Installation Manual,HF SDR电台；操作/安装/安全/合规，非维修手册
+Barrett4050_HF-SDR_数据表,Barrett 4050 HF Software-defined Radio Data Sheet,HF SDR电台；规格/特性，无故障处理
+Barrett4050_用户手册,Barrett 4050 HF SDR Transceiver Operating and Installation Manual,HF SDR电台；操作/安装，非维修手册（与操作与安装手册内容相同）
+DIPLA0056_技术资料,HF Inverted V Dipole Antenna DIPL-A0056,偶极天线；电气/机械/环境规格，无维修内容
+DP4000e_技术规格书,Motorola MOTOTRBO DP4000e Series Product Data Sheet,数字便携台；技术规格，含安全特性，非维修手册
+DP4000e_快速参考指南,Motorola DP4000/DP4000e Series Accessories,快速参考/配件指南；无维修内容
+DP4000e_英文数据表,Motorola MOTOTRBO DP4000e Series Specification Sheet,英文数据表；规格/特性，无故障处理
+DP4000e_用户指南,Motorola MOTOTRBO DP4000 Series Basic Service Manual,数字便携台；含拆机/电路/校准/性能测试，是维修手册
+DXE-NVIS-8040_组装手册,DXE-NVIS-8040 / 8040S Assembly,NVIS天线套件；组装/调谐，无设备级维修
+Envoy_数据手册,Codan Envoy HF Transceiver Data Sheet,HF收发信机；规格/特性，无故障处理
+FT5DR_操作手册,Yaesu FT5DR Operating Manual,双段数字手持台；操作/设置，非维修手册
+FT-5DR_用户手册,Yaesu FT5DR Operating Manual,双段数字手持台；操作/设置，非维修手册（与FT5DR_操作手册相同）
+FT891_操作手册,Yaesu FT-891 Operating Manual,HF/50MHz短波；安装/操作，非维修手册
+IC-F5011_用户手册,Icom IC-F5011 Instructions,VHF车载台用户说明书；安全/操作，无故障处理
+IC-F5061_中文说明书,Icom IC-F5061/F6061 中文说明书,VHF/UHF车载台；中文操作说明，非维修手册
+IC-F8101_说明书,Icom IC-F8101 HF Transceiver,HF单边带电台；操作说明/安全，非维修手册
+IC-F8101_维修手册,Icom IC-F8101 Service Manual,HF ALE单边带电台；含拆机/校准/电路/零件表，是维修手册
+ICOM_IC-F5061_F6061系列_操作手册,Icom IC-F5061 Instruction Manual,VHF/UHF车载台操作说明；面板/基本操作，非维修手册
+Keysight_FieldFox_军用通信排障指南,Effectively Maintaining and Troubleshooting Military Communication Systems,Keysight FieldFox应用笔记；VHF/UHF/雷达/卫星链路现场测试与排障，非设备级维修手册
+MA820_附件目录,Motorola MOTOTRBO Professional Series Radio Accessories,附件目录；无维修内容
+MCRP_3-40.3B_电台操作员手册,MCRP 3-40.3B Radio Operator's Handbook,海军陆战队单信道HF/VHF/UHF电台操作教材；含干扰/野外应急修理，非设备级维修手册
+MICOM-3_用户手册,Micom MICOM-3F Owner's Manual,HF-SSB电台；操作/ALE/编程，非维修手册
+PD985_用户手册,Hytera PD985 DMR Handheld Radio,数字手持台；特性/功能，无故障处理
+PRC-150_用户操作手册,Harris RF Communications Limited Warranty,仅含保修条款，非操作或维修手册
+RF-1936_技术资料,L3Harris RF-1936 Portable Crossed-Pole Antenna,便携式交叉极子天线；电气/机械/环境规格，无维修内容
+RF-1941_技术资料,L3Harris RF-1941/RF-1940 Series HF Manpack Portable Dipole Antennas,便携式偶极天线；规格/配置，无维修内容
+RF-5800H-MP_数据手册,Harris RF-5800H-MP Advanced HF/VHF Tactical Radio System,战术电台数据手册；规格/特性，无故障处理
+RF-7800H-MP_产品数据表,L3Harris Falcon III RF-7800H-MP Wideband HF/VHF Tactical Radio System,战术电台产品数据表；宽频HF/VHF，无维修内容
+RF-7800H-MP_数据手册,L3Harris RF-7800H-MP Wideband HF/VHF Tactical Radio System,战术电台数据手册；宽频，无维修内容（与产品数据表可能重复）
+TK-8180_说明书,Kenwood TK-8180 Service Manual,UHF车载台；含拆机/电路/校准/原理图，是维修手册
+TK-8180_维修手册,Kenwood TK-8180 Service Manual,UHF车载台；含拆机/电路/校准/原理图，是维修手册（与说明书内容相同）
+XPR7000e_DataSheet,Motorola MOTOTRBO XPR 7000e Series,技术规格；无故障处理
+XPR7000系列_附件目录,Motorola MOTOTRBO XPR 7000 Series Accessories,附件目录；耳机/电池，无维修内容
