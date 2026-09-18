@@ -436,6 +436,154 @@ def p1_solve(base_stations, candidate_rows, terrain, types=E.DEPLOYABLE_TYPES,
     return fm, sol
 
 
+def p2_solve(fm, base_idx, cand_idx, p, shortlist=24, objective="connect",
+             verbose=False):
+    """P2：人工指定部署数量 p，求该数量下的最优位置（SR-4.2.1.2 c）。
+
+    objective:
+      "connect"   最大化连通节点数（p < p_min 时用）
+      "margin"    在保持全连通的前提下，偏向提高链路余量（抗衰落）
+      "redundant" 在保持全连通的前提下，偏向为节点争取第二上级
+
+    p 小于最少需求时，返回「最多能连通多少」并给出仍失联的清单 ——
+    这正是 SR-4.2.1.2 扩展流 1 要求的「提示原因并给出参数调整建议」。
+    """
+    chosen = []
+    sol = solve_assignment(fm, active=base_idx)
+    while len(chosen) < p:
+        band_of_orphan = {}
+        for band in E.BANDS:
+            m = 0
+            for i in sol.unconnected:
+                if fm.stations[i].has(band):
+                    m |= 1 << i
+            band_of_orphan[band] = m
+
+        # **连通增量优先，冗余增量只在没有任何连通增量时才启用。**
+        # 两者量纲不同，混在同一个排序键里比较会让「能多给 3 个节点做备份」
+        # 压过「能新连通 2 个节点」，导致加了电台反而连通率更低。
+        ranked = []
+        for ci in cand_idx:
+            if ci in chosen:
+                continue
+            ub, avg = _gain_bound(fm, sol, ci, band_of_orphan)
+            if ub > 0:
+                ranked.append((-ub, E.DEPLOY_COST[fm.stations[ci].subtype], -avg, ci))
+        if not ranked and objective != "connect":
+            for ci in cand_idx:
+                if ci in chosen:
+                    continue
+                ub, avg = _redundancy_bound(fm, sol, ci)
+                if ub > 0:
+                    ranked.append((-ub, E.DEPLOY_COST[fm.stations[ci].subtype],
+                                   -avg, ci))
+        if not ranked:
+            break
+        ranked.sort()
+
+        best = None
+        for _nub, cost, _nm, ci in ranked[:shortlist]:
+            trial = solve_assignment(fm, active=base_idx + chosen + [ci])
+            score = _plan_score(fm, trial, objective)
+            if best is None or score > best[0]:
+                best = (score, ci, trial)
+        if best is None:
+            break
+        _, ci, trial = best
+        chosen.append(ci)
+        sol = trial
+        if verbose:
+            print("    + %-12s %-16s → 失联 %d"
+                  % (fm.stations[ci].subtype, fm.stations[ci].sid,
+                     len(sol.unconnected)))
+
+    sol.added = [(ci, fm.stations[ci].subtype) for ci in chosen]
+    return sol
+
+
+def _redundancy_bound(fm, sol, ci):
+    """全连通之后，该候选还能给多少已连通节点提供**第二上级**。"""
+    st = fm.stations[ci]
+    best, margin = 0, 0.0
+    for band in E.bands_of(st.subtype):
+        if not st.has(band):
+            continue
+        cnt = 0
+        ms = []
+        mask = fm.normal[band][ci]
+        m = mask
+        while m:
+            low = m & -m
+            j = low.bit_length() - 1
+            m ^= low
+            if j in sol.connected and sol.parent_of.get(j):
+                cnt += 1
+                ms.append(fm.margin_of(ci, j, band) or 0.0)
+        room = max(0, E.capacity(st.subtype, band) - 1)
+        g = min(cnt, room)
+        if g > best:
+            ms.sort(reverse=True)
+            best, margin = g, sum(ms[:room]) / max(1, len(ms[:room]))
+    return best, margin
+
+
+def _plan_score(fm, sol, objective):
+    """方案打分，越大越好。连通永远是第一位的。"""
+    connected = len(sol.connected)
+    if objective == "connect":
+        return (connected, 0.0)
+    if len(sol.unconnected):
+        return (connected, 0.0)
+    if objective == "margin":
+        ms = []
+        for c, (par, band) in sol.parent_of.items():
+            m = fm.margin_of(c, par, band)
+            if m is not None:
+                ms.append(m)
+        ms.sort()
+        # 以**最差链路**为准：短板决定整网抗衰落能力
+        return (connected, ms[0] if ms else 0.0)
+    if objective == "redundant":
+        # 有第二可选上级的节点数（正常工况下合法且尚有端口的其他上级）
+        spare = 0
+        for c, (par, band) in sol.parent_of.items():
+            alt = 0
+            for j in fm.neighbors(c, band):
+                if j != par and j in sol.connected and _ports_left(sol, fm, j, band) > 0:
+                    alt += 1
+                    break
+            spare += alt
+        return (connected, spare)
+    return (connected, 0.0)
+
+
+def multi_plan(fm, base_idx, cand_idx, p1_sol, verbose=False):
+    """生成 ≥3 组备选方案（SR-4.2.1.2 扩展流 2）。
+
+    各方案统一给出电台数量与类型构成、连通率、通联需求跳数、
+    链路余量、端口占用、单点失效影响面——由 metrics.evaluate 计算。
+    覆盖率**不在**对比指标中（合作方答复 5+6）。
+
+    **平均跳数不作为可调目标**：跳数由编成深度决定
+    （Ⅳ→Ⅲ→Ⅱ→Ⅱ固定站→Ⅰ 最少就是 4 跳），加电台改不了它。
+    实测加 1 部电台后平均跳数仍为 4.99，与最经济方案相同。
+    因此方案 2 改为「余量优先」——抬高最差链路的余量，这是加电台真能改善的。
+    """
+    pmin = p1_sol.count
+    plans = [dict(name="方案1 最经济", sol=p1_sol,
+                  note="全连通所需的最少电台数 p_min=%d" % pmin)]
+    for extra, obj, name, note in (
+            (1, "margin", "方案2 余量优先", "p_min+1，偏向抬高最差链路余量"),
+            (2, "redundant", "方案3 抗毁优先", "p_min+2，偏向为节点争取第二上级")):
+        if verbose:
+            print("  生成 %s ..." % name)
+        s2 = p2_solve(fm, base_idx, cand_idx, pmin + extra, objective=obj)
+        s2.lower_bound = p1_sol.lower_bound
+        s2.lower_bound_parts = p1_sol.lower_bound_parts
+        plans.append(dict(name=name, sol=s2, note=note))
+    return plans
+
+
 def lower_bound(fm, sol):
     """下界（方案 4.5 下界 1）：按容量给出必须新增的电台数下限。
 
