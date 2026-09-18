@@ -127,10 +127,11 @@ def build_graph(links):
 
 def shortest_route(graph, src, dst, banned=None):
     banned = banned or set()
-    heap = [(0.0, src, [], [])]
+    heap = [(0.0, 0, src, [], [])]
+    seq = 0                       # 代价相同时用序号比较，避免 Python 去比较 dict
     seen = set()
     while heap:
-        cost, node, path, lks = heapq.heappop(heap)
+        cost, _, node, path, lks = heapq.heappop(heap)
         if node == dst:
             return cost, path + [node], lks
         if node in seen:
@@ -139,7 +140,8 @@ def shortest_route(graph, src, dst, banned=None):
         for nb, w, lk in graph.get(node, []):
             if nb in seen or lk["link_id"] in banned:
                 continue
-            heapq.heappush(heap, (cost + w, nb, path + [node], lks + [lk]))
+            seq += 1
+            heapq.heappush(heap, (cost + w, seq, nb, path + [node], lks + [lk]))
     return None
 
 

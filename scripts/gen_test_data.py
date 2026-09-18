@@ -19,8 +19,6 @@ SEED = 20260908
 LON0, LAT0, LON1, LAT1 = BBOX
 T0 = dt.datetime(2026, 9, 8, 8, 0, 0, tzinfo=dt.timezone(dt.timedelta(hours=8)))
 
-N_HF, N_VUHF = 52, 104          # 软需下限 50 / 100
-N_HF_FIXED, N_VUHF_FIXED = 8, 14
 N_TASK_SCENARIOS = 6
 N_INTERFERENCE = 16
 MAX_LINKS = 500
@@ -133,6 +131,87 @@ def load_antennas():
     return DEFAULT_ANTENNAS, "CONSTRUCTED"
 
 
+# ─────────────────────────── 编成结构 ───────────────────────────
+# 来源：《技术参考》内嵌 Visio 图（word/embeddings/Microsoft_Visio_Drawing.vsdx）。
+# 图中给出的是一个编成样板（Ⅲ×6、b机动车×12、背负式×12），本脚本按该结构放大到
+# 软需 SR-4.2 f 的规模口径：短波节点 ≥50、超短波节点 ≥100。
+#
+# 图上是五行（以形状纵坐标为证，非四行）：
+#   行1  Ⅰdb固定站 ── Ⅰdb机动站          （同行有链路，互为备份）
+#   行2  Ⅱdb/cdb固定站                    （单独一行，是行3两类 Ⅱ 的上级）
+#   行3  Ⅱdb/cdb机动站  Ⅱdb/cdb机动节点站  （同行之间无链路，须经 Ⅱ固定站中继）
+#   行4  Ⅲdb/cdb机动站                    （同行之间图上无链路；合作方补充可直连中继）
+#   行5  Ⅳcdb机动站                       （同行之间无链路）
+# 右支为 Ⅰ 直属短波机动力量：Ⅰ机动站 → a机动车 / b机动车 → 背负式电台，全为 db。
+
+N_II_FIXED = 4                  # 每个 Ⅱ固定站领 2 个 Ⅱ机动站 + 2 个 Ⅱ机动节点站
+N_II_MOBILE_PER, N_II_NODE_PER = 2, 2
+N_III, N_IV = 30, 60
+N_VEH_A, N_VEH_B, N_MANPACK = 2, 12, 12
+
+# 各类节点的设备台数 = 该频段可同时维持的链路数。
+# 合作方对问题 2(c) 的答复：编成定额即「最多有这么多装备，可以把这个当成容量约束」。
+# 战术电台为单信道设备，一台一次一条链路，故容量由本表的台数直接给出。
+# 「图注」= 图中方框内标注的数量；「待确认」= 图中未标注，取满足编成连接数的工程默认值。
+ECHELON_CAP = {
+    "I_FIXED":    dict(HF=8,  VUHF=0),   # 待确认：需领 4 个 Ⅱ固定站 + Ⅰ机动站
+    "I_MOBILE":   dict(HF=18, VUHF=0),   # 待确认：需领 a车×2 + b车×12 + Ⅰ固定站
+    "II_FIXED":   dict(HF=6,  VUHF=4),   # 待确认：需领 4 个下级 + 上行 Ⅰ
+    "II_MOBILE":  dict(HF=1,  VUHF=2),   # 图注：db设备*1，cdb设备*2
+    "II_NODE":    dict(HF=1,  VUHF=5),   # 图注：db设备*1，Ⅰ型和Ⅱ型cdb设备*5
+    "III_MOBILE": dict(HF=1,  VUHF=4),   # 图注：db设备*1，cdb设备*4
+    "IV_MOBILE":  dict(HF=0,  VUHF=1),   # 待确认：单上级（合作方答复 4：Ⅳ 不需双上级）
+    "VEHICLE_A":  dict(HF=4,  VUHF=0),   # 待确认
+    "VEHICLE_B":  dict(HF=4,  VUHF=0),   # 待确认
+    "MANPACK":    dict(HF=2,  VUHF=0),   # 待确认：图中背负式同时挂 a车 与 b车
+}
+
+# 发射功率（dBm），取自图中方框标注：
+#   400 W=56, 125 W=51, 50 W=47, 20 W=43
+SUBTYPE_POWER = {
+    ("I_FIXED", "HF"): 56.0, ("I_MOBILE", "HF"): 56.0,
+    ("II_FIXED", "HF"): 56.0, ("II_MOBILE", "HF"): 56.0, ("II_NODE", "HF"): 56.0,
+    ("III_MOBILE", "HF"): 56.0,
+    ("II_FIXED", "VUHF"): 47.0, ("II_MOBILE", "VUHF"): 47.0,
+    ("II_NODE", "VUHF"): 47.0, ("III_MOBILE", "VUHF"): 47.0,
+    ("IV_MOBILE", "VUHF"): 47.0,
+    ("VEHICLE_A", "HF"): 56.0, ("VEHICLE_B", "HF"): 51.0, ("MANPACK", "HF"): 43.0,
+}
+
+# 编成层级。右支（a车/b车/背负式）为 Ⅰ 直属，层级记 I，
+# 其与 Ⅰ固定站/Ⅰ机动站 的区别由 node_subtype 承担——
+# 跃迁规则以 (echelon, node_subtype) 二元组判定，不单看 echelon（见方案 3.1）。
+SUBTYPE_ECHELON = {
+    "I_FIXED": "I", "I_MOBILE": "I",
+    "II_FIXED": "II", "II_MOBILE": "II", "II_NODE": "II",
+    "III_MOBILE": "III", "IV_MOBILE": "IV",
+    "VEHICLE_A": "I", "VEHICLE_B": "I", "MANPACK": "I",
+}
+
+SUBTYPE_MOBILITY = {
+    "I_FIXED": "FIXED", "II_FIXED": "FIXED",
+    "I_MOBILE": "VEHICLE", "II_MOBILE": "VEHICLE", "II_NODE": "VEHICLE",
+    "III_MOBILE": "VEHICLE", "IV_MOBILE": "VEHICLE",
+    "VEHICLE_A": "VEHICLE", "VEHICLE_B": "VEHICLE", "MANPACK": "MANPACK",
+}
+
+# 能否中继转发。按编成规则推导：末端节点（Ⅳ、背负式）无空余端口可供转发，其余可转。
+# 真实装备是否支持自动转信待 06 任务单回收真实型号后核实（见数据字典 relay_capable）。
+SUBTYPE_RELAY = {
+    "I_FIXED": "true", "I_MOBILE": "true", "II_FIXED": "true",
+    "II_MOBILE": "true", "II_NODE": "true", "III_MOBILE": "true",
+    "IV_MOBILE": "false", "VEHICLE_A": "true", "VEHICLE_B": "true",
+    "MANPACK": "false",
+}
+
+SUBTYPE_NAME = {
+    "I_FIXED": "Ⅰ短波固定站", "I_MOBILE": "Ⅰ短波机动站", "II_FIXED": "Ⅱ双频固定站",
+    "II_MOBILE": "Ⅱ双频机动站", "II_NODE": "Ⅱ双频机动节点站", "III_MOBILE": "Ⅲ双频机动站",
+    "IV_MOBILE": "Ⅳ超短波机动站", "VEHICLE_A": "a机动车", "VEHICLE_B": "b机动车",
+    "MANPACK": "背负式短波电台",
+}
+
+
 # ─────────────────────────── 节点 ───────────────────────────
 # 任务区分布在规划区内，覆盖山地、山前过渡与平原三类地形，
 # 使部署规划与传播计算都能落到有区分度的地形上。
@@ -145,62 +224,166 @@ TASK_AREAS = [
 
 
 def gen_nodes():
-    nodes, n = [], 0
+    """按编成结构生成节点，并逐级指派上级（parent_node_id，多归属以 ; 分隔）。
 
-    def add(cls, role, mobility, lon, lat, name):
+    上级指派受容量约束：一个节点能带多少下级，由它在该频段的设备台数决定。
+    频段分配由 Visio 连线度数反推（见方案 3.1）：
+        Ⅱ固定站──Ⅱ机动站/节点站  走 db      Ⅱ机动站/节点站──Ⅲ  走 cdb
+        Ⅲ──Ⅳ                     走 cdb     Ⅰ──Ⅱ固定站         走 db
+    """
+    nodes, n = [], 0
+    used = {}          # (node_id, band) -> 已占用端口数
+
+    def add(subtype, lon, lat, name, parents=(), region=None):
         nonlocal n
         n += 1
         lon = min(max(lon, LON0 + 0.02), LON1 - 0.02)
         lat = min(max(lat, LAT0 + 0.02), LAT1 - 0.02)
-        nodes.append(dict(
-            node_id=sid("ND", n), node_name=name, node_role=role, mobility=mobility,
+        cap = ECHELON_CAP[subtype]
+        cls = ";".join(b for b in ("HF", "VUHF") if cap[b] > 0)
+        nd = dict(
+            node_id=sid("ND", n), node_name=name,
+            echelon=SUBTYPE_ECHELON[subtype], node_subtype=subtype,
+            parent_node_id=";".join(parents),
+            node_role="FIXED_STATION" if SUBTYPE_MOBILITY[subtype] == "FIXED" else "TASK",
+            mobility=SUBTYPE_MOBILITY[subtype],
             lon=round(lon, 6), lat=round(lat, 6),
             elevation_m=round(terrain.elevation(lon, lat), 1),
             region=nearest_area(lon, lat), device_class=cls,
-            status="NORMAL", is_key="false", remark=""))
+            relay_capable=SUBTYPE_RELAY[subtype],
+            status="NORMAL", is_key="false", remark="")
+        nodes.append(nd)
+        used[(nd["node_id"], "HF")] = 0
+        used[(nd["node_id"], "VUHF")] = 0
+        return nd
 
     def nearest_area(lon, lat):
         return min(TASK_AREAS, key=lambda a: (a[1] - lon) ** 2 + (a[2] - lat) ** 2)[0]
 
-    # 固定站：优先高地（通视好），在全区高程分位前 40% 的点里选
-    def pick_high(tries=60):
+    def spare(nd, band):
+        return ECHELON_CAP[nd["node_subtype"]][band] - used[(nd["node_id"], band)]
+
+    def take(nd, band, k=1):
+        used[(nd["node_id"], band)] += k
+
+    def pick_high(lon_c=None, lat_c=None, r=0.0, tries=60):
+        """在给定中心半径内挑高程高、坡度小的点；不给中心则全区搜。"""
         best = None
         for _ in range(tries):
-            lo = rng.uniform(LON0 + 0.05, LON1 - 0.05)
-            la = rng.uniform(LAT0 + 0.05, LAT1 - 0.05)
-            e = terrain.elevation(lo, la)
+            if lon_c is None:
+                lo = rng.uniform(LON0 + 0.05, LON1 - 0.05)
+                la = rng.uniform(LAT0 + 0.05, LAT1 - 0.05)
+            else:
+                lo = min(max(rng.gauss(lon_c, r), LON0 + 0.03), LON1 - 0.03)
+                la = min(max(rng.gauss(lat_c, r), LAT0 + 0.03), LAT1 - 0.03)
             sl = terrain.slope_deg(lo, la)
             if sl > 20:
                 continue
-            sc = e - 40 * sl
+            sc = terrain.elevation(lo, la) - 40 * sl
             if best is None or sc > best[0]:
                 best = (sc, lo, la)
-        return best[1], best[2]
+        return (best[1], best[2]) if best else (lon_c or 114.7, lat_c or 37.45)
 
-    for i in range(N_HF_FIXED):
-        lo, la = pick_high()
-        add("HF", "FIXED_STATION", "FIXED", lo, la, "短波固定站%02d" % (i + 1))
-    for i in range(N_VUHF_FIXED):
-        lo, la = pick_high()
-        add("VUHF", "FIXED_STATION", "FIXED", lo, la, "超短波固定站%02d" % (i + 1))
+    # ── 行1：Ⅰ 固定站与机动站（同行互为备份）──
+    lo, la = pick_high()
+    i_fixed = add("I_FIXED", lo, la, "Ⅰ短波固定站01")
+    lo, la = pick_high(i_fixed["lon"], i_fixed["lat"], 0.12)
+    i_mobile = add("I_MOBILE", lo, la, "Ⅰ短波机动站01", parents=(i_fixed["node_id"],))
+    take(i_fixed, "HF"); take(i_mobile, "HF")
 
-    # 任务节点：按任务区聚簇
-    hf_left = N_HF - N_HF_FIXED
-    vu_left = N_VUHF - N_VUHF_FIXED
-    for cls, left, tag in (("HF", hf_left, "短波"), ("VUHF", vu_left, "超短波")):
-        for i in range(left):
-            area = TASK_AREAS[i % len(TASK_AREAS)]
-            lo = rng.gauss(area[1], area[3] * 0.42)
-            la = rng.gauss(area[2], area[3] * 0.42)
-            mob = "VEHICLE" if rng.random() < 0.55 else "MANPACK"
-            add(cls, "TASK", mob, lo, la, "%s任务节点%03d" % (tag, i + 1))
+    # ── 行2：Ⅱ 固定站，上行 Ⅰ固定站（db）──
+    ii_fixed = []
+    for i in range(N_II_FIXED):
+        area = TASK_AREAS[i % len(TASK_AREAS)]
+        lo, la = pick_high(area[1], area[2], area[3] * 0.5)
+        nd = add("II_FIXED", lo, la, "Ⅱ双频固定站%02d" % (i + 1),
+                 parents=(i_fixed["node_id"],))
+        take(i_fixed, "HF"); take(nd, "HF")
+        ii_fixed.append(nd)
 
-    # 关键节点：固定站 + 每个任务区各 2 个
+    # ── 行3：Ⅱ 机动站 / 机动节点站，上行本组 Ⅱ固定站（db）──
+    ii_row3 = []
+    for k, par in enumerate(ii_fixed):
+        for j in range(N_II_MOBILE_PER):
+            lo, la = pick_high(par["lon"], par["lat"], 0.13)
+            nd = add("II_MOBILE", lo, la, "Ⅱ双频机动站%02d" % (k * N_II_MOBILE_PER + j + 1),
+                     parents=(par["node_id"],))
+            take(par, "HF"); take(nd, "HF"); ii_row3.append(nd)
+        for j in range(N_II_NODE_PER):
+            lo, la = pick_high(par["lon"], par["lat"], 0.13)
+            nd = add("II_NODE", lo, la, "Ⅱ双频机动节点站%02d" % (k * N_II_NODE_PER + j + 1),
+                     parents=(par["node_id"],))
+            take(par, "HF"); take(nd, "HF"); ii_row3.append(nd)
+
+    # ── 行4：Ⅲ 机动站，上行 Ⅱ 行3（cdb），尽量双上级 ──
+    iii = []
+    for i in range(N_III):
+        pool = [x for x in ii_row3 if spare(x, "VUHF") > 0]
+        if not pool:
+            break
+        pool.sort(key=lambda x: -spare(x, "VUHF"))
+        par = pool[0]
+        lo, la = pick_high(par["lon"], par["lat"], 0.16)
+        nd = add("III_MOBILE", lo, la, "Ⅲ双频机动站%02d" % (i + 1))
+        # 第一上级
+        take(par, "VUHF"); take(nd, "VUHF")
+        ps = [par["node_id"]]
+        # 第二上级：另一个还有余量、且不是同一个的 Ⅱ
+        alt = [x for x in ii_row3
+               if x is not par and spare(x, "VUHF") > 0 and spare(nd, "VUHF") > 1]
+        if alt:
+            alt.sort(key=lambda x: -spare(x, "VUHF"))
+            take(alt[0], "VUHF"); take(nd, "VUHF")
+            ps.append(alt[0]["node_id"])
+        nd["parent_node_id"] = ";".join(ps)
+        iii.append(nd)
+
+    # ── 行5：Ⅳ 任务站点，上行 Ⅲ（cdb），单上级 ──
+    n_iv = 0
+    for i in range(N_IV):
+        pool = [x for x in iii if spare(x, "VUHF") > 0]
+        if not pool:
+            break
+        pool.sort(key=lambda x: -spare(x, "VUHF"))
+        par = pool[0]
+        lo = rng.gauss(par["lon"], 0.10)
+        la = rng.gauss(par["lat"], 0.10)
+        nd = add("IV_MOBILE", lo, la, "Ⅳ任务站点%03d" % (i + 1),
+                 parents=(par["node_id"],))
+        take(par, "VUHF"); take(nd, "VUHF"); n_iv += 1
+
+    # ── 右支：Ⅰ机动站 → a车 / b车 → 背负式，全为 db ──
+    veh = []
+    for i in range(N_VEH_A):
+        lo, la = pick_high(i_mobile["lon"], i_mobile["lat"], 0.18)
+        nd = add("VEHICLE_A", lo, la, "a机动车%02d" % (i + 1),
+                 parents=(i_mobile["node_id"],))
+        take(i_mobile, "HF"); take(nd, "HF"); veh.append(nd)
+    for i in range(N_VEH_B):
+        lo, la = pick_high(i_mobile["lon"], i_mobile["lat"], 0.24)
+        nd = add("VEHICLE_B", lo, la, "b机动车%02d" % (i + 1),
+                 parents=(i_mobile["node_id"],))
+        take(i_mobile, "HF"); take(nd, "HF"); veh.append(nd)
+    for i in range(N_MANPACK):
+        pool = [x for x in veh if spare(x, "HF") > 0]
+        if not pool:
+            break
+        pool.sort(key=lambda x: -spare(x, "HF"))
+        ps = []
+        lo, la = pick_high(pool[0]["lon"], pool[0]["lat"], 0.10)
+        nd = add("MANPACK", lo, la, "背负式短波电台%02d" % (i + 1))
+        for par in pool[:2]:                      # 图中背负式同时挂 a车 与 b车
+            if spare(nd, "HF") <= 0:
+                break
+            take(par, "HF"); take(nd, "HF"); ps.append(par["node_id"])
+        nd["parent_node_id"] = ";".join(ps)
+
+    # ── 关键节点：Ⅰ、Ⅱ 全部，加每个任务区 2 个 Ⅳ ──
     for nd in nodes:
-        if nd["node_role"] == "FIXED_STATION":
+        if nd["echelon"] in ("I", "II") and nd["node_subtype"].startswith(("I_", "II_")):
             nd["is_key"] = "true"
     for area in TASK_AREAS:
-        cand = [x for x in nodes if x["region"] == area[0] and x["node_role"] == "TASK"]
+        cand = [x for x in nodes if x["region"] == area[0] and x["node_subtype"] == "IV_MOBILE"]
         for x in rng.sample(cand, min(2, len(cand))):
             x["is_key"] = "true"
     return nodes
@@ -208,53 +391,84 @@ def gen_nodes():
 
 # ─────────────────────────── 设备实例 ───────────────────────────
 def gen_devices(nodes, models, antennas):
-    by_cls = {}
+    """按编成定额为每个节点生成多台设备。
+
+    **一个节点可以同时装 db 与 cdb 两套电台**（Ⅱ、Ⅲ 即如此），
+    台数由 ECHELON_CAP 给出，等于该节点在该频段能同时维持的链路数。
+    频段转换只发生在这类双频节点内部（合作方：「转了一层」）；
+    一条链路的两端必须是同一频段的电台，见 gen_links。
+    """
+    by_cls, ant_by_cls = {}, {}
     for m in models:
         by_cls.setdefault(m["device_class"], []).append(m)
-    ant_by_cls = {}
-    for a in antennas:
-        ant_by_cls.setdefault(a["device_class"], []).append(a)
+    for a_ in antennas:
+        ant_by_cls.setdefault(a_["device_class"], []).append(a_)
 
-    devices = []
-    for i, nd in enumerate(nodes, 1):
-        cls = nd["device_class"]
-        pool = by_cls.get(cls) or by_cls[list(by_cls)[0]]
-        if nd["node_role"] == "FIXED_STATION":
-            m = max(pool, key=lambda x: float(x["tx_power_max_dbm"]))
-        elif nd["mobility"] == "MANPACK":
-            m = min(pool, key=lambda x: float(x["tx_power_max_dbm"]))
-        else:
-            m = rng.choice(pool)
+    def pick_model(band, want_dbm):
+        """挑发射功率档位最接近编成标注值的型号。"""
+        pool = by_cls.get(band) or by_cls[list(by_cls)[0]]
+        best, bestd = None, None
+        for m in pool:
+            levels = [float(x) for x in str(m["tx_power_levels_dbm"]).split(";") if x]
+            for lv in levels:
+                d = abs(lv - want_dbm)
+                if bestd is None or d < bestd:
+                    best, bestd = (m, lv), d
+        return best
 
-        apool = ant_by_cls.get(cls) or ant_by_cls[list(ant_by_cls)[0]]
-        if cls == "HF":
-            # 固定站与半数车载配 NVIS（区域内通信主力），其余鞭状
-            nv = [a for a in apool if a["pattern_type"] == "NVIS"]
-            om = [a for a in apool if a["pattern_type"] == "OMNI"]
-            want_nvis = nd["node_role"] == "FIXED_STATION" or rng.random() < 0.5
-            a = rng.choice(nv if (want_nvis and nv) else (om or apool))
-        else:
-            a = rng.choice([x for x in apool if x["pattern_type"] == "OMNI"] or apool)
+    def pick_antenna(band, subtype):
+        pool = ant_by_cls.get(band) or ant_by_cls[list(ant_by_cls)[0]]
+        if band == "VUHF":
+            # 图注：所有 cdb 天线均为 1.5 m 鞭天线
+            whip = [x for x in pool if "1.5" in x["antenna_name"]]
+            return rng.choice(whip or [x for x in pool if x["pattern_type"] == "OMNI"] or pool)
+        # 短波：固定站与半数车载配 NVIS（区域内通信主力），其余鞭状
+        nv = [x for x in pool if x["pattern_type"] == "NVIS"]
+        om = [x for x in pool if x["pattern_type"] == "OMNI"]
+        want_nvis = SUBTYPE_MOBILITY[subtype] == "FIXED" or rng.random() < 0.5
+        return rng.choice(nv if (want_nvis and nv) else (om or pool))
 
-        if nd["node_role"] == "FIXED_STATION":
-            h = rng.uniform(10, 18)
-        elif nd["mobility"] == "VEHICLE":
-            h = rng.uniform(3.5, 8)
-        else:
-            h = rng.uniform(1.8, 3.0)
+    def pick_height(subtype, band):
+        if SUBTYPE_MOBILITY[subtype] == "FIXED":
+            return rng.uniform(10, 18)
+        if SUBTYPE_MOBILITY[subtype] == "MANPACK":
+            return rng.uniform(1.8, 3.0)
+        return rng.uniform(3.5, 8)
 
-        levels = [float(x) for x in str(m["tx_power_levels_dbm"]).split(";") if x]
-        pw = max(levels) if nd["node_role"] == "FIXED_STATION" else rng.choice(levels)
-        bw = float(str(m["bandwidth_khz"]).split(";")[0])
-        devices.append(dict(
-            device_id=sid("DV", i), node_id=nd["node_id"], model_id=m["model_id"],
-            antenna_id=a["antenna_id"], antenna_height_m=round(h, 1),
-            tilt_deg="", azimuth_deg="", tx_power_dbm=round(pw, 1),
-            work_freq_khz="", status="NORMAL", install_time=iso(T0),
-            _class=cls, _pattern=a["pattern_type"], _gain=float(a["gain_dbi"]),
-            _sens=float(m["rx_sensitivity_dbm"]), _bw=bw,
-            _fmin=float(m["freq_min_khz"]), _fmax=float(m["freq_max_khz"])))
+    devices, i = [], 0
+    for nd in nodes:
+        st = nd["node_subtype"]
+        for band in ("HF", "VUHF"):
+            cap = ECHELON_CAP[st][band]
+            for k in range(cap):
+                i += 1
+                want = SUBTYPE_POWER.get((st, band), 47.0)
+                m, lv = pick_model(band, want)
+                a_ = pick_antenna(band, st)
+                bw = float(str(m["bandwidth_khz"]).split(";")[0])
+                devices.append(dict(
+                    device_id=sid("DV", i), node_id=nd["node_id"], model_id=m["model_id"],
+                    antenna_id=a_["antenna_id"],
+                    antenna_height_m=round(pick_height(st, band), 1),
+                    tilt_deg="", azimuth_deg="", tx_power_dbm=round(lv, 1),
+                    work_freq_khz="", status="NORMAL", install_time=iso(T0),
+                    _class=band, _node=nd, _subtype=st, _port=k,
+                    _pattern=a_["pattern_type"], _gain=float(a_["gain_dbi"]),
+                    _sens=float(m["rx_sensitivity_dbm"]), _bw=bw,
+                    _fmin=float(m["freq_min_khz"]), _fmax=float(m["freq_max_khz"])))
     return devices
+
+
+def index_devices(devices):
+    """(node_id, band) -> 该节点该频段的设备列表。
+
+    「db 不能和 cdb 相连」在代码中的落点：链路只在双方**都持有同一频段端口**时才成立，
+    不能再用比较两个节点 device_class 字符串的老办法——节点现在可能是双频的。
+    """
+    idx = {}
+    for d in devices:
+        idx.setdefault((d["node_id"], d["_class"]), []).append(d)
+    return idx
 
 
 # ─────────────────────────── 频率资源池 ───────────────────────────
@@ -300,42 +514,54 @@ def gen_links(nodes, devices):
     再按链路状态配额分层补足。若只取最短的若干条，全网会清一色 EXCELLENT，
     SR-6.2 无法从指标挖掘状态判定规则，故障诊断也没有弱链路可分析。
     """
-    dev_by_node = {d["node_id"]: d for d in devices}
+    dev_idx = index_devices(devices)
     pool = gen_freq_pool()
     max_range = {"HF": 175000, "VUHF": 95000}
 
     # 1) 枚举候选并算链路预算
+    #
+    # **按 (节点, 频段) 二元组枚举，而不是按节点。**
+    # 一个节点现在可能同时装 db 与 cdb 两套电台（Ⅱ、Ⅲ），
+    # 「db 不能和 cdb 相连」因此不能再靠比较两个节点的 device_class 字符串来保证——
+    # 那个写法只在「每节点单频」时才等价。正确判据是：
+    # 链路归属于某个频段，两端都必须持有该频段的端口。
     cands = []
-    for i in range(len(nodes)):
-        for j in range(i + 1, len(nodes)):
-            a, b = nodes[i], nodes[j]
-            if a["device_class"] != b["device_class"]:
-                continue
-            d = haversine_m(a["lon"], a["lat"], b["lon"], b["lat"])
-            if d > max_range[a["device_class"]]:
-                continue
-            da, db = dev_by_node[a["node_id"]], dev_by_node[b["node_id"]]
-            cls = a["device_class"]
-            f = default_freq(da, pool)
-            pa = (a["lon"], a["lat"]); pb = (b["lon"], b["lat"])
-            if cls == "HF":
-                pat = "NVIS" if "NVIS" in (da["_pattern"], db["_pattern"]) else "OMNI"
-                pl, ok, clr, dd = hf_path_loss(terrain, pa, pb, f, pat)
-            else:
-                pl, ok, clr, dd = vuhf_path_loss(terrain, pa, pb, f,
-                                                 da["antenna_height_m"], db["antenna_height_m"])
-            svc = "数据" if cls == "VUHF" else "话音"
-            rx, snr, mg = link_budget(min(da["tx_power_dbm"], db["tx_power_dbm"]),
-                                      da["_gain"], db["_gain"], pl, f, da["_bw"], svc,
-                                      max(da["_sens"], db["_sens"]))
-            if mg < -12:                      # 远低于门限，不作为候选
-                continue
-            cands.append(dict(a=a, b=b, da=da, db=db, cls=cls, f=f, pl=pl, rx=rx,
-                              snr=snr, mg=mg, d=dd, los=ok,
-                              state=margin_to_state(mg)))
+    for band in ("HF", "VUHF"):
+        holders = [nd for nd in nodes if (nd["node_id"], band) in dev_idx]
+        for i in range(len(holders)):
+            for j in range(i + 1, len(holders)):
+                a, b = holders[i], holders[j]
+                d = haversine_m(a["lon"], a["lat"], b["lon"], b["lat"])
+                if d > max_range[band]:
+                    continue
+                da = dev_idx[(a["node_id"], band)][0]
+                db = dev_idx[(b["node_id"], band)][0]
+                cls = band
+                f = default_freq(da, pool)
+                pa = (a["lon"], a["lat"]); pb = (b["lon"], b["lat"])
+                if cls == "HF":
+                    pat = "NVIS" if "NVIS" in (da["_pattern"], db["_pattern"]) else "OMNI"
+                    pl, ok, clr, dd = hf_path_loss(terrain, pa, pb, f, pat)
+                else:
+                    pl, ok, clr, dd = vuhf_path_loss(terrain, pa, pb, f,
+                                                     da["antenna_height_m"],
+                                                     db["antenna_height_m"])
+                svc = "数据" if cls == "VUHF" else "话音"
+                rx, snr, mg = link_budget(min(da["tx_power_dbm"], db["tx_power_dbm"]),
+                                          da["_gain"], db["_gain"], pl, f, da["_bw"], svc,
+                                          max(da["_sens"], db["_sens"]))
+                if mg < -12:                      # 远低于门限，不作为候选
+                    continue
+                cands.append(dict(a=a, b=b, da=da, db=db, cls=cls, f=f, pl=pl, rx=rx,
+                                  snr=snr, mg=mg, d=dd, los=ok,
+                                  state=margin_to_state(mg)))
 
-    # 2) 连通骨架：每类设备内部按余量降序做最大生成树
-    parent = {n["node_id"]: n["node_id"] for n in nodes}
+    # 2) 连通骨架：**每个频段各做一棵**最大生成树（按余量降序）
+    #    不能跨频段合并连通分量——db 网和 cdb 网是两张独立的网。
+    parent = {}
+    for nd in nodes:
+        for band in ("HF", "VUHF"):
+            parent[(nd["node_id"], band)] = (nd["node_id"], band)
 
     def find(x):
         while parent[x] != x:
@@ -352,7 +578,7 @@ def gen_links(nodes, devices):
 
     chosen, rest = [], []
     for c in sorted(cands, key=lambda c: -c["mg"]):
-        if union(c["a"]["node_id"], c["b"]["node_id"]):
+        if union((c["a"]["node_id"], c["cls"]), (c["b"]["node_id"], c["cls"])):
             chosen.append(c)
         else:
             rest.append(c)
@@ -416,13 +642,18 @@ def gen_tasks_and_demands(nodes, links):
             tries += 1
             a = rng.choice(pool)
             b = rng.choice(pool if rng.random() < 0.72 else others)
-            if a["node_id"] == b["node_id"] or a["device_class"] != b["device_class"]:
+            # 两端必须至少共享一个频段，否则「db 不能和 cdb 相连」，需求无法成立
+            if a["node_id"] == b["node_id"]:
+                continue
+            if not (set(a["device_class"].split(";")) & set(b["device_class"].split(";"))):
                 continue
             key = tuple(sorted((a["node_id"], b["node_id"])))
             if key in seen:
                 continue
             seen.add(key)
             dn += 1
+            both = set(a["device_class"].split(";")) & set(b["device_class"].split(";"))
+            shared = "VUHF" if "VUHF" in both else "HF"
             key_pair = a["is_key"] == "true" and b["is_key"] == "true"
             pr = "P1" if key_pair else ("P2" if rng.random() < 0.45 else "P3")
             mand = "true" if (pr == "P1" or (pr == "P2" and rng.random() < 0.3)) else "false"
@@ -435,7 +666,7 @@ def gen_tasks_and_demands(nodes, links):
                 required_rate_kbps={"话音": 4.8, "数据": 32, "短消息": 1.2}[svc],
                 max_delay_ms=rng.choice([150, 250, 400, 800]),
                 min_reliability=round(rng.choice([0.90, 0.95, 0.99, 0.995]), 3),
-                service_type=svc, preferred_class=a["device_class"]))
+                service_type=svc, preferred_class=shared))
     return tasks, demands
 
 
@@ -601,7 +832,9 @@ def gen_fault_cases(links, devices, per_type=60):
 
 
 def gen_fault_scenarios(links, devices, nodes):
-    dev_by_node = {d["node_id"]: d for d in devices}
+    dev_by_node = {}
+    for _d in devices:                      # 一个节点现在有多台设备，取第一台作代表
+        dev_by_node.setdefault(_d["node_id"], _d)
     key_nodes = [n for n in nodes if n["is_key"] == "true"]
     scen = []
     picks = [
@@ -660,8 +893,10 @@ def main():
 
     print("\n输出:")
     write_csv("node.csv", nodes,
-              ["node_id", "node_name", "node_role", "mobility", "lon", "lat",
-               "elevation_m", "region", "device_class", "status", "is_key", "remark"])
+              ["node_id", "node_name", "echelon", "node_subtype", "parent_node_id",
+               "node_role", "mobility", "lon", "lat",
+               "elevation_m", "region", "device_class", "relay_capable",
+               "status", "is_key", "remark"])
     write_csv("device.csv", devices,
               ["device_id", "node_id", "model_id", "antenna_id", "antenna_height_m",
                "tilt_deg", "azimuth_deg", "tx_power_dbm", "work_freq_khz",
@@ -707,10 +942,26 @@ def main():
 
     # ── 数据体检 ──
     print("\n数据体检:")
-    hf = [n for n in nodes if n["device_class"] == "HF"]
-    vu = [n for n in nodes if n["device_class"] == "VUHF"]
-    print("  节点 %d (短波 %d / 超短波 %d)  关键节点 %d   [软需: 短波>=50 超短波>=100]"
-          % (len(nodes), len(hf), len(vu), sum(1 for n in nodes if n["is_key"] == "true")))
+    hf = [n for n in nodes if "HF" in n["device_class"].split(";")]
+    vu = [n for n in nodes if "VUHF" in n["device_class"].split(";")]
+    dual = [n for n in nodes if ";" in n["device_class"]]
+    print("  节点 %d (持短波 %d / 持超短波 %d / 双频 %d)  关键节点 %d"
+          "   [软需: 短波>=50 超短波>=100]"
+          % (len(nodes), len(hf), len(vu), len(dual),
+             sum(1 for n in nodes if n["is_key"] == "true")))
+    ec = {}
+    for n in nodes:
+        ec[n["node_subtype"]] = ec.get(n["node_subtype"], 0) + 1
+    print("  编成构成: " + "  ".join("%s=%d" % (k, ec[k]) for k in
+          ["I_FIXED", "I_MOBILE", "II_FIXED", "II_MOBILE", "II_NODE",
+           "III_MOBILE", "IV_MOBILE", "VEHICLE_A", "VEHICLE_B", "MANPACK"] if k in ec))
+    print("  设备 %d 台 (短波 %d / 超短波 %d)  = 各节点编成定额之和，即容量上限"
+          % (len(devices), sum(1 for d in devices if d["_class"] == "HF"),
+             sum(1 for d in devices if d["_class"] == "VUHF")))
+    if ec.get("III_MOBILE", 0) < N_III or ec.get("IV_MOBILE", 0) < N_IV:
+        print("  注: Ⅲ 请求 %d 实际 %d，Ⅳ 请求 %d 实际 %d —— 受上级端口容量限制，"
+              "非缺陷（这正是容量约束在起作用）"
+              % (N_III, ec.get("III_MOBILE", 0), N_IV, ec.get("IV_MOBILE", 0)))
     avail = sum(1 for l in links if l["is_available"] == "true")
     print("  链路 %d (可用 %d)   [软需: 200-500]" % (len(links), avail))
     st = {}

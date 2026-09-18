@@ -23,8 +23,14 @@ def load(name):
         return list(csv.DictReader(f))
 
 
-ENUMS = {
+# 多值字段：以英文分号分隔，逐项校验
+MULTI_ENUMS = {
     "node.device_class": {"HF", "VUHF"},
+}
+ENUMS = {
+    "node.echelon": {"I", "II", "III", "IV"},
+    "node.node_subtype": {"I_FIXED", "I_MOBILE", "II_FIXED", "II_MOBILE", "II_NODE",
+                          "III_MOBILE", "IV_MOBILE", "VEHICLE_A", "VEHICLE_B", "MANPACK"},
     "node.node_role": {"TASK", "FIXED_STATION", "RELAY", "CANDIDATE"},
     "node.mobility": {"FIXED", "VEHICLE", "MANPACK"},
     "node.status": {"NORMAL", "FAULT", "OFFLINE"},
@@ -41,7 +47,7 @@ ENUMS = {
     "candidate_site.recommendation_level": {"A", "B", "C", "D"},
     "frequency_conflict.conflict_type": {"SHARED_NODE", "ADJACENT_CHANNEL_NEAR_PATH"},
 }
-BOOLS = [("node", "is_key"), ("link", "is_available"), ("link", "is_backup"),
+BOOLS = [("node", "is_key"), ("node", "relay_capable"), ("link", "is_available"), ("link", "is_backup"),
          ("comm_demand", "is_mandatory"), ("frequency_resource", "is_available"),
          ("interference_source", "active"), ("candidate_site", "is_deployable"),
          ("frequency_conflict", "hard_constraint")]
@@ -124,6 +130,18 @@ def main():
             ERR.append("%s 非法枚举 %s" % (key, sorted(bad)))
             print("   ✗ %-42s 非法值 %s" % (key, sorted(bad)))
             ok = False
+    for key, allowed in MULTI_ENUMS.items():
+        t, col = key.split(".")
+        vals = set()
+        for r in tables.get(t, []):
+            for v in (r.get(col) or "").split(";"):
+                if v:
+                    vals.add(v)
+        bad = vals - allowed
+        if bad:
+            ERR.append("%s 非法枚举 %s" % (key, sorted(bad)))
+            print("   ✗ %-42s 非法值 %s" % (key, sorted(bad)))
+            ok = False
     for t, col in BOOLS:
         vals = {r.get(col) for r in tables.get(t, []) if r.get(col) != ""}
         bad = vals - {"true", "false"}
@@ -132,7 +150,8 @@ def main():
             print("   ✗ %s.%s 布尔值非法 %s" % (t, col, sorted(bad)))
             ok = False
     if ok:
-        print("   ✓ 全部 %d 个枚举字段、%d 个布尔字段合法" % (len(ENUMS), len(BOOLS)))
+        print("   ✓ 全部 %d 个枚举字段（含 %d 个多值）、%d 个布尔字段合法"
+              % (len(ENUMS) + len(MULTI_ENUMS), len(MULTI_ENUMS), len(BOOLS)))
 
     # ── 3 数值合理性 ──
     print("\n[3] 数值范围")
@@ -164,7 +183,10 @@ def main():
     print("\n[4] 拓扑连通性（按设备类别分别计算）")
     comp_of = {}
     for cls in ("HF", "VUHF"):
-        ns = [n["node_id"] for n in nodes if n["device_class"] == cls]
+        # 双频节点（Ⅱ、Ⅲ）的 device_class 是 "HF;VUHF"，
+        # 用字符串相等会把骨干节点整个漏掉，必须按「持有该频段」判断。
+        ns = [n["node_id"] for n in nodes
+              if cls in (n["device_class"] or "").split(";")]
         par = {x: x for x in ns}
         def find(x):
             while par[x] != x:
@@ -181,7 +203,7 @@ def main():
         groups = collections.Counter(find(x) for x in ns)
         biggest = max(groups.values()) if groups else 0
         for x in ns:
-            comp_of[x] = find(x)
+            comp_of[(x, cls)] = find(x)   # 双频节点在两个频段各有一个分量，不能共用一个键
         status = "✓" if len(groups) == 1 else "!"
         print("   %s %-5s 节点 %3d  连通分量 %d  最大分量 %d (%.0f%%)"
               % (status, cls, len(ns), len(groups), biggest,
@@ -193,9 +215,19 @@ def main():
     # ── 5 需求可满足性 ──
     print("\n[5] 通联需求可满足性")
     mand = [d for d in demands if d["is_mandatory"] == "true"]
+    band_of = {n["node_id"]: set((n["device_class"] or "").split(";")) for n in nodes}
+
     def same(d):
-        return comp_of.get(d["src_node_id"]) == comp_of.get(d["dst_node_id"]) \
-               and comp_of.get(d["src_node_id"]) is not None
+        """两端在**共享的某个频段内**同属一个连通分量才算连通。
+
+        「db 不能和 cdb 相连」：跨频段不成立，且双频节点在两张网里各有各的分量。
+        """
+        a, b = d["src_node_id"], d["dst_node_id"]
+        for cls in band_of.get(a, set()) & band_of.get(b, set()):
+            ca, cb = comp_of.get((a, cls)), comp_of.get((b, cls))
+            if ca is not None and ca == cb:
+                return True
+        return False
     bad_all = [d for d in demands if not same(d)]
     bad_mand = [d for d in mand if not same(d)]
     print("   总需求 %d，其中必要需求 %d (%.0f%%)"
@@ -272,6 +304,99 @@ def main():
     print("   ✓ candidate_sites_v1.csv          %d 个候选点" % len(candidate_sites))
     print("   ✓ frequency_conflicts_v1.csv      %d 条频率冲突约束" % len(freq_conflicts))
     print("   ✓ fault_rules_v1.csv              %d 条故障规则" % len(fault_rules))
+
+    # ── 9 频段一致性 ──
+    #
+    # 合作方硬约束：「db 不能和 cdb 相连」。一条链路要么短波对短波，要么超短波对超短波，
+    # 频段转换只能发生在同时装有两种电台的节点内部（Ⅱ、Ⅲ）。
+    #
+    # 为什么必须由校验器强制：从前每个节点只有一台单频设备，生成器靠比较两个节点的
+    # device_class 字符串筛链路，违规在结构上就发生不了，无需检查。
+    # 现在一个节点可能有多台设备、跨两个频段，「这个节点是什么频段」不再是一个字符串
+    # 能回答的问题，生成器只要有一处写错就会静默产生非法链路 —— 不报错，数据悄悄是错的。
+    print("\n[9] 频段一致性（db 不能和 cdb 相连）")
+    dev_by_id = {d["device_id"]: d for d in devices}
+    model_by_id = {m["model_id"]: m for m in models}
+
+    def dev_band(did):
+        d = dev_by_id.get(did)
+        if not d:
+            return None
+        m = model_by_id.get(d["model_id"])
+        return m["device_class"] if m else None
+
+    # 9a 链路两端的设备，必须真的是该链路声称的频段
+    bad_band = []
+    for l in links:
+        want = l["device_class"]
+        for col in ("device_a_id", "device_b_id"):
+            got = dev_band(l.get(col))
+            if got is None or got != want:
+                bad_band.append((l["link_id"], col, want, got))
+                break
+    if bad_band:
+        ERR.append("有 %d 条链路的端点设备频段与链路频段不符（db/cdb 混连）: %s"
+                   % (len(bad_band), [x[0] for x in bad_band[:5]]))
+        print("   ✗ %d 条链路存在 db/cdb 混连，示例 %s" % (len(bad_band), bad_band[:3]))
+    else:
+        print("   ✓ %d 条链路，两端设备频段均与链路频段一致" % len(links))
+
+    # 9b 链路工作频率必须同时落在两端设备型号的频率范围内
+    bad_freq = []
+    for l in links:
+        try:
+            f = float(l["freq_khz"])
+        except (TypeError, ValueError):
+            continue
+        for col in ("device_a_id", "device_b_id"):
+            d = dev_by_id.get(l.get(col))
+            m = model_by_id.get(d["model_id"]) if d else None
+            if not m:
+                continue
+            if not (float(m["freq_min_khz"]) <= f <= float(m["freq_max_khz"])):
+                bad_freq.append((l["link_id"], col, f,
+                                 m["freq_min_khz"], m["freq_max_khz"]))
+                break
+    if bad_freq:
+        ERR.append("有 %d 条链路的工作频率超出端点设备型号的频率范围: %s"
+                   % (len(bad_freq), [x[0] for x in bad_freq[:5]]))
+        print("   ✗ %d 条链路频率超出设备型号范围，示例 %s" % (len(bad_freq), bad_freq[:3]))
+    else:
+        print("   ✓ %d 条链路，工作频率均落在两端设备型号的频率范围内" % len(links))
+
+    # 9c 通联需求两端必须共享至少一个频段
+    band_sets = {n["node_id"]: set((n["device_class"] or "").split(";")) for n in nodes}
+    bad_dem = [d["demand_id"] for d in demands
+               if not (band_sets.get(d["src_node_id"], set())
+                       & band_sets.get(d["dst_node_id"], set()))]
+    if bad_dem:
+        ERR.append("有 %d 条通联需求两端无共享频段（db 与 cdb 之间无法通联）: %s"
+                   % (len(bad_dem), bad_dem[:5]))
+        print("   ✗ %d 条通联需求两端无共享频段" % len(bad_dem))
+    else:
+        print("   ✓ %d 条通联需求，两端均共享至少一个频段" % len(demands))
+
+    # 9d 编成容量：某节点某频段的链路数不得超过其该频段的设备台数
+    cap = {}
+    for d in devices:
+        m = model_by_id.get(d["model_id"])
+        if m:
+            cap[(d["node_id"], m["device_class"])] = cap.get((d["node_id"], m["device_class"]), 0) + 1
+    deg = {}
+    for l in links:
+        if l["is_available"] != "true":
+            continue
+        for col in ("node_a_id", "node_b_id"):
+            deg[(l[col], l["device_class"])] = deg.get((l[col], l["device_class"]), 0) + 1
+    over = [(k[0], k[1], v, cap.get(k, 0)) for k, v in deg.items() if v > cap.get(k, 0)]
+    # link.csv 是**传播可达图**（哪两点物理上能通），不是**部署方案**（实际接哪几条）。
+    # 可达图超出端口容量是正常的，容量约束在部署求解时才生效（方案 3.4 / 4.4）。
+    # 这里只报数，供核对容量口径是否合理，不判为问题。
+    worst = sorted(over, key=lambda x: x[3] and -x[2] / x[3])[:3]
+    print("   · 可达图中 %d/%d 个(节点,频段)的可达链路数超过编成端口容量，"
+          "属正常——容量约束在部署求解时生效" % (len(over), len(deg)))
+    if worst:
+        print("     最富余的三个: " + "  ".join("%s %s 可达%d/容量%d" % w for w in worst))
 
     # ── 汇总 ──
     print("\n" + "=" * 70)
