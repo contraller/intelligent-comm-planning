@@ -121,17 +121,26 @@ class FeasibilityMatrix:
     比 list / set 快一个数量级，且无第三方依赖。
     """
 
-    def __init__(self, stations, terrain, margin_min=DEFAULT_MARGIN_MIN, verbose=False):
+    def __init__(self, stations, terrain, margin_min=DEFAULT_MARGIN_MIN, verbose=False,
+                 candidate_pairs=True):
+        """candidate_pairs=False 时**跳过候选点两两之间**的传播计算。
+
+        规模测试实测：1100 候选 × 4 类型 + 132 台站 = 4532 个台站，
+        全量两两要 4.7 M 对、约 50 s，其中绝大多数是候选×候选——
+        而贪心每轮只会选中一两个候选，这些对算了也白算。
+        跳过后降到候选×现有的 1.2 M 对。选中之后再用 extend_pairs 补算那几对即可。
+        """
         self.stations = list(stations)
         self.margin_min = float(margin_min)
+        self.terrain = terrain
         self.index = {s.sid: i for i, s in enumerate(self.stations)}
         self.normal = {}          # band -> [bitmask per station index]
         self.damaged = {}
         self.margins = {}         # (i, j, band) -> margin dB，i < j
         self._stats = {}
-        self._build(terrain, verbose)
+        self._build(terrain, verbose, candidate_pairs)
 
-    def _build(self, terrain, verbose):
+    def _build(self, terrain, verbose, candidate_pairs=True):
         n = len(self.stations)
         for band in E.BANDS:
             holders = [i for i, s in enumerate(self.stations) if s.has(band)]
@@ -144,6 +153,8 @@ class FeasibilityMatrix:
                 for jj in range(ii + 1, len(holders)):
                     j = holders[jj]
                     sb = self.stations[j]
+                    if not candidate_pairs and sa.is_candidate and sb.is_candidate:
+                        continue
                     d = haversine_m(sa.lon, sa.lat, sb.lon, sb.lat)
                     if d > MAX_RANGE_M[band]:
                         cnt_far += 1
@@ -170,6 +181,38 @@ class FeasibilityMatrix:
                       "(编成剪掉 %.0f%%)"
                       % (band, len(holders), cnt_phys, cnt_norm,
                          100.0 * (cnt_phys - cnt_norm) / max(1, cnt_phys)))
+
+    def extend_pairs(self, indices):
+        """补算给定台站集合内部的两两可行性（建矩阵时跳过的那部分）。
+
+        贪心选中若干候选后调用，规模只有几对，代价可忽略。
+        """
+        idx = sorted(set(indices))
+        added = 0
+        for band in E.BANDS:
+            hs = [i for i in idx if self.stations[i].has(band)]
+            for ii in range(len(hs)):
+                i = hs[ii]
+                sa = self.stations[i]
+                for jj in range(ii + 1, len(hs)):
+                    j = hs[jj]
+                    if (min(i, j), max(i, j), band) in self.margins:
+                        continue
+                    sb = self.stations[j]
+                    d = haversine_m(sa.lon, sa.lat, sb.lon, sb.lat)
+                    if d > MAX_RANGE_M[band]:
+                        continue
+                    margin, _, _ = link_margin(self.terrain, sa, sb, band)
+                    if margin < self.margin_min:
+                        continue
+                    self.damaged[band][i] |= 1 << j
+                    self.damaged[band][j] |= 1 << i
+                    self.margins[(min(i, j), max(i, j), band)] = margin
+                    if E.relation_allowed(sa.subtype, sb.subtype, band):
+                        self.normal[band][i] |= 1 << j
+                        self.normal[band][j] |= 1 << i
+                    added += 1
+        return added
 
     # ── 查询 ──
     def neighbors(self, i, band, damaged=False):

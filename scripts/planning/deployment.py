@@ -56,6 +56,7 @@ class Solution:
         self.active = set()       # 参与本次求解的台站下标（失效节点不在其中）
         self.lower_bound = 0      # 容量下界：至少需要新增几部电台
         self.gap = None           # (实得 - 下界) / 下界
+        self.exact_evals = 0      # 外层贪心做了多少次精确求解
 
     @property
     def count(self):
@@ -267,12 +268,49 @@ def candidate_stations(rows, subtype, id_prefix="CS"):
     return out
 
 
+def _gain_bound(fm, sol, ci, band_of_orphan):
+    """候选 ci 能新连通多少节点的**上界**，纯位运算，微秒级。
+
+    上界 = 它能够到的失联节点数，再被它自己的端口容量截断。
+    真实增量只会更小（它自己还得先上行得通），所以这是合法的上界，
+    可以拿来排序、筛掉绝大多数候选，只对靠前的少数做精确求解。
+    """
+    st = fm.stations[ci]
+    best, best_margin = 0, 0.0
+    for band, orphan_mask in band_of_orphan.items():
+        if not st.has(band):
+            continue
+        reach = fm.normal[band][ci] & orphan_mask
+        cnt = bin(reach).count("1")
+        # 自己要留一个上行端口
+        room = max(0, E.capacity(st.subtype, band) - 1)
+        g = min(cnt, room)
+        if g > best or (g == best and g > 0):
+            ms = []
+            m = reach
+            while m:
+                low = m & -m
+                j = low.bit_length() - 1
+                ms.append(fm.margin_of(ci, j, band) or 0.0)
+                m ^= low
+            ms.sort(reverse=True)
+            avg = sum(ms[:room]) / max(1, len(ms[:room]))
+            if g > best or avg > best_margin:
+                best, best_margin = g, avg
+    return best, best_margin
+
+
 def p1_solve(base_stations, candidate_rows, terrain, types=E.DEPLOYABLE_TYPES,
-             margin_min=None, max_add=30, verbose=False):
+             margin_min=None, max_add=30, shortlist=24, verbose=False):
     """P1：最少电台数，使所有节点连通到根。
 
-    外层贪心：每轮试开设每个候选，取「新连通节点数」最大者；平局时取代价低的类型。
-    内层每次都重跑分层 b-匹配 —— 可行性判定是精确的，启发式只在「往哪儿加」。
+    外层贪心用**惰性求值**：每轮先用位运算算出每个候选的增量上界（微秒级），
+    只对上界最高的前 `shortlist` 个做精确求解。
+
+    为什么必须这样：朴素做法每轮要对全部候选各跑一次分层指派。
+    规模实测 1100 候选 × 4 类型 = 4400 个，单次指派 59 ms，
+    **每轮 261 s、5 轮 1306 s，远超 5 分钟指标**。
+    惰性求值把每轮的精确求解次数从 4400 降到 shortlist 个。
     """
     from feasibility import FeasibilityMatrix
     kw = {} if margin_min is None else dict(margin_min=margin_min)
@@ -281,29 +319,57 @@ def p1_solve(base_stations, candidate_rows, terrain, types=E.DEPLOYABLE_TYPES,
     pool = []
     for sub in types:
         pool.extend(candidate_stations(candidate_rows, sub))
-    if verbose:
-        print("  候选 (位置 × 类型) 共 %d 个" % len(pool))
 
     all_st = list(base_stations) + pool
-    fm = FeasibilityMatrix(all_st, terrain, verbose=verbose, **kw)
+    # 候选×候选先不算：贪心每轮只选一两个，那些对算了也白算，选中后再补
+    fm = FeasibilityMatrix(all_st, terrain, verbose=verbose,
+                           candidate_pairs=False, **kw)
     base_idx = list(range(len(base_stations)))
     cand_idx = list(range(len(base_stations), len(all_st)))
+    if verbose:
+        print("  候选 (位置 × 类型) %d 个，基线台站 %d 个" % (len(pool), len(base_idx)))
 
     chosen = []
     sol = solve_assignment(fm, active=base_idx)
     lb = lower_bound(fm, sol)          # 下界必须在**部署前**的失联集合上算
     if verbose:
         print("  未部署时失联 %d 个，容量下界 %d 部" % (len(sol.unconnected), lb))
+
+    n_exact = 0
     while sol.unconnected and len(chosen) < max_add:
-        best = None
+        # 失联节点按频段做成位图，供上界计算
+        band_of_orphan = {}
+        for band in E.BANDS:
+            m = 0
+            for i in sol.unconnected:
+                if fm.stations[i].has(band):
+                    m |= 1 << i
+            band_of_orphan[band] = m
+
+        ranked = []
         for ci in cand_idx:
             if ci in chosen:
                 continue
+            ub, avg_margin = _gain_bound(fm, sol, ci, band_of_orphan)
+            if ub > 0:
+                # 排序键：增量上界降序 → 部署代价升序 → **平均链路余量降序**
+                # 第三项是实质性择优依据；没有它，并列时只能按下标决定，
+                # 选出来的点会挤在候选表前几行，与地理分布无关。
+                ranked.append((-ub, E.DEPLOY_COST[fm.stations[ci].subtype],
+                               -avg_margin, ci))
+        if not ranked:
+            break
+        ranked.sort()
+
+        best = None
+        for neg_ub, cost, neg_margin, ci in ranked[:shortlist]:
+            if best is not None and -neg_ub <= best[0][0] * -1:
+                break                       # 上界已不可能超过当前最优，剪枝
             trial = solve_assignment(fm, active=base_idx + chosen + [ci])
+            n_exact += 1
             gain = len(sol.unconnected) - len(trial.unconnected)
             if gain <= 0:
                 continue
-            cost = E.DEPLOY_COST[fm.stations[ci].subtype]
             key = (-gain, cost)
             if best is None or key < best[0]:
                 best = (key, ci, trial)
@@ -311,11 +377,12 @@ def p1_solve(base_stations, candidate_rows, terrain, types=E.DEPLOYABLE_TYPES,
             break                       # 再加也无增益 → 无可行解，交给 diagnose
         _, ci, trial = best
         chosen.append(ci)
-        sol = trial
+        fm.extend_pairs(base_idx[:0] + chosen)   # 补算已选候选之间的可行性
+        sol = solve_assignment(fm, active=base_idx + chosen)
         if verbose:
             st = fm.stations[ci]
-            print("    + %-12s %s  → 失联 %d"
-                  % (st.subtype, st.sid, len(sol.unconnected)))
+            print("    + %-12s %-16s → 失联 %d" % (st.subtype, st.sid,
+                                                  len(sol.unconnected)))
 
     # 冗余消除：逐个试着撤掉，仍全连通则永久撤
     for ci in list(chosen):
@@ -328,6 +395,10 @@ def p1_solve(base_stations, candidate_rows, terrain, types=E.DEPLOYABLE_TYPES,
     sol.added = [(ci, fm.stations[ci].subtype) for ci in chosen]
     sol.lower_bound = lb
     sol.gap = None if lb == 0 else (sol.count - lb) / float(lb)
+    sol.exact_evals = n_exact
+    if verbose:
+        print("  精确求解次数 %d（朴素做法需 %d 次）"
+              % (n_exact, len(cand_idx) * max(1, len(chosen))))
     return fm, sol
 
 
