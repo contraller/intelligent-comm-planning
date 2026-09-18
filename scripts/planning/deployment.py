@@ -57,6 +57,9 @@ class Solution:
         self.lower_bound = 0      # 容量下界：至少需要新增几部电台
         self.gap = None           # (实得 - 下界) / 下界
         self.exact_evals = 0      # 外层贪心做了多少次精确求解
+        self.lower_bound_parts = {}   # 三个下界的分解
+        self.bb_stats = None          # 分支定界统计
+        self.proved_optimal = False   # 是否已证最优（达到下界）
 
     @property
     def count(self):
@@ -226,9 +229,17 @@ def report(fm, sol, title="部署求解"):
         lines.append("   %-22s 待接入 %3d  配上 %3d  未配 %3d" % (label, ch, ok, un))
     if sol.lower_bound or sol.added:
         g = "—" if sol.gap is None else ("%.0f%%" % (100 * sol.gap))
-        lines.append("   容量下界 %d 部，实得 %d 部，gap %s%s"
-                     % (sol.lower_bound, sol.count, g,
-                        "  （达到下界，本场景最优）" if sol.gap == 0 else ""))
+        pr = sol.lower_bound_parts
+        detail = ("（容量 %d / 互斥 %d / 端口 %d）"
+                  % (pr.get("capacity", 0), pr.get("mutual_exclusion", 0),
+                     pr.get("port", 0))) if pr else ""
+        lines.append("   下界 %d 部 %s，实得 %d 部，gap %s%s"
+                     % (sol.lower_bound, detail, sol.count, g,
+                        "  （达到下界，**已证最优**）" if sol.proved_optimal else ""))
+        if sol.bb_stats:
+            lines.append("   分支定界：搜索 %d 个节点，剪枝 %d 次%s"
+                         % (sol.bb_stats["nodes"], sol.bb_stats["pruned"],
+                            "，超时返回当前最优" if sol.bb_stats["timeout"] else "，搜索穷尽"))
     if sol.added:
         lines.append("   新增部署：")
         for idx, sub in sol.added:
@@ -301,7 +312,8 @@ def _gain_bound(fm, sol, ci, band_of_orphan):
 
 
 def p1_solve(base_stations, candidate_rows, terrain, types=E.DEPLOYABLE_TYPES,
-             margin_min=None, max_add=30, shortlist=24, verbose=False):
+             margin_min=None, max_add=30, shortlist=24, refine=True,
+             refine_seconds=30.0, verbose=False):
     """P1：最少电台数，使所有节点连通到根。
 
     外层贪心用**惰性求值**：每轮先用位运算算出每个候选的增量上界（微秒级），
@@ -391,6 +403,28 @@ def p1_solve(base_stations, candidate_rows, terrain, types=E.DEPLOYABLE_TYPES,
         if len(t2.unconnected) <= len(sol.unconnected):
             chosen = rest
             sol = t2
+
+    # 三个下界取最大，比单一容量下界更紧
+    try:
+        from branch_bound import combined_lower_bound, branch_and_bound
+        sol_pre = solve_assignment(fm, active=base_idx)
+        lb, lb_parts = combined_lower_bound(fm, sol_pre, cand_idx)
+        sol.lower_bound_parts = lb_parts
+    except ImportError:
+        branch_and_bound = None
+
+    # 贪心已达下界就不必搜索；否则用自研分支定界尝试改进并证明最优性
+    if refine and branch_and_bound and len(chosen) > lb and chosen:
+        best, proved, st_bb = branch_and_bound(fm, base_idx, cand_idx, chosen,
+                                               time_limit=refine_seconds,
+                                               verbose=verbose)
+        if len(best) < len(chosen):
+            chosen = best
+            sol = solve_assignment(fm, active=base_idx + chosen)
+        sol.bb_stats = st_bb
+        sol.proved_optimal = proved and len(chosen) <= lb
+    else:
+        sol.proved_optimal = bool(chosen) and len(chosen) <= lb
 
     sol.added = [(ci, fm.stations[ci].subtype) for ci in chosen]
     sol.lower_bound = lb
