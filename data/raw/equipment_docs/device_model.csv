@@ -1,3 +1,17 @@
 model_id,model_name,manufacturer,device_class,category,freq_min_khz,freq_max_khz,tx_power_max_dbm,tx_power_levels_dbm,rx_sensitivity_dbm,bandwidth_khz,modulation,work_mode,service_type,data_rate_kbps,antenna_type_default,power_consumption_w,constraint_note,source_doc
-DM-0001,示例-短波车载电台,示例厂家,HF,车载电台,1600,29999,50,37;43;47;50,-110,3;6,USB;LSB;CW;FSK,定频;跳频;自适应ALE,话音;数据,2.4;4.8;9.6,鞭状天线/双极天线,300,跳频模式下不支持最大功率发射,示例说明书.pdf
-DM-0002,示例-超短波背负电台,示例厂家,VUHF,背负电台,30000,88000,37,30;33;37,-116,12.5;25,FM;QPSK,定频;跳频,话音;数据,16;64,鞭状天线,25,,示例说明书.pdf
+DM-0001,AN/PRC-150(C),Harris Corporation,HF,背负电台,1600,59999.9,43.01,30;36.99;43.01,-113,,LSB;USB;AME;CW;FM,ALE;FH;SSB;CW;AM,voice;data,,OE-505 3m whip,,,PRC-150_用户操作手册.pdf
+DM-0002,RF-7800H-MP,Harris Corporation,HF,背负电台,1500,59999,43.01,30;36.99;43.01,-113,,J3E;H3E;A1A;J2A;F3E,ALE;FH;SSB;CW;AM,voice;data,,OE-505 10-foot whip,,,RF-7800H-MP_数据手册.pdf
+DM-0003,RF-5800H-MP,Harris Corporation,HF,背负电台,1600,59999,43.01,30;36.99;43.01,-113,,J3E;H3E;A1A;J2A;F3E,ALE;FH;ECCM;SSB;CW,voice;data,9.6,OE-505 10-foot whip,,,RF-5800H-MP_数据手册.pdf
+DM-0004,Barrett 4050 HF SDR,Barrett Communications,HF,固定台,1500,30000,51.76,51.76,-125,24,J3E;H3E;J2A;ISB,ALE;SDR;frequency hopping,voice;data,19.2,鞭状天线,,,Barrett4050_HF-SDR_数据手册.pdf
+DM-0005,Envoy,Codan,HF,固定台,1600,30000,50.97,50.97,-125,0.5;2.4;2.7;3,J3E;H3E;J2A;J2B;F1B;G1D,ALE;Selcall,voice;data,19.2,鞭状天线,,,Envoy_数据手册.pdf
+DM-0006,IC-F8101,Icom,HF,固定台,1600,30000,50.97,40;46.99;50.97,-121,3,J3E;A3E;A1A;F1B;J2B,ALE;Selcall;CW;SSB,voice;data,,鞭状天线,,,IC-F8101_说明书.pdf
+DM-0007,MICOM-3F/3R/3T,MOBAT USA,HF,固定台,1600,30000,50.97,50.97,-113,2.1;2.7;3;3.3,J3E;R3E;H3E;J2A;J2B;B8C,ALE;SSB;CW;AM,voice;data,9.6,鞭状天线,,,MICOM-3_用户手册.pdf
+DM-0008,FT-891,Yaesu,HF,车载电台,1800,54000,50,46.02;50,-123,,A1A;A3E;J3E;F3E,SSB;CW;AM;FM,voice,,鞭状天线,,,FT891_操作手册.pdf
+DM-0009,APX 8000,Motorola Solutions,VUHF,手持台,136000,870000,37.78,37.78;36.99;34.77,,,,P25;Conventional;Trunking,voice;data,,鞭状天线,,,APX-8000_技术规格书.pdf
+DM-0010,DP4000e Series,Motorola Solutions,VUHF,手持台,136000,527000,36.99,30;36.09;36.99,-124,12.5;20;25,4FSK,DMR;Analog,voice;data,,鞭状天线,,TX/RX bands: 136-174 MHz; 300-360 MHz; 403-527 MHz,DP4000e_技术规格书.pdf
+DM-0011,PD985,Hytera,VUHF,手持台,136000,527000,37,30;37,-118.05,12.5;20;25,4FSK,DMR;Analog,voice;data,,鞭状天线,,,PD985_用户手册.pdf
+DM-0012,HP685,Hytera,VUHF,手持台,400000,527000,36.02,30;36.02,-121.89,12.5;20;25,4FSK,DMR;DMO,voice;data,,鞭状天线,,产品线另有VHF 136–174MHz版本；本条按项目UHF机型填400–527MHz,HP685_用户手册.pdf
+DM-0013,IC-F5061D/IC-F6061D,Icom,VUHF,车载电台,136000,512000,46.99,46.99,-119.04,12.5;25,FM;Digital,Conventional;IDAS;P25;LTR,voice;data,,鞭状天线,,,ICOM_IC-F5061_F6061系列_操作手册.pdf
+DM-0014,TK-8180,Kenwood,VUHF,车载电台,450000,520000,44.77,43.98;44.77,-120,12.5;25,16K0F3E;11K0F3E,Analog FM,voice;data,,鞭状天线,,,TK-8180_说明书.pdf
+DM-0015,FT-5DR,Yaesu,VUHF,手持台,144000,450000,36.99,20;30;33.98;36.99,-123,5;6.25;8.33;9;10;12.5;15;20;25;50;100,F1D;F2D;F3E;F7W,C4FM;FM;AM,voice;data,,鞭状天线,,,FT5DR_操作手册.pdf
+DM-0016,XPR 7000e Series,Motorola Solutions,VUHF,手持台,136000,941000,36.99,30;33.98;36.02;36.99,-124,12.5;25,4FSK,DMR;Analog;IP Site Connect;Capacity Plus;Capacity Max,voice;data,,鞭状天线,,Bands: 136-174 MHz; 403-512 MHz; 806-825 MHz; 851-870 MHz; 896-902 MHz; 935-941 MHz,XPR7000e_DataSheet.pdf
