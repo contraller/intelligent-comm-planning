@@ -11,6 +11,7 @@
 import csv, json, math, os, random, sys, datetime as dt
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "planning"))
 from terrain import default_terrain, BBOX, haversine_m, los_clearance
 from propagation import vuhf_path_loss, hf_path_loss, link_budget, margin_to_state
 from datapaths import path as dpath, RAW_DEVICE_MODEL, RAW_ANTENNA_MODEL
@@ -149,67 +150,10 @@ N_II_MOBILE_PER, N_II_NODE_PER = 2, 2
 N_III, N_IV = 30, 60
 N_VEH_A, N_VEH_B, N_MANPACK = 2, 12, 12
 
-# 各类节点的设备台数 = 该频段可同时维持的链路数。
-# 合作方对问题 2(c) 的答复：编成定额即「最多有这么多装备，可以把这个当成容量约束」。
-# 战术电台为单信道设备，一台一次一条链路，故容量由本表的台数直接给出。
-# 「图注」= 图中方框内标注的数量；「待确认」= 图中未标注，取满足编成连接数的工程默认值。
-ECHELON_CAP = {
-    "I_FIXED":    dict(HF=8,  VUHF=0),   # 待确认：需领 4 个 Ⅱ固定站 + Ⅰ机动站
-    "I_MOBILE":   dict(HF=18, VUHF=0),   # 待确认：需领 a车×2 + b车×12 + Ⅰ固定站
-    "II_FIXED":   dict(HF=6,  VUHF=4),   # 待确认：需领 4 个下级 + 上行 Ⅰ
-    "II_MOBILE":  dict(HF=1,  VUHF=2),   # 图注：db设备*1，cdb设备*2
-    "II_NODE":    dict(HF=1,  VUHF=5),   # 图注：db设备*1，Ⅰ型和Ⅱ型cdb设备*5
-    "III_MOBILE": dict(HF=1,  VUHF=4),   # 图注：db设备*1，cdb设备*4
-    "IV_MOBILE":  dict(HF=0,  VUHF=1),   # 待确认：单上级（合作方答复 4：Ⅳ 不需双上级）
-    "VEHICLE_A":  dict(HF=4,  VUHF=0),   # 待确认
-    "VEHICLE_B":  dict(HF=4,  VUHF=0),   # 待确认
-    "MANPACK":    dict(HF=2,  VUHF=0),   # 待确认：图中背负式同时挂 a车 与 b车
-}
-
-# 发射功率（dBm），取自图中方框标注：
-#   400 W=56, 125 W=51, 50 W=47, 20 W=43
-SUBTYPE_POWER = {
-    ("I_FIXED", "HF"): 56.0, ("I_MOBILE", "HF"): 56.0,
-    ("II_FIXED", "HF"): 56.0, ("II_MOBILE", "HF"): 56.0, ("II_NODE", "HF"): 56.0,
-    ("III_MOBILE", "HF"): 56.0,
-    ("II_FIXED", "VUHF"): 47.0, ("II_MOBILE", "VUHF"): 47.0,
-    ("II_NODE", "VUHF"): 47.0, ("III_MOBILE", "VUHF"): 47.0,
-    ("IV_MOBILE", "VUHF"): 47.0,
-    ("VEHICLE_A", "HF"): 56.0, ("VEHICLE_B", "HF"): 51.0, ("MANPACK", "HF"): 43.0,
-}
-
-# 编成层级。右支（a车/b车/背负式）为 Ⅰ 直属，层级记 I，
-# 其与 Ⅰ固定站/Ⅰ机动站 的区别由 node_subtype 承担——
-# 跃迁规则以 (echelon, node_subtype) 二元组判定，不单看 echelon（见方案 3.1）。
-SUBTYPE_ECHELON = {
-    "I_FIXED": "I", "I_MOBILE": "I",
-    "II_FIXED": "II", "II_MOBILE": "II", "II_NODE": "II",
-    "III_MOBILE": "III", "IV_MOBILE": "IV",
-    "VEHICLE_A": "I", "VEHICLE_B": "I", "MANPACK": "I",
-}
-
-SUBTYPE_MOBILITY = {
-    "I_FIXED": "FIXED", "II_FIXED": "FIXED",
-    "I_MOBILE": "VEHICLE", "II_MOBILE": "VEHICLE", "II_NODE": "VEHICLE",
-    "III_MOBILE": "VEHICLE", "IV_MOBILE": "VEHICLE",
-    "VEHICLE_A": "VEHICLE", "VEHICLE_B": "VEHICLE", "MANPACK": "MANPACK",
-}
-
-# 能否中继转发。按编成规则推导：末端节点（Ⅳ、背负式）无空余端口可供转发，其余可转。
-# 真实装备是否支持自动转信待 06 任务单回收真实型号后核实（见数据字典 relay_capable）。
-SUBTYPE_RELAY = {
-    "I_FIXED": "true", "I_MOBILE": "true", "II_FIXED": "true",
-    "II_MOBILE": "true", "II_NODE": "true", "III_MOBILE": "true",
-    "IV_MOBILE": "false", "VEHICLE_A": "true", "VEHICLE_B": "true",
-    "MANPACK": "false",
-}
-
-SUBTYPE_NAME = {
-    "I_FIXED": "Ⅰ短波固定站", "I_MOBILE": "Ⅰ短波机动站", "II_FIXED": "Ⅱ双频固定站",
-    "II_MOBILE": "Ⅱ双频机动站", "II_NODE": "Ⅱ双频机动节点站", "III_MOBILE": "Ⅲ双频机动站",
-    "IV_MOBILE": "Ⅳ超短波机动站", "VEHICLE_A": "a机动车", "VEHICLE_B": "b机动车",
-    "MANPACK": "背负式短波电台",
-}
+# 编成口径（层级、子类型、容量、功率、中继能力）统一由 planning/echelon.py 定义，
+# 本脚本只引用，不另建一份 —— 避免两处常量漂移。
+from echelon import (ECHELON_CAP, SUBTYPE_ECHELON, SUBTYPE_MOBILITY,
+                     SUBTYPE_NAME, SUBTYPE_POWER, SUBTYPE_RELAY)
 
 
 # ─────────────────────────── 节点 ───────────────────────────
@@ -250,7 +194,7 @@ def gen_nodes():
             lon=round(lon, 6), lat=round(lat, 6),
             elevation_m=round(terrain.elevation(lon, lat), 1),
             region=nearest_area(lon, lat), device_class=cls,
-            relay_capable=SUBTYPE_RELAY[subtype],
+            relay_capable="true" if SUBTYPE_RELAY[subtype] else "false",
             status="NORMAL", is_key="false", remark="")
         nodes.append(nd)
         used[(nd["node_id"], "HF")] = 0
