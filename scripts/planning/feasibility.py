@@ -26,6 +26,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import echelon as E
+from devicespec import SpecFiller
 from terrain import haversine_m
 from propagation import vuhf_path_loss, hf_path_loss, link_budget, margin_to_state
 
@@ -66,6 +67,8 @@ def stations_from_nodes(nodes, devices, models, antennas):
     """
     model_by_id = {m["model_id"]: m for m in models}
     ant_by_id = {a["antenna_id"]: a for a in antennas}
+    # 真实型号库按任务单要求「查不到留空」，空字段按 devicespec 的可追溯规则代入
+    filler = SpecFiller(models)
     per_node = {}
     for d in devices:
         m = model_by_id.get(d["model_id"])
@@ -80,8 +83,8 @@ def stations_from_nodes(nodes, devices, models, antennas):
             tx_dbm=float(d["tx_power_dbm"]),
             gain=float(a["gain_dbi"]),
             height=float(d["antenna_height_m"]),
-            sens=float(m["rx_sensitivity_dbm"]),
-            bw=float(str(m["bandwidth_khz"]).split(";")[0]),
+            sens=filler.sensitivity(m),
+            bw=filler.bandwidth(m),
             pattern=a["pattern_type"],
             fmin=float(m["freq_min_khz"]),
             fmax=float(m["freq_max_khz"]))

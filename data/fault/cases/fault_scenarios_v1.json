@@ -5,7 +5,7 @@
     "faults": [
       {
         "object_type": "DEVICE",
-        "object_id": "DV-0070",
+        "object_id": "DV-0037",
         "fault_type": "HW_FAILURE",
         "symptom_ids": [
           "SY-0001",
@@ -23,7 +23,7 @@
     "faults": [
       {
         "object_type": "LINK",
-        "object_id": "LK-0136",
+        "object_id": "LK-0171",
         "fault_type": "LINK_DOWN",
         "symptom_ids": [
           "SY-0005"
@@ -40,7 +40,7 @@
     "faults": [
       {
         "object_type": "DEVICE",
-        "object_id": "DV-0079",
+        "object_id": "DV-0057",
         "fault_type": "SW_CONFIG",
         "symptom_ids": [
           "SY-0012"
@@ -57,7 +57,7 @@
     "faults": [
       {
         "object_type": "LINK",
-        "object_id": "LK-0026",
+        "object_id": "LK-0327",
         "fault_type": "EMI",
         "symptom_ids": [
           "SY-0009",
@@ -77,7 +77,7 @@
     "faults": [
       {
         "object_type": "DEVICE",
-        "object_id": "DV-0057",
+        "object_id": "DV-0037",
         "fault_type": "HW_FAILURE",
         "symptom_ids": [
           "SY-0001",
@@ -88,7 +88,7 @@
       },
       {
         "object_type": "LINK",
-        "object_id": "LK-0201",
+        "object_id": "LK-0281",
         "fault_type": "EMI",
         "symptom_ids": [
           "SY-0009",

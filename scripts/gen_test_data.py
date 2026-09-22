@@ -15,6 +15,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "pla
 from terrain import default_terrain, BBOX, haversine_m, los_clearance
 from propagation import vuhf_path_loss, hf_path_loss, link_budget, margin_to_state
 from datapaths import path as dpath, RAW_DEVICE_MODEL, RAW_ANTENNA_MODEL
+from devicespec import SpecFiller
 
 SEED = 20260908
 LON0, LAT0, LON1, LAT1 = BBOX
@@ -379,6 +380,7 @@ def gen_devices(nodes, models, antennas):
             return rng.uniform(1.8, 3.0)
         return rng.uniform(3.5, 8)
 
+    filler = SpecFiller(models)
     devices, i = [], 0
     for nd in nodes:
         st = nd["node_subtype"]
@@ -389,7 +391,8 @@ def gen_devices(nodes, models, antennas):
                 want = SUBTYPE_POWER.get((st, band), 47.0)
                 m, lv = pick_model(band, want)
                 a_ = pick_antenna(band, st)
-                bw = float(str(m["bandwidth_khz"]).split(";")[0])
+                bw = filler.bandwidth(m)
+                sens = filler.sensitivity(m)
                 devices.append(dict(
                     device_id=sid("DV", i), node_id=nd["node_id"], model_id=m["model_id"],
                     antenna_id=a_["antenna_id"],
@@ -398,8 +401,10 @@ def gen_devices(nodes, models, antennas):
                     work_freq_khz="", status="NORMAL", install_time=iso(T0),
                     _class=band, _node=nd, _subtype=st, _port=k,
                     _pattern=a_["pattern_type"], _gain=float(a_["gain_dbi"]),
-                    _sens=float(m["rx_sensitivity_dbm"]), _bw=bw,
-                    _fmin=float(m["freq_min_khz"]), _fmax=float(m["freq_max_khz"])))
+                    _sens=sens, _bw=bw,
+                    _fmin=float(m["freq_min_khz"]),
+                    _fmax=float(m["freq_max_khz"])))
+    print(filler.report())
     return devices
 
 
@@ -416,42 +421,84 @@ def index_devices(devices):
 
 
 # ─────────────────────────── 频率资源池 ───────────────────────────
-def gen_freq_pool():
+def gen_freq_pool(models=None):
+    """频率资源池。
+
+    **频段边界由实际设备型号库推导，不写死。** 起初短波 3–12 MHz、
+    超短波 30–88 MHz 是按军用战术频段构造的；师弟交付真实型号后发现
+    采集到的超短波电台全是 136–870 MHz 的商用制式，两边对不上，
+    导致 157 条链路的工作频率落在设备型号范围之外（由校验段 [9b] 抓出）。
+    因此改为从型号库取各频段的可用区间，池子永远与在库设备自洽。
+    """
     rows, n = [], 0
-    for i in range(46):                       # 短波 3-12 MHz，3 kHz 话路
+
+    def span(band, fallback):
+        if not models:
+            return fallback
+        lo = [float(m["freq_min_khz"]) for m in models
+              if m.get("device_class") == band and m.get("freq_min_khz")]
+        hi = [float(m["freq_max_khz"]) for m in models
+              if m.get("device_class") == band and m.get("freq_max_khz")]
+        if not lo or not hi:
+            return fallback
+        lo.sort(); hi.sort()
+        # 取中位数边界：让多数型号都能用，不被个别宽频段型号拉偏
+        return (lo[len(lo) // 2], hi[len(hi) // 2])
+
+    # 短波：限制在 3–12 MHz。NVIS 需低于昼间反射上限 7.5 MHz，
+    # 且区域内（<300 km）通信主要靠地波与 NVIS，高频段用不上。
+    hf_lo, hf_hi = span("HF", (1600.0, 30000.0))
+    lo = max(3000.0, hf_lo)
+    hi = min(12000.0, hf_hi)
+    step = (hi - lo) / 46.0
+    for i in range(46):
         n += 1
-        f = 3000 + i * 195
         rows.append(dict(freq_id=sid("FQ", n), device_class="HF",
-                         center_freq_khz=f, bandwidth_khz=3, channel_no=i + 1,
+                         center_freq_khz=round(lo + i * step, 1),
+                         bandwidth_khz=3, channel_no=i + 1,
                          is_available="true" if i % 11 else "false", occupied_by="",
                          reuse_min_distance_m=60000, adjacent_guard_khz=3,
                          note="" if i % 11 else "禁用-预留应急频点"))
-    for i in range(48):                       # 超短波 30-88 MHz，25 kHz
+
+    vu_lo, vu_hi = span("VUHF", (30000.0, 88000.0))
+    step = (vu_hi - vu_lo) / 48.0
+    for i in range(48):
         n += 1
-        f = 30125 + i * 1200
         rows.append(dict(freq_id=sid("FQ", n), device_class="VUHF",
-                         center_freq_khz=f, bandwidth_khz=25, channel_no=i + 1,
+                         center_freq_khz=round(vu_lo + i * step + step / 2, 1),
+                         bandwidth_khz=25, channel_no=i + 1,
                          is_available="true" if i % 13 else "false", occupied_by="",
                          reuse_min_distance_m=25000, adjacent_guard_khz=25,
                          note="" if i % 13 else "禁用-邻区占用"))
     return rows
 
 
-def default_freq(dev, pool):
+def default_freq(dev, pool, other=None):
+    """挑一个工作频点。
+
+    **必须对链路两端的设备型号都合法**。原先只检查了 dev 一端，
+    两端频率范围不同时会选出一端够不着的频点（校验段 [9b] 会判为非法链路）。
+    """
+    lo, hi = dev["_fmin"], dev["_fmax"]
+    if other is not None:
+        lo, hi = max(lo, other["_fmin"]), min(hi, other["_fmax"])
     cand = [f for f in pool if f["device_class"] == dev["_class"]
             and f["is_available"] == "true"
-            and dev["_fmin"] <= f["center_freq_khz"] <= dev["_fmax"]]
+            and lo <= f["center_freq_khz"] <= hi]
     if not cand:
-        cand = [f for f in pool if f["device_class"] == dev["_class"]]
+        cand = [f for f in pool if f["device_class"] == dev["_class"]
+                and lo <= f["center_freq_khz"] <= hi]
+    if not cand:
+        return None                      # 两端频段无交集 → 该链路不成立
     if dev["_class"] == "HF":
         # NVIS 需低于昼间反射上限 7.5 MHz
         low = [f for f in cand if f["center_freq_khz"] <= 7000]
         cand = low or cand
-    return cand[0]["center_freq_khz"] if cand else 5000
+    return cand[0]["center_freq_khz"]
 
 
 # ─────────────────────────── 链路 ───────────────────────────
-def gen_links(nodes, devices):
+def gen_links(nodes, devices, models=None):
     """构建网络拓扑。
 
     两步走：先用余量最好的链路建出连通骨架（并查集），保证路由规划有解；
@@ -459,7 +506,7 @@ def gen_links(nodes, devices):
     SR-6.2 无法从指标挖掘状态判定规则，故障诊断也没有弱链路可分析。
     """
     dev_idx = index_devices(devices)
-    pool = gen_freq_pool()
+    pool = gen_freq_pool(models)
     max_range = {"HF": 175000, "VUHF": 95000}
 
     # 1) 枚举候选并算链路预算
@@ -828,7 +875,7 @@ def main():
 
     nodes = gen_nodes()
     devices = gen_devices(nodes, models, antennas)
-    links, freq_pool = gen_links(nodes, devices)
+    links, freq_pool = gen_links(nodes, devices, models)
     tasks, demands = gen_tasks_and_demands(nodes, links)
     inters = gen_interference()
     metrics = gen_link_metrics(links)
