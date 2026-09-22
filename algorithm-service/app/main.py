@@ -4,6 +4,7 @@ from __future__ import annotations
 from typing import Any
 
 from .candidate_sites import filter_candidate_sites
+from .coverage import query_coverage, read_cache, submit_coverage
 from .deployment import query_deployment, submit_deployment
 
 try:
@@ -40,3 +41,21 @@ def plan_deployment(payload: dict[str, Any]) -> dict[str, Any]:
 @app.get("/api/v1/plan/deployment/{task_id}")
 def plan_deployment_status(task_id: str) -> dict[str, Any]:
     return query_deployment(task_id)
+
+
+@app.post("/api/v1/plan/coverage")
+def plan_coverage(payload: dict[str, Any]) -> dict[str, Any]:
+    """覆盖范围计算（SR-1.1.2.6.2）。命中缓存则直接返回。"""
+    return submit_coverage(payload)
+
+
+@app.get("/api/v1/plan/coverage/{task_id}")
+def plan_coverage_status(task_id: str) -> dict[str, Any]:
+    return query_coverage(task_id)
+
+
+@app.get("/api/v1/plan/coverage/cache/{cache_key}")
+def plan_coverage_cache(cache_key: str) -> dict[str, Any]:
+    """前端只读入口：SR-1.1.2.6.2 c 要求覆盖图层读规划模块的计算结果缓存，
+    不独立发起实时全网计算。"""
+    return read_cache(cache_key)
