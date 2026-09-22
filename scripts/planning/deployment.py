@@ -625,3 +625,64 @@ if __name__ == "__main__":
     sol = solve_assignment(fm)
     print("\n" + report(fm, sol, "正常工况（仅用现有节点，未新增部署）"))
     print("  求解 %.2f s" % (time.time() - t1))
+
+
+# ────────────────── 增量重规划（《技术参考》(8)，参考项）──────────────────
+#
+# 需规对照：本节对应《技术参考》第 (8) 条「20% 节点失效下重规划 ≤3 分钟」。
+# 该条**未标红**，且需规全文检索「失效」「重规划」各 0 处，**无对应功能条目**。
+# 因此为参考项、非需规交付项，不计入关键路径。保留理由是实现成本极低。
+
+def affected_by(sol, failed):
+    """失效节点的影响集合：它们的子树 ∪ 以它们为唯一上级的节点。
+
+    层级结构在这里是优势——一个节点失效只波及它的子树，不会扩散到全网。
+    """
+    children = {}
+    for c, (p, _b) in sol.parent_of.items():
+        children.setdefault(p, []).append(c)
+    out, stack = set(failed), list(failed)
+    while stack:
+        cur = stack.pop()
+        for c in children.get(cur, ()):
+            if c not in out:
+                out.add(c)
+                stack.append(c)
+    return out
+
+
+def replan_incremental(fm, sol, failed, allow_damaged=True, verbose=False):
+    """节点失效后的增量重规划。
+
+    只对受影响子树重跑分层指派，其余部署结果原样保留。
+    正常工况仍无解时，按标红段「必要时可以跨层级通信（存在作战损伤时）」
+    切换到 damaged 矩阵重试，并把由此产生的链路标注为「跨层级降级链路」。
+    """
+    act = set(sol.active or range(len(fm.stations)))
+    failed = set(failed) & act
+    hit = affected_by(sol, failed)
+    survivors = sorted(act - failed)
+    if verbose:
+        print("  失效 %d 个，受影响子树 %d 个，存活 %d 个"
+              % (len(failed), len(hit - failed), len(survivors)))
+
+    new = solve_assignment(fm, active=survivors)
+    new.degraded_links = []
+    if new.unconnected and allow_damaged:
+        dmg = solve_assignment(fm, active=survivors, damaged=True)
+        if len(dmg.unconnected) < len(new.unconnected):
+            # 标出哪些链路是靠放宽编成约束才成立的
+            for c, (p, band) in dmg.parent_of.items():
+                if not (fm.normal[band][c] >> p & 1):
+                    dmg.degraded_links = getattr(dmg, "degraded_links", [])
+                    dmg.degraded_links.append(
+                        (fm.stations[c].sid, fm.stations[p].sid, band))
+            if verbose:
+                print("  正常工况失联 %d → 切换损伤工况后 %d，"
+                      "其中跨层级降级链路 %d 条"
+                      % (len(new.unconnected), len(dmg.unconnected),
+                         len(getattr(dmg, "degraded_links", []))))
+            new = dmg
+    new.failed = sorted(failed)
+    new.affected = sorted(hit)
+    return new
