@@ -27,6 +27,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import echelon as E
 from terrain import haversine_m
+from prop import p533 as P533
 from propagation import (vuhf_path_loss, hf_ground_wave_loss, hf_nvis_loss,
                          link_budget, noise_floor_dbm)
 
@@ -124,24 +125,29 @@ def vuhf_coverage(terrain, station, radius_m=60000.0, cell_m=DEFAULT_RAY_STEP,
 def hf_skip_geometry(freq_khz, hour=12, virtual_height_km=300.0):
     """短波低仰角天波的跳距与静区（SR-1.1.2.6.2 a「环带形态」）。
 
-    单跳几何：电离层视作虚高 h' 的镜面，临界频率 foF2 之上的波才会斜射反射。
-    最小反射角对应的地面距离即**跳距** d_skip：
+    **几何与电离层参数统一由 `prop/p533.py`（ITU-R P.533）提供**，本函数
+    只做接口适配，不再自带公式与 foF2 常数，避免两处口径漂移。
 
-        d_skip = 2 h' sqrt( (f / foF2)^2 - 1 )
+    p533 的跳距用正割定律沿距离求解并含地球曲率；教科书平面近似
+    d = 2h'·√((f/foF2)²−1) 在远距离会明显偏大，两者差异见 p533 自检第 [2] 项。
 
-    f <= foF2 时垂直入射也能反射（即 NVIS），**不存在静区**。
+    f ≤ foF2 时垂直入射也能反射（即 NVIS），**不存在静区**。
 
     返回 (d_skip_m, note)；d_skip 为 None 表示该频率无静区。
     """
+    io_ = P533.ionosphere(hour, h_km=virtual_height_km)
     f_mhz = freq_khz / 1000.0
-    fo_f2 = 7.5 if 8 <= hour <= 18 else 4.5        # 与 propagation.hf_nvis_loss 一致
+    fo_f2 = io_["foF2"]
     if f_mhz <= fo_f2:
-        return None, "f=%.1f MHz ≤ foF2=%.1f MHz，垂直入射可反射（NVIS），无静区" % (
-            f_mhz, fo_f2)
-    ratio = (f_mhz / fo_f2) ** 2 - 1.0
-    d_skip = 2.0 * virtual_height_km * 1000.0 * math.sqrt(ratio)
-    return d_skip, ("f=%.1f MHz > foF2=%.1f MHz，跳距 %.0f km，"
-                    "地波边缘至此为静区" % (f_mhz, fo_f2, d_skip / 1000.0))
+        return None, ("f=%.1f MHz ≤ foF2=%.1f MHz，垂直入射可反射（NVIS），无静区"
+                      % (f_mhz, fo_f2))
+    d_skip_km = P533.skip_distance_km(freq_khz, hour, fo_f2, virtual_height_km)
+    if d_skip_km == float("inf"):
+        return None, "f=%.1f MHz 任何入射角都反射不回来，无天波落区" % f_mhz
+    flat_km = P533.skip_distance_flat_km(freq_khz, hour, fo_f2, virtual_height_km)
+    return d_skip_km * 1000.0, ("f=%.1f MHz > foF2=%.1f MHz，跳距 %.0f km"
+                                "（平面近似 %.0f km），地波边缘至此为静区"
+                                % (f_mhz, fo_f2, d_skip_km, flat_km))
 
 
 def hf_coverage_rings(terrain, station, freq_khz=5000.0, hour=12,
