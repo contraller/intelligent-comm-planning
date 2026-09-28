@@ -237,3 +237,88 @@ def blind_zones(covered_cells, bbox, cell_m=1000.0, min_area_km2=5.0):
                            lat0 + cy * cell_m * DEG_PER_M_LAT)))
     zones.sort(key=lambda z: -z[0])
     return zones
+
+
+def expansion_advice(terrain, zones, candidate_rows, stations, bbox, cell_m=1000.0,
+                     radius_m=25000.0, per_zone=3, max_cands=30, sample=16):
+    """盲区扩容建议（SR-4.2 扩展 4「覆盖盲区自动识别与扩容建议」）。
+
+    对每块盲区，在附近候选位置里评估「部署一台 Ⅲ 机动站（唯一带超短波的可部署类型）」：
+    - **能覆盖盲区多少**：从候选点对盲区内抽样格点做通视判断
+      （覆盖在本项目功率量级下由地形遮挡决定，见交接 2026-09-22 的实测）；
+    - **能不能接进网**：候选点到现网合法上级的最好链路余量（≥ 6 dB 才算接得上）。
+    按「接得上」优先、再按覆盖比例排序，每块盲区给前 per_zone 个。
+
+    射频参数取现网 Ⅲ 机动站的实际参数（deployment.radio_templates），不手写常数。
+    接入对象限于能转发的节点（SUBTYPE_RELAY）；对端端口是否有余量此处不判，
+    真正部署时由 P1 按编成定额校验。
+    """
+    from deployment import radio_templates, candidate_stations
+    from feasibility import link_margin, DEFAULT_MARGIN_MIN
+    from terrain import los_clearance
+    tpl = radio_templates(stations)
+    by_band = {}
+    for st in stations:
+        for band in st.radio:
+            by_band.setdefault(band, []).append(st)
+    lon0, lat0, lon1, lat1 = bbox
+    m_per_deg_lon = 111320.0 * max(0.2, math.cos(math.radians((lat0 + lat1) / 2)))
+    out = []
+    for area, blob, center in zones:
+        cells = sorted(blob)
+        step = max(1, len(cells) // sample)
+        pts = [(lon0 + (gx + 0.5) * cell_m / m_per_deg_lon,
+                lat0 + (gy + 0.5) * cell_m * DEG_PER_M_LAT) for gx, gy in cells[::step]][:sample]
+        near = []
+        for r in candidate_rows:
+            if str(r.get("is_deployable", "true")).lower() != "true":
+                continue
+            d = haversine_m(center[0], center[1], float(r["lon"]), float(r["lat"]))
+            if d <= radius_m:
+                near.append((d, r))
+        near.sort(key=lambda t: t[0])
+        ranked = []
+        for d, r in near[:max_cands]:
+            cand = candidate_stations([r], "III_MOBILE", templates=tpl)[0]
+            h = cand.radio[E.VUHF]["height"]
+            seen = sum(1 for (x, y) in pts
+                       if los_clearance(terrain, cand.lon, cand.lat, h, x, y, 2.0)[0])
+            frac = seen / max(1, len(pts))
+            best_up = None
+            for band in cand.radio:
+                for st in by_band.get(band, []):
+                    if not E.relation_allowed(cand.subtype, st.subtype, band):
+                        continue
+                    # 只能挂到能转发的节点上：Ⅳ、背负站没有空余端口可供转发
+                    if not E.SUBTYPE_RELAY.get(st.subtype, False):
+                        continue
+                    if haversine_m(cand.lon, cand.lat, st.lon, st.lat) > 60000:
+                        continue
+                    m, _dist, _pl = link_margin(terrain, cand, st, band)
+                    if best_up is None or m > best_up[0]:
+                        best_up = (m, st.sid, band)
+            joins = best_up is not None and best_up[0] >= DEFAULT_MARGIN_MIN
+            ranked.append(dict(site_id=r["site_id"], lon=float(r["lon"]), lat=float(r["lat"]),
+                               distance_to_zone_m=round(d, 1),
+                               zone_cells_visible_ratio=round(frac, 3),
+                               joins_network=joins,
+                               uplink=dict(node_id=best_up[1], band=best_up[2],
+                                           margin_db=round(best_up[0], 2)) if best_up else None))
+        ranked.sort(key=lambda x: (not x["joins_network"], -x["zone_cells_visible_ratio"],
+                                   x["distance_to_zone_m"]))
+        top = ranked[:per_zone]
+        if top and top[0]["joins_network"] and top[0]["zone_cells_visible_ratio"] > 0:
+            advice = ("建议在 %s 增设 Ⅲ 机动站：可看到该盲区约 %.0f%% 的抽样格点，"
+                      "经 %s（%s，余量 %.1f dB）接入网络"
+                      % (top[0]["site_id"], 100 * top[0]["zone_cells_visible_ratio"],
+                         top[0]["uplink"]["node_id"], top[0]["uplink"]["band"],
+                         top[0]["uplink"]["margin_db"]))
+        elif not near:
+            advice = "盲区 %.0f km 内没有可部署的候选位置，需扩大候选筛选范围" % (radius_m / 1000)
+        else:
+            advice = ("附近 %d 个候选位置均不能同时看到该盲区且接入网络，"
+                      "可能需要两级中继或更高的架设高度" % len(near[:max_cands]))
+        out.append(dict(area_km2=round(area, 1),
+                        center=dict(lon=round(center[0], 5), lat=round(center[1], 5)),
+                        candidates=top, advice=advice))
+    return out

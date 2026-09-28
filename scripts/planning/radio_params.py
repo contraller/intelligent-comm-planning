@@ -323,13 +323,18 @@ def plan(stations, topo, caps, terrain, preset="TERRAIN",
                            tilt_deg=tilt_deg if tilt_deg is not None else 0.0,
                            tilt_effective=False,      # 全向天线，倾角不参与计算
                            manual=key in manual_keys))
-    total_w = sum(10 ** ((tx[k] - 30.0) / 10.0) for k in tx)
+    # 全网总辐射功率只计**至少有一条链路**的设备：空闲电台可以关机，不产生辐射。
+    # （第 4 周与多目标优化对口径时发现：此前连空闲电台也按最低档计入，
+    #  两处功率对不上。）
+    active = {b["ka"] for b in base} | {b["kb"] for b in base}
+    total_w = sum(10 ** ((tx[k] - 30.0) / 10.0) for k in tx if k in active)
     return dict(
         preset=preset, preset_name=cfg.get("name"), note=cfg.get("note"),
         fade_margin_db=M_req,
         params=params, links=links, failed_links=failed,
         manual_errors=manual_errors,
-        summary=dict(devices=len(params), links=len(links),
+        summary=dict(devices=len(params), devices_active=len(active),
+                     devices_idle=len(params) - len(active), links=len(links),
                      failed=len(failed),
                      total_radiated_w=round(total_w, 2),
                      mean_tx_dbm=round(sum(tx.values()) / max(1, len(tx)), 2),

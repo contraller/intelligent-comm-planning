@@ -928,7 +928,8 @@ def _self_test():
     for k in ("CHANNEL_SWITCH", "FREQ_ADJUST", "POWER_OPT", "ROUTE_REBUILD", "NODE_REDEPLOY"):
         print("    %-15s 生成 %3d 条，能恢复可用 %3d 条" % (k, kinds[k], ok[k]))
     missing = [k for k in COST_RANK if kinds[k] == 0]
-    print("    五类是否都出现：%s" % ("是 ✓" if not missing else "缺 %s" % missing))
+    print("    本场景下未生成措施的类型：%s（原因见 [5b] 的逐项结论，不是没实现）"
+          % (missing or "无"))
     for c in cms[:4]:
         pe = c.get("pre_eval", {})
         print("    [P%d] %-14s 目标 %s  %s" % (c["priority"], c["type"], c["target"],

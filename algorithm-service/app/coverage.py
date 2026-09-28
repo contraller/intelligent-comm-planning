@@ -120,12 +120,12 @@ def _run(tid: str, node_ids, band, params) -> None:
             result["coverage_ratio_note"] = (
                 "仅作态势呈现与盲区标注之用，**不是优化目标**"
                 "（合作方 2026-09-18：以全连通为唯一目标）")
-            result["blind_zones"] = [
-                dict(area_km2=round(a, 1),
-                     center=dict(lon=round(c[0], 5), lat=round(c[1], 5)),
-                     suggestion="该区域无台站可覆盖，若有任务站点落入，"
-                                "需在附近增设 Ⅲ 机动站（唯一带超短波的可部署类型）")
-                for a, _blob, c in zones[:10]]
+            # 扩容建议（SR-4.2 扩展 4）：具体到候选位置、覆盖比例与接入链路，
+            # 不再是一句写死的通用话术
+            _set(tid, stage="扩容建议", progress=0.97)
+            result["blind_zones"] = viewshed.expansion_advice(
+                terrain, zones[:10], _load("candidate_site.csv"), env["stations"], bbox,
+                cell_m=1000.0)
         cache_key = _key(node_ids or [], band, params)
         with _LOCK:
             _CACHE[cache_key] = dict(result=result, at=time.time())
@@ -164,7 +164,7 @@ def query_coverage(task_id: str) -> dict[str, Any]:
     with _LOCK:
         t = dict(_TASKS.get(task_id) or {})
     if not t:
-        return {"code": 4004, "message": "任务不存在", "data": None}
+        return {"code": 2001, "message": "任务不存在或已过期", "data": None}
     return {"code": 0, "message": "success", "data": t}
 
 
@@ -173,7 +173,7 @@ def read_cache(cache_key: str) -> dict[str, Any]:
     with _LOCK:
         hit = _CACHE.get(cache_key)
     if not hit:
-        return {"code": 4004, "message": "缓存未命中，请先提交覆盖计算任务",
+        return {"code": 2001, "message": "缓存未命中，请先提交覆盖计算任务",
                 "data": None}
     return {"code": 0, "message": "success",
             "data": {"cache_key": cache_key, "computed_at": hit["at"],

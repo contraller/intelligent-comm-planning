@@ -173,7 +173,7 @@ def query_deployment(task_id: str) -> dict[str, Any]:
     with _LOCK:
         t = dict(_TASKS.get(task_id) or {})
     if not t:
-        return {"code": 4004, "message": "任务不存在", "data": None}
+        return {"code": 2001, "message": "任务不存在或已过期", "data": None}
     return {"code": 0, "message": "success", "data": t}
 
 

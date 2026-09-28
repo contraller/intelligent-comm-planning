@@ -44,6 +44,31 @@ def _representative_device(subtype, band, nodes, devices, models):
     return next(d for d in pool if (d["model_id"], d["antenna_id"]) == key)
 
 
+def root_links(fm, sol):
+    """两个 Ⅰ 之间的同行链路 [(a, b, band)]。只返回物理可通、编成允许的。"""
+    import echelon as _E
+    from feasibility import link_margin
+    roots = sorted(i for i in sol.connected
+                   if fm.stations[i].subtype in _E.ROOT_SUBTYPES
+                   and i not in sol.parent_of)
+    out = []
+    for x in range(len(roots)):
+        for y in range(x + 1, len(roots)):
+            a, b = roots[x], roots[y]
+            for band in sorted(set(fm.stations[a].radio) & set(fm.stations[b].radio)):
+                if not _E.relation_allowed(fm.stations[a].subtype, fm.stations[b].subtype, band):
+                    continue
+                m = fm.margin_of(a, b, band)
+                if m is None:
+                    m, _d, _pl = link_margin(fm.terrain, fm.stations[a], fm.stations[b], band)
+                    if m < fm.margin_min:
+                        continue
+                    fm.margins[(min(a, b), max(a, b), band)] = m
+                out.append((a, b, band))
+                break
+    return out
+
+
 def topology_from_deployment(stations, terrain, nodes=None, devices=None,
                              models=None, candidate_rows=None, verbose=False):
     """第 3 周的输入 = 第 2 周部署规划的**完整输出**，不是 link.csv 全集。
@@ -72,6 +97,14 @@ def topology_from_deployment(stations, terrain, nodes=None, devices=None,
 
     used = dict(sol.ports)
     edges = [(c, p, b, False) for c, (p, b) in sol.parent_of.items()]
+    # Ⅰ固定站──Ⅰ机动站 同行链路，显式放进拓扑。
+    # 求解器不给根指派上级，两个 Ⅰ 各领一棵树；第 2 周只在路径计算里**隐式**
+    # 假定这条线存在（Visio 图上有），从没当成真链路算余量、占端口。
+    # 第 3 周路由之所以全可达，是备份链路碰巧把两棵树接上了。现改为显式。
+    for ra, rb, band in root_links(fm, sol):
+        edges.append((ra, rb, band, False))
+        used[(ra, band)] = used.get((ra, band), 0) + 1
+        used[(rb, band)] = used.get((rb, band), 0) + 1
     # 备份父链路：只在两端端口都还有余量时才建，保证不越编成定额
     for child, (parent, band) in sorted(sol.parent_of.items()):
         ca = _E.capacity(fm.stations[child].subtype, band)
@@ -140,6 +173,7 @@ def run(strategy="MAX_RELIABILITY", preset="TERRAIN", granularity="NET",
     pool_rows = load("frequency_resource.csv")
     stations = stations_from_nodes(nodes, devices, models, antennas)
     steps.append(("加载数据与地形", time.time() - t0))
+    fm = sol = None
 
     if topology == "DEPLOYMENT":
         t0 = time.time()
@@ -187,7 +221,8 @@ def run(strategy="MAX_RELIABILITY", preset="TERRAIN", granularity="NET",
                 presets=presets, check=chk, steps=steps,
                 # 下游（多目标优化、干扰分析）要用的中间结果
                 stations=stations, links=links, nodes=nodes, devices=devices,
-                freq_tasks=ftasks, graph=g, caps=caps, terrain=terrain)
+                freq_tasks=ftasks, graph=g, caps=caps, terrain=terrain,
+                fm=fm, sol=sol, demands=demands)
 
 
 def _report(steps, g, skipped, routes, freq, ftasks, presets, chosen, chk, pool):
