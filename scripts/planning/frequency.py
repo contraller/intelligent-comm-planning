@@ -329,6 +329,73 @@ def clique_lower_bound(adj, tasks, band=None, cap=400):
     return len(clique)
 
 
+def _max_clique(cand, adj, budget=200000):
+    """候选点集合内的最大团。点数不大时精确求解，超预算退化为当前最好解。
+
+    返回 (团, 是否精确)。
+    """
+    cand = sorted(cand, key=lambda v: -len(adj[v]))
+    best = []
+    steps = [0]
+
+    def bk(r, p):
+        steps[0] += 1
+        if steps[0] > budget:
+            return
+        if len(r) + len(p) <= len(best):
+            return
+        if not p:
+            if len(r) > len(best):
+                best[:] = r
+            return
+        for v in list(p):
+            if len(r) + len(p) <= len(best):
+                return
+            bk(r + [v], [u for u in p if u in adj[v]])
+            p.remove(v)
+
+    bk([], cand)
+    return best, steps[0] <= budget
+
+
+def sub_band_gaps(tasks, adj):
+    """按**候选频点集合**分组求缺口 —— 比按整个频段求下界紧得多。
+
+    一组对象如果只能用某个频点子集 S（候选集合 ⊆ S），它们内部的最大团
+    超过 |S| 就说明这一段频点数学上不够，冲突不可避免。
+
+    第 4 周型号铺开后实测：25 个超短波网只能用 450–512 MHz 那 6 个频点，
+    内部最大团 14，缺 8 个——而按整个超短波频段算的下界是 22 ≤ 44，
+    报的是「缺 0」。这就是为什么必须按候选集合分组。
+    """
+    groups = {}
+    for i, t in enumerate(tasks):
+        key = (t.band, frozenset(c["freq_khz"] for c in t.allowed))
+        groups.setdefault(key, set()).add(i)
+    out = []
+    for (band, S), _members in groups.items():
+        if not S:
+            continue
+        inside = [i for i, t in enumerate(tasks)
+                  if t.band == band and t.allowed
+                  and {c["freq_khz"] for c in t.allowed} <= S]
+        if len(inside) <= len(S):
+            continue
+        clique, exact = _max_clique(inside, adj)
+        if len(clique) > len(S):
+            out.append(dict(
+                band=band,
+                freq_range_khz=[min(S), max(S)],
+                available_channels=len(S),
+                objects_confined=len(inside),
+                required_channels=len(clique),
+                shortage=len(clique) - len(S),
+                exact=exact,
+                clique_task_ids=[tasks[i].task_id for i in clique]))
+    out.sort(key=lambda g: -g["shortage"])
+    return out
+
+
 def assign(tasks, pool, manual=None):
     """主入口。manual 为 [{link_id, freq_khz}]。
 
@@ -379,11 +446,21 @@ def assign(tasks, pool, manual=None):
         ))
 
     gap = {}
+    subs = sub_band_gaps(tasks, adj)
     for band in sorted({t.band for t in tasks}):
         need = clique_lower_bound(adj, tasks, band)
         avail = len(pool.of_band(band))
+        # 嵌套/重叠的子频段不能累加（同一批网会被数两次），只累加互不相交的
+        sub_short, taken = 0, []
+        for g_ in (x for x in subs if x["band"] == band):
+            lo_, hi_ = g_["freq_range_khz"]
+            if any(not (hi_ < a or lo_ > b) for a, b in taken):
+                continue
+            taken.append((lo_, hi_))
+            sub_short += g_["shortage"]
         gap[band] = dict(required_channels=need, available_channels=avail,
-                         shortage=max(0, need - avail))
+                         shortage=max(max(0, need - avail), sub_short),
+                         sub_bands=[g for g in subs if g["band"] == band])
     total_short = sum(g["shortage"] for g in gap.values())
     out = dict(assignments=assignments, conflicts=[
         {k: v for k, v in c.items() if k != "_idx"} for c in conflicts],
@@ -401,7 +478,12 @@ def _advice(gap, conflicts):
     """扩容建议（SR-4.2.2.2 扩展 1）。只讲有依据的话。"""
     tips = []
     for band, g in gap.items():
-        if g["shortage"] > 0:
+        for sb in g.get("sub_bands", []):
+            tips.append("%s 的 %.0f–%.0f kHz 段只有 %d 个频点，但有 %d 个网两两互扰且只能用这一段，"
+                        "至少还差 %d 个：可在此段扩充频点，或把相关站换装频段更宽的型号"
+                        % (band, sb["freq_range_khz"][0], sb["freq_range_khz"][1],
+                           sb["available_channels"], sb["required_channels"], sb["shortage"]))
+        if g["shortage"] > 0 and not g.get("sub_bands"):
             tips.append("%s 频段至少还差 %d 个频点（干扰图里有 %d 条链路两两互扰，"
                         "可用频点只有 %d 个）" % (band, g["shortage"],
                                             g["required_channels"], g["available_channels"]))

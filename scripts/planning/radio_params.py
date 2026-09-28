@@ -125,6 +125,21 @@ def height_range_of(antenna_row):
         return (None, None)
 
 
+# 天线可调架设高度区间，按**平台**取（m）。**待确认**：需规与《技术参考》未给出，
+# 取工程常见值，且与 gen_test_data.pick_height 的生成区间一致或更宽。
+#
+# 为什么不用天线库的 height_range_m：数据字典定义它是「可用挂高范围，如 2-12」，
+# 但采集回来的 45 条值是 0.09 / 0.11 / 0.16 这种——显然是**天线自身长度**，
+# 另有 33 条为空。第 3 周曾照字面当成可调区间用，结果 180 台里 90 台
+# 「抬到上限」反而比现网挂高还低（17.3 m 铁塔上的天线被「抬」到 0.1 m）。
+# 2026-09-29 勘误，改为按平台取，该字段的数据问题已交回采集方更正。
+PLATFORM_HEIGHT_RANGE_M = {
+    "FIXED": (10.0, 30.0),       # 固定站铁塔/桅杆
+    "VEHICLE": (2.0, 10.0),      # 车载伸缩桅杆
+    "MANPACK": (1.5, 3.0),       # 背负
+}
+
+
 class DeviceCapability:
     """一台设备在参数规划中可动的范围。"""
 
@@ -174,12 +189,16 @@ def capabilities_from_tables(stations, devices, models, antennas):
             band = m["device_class"]
             if band not in st.radio or (st.sid, band) in caps:
                 continue
-            lo, hi = height_range_of(a)
+            h_now = float(d["antenna_height_m"])
+            lo, hi = PLATFORM_HEIGHT_RANGE_M.get(
+                E.SUBTYPE_MOBILITY.get(st.subtype, "VEHICLE"), (h_now, h_now))
+            # 区间必须包含现网实际挂高：可调，但不会被「调」得比现在更差
+            lo, hi = min(lo, h_now), max(hi, h_now)
             caps[(st.sid, band)] = DeviceCapability(
                 st.sid, band,
                 power_levels_of(m),
                 lo, hi,
-                float(d["tx_power_dbm"]), float(d["antenna_height_m"]),
+                float(d["tx_power_dbm"]), h_now,
                 a.get("pattern_type", "OMNI"), m["model_id"], a["antenna_id"])
     return caps
 

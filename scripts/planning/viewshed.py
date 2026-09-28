@@ -83,7 +83,9 @@ def vuhf_coverage(terrain, station, radius_m=60000.0, cell_m=DEFAULT_RAY_STEP,
     不是单纯的视域。
     """
     r = _radio_of(station, E.VUHF)
-    f = freq_khz or 150000.0
+    # 2026-09-29 勘误：原先写死 150 MHz。改为本台电台工作频段的几何中心，
+    # 与可行性判据同一口径（feasibility.representative_freq）。
+    f = freq_khz or math.sqrt(max(r.get("fmin", 136000.0), 1.0) * r.get("fmax", 174000.0))
     res = CoverageResult(station.sid, E.VUHF, station.lon, station.lat,
                          cell_m, (station.lon, station.lat), radius_m)
     lat_rad = math.radians(station.lat)

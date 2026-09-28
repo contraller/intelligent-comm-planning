@@ -56,12 +56,25 @@ def _topology(force: bool = False):
     if force or "topo" not in _CACHE:
         from feasibility import stations_from_nodes
         from plan_pipeline import topology_from_deployment
-        stations = stations_from_nodes(_load("node.csv"), _load("device.csv"),
-                                       _load("device_model.csv"),
-                                       _load("antenna_model.csv"))
-        fm, sol, links = topology_from_deployment(stations, _terrain())
+        nodes, devices = _load("node.csv"), _load("device.csv")
+        models, antennas = _load("device_model.csv"), _load("antenna_model.csv")
+        stations = stations_from_nodes(nodes, devices, models, antennas)
+        fm, sol, links, nodes_x, devices_x = topology_from_deployment(
+            stations, _terrain(), nodes, devices, models, _load("candidate_site.csv"))
+        stations = stations + [fm.stations[i] for i, _s in sol.added]
         _CACHE["topo"] = (stations, fm, sol, links)
+        _CACHE["nodes_x"], _CACHE["devices_x"] = nodes_x, devices_x
     return _CACHE["topo"]
+
+
+def _nodes():
+    _topology()
+    return _CACHE["nodes_x"]
+
+
+def _devices():
+    _topology()
+    return _CACHE["devices_x"]
 
 
 def _set(tid: str, **kw) -> None:
@@ -166,7 +179,7 @@ def submit_route(payload: dict[str, Any]) -> dict[str, Any]:
 def _do_frequency(payload, tick):
     import frequency as FQ
     stations, fm, sol, links = _topology()
-    nodes, devices = _load("node.csv"), _load("device.csv")
+    nodes, devices = _nodes(), _devices()
     models = _load("device_model.csv")
     tick(0.3, "构造分配对象")
     gran = (payload.get("granularity") or "NET").upper()
@@ -198,7 +211,7 @@ def submit_frequency(payload: dict[str, Any]) -> dict[str, Any]:
 def _do_radio_params(payload, tick):
     import radio_params as RP
     stations, fm, sol, links = _topology()
-    devices, models = _load("device.csv"), _load("device_model.csv")
+    devices, models = _devices(), _load("device_model.csv")
     antennas = _load("antenna_model.csv")
     tick(0.3, "装配设备可动范围")
     caps = RP.capabilities_from_tables(stations, devices, models, antennas)
@@ -238,7 +251,7 @@ def _do_plan_check(payload, tick):
     import radio_params as RP
     import routing
     stations, fm, sol, links = _topology()
-    nodes, devices = _load("node.csv"), _load("device.csv")
+    nodes, devices = _nodes(), _devices()
     models, antennas = _load("device_model.csv"), _load("antenna_model.csv")
     tick(0.25, "路由")
     g, _s = routing.graph_from_links(links, _load("link_metric.csv"))

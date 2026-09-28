@@ -254,25 +254,64 @@ def report(fm, sol, title="部署求解"):
 
 
 # ────────────────────── 外层：选址 ──────────────────────
-def candidate_stations(rows, subtype, id_prefix="CS"):
+def radio_templates(stations):
+    """从现网台站提取每个 (类型, 频段) 的射频参数模板。
+
+    候选位置上部署的是**同类型的电台**，射频参数应当取现网同类型台站的实际值，
+    而不是手写常数。取各数值字段的中位数；频段范围取**交集最宽的那台**的范围
+    （同类台站型号可能不同，取能与最多型号互通的那台）。
+
+    2026-09-29 勘误：原先候选点超短波频段写死 30–88 MHz（早期军用频段遗留），
+    与现网 136–520 MHz 的电台**完全没有交集**。可行性判据改为按真实频率评估后，
+    任何候选点都连不上任何超短波节点，P1 一台都加不进去——修正前靠「一律按
+    31.3 MHz 算」把这个矛盾掩盖了。
+    """
+    import statistics
+    by = {}
+    for st in stations:
+        if getattr(st, "is_candidate", False):
+            continue
+        for band, r in st.radio.items():
+            by.setdefault((st.subtype, band), []).append(r)
+            by.setdefault(("*", band), []).append(r)
+    tpl = {}
+    for key, rs in by.items():
+        med = {}
+        for f in ("tx_dbm", "gain", "height", "sens", "bw"):
+            vals = [r[f] for r in rs if r.get(f) is not None]
+            if vals:
+                med[f] = statistics.median(vals)
+        widest = max(rs, key=lambda r: (r.get("fmax", 0) - r.get("fmin", 0)))
+        med["fmin"], med["fmax"] = widest.get("fmin"), widest.get("fmax")
+        med["pattern"] = statistics.mode([r.get("pattern", "OMNI") for r in rs])
+        tpl[key] = med
+    return tpl
+
+
+def candidate_stations(rows, subtype, id_prefix="CS", templates=None):
     """把候选点表变成某一类型的待部署台站。
 
     同一个候选位置放不同类型的电台，射频参数不同（功率 400/125/20 W 相差 26 dB），
     因此按 (位置, 类型) 成对生成，而不是按位置。
+
+    射频参数优先取 `templates`（现网同类型台站的实际参数，见 radio_templates）；
+    现网没有该类型时退到同频段全体台站的中位值。**不再使用手写常数。**
     """
     from feasibility import Station
+    templates = templates or {}
     out = []
     for r in rows:
         radio = {}
         for band in E.bands_of(subtype):
+            t = templates.get((subtype, band)) or templates.get(("*", band))
+            if t is None:
+                raise ValueError("没有 %s %s 的射频参数模板：候选电台参数须取自现网台站，"
+                                 "不能凭空设定" % (subtype, band))
+            # 功率也取现网实际值：编成标注的 56 dBm 超过库里任何型号（最大 51.76）
             radio[band] = dict(
-                tx_dbm=E.SUBTYPE_POWER.get((subtype, band), 47.0),
-                gain=-2.0 if band == E.HF else 0.0,     # 鞭状天线，保守取值
-                height=6.0 if E.SUBTYPE_MOBILITY[subtype] == "VEHICLE" else 2.5,
-                sens=-110.0 if band == E.HF else -116.0,
-                bw=3.0 if band == E.HF else 25.0,
-                pattern="OMNI", fmin=1600.0 if band == E.HF else 30000.0,
-                fmax=29999.0 if band == E.HF else 88000.0)
+                tx_dbm=t["tx_dbm"], gain=t["gain"], height=t["height"],
+                sens=t["sens"], bw=t["bw"], pattern=t["pattern"],
+                fmin=t["fmin"], fmax=t["fmax"])
         out.append(Station("%s-%s-%s" % (id_prefix, subtype[:3], r["site_id"]),
                            float(r["lon"]), float(r["lat"]), subtype, radio,
                            is_candidate=True))
@@ -329,8 +368,9 @@ def p1_solve(base_stations, candidate_rows, terrain, types=E.DEPLOYABLE_TYPES,
 
     # 只有 Ⅲ 机动站带超短波，是 Ⅳ 接入的唯一手段；其余三类只能补 db 侧
     pool = []
+    tpl = radio_templates(base_stations)
     for sub in types:
-        pool.extend(candidate_stations(candidate_rows, sub))
+        pool.extend(candidate_stations(candidate_rows, sub, templates=tpl))
 
     all_st = list(base_stations) + pool
     # 候选×候选先不算：贪心每轮只选一两个，那些对算了也白算，选中后再补

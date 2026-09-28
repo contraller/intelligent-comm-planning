@@ -349,17 +349,41 @@ def gen_devices(nodes, models, antennas):
     for a_ in antennas:
         ant_by_cls.setdefault(a_["device_class"], []).append(a_)
 
-    def pick_model(band, want_dbm):
-        """挑发射功率档位最接近编成标注值的型号。"""
-        pool = by_cls.get(band) or by_cls[list(by_cls)[0]]
-        best, bestd = None, None
-        for m in pool:
-            levels = [float(x) for x in str(m["tx_power_levels_dbm"]).split(";") if x]
-            for lv in levels:
-                d = abs(lv - want_dbm)
-                if bestd is None or d < bestd:
-                    best, bestd = (m, lv), d
-        return best
+    # 型号分配规则（2026-09-29 改）：按节点机动类型匹配型号类别，类别内轮转。
+    #
+    # 原规则是「挑功率档位最接近编成标注值的型号」，确定性地让同类节点全拿同一型号：
+    # 414 台设备只用到 16 个型号里的 4 个，其中 3 个单功率档，
+    # 第 3 周电台参数规划因此只剩 0.5% 的优化空间（见交接 2026-09-28 第 15 条）。
+    #
+    # 类别映射由本项目自定（待确认）：车载短波除「车载电台」外也取「固定台」类，
+    # 因为库里车载短波只有 FT-891 一个型号，而 Barrett 4050 / Envoy 等说明书
+    # 均标明可车载安装。轮转分配不消耗随机数，其余随机数据不受牵连。
+    model_rule = {
+        ("FIXED", "HF"): ("固定台",),
+        ("VEHICLE", "HF"): ("车载电台", "固定台"),
+        ("MANPACK", "HF"): ("背负电台",),
+        ("FIXED", "VUHF"): ("车载电台",),
+        ("VEHICLE", "VUHF"): ("车载电台",),
+        ("MANPACK", "VUHF"): ("手持台",),
+    }
+    turn = {}
+
+    def pick_model(band, want_dbm, mobility):
+        """按机动类型取型号类别，类别内按型号编号轮转；功率取最接近标注值的档位。"""
+        cats = model_rule.get((mobility, band), ())
+        pool = sorted((m for m in by_cls.get(band, []) if m.get("category") in cats),
+                      key=lambda m: m["model_id"])
+        if not pool:
+            pool = sorted(by_cls.get(band) or by_cls[list(by_cls)[0]],
+                          key=lambda m: m["model_id"])
+        k = turn.get((band, cats), 0)
+        turn[(band, cats)] = k + 1
+        m = pool[k % len(pool)]
+        levels = [float(x) for x in str(m["tx_power_levels_dbm"]).split(";") if x.strip()]
+        if not levels:
+            levels = [float(m["tx_power_max_dbm"])]
+        lv = min(levels, key=lambda x: abs(x - want_dbm))
+        return m, lv
 
     def pick_antenna(band, subtype):
         pool = ant_by_cls.get(band) or ant_by_cls[list(ant_by_cls)[0]]
@@ -386,10 +410,13 @@ def gen_devices(nodes, models, antennas):
         st = nd["node_subtype"]
         for band in ("HF", "VUHF"):
             cap = ECHELON_CAP[st][band]
+            if cap <= 0:
+                continue
+            # 同一节点同一频段的多台设备取同一型号（一个站配发的是同型电台）
+            want = SUBTYPE_POWER.get((st, band), 47.0)
+            m, lv = pick_model(band, want, SUBTYPE_MOBILITY[st])
             for k in range(cap):
                 i += 1
-                want = SUBTYPE_POWER.get((st, band), 47.0)
-                m, lv = pick_model(band, want)
                 a_ = pick_antenna(band, st)
                 bw = filler.bandwidth(m)
                 sens = filler.sensitivity(m)
@@ -528,7 +555,9 @@ def gen_links(nodes, devices, models=None):
                 da = dev_idx[(a["node_id"], band)][0]
                 db = dev_idx[(b["node_id"], band)][0]
                 cls = band
-                f = default_freq(da, pool)
+                f = default_freq(da, pool, db)
+                if f is None:
+                    continue                      # 两端型号频段无交集，链路不成立
                 pa = (a["lon"], a["lat"]); pb = (b["lon"], b["lat"])
                 if cls == "HF":
                     pat = "NVIS" if "NVIS" in (da["_pattern"], db["_pattern"]) else "OMNI"
@@ -662,20 +691,39 @@ def gen_tasks_and_demands(nodes, links):
 
 
 # ─────────────────────────── 干扰源 ───────────────────────────
-def gen_interference():
+def gen_interference(freq_pool=None):
+    """干扰源。
+
+    **中心频率瞄准网络在用的频点**（从频率池取信道中心），即瞄准式干扰——
+    这是评估抗干扰能力的标准场景。2026-09-29 勘误：原先超短波干扰频率写死在
+    30.5–87 MHz（早期军用频段遗留），而网络实际工作在 140–523 MHz，
+    6 个生效的超短波干扰源一个都碰不到网络，干扰分析形同空转。
+    改写后随机数调用次数不变，其余数据不受牵连。
+    """
     rows = []
     types = ["NARROWBAND", "BROADBAND", "SWEEP", "PULSE", "NOISE"]
+    chans = {}
+    for f in (freq_pool or []):
+        chans.setdefault(f["device_class"], []).append(float(f["center_freq_khz"]))
+    for b in chans:
+        chans[b].sort()
     for i in range(1, N_INTERFERENCE + 1):
         hf = i % 2 == 0
         lo = rng.uniform(LON0 + 0.08, LON1 - 0.08)
         la = rng.uniform(LAT0 + 0.08, LAT1 - 0.08)
+        band_ch = chans.get("HF" if hf else "VUHF")
+        h_ant = round(rng.uniform(5, 40), 1)
+        if band_ch:
+            u = rng.uniform(0, len(band_ch))
+            fc = band_ch[min(len(band_ch) - 1, int(u))]
+        else:
+            fc = rng.uniform(3000, 11000) if hf else rng.uniform(136000, 512000)
         rows.append(dict(
             interference_id=sid("IF", i), name="干扰源%02d" % i,
             lon=round(lo, 6), lat=round(la, 6),
             elevation_m=round(terrain.elevation(lo, la), 1),
-            antenna_height_m=round(rng.uniform(5, 40), 1),
-            center_freq_khz=round(rng.uniform(3000, 11000) if hf
-                                  else rng.uniform(30500, 87000), 1),
+            antenna_height_m=h_ant,
+            center_freq_khz=round(fc, 1),
             bandwidth_khz=round(rng.choice([3, 6, 25, 200, 1000]), 1),
             tx_power_dbm=round(rng.uniform(37, 60), 1),
             antenna_gain_dbi=round(rng.uniform(0, 12), 1),
@@ -877,7 +925,7 @@ def main():
     devices = gen_devices(nodes, models, antennas)
     links, freq_pool = gen_links(nodes, devices, models)
     tasks, demands = gen_tasks_and_demands(nodes, links)
-    inters = gen_interference()
+    inters = gen_interference(freq_pool)
     metrics = gen_link_metrics(links)
     cases = gen_fault_cases(links, devices)
     scenarios = gen_fault_scenarios(links, devices, nodes)

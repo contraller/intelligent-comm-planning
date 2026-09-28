@@ -32,7 +32,31 @@ from propagation import vuhf_path_loss, hf_path_loss, link_budget, margin_to_sta
 
 DEFAULT_MARGIN_MIN = 6.0          # dB，链路可用的余量门限
 MAX_RANGE_M = {E.HF: 175000.0, E.VUHF: 95000.0}   # 超出即不必算传播
+# 仅作短波的首选代表频率。超短波**不再使用固定常数**，见 representative_freq。
+# 2026-09-29 勘误：原先超短波默认 31325 kHz（早期军用 30–88 MHz 频段的遗留值），
+# 而真实型号库的超短波电台工作在 136–520 MHz。可行性矩阵不给频率时一直按
+# 31.3 MHz 算，实测余量中位虚高 15.7 dB，44% 的「可行」链路按真实频率其实不可行。
 DEFAULT_FREQ_KHZ = {E.HF: 5000.0, E.VUHF: 31325.0}
+
+
+def representative_freq(ra, rb, band):
+    """频率分配之前，用来评估一条链路的**代表频率**（kHz）。
+
+    取两端电台工作频段的交集：
+    - 短波：优先 5 MHz（NVIS 常用，低于昼间 foF2），落在交集外则取最近端点；
+    - 超短波：取交集的**几何中心**。不取最低频点——那样每条链路都按
+      最好的情况评估，是系统性的乐观偏差。
+    两端频段无交集返回 None：两台电台根本不能互通。
+    """
+    lo = max(ra.get("fmin") or 0.0, rb.get("fmin") or 0.0)
+    hi = min(ra.get("fmax") or 1e12, rb.get("fmax") or 1e12)
+    if lo > hi:
+        return None
+    if band == E.HF:
+        return min(max(DEFAULT_FREQ_KHZ[E.HF], lo), hi)
+    if lo <= 0:
+        return hi
+    return math.sqrt(lo * hi)
 
 
 class Station:
@@ -101,7 +125,10 @@ def stations_from_nodes(nodes, devices, models, antennas):
 def link_margin(terrain, sa, sb, band, freq_khz=None):
     """算一条链路的余量 dB。两端都必须持有该频段，否则是调用方的错。"""
     ra, rb = sa.radio[band], sb.radio[band]
-    f = freq_khz or DEFAULT_FREQ_KHZ[band]
+    f = freq_khz or representative_freq(ra, rb, band)
+    if f is None:
+        # 两端电台频段无交集，物理上不能互通
+        return -999.0, haversine_m(sa.lon, sa.lat, sb.lon, sb.lat), 999.0
     pa, pb = (sa.lon, sa.lat), (sb.lon, sb.lat)
     if band == E.HF:
         pat = "NVIS" if "NVIS" in (ra["pattern"], rb["pattern"]) else "OMNI"

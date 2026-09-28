@@ -29,24 +29,50 @@ def load(rel):
         return list(csv.DictReader(f))
 
 
-def topology_from_deployment(stations, terrain, verbose=False):
-    """用第 2 周的部署结果当拓扑，而不是 link.csv 全集。
+def _representative_device(subtype, band, nodes, devices, models):
+    """现网同类型站在该频段最常用的 (型号, 天线, 功率, 挂高)。新增中继照此配发。"""
+    from collections import Counter
+    sub = {n["node_id"]: n.get("node_subtype") for n in nodes}
+    mband = {m["model_id"]: m["device_class"] for m in models}
+    pool = [d for d in devices
+            if mband.get(d["model_id"]) == band and sub.get(d["node_id"]) == subtype]
+    if not pool:
+        pool = [d for d in devices if mband.get(d["model_id"]) == band]
+    if not pool:
+        return None
+    key, _n = Counter((d["model_id"], d["antenna_id"]) for d in pool).most_common(1)[0]
+    return next(d for d in pool if (d["model_id"], d["antenna_id"]) == key)
+
+
+def topology_from_deployment(stations, terrain, nodes=None, devices=None,
+                             models=None, candidate_rows=None, verbose=False):
+    """第 3 周的输入 = 第 2 周部署规划的**完整输出**，不是 link.csv 全集。
 
     **为什么不能直接用 link.csv**：那张表是「物理上可通的候选链路集合」，
-    500 条里每个节点挂了远超编成定额的链路数（实测 ND-0003 一个 Ⅱ固定站
-    就挂了 14 条超短波链路，定额只有 4）。候选集不是已建成的网——
-    拿它做频率分配会把频点需求放大一个量级，做容量校验必然全线报警。
+    单个节点挂的链路数远超编成定额（实测 ND-0003 一个 Ⅱ固定站挂 14 条超短波，
+    定额 4）。拿它做频率分配会把频点需求放大一个量级，做容量校验必然全线报警。
 
-    已建成的网 = 部署求解出的父子链路 + 容量还有余量时补上的备份父链路。
+    **为什么必须走 P1 而不是只在现网上分配上级**：2026-09-29 修正频率口径后，
+    现网台站自己已不能全连通（按真实频率评估），必须由 P1 在候选位置补中继。
+    修正前频率评估乐观、现网自己就全通，这个简化才没暴露。
+
+    返回 (fm, sol, links, nodes_ext, devices_ext)。
+    新增中继站补出对应的节点行与设备行（按现网同类型站最常用的型号配发），
+    下游频率、参数模块才能照常处理它们。
     """
-    fm = FeasibilityMatrix(stations, terrain, candidate_pairs=False)
-    sol = solve_assignment(fm, set(range(len(fm.stations))), set())
-    used = dict(sol.ports)
-    edges = []
-    for child, (parent, band) in sol.parent_of.items():
-        edges.append((child, parent, band, False))
-    # 备份父链路：只在两端端口都还有余量时才建，保证不越编成定额
+    from terrain import haversine_m
+    from deployment import p1_solve
     import echelon as _E
+
+    if candidate_rows:
+        fm, sol = p1_solve(list(stations), candidate_rows, terrain, refine=True)
+    else:
+        fm = FeasibilityMatrix(stations, terrain, candidate_pairs=False)
+        sol = solve_assignment(fm, set(range(len(fm.stations))), set())
+
+    used = dict(sol.ports)
+    edges = [(c, p, b, False) for c, (p, b) in sol.parent_of.items()]
+    # 备份父链路：只在两端端口都还有余量时才建，保证不越编成定额
     for child, (parent, band) in sorted(sol.parent_of.items()):
         ca = _E.capacity(fm.stations[child].subtype, band)
         if used.get((child, band), 0) >= ca:
@@ -66,20 +92,40 @@ def topology_from_deployment(stations, terrain, verbose=False):
             used[(child, band)] = used.get((child, band), 0) + 1
             used[(j, band)] = used.get((j, band), 0) + 1
             edges.append((child, j, band, True))
+
     rows = []
     for k, (i, j, band, is_bk) in enumerate(edges, start=1):
         sa, sb = fm.stations[i], fm.stations[j]
         m = fm.margin_of(i, j, band)
-        from terrain import haversine_m
         rows.append(dict(link_id="PL-%04d" % k,
                          node_a_id=sa.sid, node_b_id=sb.sid,
-                         device_class=band,
-                         device_a_id="", device_b_id="",
+                         device_class=band, device_a_id="", device_b_id="",
                          link_margin_db="%.2f" % (m if m is not None else 0.0),
                          distance_m="%.1f" % haversine_m(sa.lon, sa.lat, sb.lon, sb.lat),
-                         is_available="true",
-                         link_state="", is_backup=str(is_bk).lower()))
-    return fm, sol, rows
+                         is_available="true", link_state="",
+                         is_backup=str(is_bk).lower()))
+
+    nodes_ext = list(nodes or [])
+    devices_ext = list(devices or [])
+    if nodes is not None and devices is not None and models is not None:
+        seq = len(devices_ext)
+        for idx, subtype in sol.added:
+            st = fm.stations[idx]
+            nodes_ext.append(dict(node_id=st.sid, lon=st.lon, lat=st.lat,
+                                  node_subtype=subtype,
+                                  echelon=_E.SUBTYPE_ECHELON.get(subtype, ""),
+                                  device_class=";".join(sorted(st.radio)),
+                                  _added_relay=True))
+            for band in sorted(st.radio):
+                rep = _representative_device(subtype, band, nodes, devices, models)
+                if rep is None:
+                    continue
+                for _k in range(max(1, _E.capacity(subtype, band))):
+                    seq += 1
+                    devices_ext.append(dict(rep, device_id="DV-R%04d" % seq,
+                                            node_id=st.sid,
+                                            antenna_height_m=str(st.radio[band]["height"])))
+    return fm, sol, rows, nodes_ext, devices_ext
 
 
 def run(strategy="MAX_RELIABILITY", preset="TERRAIN", granularity="NET",
@@ -97,8 +143,11 @@ def run(strategy="MAX_RELIABILITY", preset="TERRAIN", granularity="NET",
 
     if topology == "DEPLOYMENT":
         t0 = time.time()
-        fm, sol, links = topology_from_deployment(stations, terrain)
-        steps.append(("重建第 2 周规划拓扑（%d 条链路）" % len(links), time.time() - t0))
+        fm, sol, links, nodes, devices = topology_from_deployment(
+            stations, terrain, nodes, devices, models, load("candidate_site.csv"))
+        stations = stations + [fm.stations[i] for i, _s in sol.added]
+        steps.append(("第 2 周部署规划（新增 %d 台，%d 条链路）"
+                      % (len(sol.added), len(links)), time.time() - t0))
 
     # ── 路由规划 ──
     t0 = time.time()
@@ -135,7 +184,10 @@ def run(strategy="MAX_RELIABILITY", preset="TERRAIN", granularity="NET",
     if verbose:
         _report(steps, g, skipped, routes, freq, ftasks, presets, chosen, chk, pool)
     return dict(routes=routes, frequency=freq, params=chosen,
-                presets=presets, check=chk, steps=steps)
+                presets=presets, check=chk, steps=steps,
+                # 下游（多目标优化、干扰分析）要用的中间结果
+                stations=stations, links=links, nodes=nodes, devices=devices,
+                freq_tasks=ftasks, graph=g, caps=caps, terrain=terrain)
 
 
 def _report(steps, g, skipped, routes, freq, ftasks, presets, chosen, chk, pool):
