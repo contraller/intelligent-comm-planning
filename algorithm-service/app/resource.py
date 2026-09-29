@@ -44,7 +44,8 @@ ANTENNA_FIELD_SEMANTICS = {
     "antenna_id": True, "antenna_name": False, "device_class": True,
     "gain_dbi": True, "pattern_type": True,
     "hbeamwidth_deg": False, "vbeamwidth_deg": False,
-    "height_range_m": True, "polarization": False,
+    # height_range_m 采集值多为天线长度，规划改按平台取挂高区间，不再读它（待办 #18）
+    "height_range_m": False, "antenna_length_m": False, "polarization": False,
 }
 MULTI_VALUE_FIELDS = ("tx_power_levels_dbm", "bandwidth_khz", "modulation",
                       "work_mode", "service_type", "data_rate_kbps")

@@ -311,6 +311,7 @@ def plan(stations, topo, caps, terrain, preset="TERRAIN",
         if not rec["meets"]:
             failed.append(rec)
 
+    active = {b["ka"] for b in base} | {b["kb"] for b in base}
     params = []
     for key in sorted(caps):
         c = caps[key]
@@ -322,11 +323,10 @@ def plan(stations, topo, caps, terrain, preset="TERRAIN",
                            antenna_height_range_m=[c.h_min, c.h_max],
                            tilt_deg=tilt_deg if tilt_deg is not None else 0.0,
                            tilt_effective=False,      # 全向天线，倾角不参与计算
-                           manual=key in manual_keys))
+                           manual=key in manual_keys, active=key in active))
     # 全网总辐射功率只计**至少有一条链路**的设备：空闲电台可以关机，不产生辐射。
     # （第 4 周与多目标优化对口径时发现：此前连空闲电台也按最低档计入，
     #  两处功率对不上。）
-    active = {b["ka"] for b in base} | {b["kb"] for b in base}
     total_w = sum(10 ** ((tx[k] - 30.0) / 10.0) for k in tx if k in active)
     return dict(
         preset=preset, preset_name=cfg.get("name"), note=cfg.get("note"),
@@ -485,16 +485,15 @@ def _self_test():
 
     print("\n[4] 功率优化省了多少（对照：全部开到最大档）")
     r = results[0]
-    full = sum(10 ** ((caps[(p["node_id"], p["band"])].tx_max - 30.0) / 10.0)
-               for p in r["params"])
+    # 对照组与优化结果口径一致：都只计有链路的设备
+    act = [p for p in r["params"] if p["active"]]
+    full = sum(10 ** ((caps[(p["node_id"], p["band"])].tx_max - 30.0) / 10.0) for p in act)
     got = r["summary"]["total_radiated_w"]
-    print("    全开最大 %.1f W → 优化后 %.1f W，省 %.1f%%"
-          % (full, got, 100.0 * (full - got) / full if full else 0.0))
-    multi = sum(1 for c in caps.values() if len(c.levels) > 1)
-    print("    可优化空间受数据限制：%d/%d 台设备只有**一个**功率档，"
-          % (len(caps) - multi, len(caps)))
-    print("    414 台设备只用到 16 个型号里的 4 个，其中 3 个是单档型号 —— ")
-    print("    这是测试数据的型号分配过于集中，不是算法没优化。已记入待办。")
+    print("    有链路设备 %d 台：全开最大 %.1f W → 优化后 %.1f W，省 %.1f%%"
+          % (len(act), full, got, 100.0 * (full - got) / full if full else 0.0))
+    multi = sum(1 for p in act if len(caps[(p["node_id"], p["band"])].levels) > 1)
+    print("    其中多功率档设备 %d 台（单档设备无可调空间）；在用型号 %d 个"
+          % (multi, len({p["model_id"] for p in act})))
 
     print("\n[5] 参数都在设备允许范围内")
     bad = 0

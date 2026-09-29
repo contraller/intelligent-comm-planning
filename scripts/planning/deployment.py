@@ -509,6 +509,16 @@ def p2_solve(fm, base_idx, cand_idx, p, shortlist=24, objective="connect",
             ub, avg = _gain_bound(fm, sol, ci, band_of_orphan)
             if ub > 0:
                 ranked.append((-ub, E.DEPLOY_COST[fm.stations[ci].subtype], -avg, ci))
+        if not ranked and objective == "margin":
+            # 余量优先：只看能给**最差几条链路**的下级提供更好上级的候选。
+            # 此前这里和抗毁优先共用「冗余上界」排序，挑出来的候选碰不到最差链路，
+            # 三套方案最差余量一模一样（待办 #12 重测时发现）。
+            for ci in cand_idx:
+                if ci in chosen:
+                    continue
+                gain = _margin_bound(fm, sol, ci)
+                if gain > 0:
+                    ranked.append((-gain, E.DEPLOY_COST[fm.stations[ci].subtype], 0.0, ci))
         if not ranked and objective != "connect":
             for ci in cand_idx:
                 if ci in chosen:
@@ -539,6 +549,32 @@ def p2_solve(fm, base_idx, cand_idx, p, shortlist=24, objective="connect",
 
     sol.added = [(ci, fm.stations[ci].subtype) for ci in chosen]
     return sol
+
+
+def _margin_bound(fm, sol, ci, worst_k=5):
+    """全连通之后，候选 ci 能把最差的几条链路抬高多少（dB，上界）。
+
+    对最差的 worst_k 条上行链路 (下级 c → 上级 par)，若 ci 在该频段是 c 的合法邻居、
+    且 c—ci 的余量高于现有余量，增益记为两者之差；取最大者。
+    ci 自己能否上行、端口够不够，交给随后的精确试算去判。
+    """
+    worst = []
+    for c, (par, band) in sol.parent_of.items():
+        m = fm.margin_of(c, par, band)
+        if m is not None:
+            worst.append((m, c, band))
+    worst.sort()
+    st = fm.stations[ci]
+    gain = 0.0
+    for m, c, band in worst[:worst_k]:
+        if not st.has(band):
+            continue
+        if not (fm.normal[band][ci] >> c) & 1:
+            continue
+        m2 = fm.margin_of(ci, c, band)
+        if m2 is not None and m2 > m:
+            gain = max(gain, m2 - m)
+    return gain
 
 
 def _redundancy_bound(fm, sol, ci):
@@ -581,8 +617,9 @@ def _plan_score(fm, sol, objective):
             if m is not None:
                 ms.append(m)
         ms.sort()
-        # 以**最差链路**为准：短板决定整网抗衰落能力
-        return (connected, ms[0] if ms else 0.0)
+        # 以**最差链路**为准：短板决定整网抗衰落能力；
+        # 最差那条抬不动时再比第二、第三差的，否则所有候选打平、随便挑一个
+        return (connected,) + tuple(ms[:3]) if ms else (connected, 0.0)
     if objective == "redundant":
         # 有第二可选上级的节点数（正常工况下合法且尚有端口的其他上级）
         spare = 0

@@ -6,8 +6,9 @@
 对应《项目安排》第 4 周「把 SR-4 的整个流程打通」，并在此验证甲方指标
 「满节点负荷仿真规划时间 ≤ 5 分钟」（《技术参考》(7)）。跑法：
 
-    python3 -m planning.sr4_flow            # 全部任务
-    python3 -m planning.sr4_flow TS-0002    # 指定任务场景
+    python3 -m planning.sr4_flow                   # 全部任务
+    python3 -m planning.sr4_flow TS-0002           # 指定任务场景
+    python3 -m planning.sr4_flow --whatif-expand   # 假设按缺口扩容频率池（待办 #17）
 """
 import csv
 import os
@@ -30,6 +31,30 @@ import interference as IF
 from plan_pipeline import topology_from_deployment, _representative_device
 
 TIME_LIMIT_S = 300.0
+SURVIVABILITY_SCOPES = ("NETWORK", "TASK")
+
+# 假设扩容（待办 #17）：**不是**可用资源，只回答「按缺口补齐后方案能否无冲突」。
+# 第 4 周频率分配报出的缺口（精确最大团）：短波是整个可用频段 3.2–11.8 MHz
+# 41 个频点对 43 个两两互扰的网，缺 2 个、位置不限；超短波是 466–507 MHz 段
+# 6 个频点对 12 个网，缺 6 个。这里恰好补这么多：短波两个取低端相邻频点的正中
+# （3195.7/3391.3、3391.3/3587.0），超短波六个均匀插在该段现有六个频点之间。
+# 能否真的增配须合作方确认，确认前**不得写进频率资源表**，只能经本开关临时叠加。
+WHATIF_EXTRA_CHANNELS = [(E.HF, 3293.5), (E.HF, 3489.1)] + [
+    (E.VUHF, round(465906.2 + k * (506635.4 - 465906.2) / 7.0, 1)) for k in range(1, 7)]
+
+
+def whatif_rows(channels=WHATIF_EXTRA_CHANNELS):
+    """把假设频点落成频率资源表的行，字段口径与 gen_test_data.gen_freq_pool 一致。"""
+    rows = []
+    for k, (band, fc) in enumerate(channels, start=1):
+        hf = band == E.HF
+        rows.append(dict(freq_id="FQ-W%03d" % k, device_class=band, center_freq_khz=fc,
+                         bandwidth_khz=3 if hf else 25, channel_no="",
+                         is_available="true", occupied_by="",
+                         reuse_min_distance_m=60000 if hf else 25000,
+                         adjacent_guard_khz=3 if hf else 25,
+                         note="假设扩容-待合作方确认"))
+    return rows
 
 
 def load(rel):
@@ -73,7 +98,20 @@ def rows_from_solution(pb, e, nodes, devices, models):
 
 
 def run(task_id=None, preset="TERRAIN", strategy="MAX_RELIABILITY",
-        constraints=None, pop_size=40, generations=40, verbose=True):
+        constraints=None, pop_size=40, generations=40, verbose=True,
+        survivability_scope="NETWORK", extra_freq_rows=None):
+    """survivability_scope：抗毁性约束按全网（NETWORK，默认）还是按本任务（TASK）评估。
+
+    默认按全网（待办 #20 的处理）：网络是各任务共用的，抗毁性是网络的属性；
+    指定任务时另给出任务视角的连通率与抗毁性作参考。
+
+    extra_freq_rows：临时叠加到频率资源池的行（如 `whatif_rows()`），不写回数据文件。
+    结果里 `frequency_pool_extra` 记下叠加了哪些，避免把假设当成现有资源的结论。
+    """
+    if survivability_scope not in SURVIVABILITY_SCOPES:
+        raise ValueError("survivability_scope 只能取 %s，收到 %r"
+                         % (" / ".join(SURVIVABILITY_SCOPES), survivability_scope))
+    extra_freq_rows = list(extra_freq_rows or [])
     steps = []
     T = time.time()
 
@@ -87,6 +125,7 @@ def run(task_id=None, preset="TERRAIN", strategy="MAX_RELIABILITY",
     if not demands:
         raise ValueError("任务 %s 没有通联需求" % task_id)
     pool_rows, jam_rows = load("frequency_resource.csv"), load("interference_source.csv")
+    pool_rows = pool_rows + extra_freq_rows
     metrics_rows, cand_rows = load("link_metric.csv"), load("candidate_site.csv")
     stations = stations_from_nodes(nodes, devices, models, antennas)
     steps.append(("1 任务条件输入（需求 %d 条）" % len(demands), time.time() - t0))
@@ -108,7 +147,8 @@ def run(task_id=None, preset="TERRAIN", strategy="MAX_RELIABILITY",
     t0 = time.time()
     cons = dict(MO.DEFAULT_CONSTRAINTS)
     cons.update(constraints or {})
-    pb = MO.Problem(fm, sol, demands, caps1,
+    opt_demands = demands if (task_id is None or survivability_scope == "TASK") else demands_all
+    pb = MO.Problem(fm, sol, opt_demands, caps1,
                     survivability_threshold=cons["survivability_threshold"])
     opt = MO.optimize(pb, constraints=cons, pop_size=pop_size, generations=generations)
     best = opt["solutions"][0]
@@ -148,10 +188,17 @@ def run(task_id=None, preset="TERRAIN", strategy="MAX_RELIABILITY",
     out = dict(task_id=task_id, steps=steps, total_s=total, within_limit=total <= TIME_LIMIT_S,
                deployment=dict(added=[fm.stations[i].sid for i, _s in sol.added]),
                optimization=dict(feasible=opt["feasible"], infeasible=opt["infeasible"],
+                                 survivability_scope=("TASK" if task_id and survivability_scope == "TASK"
+                                                      else "NETWORK"),
+                                 task_view=(MO.subset_view(pb, best, [d["demand_id"] for d in demands])
+                                            if task_id else None),
                                  best=MO.describe(pb, best, opt["constraints"], rank=1),
                                  tradeoff=[MO.describe(pb, e, opt["constraints"])
                                            for e in opt["tradeoff"]]),
                routes=routes, frequency=freq, params=params, check=chk,
+               frequency_pool_extra=[dict(freq_id=r["freq_id"], band=r["device_class"],
+                                          freq_khz=float(r["center_freq_khz"]), note=r.get("note", ""))
+                                     for r in extra_freq_rows],
                interference=dict(analysis={k: v for k, v in ana.items() if k != "_states"},
                                  countermeasures=cms, unresolved=unresolved, review=review),
                links=links, nodes=nodes2)
@@ -179,6 +226,10 @@ def _report(o):
              cc["max_relay_hops"]["value"]))
     print("  追加中继 %d 个、备份链路 %d 条；拓扑链路 %d 条"
           % (len(b["added_relays"]), len(b["added_backup_links"]), b["links_total"]))
+    tv = o["optimization"].get("task_view")
+    if tv:
+        print("  任务视角（参考）：必要通联 %d 条，连通率 %.3f，抗毁性 %.3f"
+              % (tv["mandatory"], tv["mandatory_connectivity"], tv["survivability"]))
     if o["optimization"]["infeasible"]:
         for r in o["optimization"]["infeasible"]["conflicting_constraints"]:
             print("  冲突：%s" % r)
@@ -188,6 +239,9 @@ def _report(o):
     print("\n▎路由（优化后拓扑）  可达 %d/%d，有备用 %d 条"
           % (len(ok), len(rs), sum(1 for r in ok if r.get("backup"))))
     f = o["frequency"]
+    ext = o.get("frequency_pool_extra") or []
+    if ext:
+        print("▎频率池  **含假设扩容 %d 个频点（待合作方确认，不是现有资源）**" % len(ext))
     print("▎频率  对象 %d，冲突 %d 处，缺口 %s"
           % (f["stats"]["links"], len(f["conflicts"]),
              "，".join("%s 缺 %d" % (k, v["shortage"]) for k, v in sorted(f["gap"].items()))))
@@ -209,4 +263,6 @@ def _report(o):
 
 
 if __name__ == "__main__":
-    run(task_id=sys.argv[1] if len(sys.argv) > 1 else None)
+    args = [a for a in sys.argv[1:] if not a.startswith("--")]
+    run(task_id=args[0] if args else None,
+        extra_freq_rows=whatif_rows() if "--whatif-expand" in sys.argv else None)

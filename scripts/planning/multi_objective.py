@@ -422,6 +422,45 @@ def evaluate(pb, genome):
                 bridges=len(bridges))
 
 
+def subset_view(pb, e, demand_ids):
+    """在一个已求出的解上，只看某个任务的通联需求（待办 #20）。
+
+    抗毁性按**全网**必要通联约束——网络是各任务共用的，单个任务只有十几条必要通联时，
+    「90% 仍连通」意味着每座桥最多切断 1 条，小样本下几乎必然无解（TS-0002 实测 0.737）。
+    所以优化按全网做，这里给出任务视角的连通率与抗毁性，**只作参考、不作约束**。
+    """
+    want = set(demand_ids)
+    subset = [d for d in pb.demands if d[3] in want]
+    man = [d for d in subset if d[2]]
+    nodes, adj = set(), {}
+    for eid, (a, b, _band, _m) in enumerate(e["usable"]):
+        nodes.update((a, b))
+        adj.setdefault(a, []).append((b, eid))
+        adj.setdefault(b, []).append((a, eid))
+    for d in subset:
+        nodes.update((d[0], d[1]))
+        adj.setdefault(d[0], [])
+        adj.setdefault(d[1], [])
+    bridges, tin, tout, comp = _bridges_and_times(sorted(nodes), adj)
+
+    def conn(x, y):
+        return comp.get(x) is not None and comp.get(x) == comp.get(y)
+
+    ok = [(s, t) for s, t, _m, _d in man if conn(s, t)]
+    worst = 1.0
+    for _u, v in bridges:
+        lo, hi = tin[v], tout[v]
+        cut = sum(1 for s, t in ok if comp.get(s) == comp.get(v)
+                  and (lo <= tin[s] <= hi) != (lo <= tin[t] <= hi))
+        worst = min(worst, (len(ok) - cut) / max(1, len(man)))
+    return dict(demands=len(subset), mandatory=len(man),
+                connectivity=round(sum(1 for s, t, _m, _d in subset if conn(s, t))
+                                   / max(1, len(subset)), 4),
+                mandatory_connectivity=round(len(ok) / max(1, len(man)), 4),
+                survivability=round(worst if man else 1.0, 4),
+                note="任务视角，仅供参考；抗毁性约束按全网必要通联评估")
+
+
 def _max_relay_chain(pb, usable, relays):
     """中继站之间直接相连形成的最长链（按节点数）。"""
     if not relays:

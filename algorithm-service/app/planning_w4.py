@@ -17,7 +17,8 @@ import time
 import uuid
 from typing import Any
 
-from .planning_w3 import (CODE_BAD_PARAM, CODE_NO_SOLUTION, CODE_OK, CODE_TASK_NOT_FOUND,
+from .planning_w3 import (CODE_BAD_ENUM, CODE_BAD_PARAM, CODE_NO_SOLUTION, CODE_OK,
+                          CODE_TASK_NOT_FOUND,
                           _load, _set, _spawn, _terrain, _topology, _nodes, _devices)
 
 _PLANS: dict[str, dict[str, Any]] = {}
@@ -173,7 +174,8 @@ def _do_sr4(payload, tick):
     o = sr4_flow.run(task_id=payload.get("task_id"),
                      preset=payload.get("preset", "TERRAIN"),
                      strategy=payload.get("strategy", "MAX_RELIABILITY"),
-                     constraints=payload.get("hard_constraints"), verbose=False)
+                     constraints=payload.get("hard_constraints"), verbose=False,
+                     survivability_scope=payload.get("survivability_scope", "NETWORK"))
     b = o["optimization"]["best"]
     summary = dict(task_id=o["task_id"], total_s=round(o["total_s"], 2),
                    within_limit=o["within_limit"], objectives=b["objectives"],
@@ -192,7 +194,13 @@ def _do_sr4(payload, tick):
 
 
 def submit_sr4(payload: dict[str, Any]) -> dict[str, Any]:
-    return _spawn("SR4_FLOW", payload or {}, _do_sr4)
+    payload = payload or {}
+    scope = payload.get("survivability_scope", "NETWORK")
+    if scope not in ("NETWORK", "TASK"):
+        return {"code": CODE_BAD_ENUM,
+                "message": "survivability_scope 只能取 NETWORK / TASK，收到 %r" % scope,
+                "data": None}
+    return _spawn("SR4_FLOW", payload, _do_sr4)
 
 
 # ─────────────────────────── 方案管理（接口文档 2.8）───────────────────────────

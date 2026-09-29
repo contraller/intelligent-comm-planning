@@ -86,6 +86,18 @@ def main():
               "有备份上级 %d"
               % (pl["name"], ev["added"], 100 * ev["connectivity"],
                  d["reachable"], d["total"], ev["margin_min"] or 0, ev["backup"]))
+        # 最差链路落在哪：两端都是既有台站时，新增电台碰不到它（待办 #12 的核实）
+        worst = None
+        for c, (par, band) in pl["sol"].parent_of.items():
+            m = fm.margin_of(c, par, band)
+            if m is not None and (worst is None or m < worst[0]):
+                worst = (m, c, par, band)
+        if worst:
+            m, c, par, band = worst
+            both_base = c < len(base) and par < len(base)
+            print("  %14s 最差链路 %s—%s %s %.1f dB（%s）"
+                  % ("", fm.stations[c].sid, fm.stations[par].sid, band, m,
+                     "两端均为既有台站" if both_base else "涉及新增电台"))
 
     # 20% 节点失效重规划
     import random

@@ -89,22 +89,22 @@ DEFAULT_MODELS = [
 DEFAULT_ANTENNAS = [
     dict(antenna_id="AM-0001", antenna_name="短波鞭状天线 3m", device_class="HF",
          gain_dbi=-2, pattern_type="OMNI", hbeamwidth_deg=360, vbeamwidth_deg=60,
-         height_range_m="2-4", polarization="V"),
+         height_range_m="2-4", antenna_length_m="", polarization="V"),
     dict(antenna_id="AM-0002", antenna_name="短波双极天线(NVIS)", device_class="HF",
          gain_dbi=2, pattern_type="NVIS", hbeamwidth_deg=360, vbeamwidth_deg=80,
-         height_range_m="4-12", polarization="H"),
+         height_range_m="4-12", antenna_length_m="", polarization="H"),
     dict(antenna_id="AM-0003", antenna_name="短波对数周期天线", device_class="HF",
          gain_dbi=8, pattern_type="DIRECTIONAL", hbeamwidth_deg=60, vbeamwidth_deg=55,
-         height_range_m="10-20", polarization="H"),
+         height_range_m="10-20", antenna_length_m="", polarization="H"),
     dict(antenna_id="AM-0011", antenna_name="超短波鞭状天线 1.5m", device_class="VUHF",
          gain_dbi=2, pattern_type="OMNI", hbeamwidth_deg=360, vbeamwidth_deg=50,
-         height_range_m="1-6", polarization="V"),
+         height_range_m="1-6", antenna_length_m="", polarization="V"),
     dict(antenna_id="AM-0012", antenna_name="超短波全向增益天线", device_class="VUHF",
          gain_dbi=6, pattern_type="OMNI", hbeamwidth_deg=360, vbeamwidth_deg=25,
-         height_range_m="4-15", polarization="V"),
+         height_range_m="4-15", antenna_length_m="", polarization="V"),
     dict(antenna_id="AM-0013", antenna_name="超短波八木天线", device_class="VUHF",
          gain_dbi=10, pattern_type="DIRECTIONAL", hbeamwidth_deg=55, vbeamwidth_deg=45,
-         height_range_m="4-12", polarization="V"),
+         height_range_m="4-12", antenna_length_m="", polarization="V"),
 ]
 
 
@@ -129,8 +129,29 @@ def load_antennas():
             rows = [r for r in csv.DictReader(f)
                     if r.get("antenna_id") and "示例" not in r.get("antenna_name", "")]
         if rows:
-            return rows, "REAL"
+            return [_split_antenna_length(r) for r in rows], "REAL"
     return DEFAULT_ANTENNAS, "CONSTRUCTED"
+
+
+def _split_antenna_length(r):
+    """把误填进 height_range_m 的天线长度挪到 antenna_length_m（待办 #18）。
+
+    字段定义是「可用挂高范围」，采集表 78 条里 33 条为空、45 条有值：
+    其中 38 条（全部是超短波）是 0.083–0.77 m 的单值——挂高不可能不到 1 m，
+    只能是天线自身长度。**只挪单值且 < 1 m 的**；其余 7 条短波值
+    （1.909–15 m 单值，「6;10」「5;10」）两种解释都说得通，原样保留、标待确认。
+    原始采集表不改，只在生成的型号库里拆分。
+    """
+    r = dict(r)
+    r["antenna_length_m"] = ""
+    v = (r.get("height_range_m") or "").strip()
+    try:
+        x = float(v)
+    except ValueError:
+        return r
+    if x < 1.0:
+        r["antenna_length_m"], r["height_range_m"] = v, ""
+    return r
 
 
 # ─────────────────────────── 编成结构 ───────────────────────────

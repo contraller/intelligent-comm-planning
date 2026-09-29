@@ -264,6 +264,101 @@ def local_repair(tasks, adj, sep, color, fixed=None, rounds=6):
     return color
 
 
+def exact_repair(tasks, adj, sep, color, fixed=None, max_region=40, budget=20000,
+                 max_conflicts=6, time_limit_s=3.0):
+    """残余冲突的局部精确重着色（第 4 周之后补，见待办 #17）。
+
+    Dsatur + 局部修补是启发式：频点数恰好等于最大团时（子频段刚好够），
+    它可能留下 1–2 处冲突，而精确解其实存在。这里只在冲突附近取一个区域：
+    冲突端点，加上与它们相邻、且当前频点落在它们候选集合里的对象
+    （这些是真正在「抢」同一批频点的），区域外的频点固定不动，
+    在区域内做带前向检验的回溯着色（饱和度优先）。
+
+    找到无冲突解就替换；搜索超出预算或区域过大就原样返回——
+    不会把结果变差，冲突仍由 check_conflicts 如实报出。
+
+    只处理「残余」冲突（≤ max_conflicts 处）：冲突成片说明频点本来就不够，
+    那是缺口统计该报的事，精确搜索既解不出来也会拖慢整条流程。
+    """
+    import time as _time
+    fixed = set(fixed or ())
+    conflicts = check_conflicts(tasks, adj, sep, color)
+    if not conflicts:
+        return color, dict(tried=False)
+    if len(conflicts) > max_conflicts:
+        return color, dict(tried=False, reason="冲突 %d 处，超过残余阈值 %d，属频点不足"
+                           % (len(conflicts), max_conflicts))
+    t_end = _time.time() + time_limit_s
+    hot = set()
+    for c in conflicts:
+        hot.update(c["_idx"])
+    region = set(hot)
+    want = set()
+    for i in hot:
+        want.update(ch["freq_khz"] for ch in tasks[i].allowed)
+    frontier = list(hot)
+    while frontier and len(region) < max_region:
+        nxt = []
+        for i in frontier:
+            for j in adj[i]:
+                if j in region or j in fixed:
+                    continue
+                cj = color.get(j)
+                if cj is not None and cj["freq_khz"] in want:
+                    region.add(j)
+                    nxt.append(j)
+                    want.update(ch["freq_khz"] for ch in tasks[j].allowed)
+                    if len(region) >= max_region:
+                        break
+        frontier = nxt
+    region -= fixed
+    order = sorted(region)
+    trial = {i: c for i, c in color.items() if i not in region}
+
+    def ok(i, chan):
+        for j in adj[i]:
+            cj = trial.get(j)
+            if cj is None:
+                continue
+            d = sep.get((min(i, j), max(i, j)), float("inf"))
+            if cj["freq_khz"] == chan["freq_khz"]:
+                return False
+            if not _guard_ok(tasks[i], chan, cj, d, chan["reuse_min_distance_m"]):
+                return False
+        return True
+
+    steps = [0]
+
+    def solve(left):
+        if not left:
+            return True
+        steps[0] += 1
+        if steps[0] > budget or _time.time() > t_end:
+            return False
+        # 饱和度优先：可选频点最少的先定
+        best, best_opts = None, None
+        for i in left:
+            opts = [ch for ch in tasks[i].allowed if ok(i, ch)]
+            if not opts:
+                return False
+            if best is None or len(opts) < len(best_opts):
+                best, best_opts = i, opts
+        rest = [i for i in left if i != best]
+        for ch in best_opts:
+            trial[best] = ch
+            if solve(rest):
+                return True
+            del trial[best]
+        return False
+
+    found = solve(order)
+    info = dict(tried=True, region=len(order), steps=steps[0], solved=found,
+                budget_exhausted=not found and (steps[0] > budget or _time.time() > t_end))
+    if found:
+        return trial, info
+    return color, info
+
+
 def _bad_count(tasks, adj, sep, color, i, chan):
     if chan is None:
         return 1 << 30
@@ -423,6 +518,7 @@ def assign(tasks, pool, manual=None):
         fixed[i] = chan
     color, unresolved = dsatur(tasks, adj, sep, fixed)
     color = local_repair(tasks, adj, sep, color, fixed=set(fixed))
+    color, exact_info = exact_repair(tasks, adj, sep, color, fixed=set(fixed))
     conflicts = check_conflicts(tasks, adj, sep, color)
 
     # 复用分组：同一频点的链路归一组，便于前端着色
@@ -468,7 +564,8 @@ def assign(tasks, pool, manual=None):
         unassigned=[tasks[i].link_id for i in range(len(tasks)) if color.get(i) is None],
         manual_errors=manual_errors,
         stats=dict(links=len(tasks), interference_edges=sum(len(a) for a in adj) // 2,
-                   channels_used=len(groups), dsatur_unresolved=len(unresolved)))
+                   channels_used=len(groups), dsatur_unresolved=len(unresolved),
+                   exact_repair=exact_info))
     if total_short or not out["conflict_free"]:
         out["expansion_advice"] = _advice(gap, conflicts)
     return out

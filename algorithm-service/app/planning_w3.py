@@ -31,6 +31,7 @@ _CACHE: dict[str, Any] = {}
 # 业务错误码，与接口文档 1.3 一致
 CODE_OK = 0
 CODE_BAD_PARAM = 1001
+CODE_BAD_ENUM = 1003
 CODE_TASK_NOT_FOUND = 2001
 CODE_TASK_RUNNING = 2002
 CODE_TASK_FAILED = 2003
@@ -91,7 +92,7 @@ def _spawn(kind: str, payload: dict[str, Any], fn) -> dict[str, Any]:
         try:
             _set(tid, status="RUNNING", progress=0.05, stage="加载数据")
             data = fn(payload, lambda p, s: _set(tid, progress=p, stage=s))
-            _set(tid, status="SUCCEEDED", progress=1.0, stage="完成",
+            _set(tid, status="SUCCESS", progress=1.0, stage="完成",
                  result=data, finished_at=time.time())
         except Exception as exc:                     # noqa: BLE001
             _set(tid, status="FAILED", progress=1.0, stage="失败",
@@ -112,7 +113,7 @@ def query_task(task_id: str) -> dict[str, Any]:
     if t["status"] == "FAILED":
         return {"code": CODE_TASK_FAILED, "message": "计算失败",
                 "data": {"task_id": task_id, "error_detail": t.get("error")}}
-    if t["status"] != "SUCCEEDED":
+    if t["status"] != "SUCCESS":
         return {"code": CODE_TASK_RUNNING, "message": "计算中",
                 "data": {"task_id": task_id, "status": t["status"],
                          "progress": t["progress"], "stage": t["stage"]}}

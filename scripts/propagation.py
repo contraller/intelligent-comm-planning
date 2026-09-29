@@ -142,6 +142,10 @@ def noise_floor_dbm(freq_khz, bandwidth_khz, ext_noise_fig_db=None, lc=None):
 
 REQUIRED_SNR_DB = {"话音": 10.0, "数据": 15.0, "短消息": 8.0}
 
+# 传播模型绝对量偏差（dB），**仅供敏感性分析**（`planning/sensitivity.py`，待办 #14）。
+# 正值表示「真实损耗比模型算的更大」。正常运行必须保持 0；链路预算是唯一入口。
+LOSS_BIAS_DB = 0.0
+
 
 def link_budget(tx_power_dbm, gt_dbi, gr_dbi, path_loss_db,
                 freq_khz, bandwidth_khz, service="话音", rx_sens_dbm=None):
@@ -150,7 +154,7 @@ def link_budget(tx_power_dbm, gt_dbi, gr_dbi, path_loss_db,
     余量以 SNR 为准而非接收灵敏度：灵敏度余量在短距离链路上动辄 60-70 dB，
     无法区分链路优劣；SNR 余量才与误码率、链路状态直接相关。
     """
-    rx = tx_power_dbm + gt_dbi + gr_dbi - path_loss_db
+    rx = tx_power_dbm + gt_dbi + gr_dbi - path_loss_db - LOSS_BIAS_DB
     n = noise_floor_dbm(freq_khz, bandwidth_khz)
     snr = rx - n
     margin = snr - REQUIRED_SNR_DB.get(service, 10.0)
