@@ -16,3 +16,4 @@ venv/
 /data/*.zip
 /data/imported/*/source/*.zip
 /data/imported/*/raw/
+/data/runtime/

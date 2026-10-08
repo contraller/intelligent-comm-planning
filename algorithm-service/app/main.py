@@ -6,6 +6,11 @@ from typing import Any
 from .candidate_sites import filter_candidate_sites
 from .coverage import query_coverage, read_cache, submit_coverage
 from .deployment import query_deployment, submit_deployment
+from .fault import (create_report, create_scenario, delete_scenario, export_impact,
+                    get_scenario, get_suggestions, import_scenarios, list_scenarios,
+                    report_path, submit_diagnosis, submit_impact, update_scenario,
+                    validate_scenario)
+from . import kg
 from .planning_w3 import (query_task, submit_frequency, submit_plan_check,
                           submit_radio_params, submit_route)
 from .planning_w4 import (adopt_countermeasure, compare_plans, confirm_plan,
@@ -15,7 +20,8 @@ from .resource import (list_antenna_models, list_device_models,
                        list_frequency_pool, radio_param_presets)
 
 try:
-    from fastapi import FastAPI
+    from fastapi import FastAPI, Request, Response
+    from fastapi.responses import FileResponse
 except ImportError as exc:  # pragma: no cover - exercised only without runtime deps
     raise RuntimeError(
         "FastAPI is not installed. Run: pip install -r algorithm-service/requirements.txt"
@@ -182,3 +188,156 @@ def plans_confirm(solution_id: str) -> dict[str, Any]:
 @app.get("/api/v1/plans/{solution_id}/export")
 def plans_export(solution_id: str, format: str = "json") -> dict[str, Any]:
     return export_plan(solution_id, format)
+
+
+# SR-5 fault diagnosis. Analysis tasks share the established task state endpoint.
+
+
+@app.post("/api/v1/fault/scenarios/validate")
+def fault_scenario_validate(payload: dict[str, Any]) -> dict[str, Any]:
+    return validate_scenario(payload)
+
+
+@app.post("/api/v1/fault/scenarios/import")
+async def fault_scenario_import(request: Request) -> dict[str, Any]:
+    if request.headers.get("content-type", "").startswith("multipart/form-data"):
+        from .fault import import_scenarios_file
+        form = await request.form()
+        upload = form.get("file")
+        if upload is None or not hasattr(upload, "read"):
+            return {"code": 1001, "message": "缺少上传文件 file", "data": None}
+        return import_scenarios_file(upload.filename, await upload.read())
+    return import_scenarios(await request.json())
+
+
+@app.get("/api/v1/fault/scenarios")
+def fault_scenario_list() -> dict[str, Any]:
+    return list_scenarios()
+
+
+@app.post("/api/v1/fault/scenarios")
+def fault_scenario_create(payload: dict[str, Any]) -> dict[str, Any]:
+    return create_scenario(payload)
+
+
+@app.get("/api/v1/fault/scenarios/{scenario_id}")
+def fault_scenario_get(scenario_id: str) -> dict[str, Any]:
+    return get_scenario(scenario_id)
+
+
+@app.put("/api/v1/fault/scenarios/{scenario_id}")
+def fault_scenario_update(scenario_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+    return update_scenario(scenario_id, payload)
+
+
+@app.delete("/api/v1/fault/scenarios/{scenario_id}")
+def fault_scenario_delete(scenario_id: str) -> dict[str, Any]:
+    return delete_scenario(scenario_id)
+
+
+@app.post("/api/v1/fault/diagnose")
+def fault_diagnose(payload: dict[str, Any]) -> dict[str, Any]:
+    return submit_diagnosis(payload)
+
+
+@app.post("/api/v1/fault/impact")
+def fault_impact(payload: dict[str, Any]) -> dict[str, Any]:
+    return submit_impact(payload)
+
+
+@app.get("/api/v1/fault/tasks/{task_id}")
+def fault_task_status(task_id: str) -> dict[str, Any]:
+    return query_task(task_id)
+
+
+@app.get("/api/v1/fault/suggestions")
+def fault_suggestions(diagnose_task_id: str, impact_task_id: str | None = None) -> dict[str, Any]:
+    return get_suggestions(diagnose_task_id, impact_task_id)
+
+
+@app.post("/api/v1/fault/report")
+def fault_report(payload: dict[str, Any]) -> dict[str, Any]:
+    return create_report(payload)
+
+
+@app.get("/api/v1/fault/impact/{task_id}/export")
+def fault_impact_export(task_id: str, format: str = "xlsx"):
+    result = export_impact(task_id, format)
+    if result is None:
+        return {"code": 1001, "message": "影响任务不存在、未完成或导出格式不支持", "data": None}
+    content, media_type = result
+    return Response(content=content, media_type=media_type,
+                    headers={"Content-Disposition": 'attachment; filename="impact.%s"' % format})
+
+
+@app.get("/api/v1/files/{filename}")
+def fault_file_download(filename: str):
+    path = report_path(filename)
+    if path is None:
+        return {"code": 1002, "message": "文件不存在", "data": None}
+    return FileResponse(path, filename=filename)
+
+
+@app.get("/api/v1/kg/stats")
+def kg_stats() -> dict[str, Any]:
+    return kg.stats()
+
+
+@app.get("/api/v1/kg/entity/{entity_id}")
+def kg_entity(entity_id: str) -> dict[str, Any]:
+    return kg.entity(entity_id)
+
+
+@app.get("/api/v1/kg/search")
+def kg_search(q: str, type: str | None = None, limit: int = 20) -> dict[str, Any]:
+    return kg.search(q, type, limit)
+
+
+@app.post("/api/v1/kg/query")
+def kg_query(payload: dict[str, Any]) -> dict[str, Any]:
+    return kg.query(payload)
+
+
+@app.post("/api/v1/kg/infer")
+def kg_infer(payload: dict[str, Any]) -> dict[str, Any]:
+    return kg.infer(payload)
+
+
+@app.get("/api/v1/kg/device/{model_id}/knowledge")
+def kg_device_knowledge(model_id: str) -> dict[str, Any]:
+    return kg.device_knowledge(model_id)
+
+
+@app.post("/api/v1/kg/link-state/evaluate")
+def kg_evaluate_link_state(payload: dict[str, Any]) -> dict[str, Any]:
+    return kg.evaluate_link_state(payload)
+
+
+@app.post("/api/v1/kg/updates")
+def kg_submit_update(payload: dict[str, Any]) -> dict[str, Any]:
+    return kg.submit(payload)
+
+
+@app.get("/api/v1/kg/updates")
+def kg_pending_updates() -> dict[str, Any]:
+    return kg.pending()
+
+
+@app.post("/api/v1/kg/updates/{change_id}/review")
+def kg_review_update(change_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+    return kg.review(change_id, payload)
+
+
+@app.get("/api/v1/kg/versions")
+def kg_versions() -> dict[str, Any]:
+    return kg.versions()
+
+
+@app.get("/api/v1/kg/audit")
+def kg_audit(limit: int = 50) -> dict[str, Any]:
+    return kg.audit(limit)
+
+
+@app.post("/api/v1/kg/versions/{version}/rollback")
+def kg_rollback(version: int, payload: dict[str, Any]) -> dict[str, Any]:
+    return kg.rollback(version, payload)

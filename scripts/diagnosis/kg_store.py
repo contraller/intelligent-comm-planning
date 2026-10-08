@@ -17,6 +17,7 @@
 import copy
 import csv
 import json
+import math
 import os
 import time
 
@@ -288,9 +289,22 @@ class KnowledgeGraph:
                         errs.append("第 %d 项 %s=%s 未登记" % (k, f, o.get(f)))
                 if not o.get("source"):
                     errs.append("第 %d 项缺少知识来源 source（SR-6.3 扩展流 2 要求可溯源）" % k)
+                if not str(o.get("head", "")).strip() or not str(o.get("tail", "")).strip():
+                    errs.append("第 %d 项头实体和尾实体名称不能为空" % k)
+                try:
+                    if not math.isfinite(float(o.get("weight", 1.0))) or float(o.get("weight", 1.0)) < 0:
+                        raise ValueError
+                except (ValueError, TypeError):
+                    errs.append("第 %d 项权重必须是非负有限数" % k)
             elif o.get("op") in ("remove_triple", "set_weight"):
                 if o.get("triple_id") not in self.triples:
                     errs.append("第 %d 项三元组 %s 不存在" % (k, o.get("triple_id")))
+                if o["op"] == "set_weight":
+                    try:
+                        if not math.isfinite(float(o.get("weight"))) or float(o["weight"]) < 0:
+                            raise ValueError
+                    except (ValueError, TypeError):
+                        errs.append("第 %d 项权重必须是非负有限数" % k)
             else:
                 errs.append("第 %d 项操作 %s 不支持" % (k, o.get("op")))
         if errs:
