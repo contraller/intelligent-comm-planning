@@ -1,0 +1,28 @@
+{
+  "name": "dem_taihang",
+  "crs": "EPSG:4326",
+  "width": 6504,
+  "height": 5174,
+  "dtype": "int16",
+  "byteorder": "little",
+  "nodata": -32768.0,
+  "origin_lon": 114.04652777781672,
+  "origin_lat": 38.01874999999709,
+  "pixel_lon": 0.0002777777777778146,
+  "pixel_lat": 0.0002777777777778146,
+  "row_direction": "north_to_south",
+  "bbox": [
+    114.04652777781672,
+    36.58152777777468,
+    115.85319444448362,
+    38.01874999999709
+  ],
+  "source": "data.zip / raw/terrain/dem_taihang.tif（30 m DEM，来源待确认）",
+  "note": "由原始 LZW 分块 GeoTIFF 解码后平铺存储；平铺 gzip 加载耗时 0.1 s，原 GeoTIFF 需 5.5 s 解码",
+  "elevation_min": 10,
+  "elevation_max": 1676,
+  "nodata_count": 0,
+  "data_file": "dem_taihang.bin.gz",
+  "raw_bytes": 67303392,
+  "generated": "2026-09-16T15:28:47+08:00"
+}

@@ -1,0 +1,2 @@
+model_id,model_name,manufacturer,device_class,category,freq_min_khz,freq_max_khz,tx_power_max_dbm,tx_power_levels_dbm,rx_sensitivity_dbm,bandwidth_khz,modulation,work_mode,service_type,data_rate_kbps,antenna_type_default,power_consumption_w,constraint_note,source_doc
+DM-0001,XB-150 短波车载电台,构造厂家A,HF,车载电台,1600,29999,51.8,37;43;47;51.8,-110,3,USB;LSB;CW;FSK,定频;跳频;自适应ALE,话音;数据,2.4;4.8,鞭状/双极,350,跳频模式下最大功率降至 47 dBm,CONSTRUCTED

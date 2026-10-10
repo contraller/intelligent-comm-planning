@@ -1,0 +1,10 @@
+{
+  "scenario_id": "FS-0001",
+  "network_solution_id": "PL-0001",
+  "fusion_weights": {
+    "RULE": 0.5,
+    "KG": 0.5,
+    "ML": 0.0
+  },
+  "confidence_threshold": 0.6
+}

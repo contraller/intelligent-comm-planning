@@ -1,0 +1,41 @@
+{
+  "name": "dem_current",
+  "crs": "EPSG:4326",
+  "width": 6480,
+  "height": 5213,
+  "dtype": "int16",
+  "byteorder": "little",
+  "nodata": -32768.0,
+  "origin_lon": 113.14986111114996,
+  "origin_lat": 37.72402777777483,
+  "pixel_lon": 0.0002777777777778146,
+  "pixel_lat": 0.0002777777777778146,
+  "row_direction": "north_to_south",
+  "bbox": [
+    113.14986111114996,
+    36.27597222221908,
+    114.9498611111502,
+    37.72402777777483
+  ],
+  "source_bbox": [
+    113.14986111114996,
+    36.27597222221908,
+    114.9498611111502,
+    37.72402777777483
+  ],
+  "planning_bbox": [
+    113.37497663855423,
+    36.461013295002346,
+    114.72474558374593,
+    37.53898670499157
+  ],
+  "source": "dem_taihang(1).tif",
+  "source_sha256": "a42f42e17d38218f539cb04323696cacb296c4bcc11bb50a77cccf927f91bf7f",
+  "elevation_min": 12,
+  "elevation_max": 2211,
+  "nodata_count": 0,
+  "raw_bytes": 67560480,
+  "data_file": "dem_current.bin.gz",
+  "generated": "2026-10-10T17:50:21+08:00",
+  "note": "Native geographic coordinates; synthetic stations rebuilt inside planning_bbox."
+}
