@@ -102,6 +102,10 @@ def vuhf_coverage(terrain, station, radius_m=60000.0, cell_m=DEFAULT_RAY_STEP,
             d = si * cell_m
             lon = station.lon + dx * d / m_per_deg_lon
             lat = station.lat + dy * d * DEG_PER_M_LAT
+            if hasattr(terrain, "bbox"):
+                x0, y0, x1, y1 = terrain.bbox
+                if not (x0 <= lon < x1 and y0 < lat <= y1):
+                    break  # No measured terrain beyond the DEM boundary.
             z = terrain.elevation(lon, lat)
             # 4/3 地球等效曲率修正
             drop = d * d / (2.0 * 4.0 / 3.0 * 6371000.0)
@@ -210,8 +214,8 @@ def blind_zones(covered_cells, bbox, cell_m=1000.0, min_area_km2=5.0):
     """
     lon0, lat0, lon1, lat1 = bbox
     m_per_deg_lon = 111320.0 * max(0.2, math.cos(math.radians((lat0 + lat1) / 2)))
-    nx = int((lon1 - lon0) * m_per_deg_lon / cell_m)
-    ny = int((lat1 - lat0) / DEG_PER_M_LAT / cell_m)
+    nx = int((lon1 - lon0) * m_per_deg_lon / cell_m + 1e-8)
+    ny = int((lat1 - lat0) / DEG_PER_M_LAT / cell_m + 1e-8)
     todo = set()
     for gx in range(nx):
         for gy in range(ny):

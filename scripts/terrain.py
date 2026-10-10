@@ -13,6 +13,7 @@
     los_clearance(...)       模块级函数
 """
 import math
+import json
 import os
 import sys
 
@@ -30,8 +31,15 @@ BBOX = (114.0465, 36.9110, 115.4045, 37.9890)
 BBOX_DATA = (114.0465, 36.5815, 115.8532, 38.0187)
 BBOX_BUF = BBOX_DATA                      # 兼容旧名
 
-DEM_HEADER = os.path.join(_HERE, "..", "data", "raw", "dem", "dem_taihang.json")
+# Active native-georeferenced DEM. Its metadata is the shared extent source.
+DEM_HEADER = os.path.join(_HERE, "..", "data", "raw", "dem", "dem_current.json")
 LC_HEADER = os.path.join(_HERE, "..", "data", "raw", "landcover", "landcover_taihang.json")
+
+if os.path.exists(DEM_HEADER):
+    with open(DEM_HEADER, encoding="utf-8") as _header:
+        _meta = json.load(_header)
+    BBOX = tuple(_meta["planning_bbox"])
+    BBOX_DATA = BBOX_BUF = tuple(_meta["bbox"])
 
 # 真实地物编码 -> 传播模型使用的地物名。
 # 传播模型（propagation.py）的损耗表以「林地/草地/耕地/建成区/裸地/水域」为键，
@@ -81,7 +89,11 @@ class DemTerrain:
         return math.degrees(math.atan(math.hypot(dzdx, dzdy)))
 
     def landcover(self, lon, lat):
-        return _LC_NAME.get(int(self._clamped(self._lc, lon, lat)), "裸地")
+        x0, y0, x1, y1 = self._lc.bbox
+        if not (x0 <= lon < x1 and y0 < lat <= y1):
+            return "未知"
+        value = self._lc.sample(lon, lat)
+        return _LC_NAME.get(int(value), "未知") if value is not None else "未知"
 
     def profile(self, lon1, lat1, lon2, lat2, n=64):
         d = haversine_m(lon1, lat1, lon2, lat2)

@@ -116,13 +116,16 @@ class FaultEngine:
                 graph.add_triple(fault, "locatedAt", ("Component", component), source=source, graph="fault")
             if solution:
                 graph.add_triple(fault, "resolvedBy", ("Solution", solution), source=source, graph="fault")
+            for index, step in enumerate(filter(None, case["diagnosis_steps"].split(";")), 1):
+                graph.add_triple(fault, "diagnosedBy", ("DiagnosisStep", f"{index:02d}:{step.strip()}"),
+                                 source=source, graph="fault")
         graph.freeze("Derived from constructed cases; not field-validated")
         return graph
 
     def write_graph_csv(self, path):
         return self.graph.write_csv(str(path), graph="fault")
 
-    def validate(self, scenario):
+    def validate(self, scenario, require_fault_type=True):
         faults = scenario.get("faults")
         if not scenario.get("scenario_name") or not isinstance(faults, list) or not faults:
             raise FaultInputError("scenario_name 和至少一条 faults 为必填")
@@ -130,9 +133,13 @@ class FaultEngine:
             if not isinstance(fault, dict):
                 raise FaultInputError("faults[%d] 应为对象" % index)
             kind, obj = fault.get("fault_type"), fault.get("object_type")
-            if kind not in FAULT_TYPES:
+            if require_fault_type and (not isinstance(kind, str) or kind not in FAULT_TYPES):
                 raise FaultInputError("未知故障类型 %r" % kind, code=1003, detail={"index": index})
-            if obj not in ALLOWED_OBJECTS[kind]:
+            if not require_fault_type and kind is not None:
+                raise FaultInputError("观测诊断输入不应包含 fault_type", detail={"index": index})
+            if not isinstance(obj, str) or obj not in {"NODE", "DEVICE", "LINK"}:
+                raise FaultInputError("未知故障对象类型 %r" % obj, code=1003, detail={"index": index})
+            if require_fault_type and obj not in ALLOWED_OBJECTS[kind]:
                 raise FaultInputError("故障类型 %s 不适用于 %s" % (kind, obj), 3003,
                                       {"index": index, "fault_type": kind, "object_type": obj})
             entities = {"NODE": self.nodes, "DEVICE": self.devices, "LINK": self.links}[obj]
@@ -193,16 +200,17 @@ class FaultEngine:
                              "source_case_ids": [item[2]["source_case_id"] for item in hits[:5]],
                              "source": "CONSTRUCTED"}}
 
-    def _kg_branch(self, fault, band):
+    def _kg_branch(self, fault, band, graph=None):
+        graph = graph if graph is not None else self.graph
         observed = set(fault.get("symptom_ids") or [])
         by_case = defaultdict(set)
         evidence = defaultdict(set)
         for sid in observed:
-            eid = self.graph.get("Symptom", self.symptoms[sid])
+            eid = graph.get("Symptom", self.symptoms[sid])
             if not eid:
                 continue
-            for triple in self.graph.incoming(eid, "hasSymptom"):
-                cid = self.graph.ent(triple["head"])["name"]
+            for triple in graph.incoming(eid, "hasSymptom"):
+                cid = graph.ent(triple["head"])["name"]
                 if cid in self.cases:
                     by_case[cid].add(sid)
                     evidence[cid].add(triple["tid"])
@@ -222,19 +230,28 @@ class FaultEngine:
         case = self.cases[cid]
         equally_supported = [candidate for candidate in candidates
                              if candidate[0] == score and candidate[1] == _n]
-        fault_eid = self.graph.get("Fault", cid)
+        fault_eid = graph.get("Fault", cid)
         path_ids = set(evidence[cid])
+        related = {}
         for relation in ("causedBy", "locatedAt", "resolvedBy"):
-            path_ids.update(t["tid"] for t in self.graph.outgoing(fault_eid, relation))
+            triples = list(graph.outgoing(fault_eid, relation))
+            path_ids.update(t["tid"] for t in triples)
+            related[relation] = graph.ent(triples[0]["tail"])["name"] if triples else None
+        step_triples = list(graph.outgoing(fault_eid, "diagnosedBy"))
+        path_ids.update(t["tid"] for t in step_triples)
+        steps = sorted(graph.ent(t["tail"])["name"] for t in step_triples)
         return {"source": "KG", "fault_type": case["fault_type"],
-                "confidence": round(score, 3), "root_cause": case["root_cause"],
-                "fault_component": case["fault_component"], "action": case["solution"],
+                "confidence": round(score, 3), "root_cause": related["causedBy"],
+                "fault_component": related["locatedAt"], "action": related["resolvedBy"],
+                "steps": [step.split(":", 1)[1] for step in steps],
                 "evidence": {"case_id": cid, "triple_ids": sorted(path_ids),
                              "equally_supported_cases": [item[2] for item in equally_supported[:10]],
+                             "source_docs": sorted({graph.triples[tid]["source"] for tid in path_ids}),
                              "source_doc": "fault_cases_v1.csv#%s [CONSTRUCTED]" % cid}}
 
-    def diagnose(self, scenario, weights=None, threshold=0.6):
-        self.validate(scenario)
+    def diagnose(self, scenario, weights=None, threshold=0.6, graph=None,
+                 require_fault_type=True):
+        self.validate(scenario, require_fault_type=require_fault_type)
         weights = weights or {"RULE": 0.35, "KG": 0.35, "ML": 0.30}
         if any(k not in {"RULE", "KG", "ML"} for k in weights) or any(not isinstance(v, (int, float)) or v < 0 for v in weights.values()) or sum(weights.values()) <= 0:
             raise FaultInputError("fusion_weights 必须为非负数且总和大于零")
@@ -243,7 +260,7 @@ class FaultEngine:
         results = []
         for fault in scenario["faults"]:
             node_id, band = self._context(fault)
-            rule, kg = self._rule_branch(fault, band), self._kg_branch(fault, band)
+            rule, kg = self._rule_branch(fault, band), self._kg_branch(fault, band, graph)
             ml = {"source": "ML", "fault_type": None, "confidence": None,
                   "disabled_reason": "现有 240 条案例均为 CONSTRUCTED，尚无经独立验证的 ML 模型", "evidence": {}}
             active = [b for b in (rule, kg) if b["confidence"] is not None and weights.get(b["source"], 0) > 0]
@@ -268,7 +285,7 @@ class FaultEngine:
                             "branches": [rule, kg, ml],
                             "candidates": [{"fault_type": key, "confidence": round(value, 3)}
                                            for key, value in ranked]})
-        return {"scenario_id": scenario["scenario_id"], "fusion_mode": "TWO_WAY_DEGRADED",
+        return {"scenario_id": scenario.get("scenario_id"), "fusion_mode": "TWO_WAY_DEGRADED",
                 "data_source": "CONSTRUCTED", "results": results}
 
     def _routes(self, network_solution=None):
@@ -351,23 +368,28 @@ class FaultEngine:
                 if nid not in affected_nodes:
                     row = self.nodes.get(nid, {})
                     affected_nodes[nid] = {"node_id": nid, "affect_type": "INDIRECT",
-                                           "level": "MODERATE" if state == "DEGRADED" else "SEVERE",
+                                           "level": ("SEVERE" if state == "INTERRUPTED" else
+                                                     "MODERATE" if demand.get("is_mandatory") == "true" else "MINOR"),
                                            "state": state, "node_role": row.get("node_role"),
                                            "region": row.get("region"),
                                            "reason": ("主路由受干扰，链路性能下降" if soft_hit and not hit else
                                                       "主路由受损，%s" % ("已启用备用路由" if backup_ok else "无可用备用路由"))}
+                elif state == "INTERRUPTED" and affected_nodes[nid]["level"] != "SEVERE":
+                    affected_nodes[nid]["level"] = "SEVERE"
+                    affected_nodes[nid]["state"] = state
         affected_links = []
         for lid in sorted(down_links | degraded_links):
             link = links[lid]
             is_down = lid in down_links
+            is_backbone = link.get("is_backup") != "true"
             affected_links.append({"link_id": lid, "state": "INTERRUPTED" if is_down else "DEGRADED",
-                                   "level": "SEVERE" if is_down else "MODERATE",
+                                   "level": "SEVERE" if is_down else "MODERATE" if is_backbone else "MINOR",
                                    "related_fault_object_id": next((f["object_id"] for f in scenario["faults"]
                                                                     if f["object_id"] == lid or
                                                                     f["object_id"] in direct and
                                                                     (link["node_a_id"] in direct[f["object_id"]] or
                                                                      link["node_b_id"] in direct[f["object_id"]])), None),
-                                   "is_backbone": link.get("is_backup") != "true",
+                                   "is_backbone": is_backbone,
                                    "reason": "故障对象导致链路不可用"})
         features = []
         for nid, rec in affected_nodes.items():
@@ -414,7 +436,8 @@ class FaultEngine:
                                   (primary["evidence"].get("source_case_ids") or [None])[0])
             suggestions.append({"priority": len(suggestions) + 1, "action": primary.get("action"),
                                 "fault_object_id": result["fault_object"]["object_id"],
-                                "steps": case["diagnosis_steps"].split(";") if case else [],
+                                "steps": (primary["steps"] if primary["source"] == "KG" else
+                                          case["diagnosis_steps"].split(";") if case else []),
                                 "required_spares": [], "required_tools": [],
                                 "estimated_time_min": float(case["repair_time_min"]) if case and case["repair_time_min"] else None,
                                 "kg_source_triple_ids": primary["evidence"].get("triple_ids", []),

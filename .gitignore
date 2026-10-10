@@ -17,3 +17,5 @@ venv/
 /data/imported/*/source/*.zip
 /data/imported/*/raw/
 /data/runtime/
+/data/results/current_dem/*_checkpoint.pkl
+/.browser-tools/

@@ -13,12 +13,15 @@ from __future__ import annotations
 
 import csv
 import hashlib
+import os
 import sys
 import threading
 import time
 import uuid
 from pathlib import Path
 from typing import Any
+
+from .runtime_store import read_json, write_json
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 for _p in (REPO_ROOT / "scripts", REPO_ROOT / "scripts" / "planning"):
@@ -29,6 +32,19 @@ _TASKS: dict[str, dict[str, Any]] = {}
 _CACHE: dict[str, dict[str, Any]] = {}
 _LOCK = threading.Lock()
 _ENV: dict[str, Any] = {}
+COVERAGE_DIR = Path(os.environ.get("COVERAGE_CACHE_DIR", REPO_ROOT / "data" / "runtime" / "coverage"))
+COVERAGE_TASK_DIR = Path(os.environ.get("COVERAGE_TASK_DIR", REPO_ROOT / "data" / "runtime" / "coverage_tasks"))
+
+
+def _cached_unlocked(cache_key: str) -> dict[str, Any] | None:
+    hit = _CACHE.get(cache_key)
+    if hit is None and cache_key.startswith("CV-") and len(cache_key) == 19 and all(
+            char in "0123456789abcdef" for char in cache_key[3:]):
+        path = COVERAGE_DIR / (cache_key + ".json")
+        if path.exists():
+            hit = read_json(path)
+            _CACHE[cache_key] = hit
+    return hit
 
 
 def _load(rel: str) -> list[dict[str, str]]:
@@ -51,12 +67,22 @@ def _env():
 
 def _key(node_ids, band, params) -> str:
     raw = "|".join(sorted(node_ids)) + "|" + band + "|" + repr(sorted(params.items()))
+    # Node identifiers stay stable when synthetic stations move to a new DEM.
+    # Their coordinates and radio data must therefore be part of cache identity.
+    from datapaths import path as dpath
+    from terrain import DEM_HEADER
+    inputs = [Path(DEM_HEADER)] + [Path(dpath(name)) for name in
+              ("node.csv", "device.csv", "device_model.csv", "antenna_model.csv")]
+    for path in inputs:
+        raw += "|" + hashlib.sha256(path.read_bytes()).hexdigest()
     return "CV-" + hashlib.sha1(raw.encode()).hexdigest()[:16]
 
 
 def _set(tid: str, **kw) -> None:
     with _LOCK:
         _TASKS.setdefault(tid, {}).update(kw)
+        if _TASKS[tid].get("status") in ("SUCCESS", "FAILED"):
+            write_json(COVERAGE_TASK_DIR / (tid + ".json"), _TASKS[tid])
 
 
 def _run(tid: str, node_ids, band, params) -> None:
@@ -128,7 +154,9 @@ def _run(tid: str, node_ids, band, params) -> None:
                 cell_m=1000.0)
         cache_key = _key(node_ids or [], band, params)
         with _LOCK:
-            _CACHE[cache_key] = dict(result=result, at=time.time())
+            entry = dict(result=result, at=time.time())
+            write_json(COVERAGE_DIR / (cache_key + ".json"), entry)
+            _CACHE[cache_key] = entry
         _set(tid, status="SUCCESS", progress=1.0, stage="完成",
              elapsed_s=round(time.time() - t0, 2),
              cache_key=cache_key, result=result)
@@ -146,7 +174,7 @@ def submit_coverage(payload: dict[str, Any]) -> dict[str, Any]:
               ("radius_m", "cell_m", "margin_min_db", "freq_khz") if k in payload}
     ck = _key(node_ids, band, params)
     with _LOCK:
-        hit = _CACHE.get(ck)
+        hit = _cached_unlocked(ck)
     if hit:
         return {"code": 0, "message": "success",
                 "data": {"status": "SUCCESS", "from_cache": True,
@@ -162,7 +190,14 @@ def submit_coverage(payload: dict[str, Any]) -> dict[str, Any]:
 
 def query_coverage(task_id: str) -> dict[str, Any]:
     with _LOCK:
-        t = dict(_TASKS.get(task_id) or {})
+        t = _TASKS.get(task_id)
+        if t is None and task_id.startswith("CT-") and len(task_id) == 15 and all(
+                char in "0123456789abcdef" for char in task_id[3:]):
+            path = COVERAGE_TASK_DIR / (task_id + ".json")
+            if path.exists():
+                t = read_json(path)
+                _TASKS[task_id] = t
+        t = dict(t or {})
     if not t:
         return {"code": 2001, "message": "任务不存在或已过期", "data": None}
     return {"code": 0, "message": "success", "data": t}
@@ -171,7 +206,7 @@ def query_coverage(task_id: str) -> dict[str, Any]:
 def read_cache(cache_key: str) -> dict[str, Any]:
     """前端只读入口（SR-1.1.2.6.2 c：读缓存，不发起实时全网计算）。"""
     with _LOCK:
-        hit = _CACHE.get(cache_key)
+        hit = _cached_unlocked(cache_key)
     if not hit:
         return {"code": 2001, "message": "缓存未命中，请先提交覆盖计算任务",
                 "data": None}

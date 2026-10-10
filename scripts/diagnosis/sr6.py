@@ -13,6 +13,17 @@ def _rows(name):
         return list(csv.DictReader(handle))
 
 
+def add_diagnostic_steps(graph):
+    """Migrate previously saved graphs to the case table's ordered steps."""
+    for row in _rows("fault_case.csv"):
+        cid = row["case_id"]
+        source = f"fault_cases_v1.csv#{cid} [CONSTRUCTED]"
+        for index, step in enumerate(filter(None, row["diagnosis_steps"].split(";")), 1):
+            graph.add_triple(("Fault", cid), "diagnosedBy",
+                             ("DiagnosisStep", f"{index:02d}:{step.strip()}"),
+                             source=source, graph="fault")
+
+
 def build_graph():
     graph = KnowledgeGraph("sr6_constructed")
     models = _rows("device_model.csv")

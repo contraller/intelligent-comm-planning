@@ -7,8 +7,9 @@ from .candidate_sites import filter_candidate_sites
 from .coverage import query_coverage, read_cache, submit_coverage
 from .deployment import query_deployment, submit_deployment
 from .fault import (create_report, create_scenario, delete_scenario, export_impact,
-                    get_scenario, get_suggestions, import_scenarios, list_scenarios,
-                    report_path, submit_diagnosis, submit_impact, update_scenario,
+                    get_impact_nodes, get_scenario, get_suggestions, import_scenarios, list_scenarios,
+                    report_path, submit_diagnosis, submit_observation_diagnosis,
+                    submit_impact, update_scenario,
                     validate_scenario)
 from . import kg
 from .planning_w3 import (query_task, submit_frequency, submit_plan_check,
@@ -186,8 +187,13 @@ def plans_confirm(solution_id: str) -> dict[str, Any]:
 
 
 @app.get("/api/v1/plans/{solution_id}/export")
-def plans_export(solution_id: str, format: str = "json") -> dict[str, Any]:
-    return export_plan(solution_id, format)
+def plans_export(solution_id: str, format: str = "json") -> Any:
+    result = export_plan(solution_id, format)
+    if result["code"] == 0 and result["data"]["format"] == "xlsx":
+        return Response(content=result["data"]["content"],
+                        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        headers={"Content-Disposition": 'attachment; filename="plan.xlsx"'})
+    return result
 
 
 # SR-5 fault diagnosis. Analysis tasks share the established task state endpoint.
@@ -240,9 +246,20 @@ def fault_diagnose(payload: dict[str, Any]) -> dict[str, Any]:
     return submit_diagnosis(payload)
 
 
+@app.post("/api/v1/fault/diagnose/observations")
+def fault_diagnose_observations(payload: dict[str, Any]) -> dict[str, Any]:
+    return submit_observation_diagnosis(payload)
+
+
 @app.post("/api/v1/fault/impact")
 def fault_impact(payload: dict[str, Any]) -> dict[str, Any]:
     return submit_impact(payload)
+
+
+@app.get("/api/v1/fault/impact/{task_id}/nodes")
+def fault_impact_nodes(task_id: str, node_role: str | None = None,
+                       region: str | None = None) -> dict[str, Any]:
+    return get_impact_nodes(task_id, node_role, region)
 
 
 @app.get("/api/v1/fault/tasks/{task_id}")

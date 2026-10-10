@@ -13,12 +13,23 @@ if str(ROOT / "scripts") not in sys.path:
     sys.path.insert(0, str(ROOT / "scripts"))
 
 from diagnosis.kg_store import ENTITY_TYPES, RELATIONS  # noqa: E402
-from diagnosis.sr6 import build_graph  # noqa: E402
+from diagnosis.sr6 import add_diagnostic_steps, build_graph  # noqa: E402
 
 STORE_PATH = Path(os.environ.get("SR6_STORE_PATH", ROOT / "data" / "runtime" / "sr6_graph.json"))
 _LOCK = threading.RLock()
 _GRAPH = None
 _STATE = None
+
+
+def _sync_link_rules(graph, state):
+    attrs_by_id = {entity["attrs"]["rule_id"]: entity["attrs"]
+                   for entity in graph.entities.values()
+                   if entity["type"] == "Metric" and "rule_id" in entity["attrs"]}
+    for rule in state.rules:
+        attrs = attrs_by_id.get(rule["rule_id"])
+        if attrs:
+            rule["threshold"] = attrs["threshold"]
+            rule["threshold_text"] = attrs["threshold_text"]
 
 
 def _ok(data):
@@ -35,6 +46,7 @@ def _load():
         with _LOCK:
             if _GRAPH is None:
                 graph, state = build_graph()
+                migrated = False
                 if STORE_PATH.exists():
                     with STORE_PATH.open(encoding="utf-8") as handle:
                         saved = json.load(handle)
@@ -43,13 +55,21 @@ def _load():
                     graph.versions = saved["versions"]
                     graph.pending = saved["pending"]
                     graph.log = saved["log"]
+                    if saved.get("schema_revision", 1) < 2:
+                        add_diagnostic_steps(graph)
+                        graph.version += 1
+                        graph.freeze("Migrate ordered diagnostic steps from constructed cases")
+                        migrated = True
+                _sync_link_rules(graph, state)
                 _GRAPH, _STATE = graph, state
+                if migrated:
+                    _save()
     return _GRAPH, _STATE
 
 
 def _save():
     graph, _ = _load()
-    data = {"snapshot": graph._snapshot(), "version": graph.version,
+    data = {"schema_revision": 2, "snapshot": graph._snapshot(), "version": graph.version,
             "versions": graph.versions, "pending": graph.pending, "log": graph.log}
     STORE_PATH.parent.mkdir(parents=True, exist_ok=True)
     tmp = STORE_PATH.with_suffix(".tmp")
@@ -191,8 +211,9 @@ def evaluate_link_state(payload):
 
 def submit(payload):
     ops = payload.get("ops")
-    if not isinstance(ops, list) or not ops or len(ops) > 100:
-        return _bad("ops 必须是 1 到 100 项变更")
+    if not isinstance(ops, list) or not 1 <= len(ops) <= 100 or any(
+            not isinstance(op, dict) for op in ops):
+        return _bad("ops 必须是 1 到 100 项变更对象")
     with _LOCK:
         graph, _ = _load()
         cid, errors = graph.submit_update(ops, payload.get("submitter", ""), payload.get("note", ""))
@@ -219,6 +240,8 @@ def review(change_id, payload):
             return _bad(f"变更无法应用: {exc}")
         if result is None:
             return _bad("待审核变更不存在", 4001)
+        if result["status"] == "APPROVED":
+            _sync_link_rules(graph, _STATE)
         _save()
         return _ok(result)
 
@@ -245,6 +268,7 @@ def rollback(version, payload):
         result = graph.rollback(version)
         if result is None:
             return _bad("版本不存在", 4001)
+        _sync_link_rules(graph, _STATE)
         graph._log("ROLLBACK_REVIEWER", "回滚操作人：%s" % payload["reviewer"])
         _save()
         return _ok(result)

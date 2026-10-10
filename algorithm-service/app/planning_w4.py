@@ -12,11 +12,14 @@ from __future__ import annotations
 import csv
 import io
 import json
+import os
 import threading
 import time
 import uuid
+from pathlib import Path
 from typing import Any
 
+from .runtime_store import read_json, write_json
 from .planning_w3 import (CODE_BAD_ENUM, CODE_BAD_PARAM, CODE_NO_SOLUTION, CODE_OK,
                           CODE_TASK_NOT_FOUND,
                           _load, _set, _spawn, _terrain, _topology, _nodes, _devices)
@@ -24,6 +27,29 @@ from .planning_w3 import (CODE_BAD_ENUM, CODE_BAD_PARAM, CODE_NO_SOLUTION, CODE_
 _PLANS: dict[str, dict[str, Any]] = {}
 _SCENARIOS: dict[str, Any] = {}          # 干扰分析场景，供 adopt 使用
 _PLOCK = threading.Lock()
+PLAN_DIR = Path(os.environ.get("SR4_PLAN_DIR", Path(__file__).resolve().parents[2] / "data" / "runtime" / "plans"))
+
+
+def _plan_path(pid: str) -> Path | None:
+    if not pid.startswith("PL-") or len(pid) != 11 or not all(c in "0123456789ABCDEF" for c in pid[3:]):
+        return None
+    return PLAN_DIR / (pid + ".json")
+
+
+def _get_plan_unlocked(pid: str) -> dict[str, Any] | None:
+    p = _PLANS.get(pid)
+    path = _plan_path(pid)
+    if p is None and path is not None and path.exists():
+        p = read_json(path)
+        _PLANS[pid] = p
+    return p
+
+
+def _load_plan_files_unlocked() -> None:
+    if PLAN_DIR.exists():
+        for path in PLAN_DIR.glob("PL-*.json"):
+            if _plan_path(path.stem) is not None:
+                _get_plan_unlocked(path.stem)
 
 
 def _new_plan_id() -> str:
@@ -32,9 +58,11 @@ def _new_plan_id() -> str:
 
 def _save_plan(kind: str, summary: dict[str, Any], detail: dict[str, Any]) -> str:
     pid = _new_plan_id()
+    plan = dict(solution_id=pid, kind=kind, created_at=time.time(),
+                confirmed=False, summary=summary, detail=detail)
     with _PLOCK:
-        _PLANS[pid] = dict(solution_id=pid, kind=kind, created_at=time.time(),
-                           confirmed=False, summary=summary, detail=detail)
+        write_json(_plan_path(pid), plan)
+        _PLANS[pid] = plan
     return pid
 
 
@@ -194,11 +222,20 @@ def _do_sr4(payload, tick):
 
 
 def submit_sr4(payload: dict[str, Any]) -> dict[str, Any]:
+    import radio_params as RP
+    import routing
     payload = payload or {}
     scope = payload.get("survivability_scope", "NETWORK")
     if scope not in ("NETWORK", "TASK"):
         return {"code": CODE_BAD_ENUM,
                 "message": "survivability_scope 只能取 NETWORK / TASK，收到 %r" % scope,
+                "data": None}
+    preset = payload.get("preset", "TERRAIN")
+    if not isinstance(preset, str) or preset not in RP.PRESETS:
+        return {"code": CODE_BAD_ENUM, "message": "preset 只能是 %s" % "/".join(RP.PRESETS),
+                "data": None}
+    if payload.get("strategy", "MAX_RELIABILITY") not in routing.STRATEGIES:
+        return {"code": CODE_BAD_ENUM, "message": "strategy 只能是 %s" % "/".join(routing.STRATEGIES),
                 "data": None}
     return _spawn("SR4_FLOW", payload, _do_sr4)
 
@@ -207,6 +244,7 @@ def submit_sr4(payload: dict[str, Any]) -> dict[str, Any]:
 
 def list_plans(payload: dict[str, Any] | None = None) -> dict[str, Any]:
     with _PLOCK:
+        _load_plan_files_unlocked()
         items = [dict(solution_id=p["solution_id"], kind=p["kind"],
                       created_at=p["created_at"], confirmed=p["confirmed"],
                       summary=p["summary"]) for p in _PLANS.values()]
@@ -216,7 +254,7 @@ def list_plans(payload: dict[str, Any] | None = None) -> dict[str, Any]:
 
 def get_plan(pid: str) -> dict[str, Any]:
     with _PLOCK:
-        p = _PLANS.get(pid)
+        p = _get_plan_unlocked(pid)
     if p is None:
         return {"code": CODE_TASK_NOT_FOUND, "message": "方案不存在", "data": None}
     return {"code": CODE_OK, "message": "success", "data": p}
@@ -226,7 +264,7 @@ def compare_plans(payload: dict[str, Any]) -> dict[str, Any]:
     """多方案横向对比（SR-4.2.4 扩展 3）。只比对象里都有的数值指标。"""
     ids = payload.get("solution_ids") or []
     with _PLOCK:
-        ps = [_PLANS.get(i) for i in ids]
+        ps = [_get_plan_unlocked(i) for i in ids]
     missing = [i for i, p in zip(ids, ps) if p is None]
     if missing:
         return {"code": CODE_TASK_NOT_FOUND, "message": "方案不存在：%s" % missing, "data": None}
@@ -246,20 +284,29 @@ def compare_plans(payload: dict[str, Any]) -> dict[str, Any]:
 
 def confirm_plan(pid: str) -> dict[str, Any]:
     with _PLOCK:
-        p = _PLANS.get(pid)
+        p = _get_plan_unlocked(pid)
         if p is None:
             return {"code": CODE_TASK_NOT_FOUND, "message": "方案不存在", "data": None}
-        p["confirmed"] = True
-        p["confirmed_at"] = time.time()
+        eligibility = {"SR4_FLOW": "check_passed", "NETWORK_OPTIMIZE": "feasible"}
+        required = eligibility.get(p["kind"])
+        if required is None or p["summary"].get(required) is not True:
+            return {"code": CODE_NO_SOLUTION, "message": "方案未通过校验，不可确认",
+                    "data": {"solution_id": pid, "kind": p["kind"],
+                             "required_check": required, "confirmed": False}}
+        if p["confirmed"]:
+            return {"code": CODE_OK, "message": "success",
+                    "data": {"solution_id": pid, "confirmed": True}}
+        p = dict(p, confirmed=True, confirmed_at=time.time())
+        write_json(_plan_path(pid), p)
+        _PLANS[pid] = p
     return {"code": CODE_OK, "message": "success",
             "data": {"solution_id": pid, "confirmed": True}}
 
 
 def export_plan(pid: str, fmt: str = "json") -> dict[str, Any]:
-    """导出。json 与 csv 两种；**xlsx 未实现**——纯标准库约束下需手写
-    Office Open XML，待与前端确认确有需要再做（接口文档 2.8 列了 xlsx）。"""
+    """Export a saved plan as JSON, CSV or an XLSX workbook."""
     with _PLOCK:
-        p = _PLANS.get(pid)
+        p = _get_plan_unlocked(pid)
     if p is None:
         return {"code": CODE_TASK_NOT_FOUND, "message": "方案不存在", "data": None}
     fmt = (fmt or "json").lower()
@@ -275,4 +322,31 @@ def export_plan(pid: str, fmt: str = "json") -> dict[str, Any]:
             w.writerow([k, json.dumps(v, ensure_ascii=False) if isinstance(v, (dict, list)) else v])
         return {"code": CODE_OK, "message": "success",
                 "data": {"format": "csv", "content": buf.getvalue()}}
-    return {"code": CODE_BAD_PARAM, "message": "暂只支持 json / csv；xlsx 待定", "data": None}
+    if fmt == "xlsx":
+        from openpyxl import Workbook
+        book = Workbook()
+        summary = book.active
+        summary.title = "Summary"
+        summary.append(["field", "value"])
+        for key, value in p["summary"].items():
+            summary.append([key, json.dumps(value, ensure_ascii=False) if isinstance(value, (dict, list)) else value])
+        details = book.create_sheet("Details")
+        details.append(["path", "value"])
+
+        def add_rows(path, value):
+            if isinstance(value, dict):
+                for key, item in value.items():
+                    add_rows(f"{path}.{key}", item)
+            elif isinstance(value, list):
+                for index, item in enumerate(value):
+                    add_rows(f"{path}[{index}]", item)
+            else:
+                details.append([path, value if value is None or isinstance(value, (str, int, float, bool))
+                                else str(value)])
+
+        add_rows("detail", p["detail"])
+        output = io.BytesIO()
+        book.save(output)
+        return {"code": CODE_OK, "message": "success",
+                "data": {"format": "xlsx", "content": output.getvalue()}}
+    return {"code": CODE_BAD_PARAM, "message": "仅支持 json / csv / xlsx", "data": None}

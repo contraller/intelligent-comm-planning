@@ -12,7 +12,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from .planning_w3 import _TASKS, _LOCK, _spawn, CODE_OK, CODE_TASK_NOT_FOUND
+from .planning_w3 import _spawn, get_task_record, CODE_OK, CODE_TASK_NOT_FOUND
 
 ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT / "scripts") not in sys.path:
@@ -174,16 +174,14 @@ def import_scenarios_file(filename, contents):
 
 
 def _diagnosis(tid):
-    with _LOCK:
-        task = dict(_TASKS.get(tid) or {})
+    task = get_task_record(tid)
     if task.get("kind") != "FAULT_DIAGNOSE" or task.get("status") != "SUCCESS":
         return None
     return task["result"]
 
 
 def _impact(tid):
-    with _LOCK:
-        task = dict(_TASKS.get(tid) or {})
+    task = get_task_record(tid)
     if task.get("kind") != "FAULT_IMPACT" or task.get("status") != "SUCCESS":
         return None
     return task["result"]
@@ -197,8 +195,7 @@ def submit_diagnosis(payload):
     if scenario is None:
         return {"code": 1002, "message": "故障场景不存在", "data": None}
     try:
-        _engine().diagnose(scenario, payload.get("fusion_weights"),
-                           payload.get("confidence_threshold", 0.6))
+        _diagnose_live(scenario, payload)
     except FaultInputError as exc:
         return _bad(exc)
     if payload.get("network_solution_id") and _solution(payload["network_solution_id"]) is None:
@@ -206,17 +203,41 @@ def submit_diagnosis(payload):
 
     def work(_payload, tick):
         tick(0.4, "规则与图谱推理")
-        out = _engine().diagnose(scenario, payload.get("fusion_weights"),
-                                 payload.get("confidence_threshold", 0.6))
+        out = _diagnose_live(scenario, payload)
         out["network_solution_id"] = payload.get("network_solution_id") or "SYNTHETIC_BASELINE"
         return out
     return _spawn("FAULT_DIAGNOSE", payload, work)
 
 
+def _diagnose_live(scenario, payload, require_fault_type=True):
+    from . import kg
+    with kg._LOCK:
+        graph, _ = kg._load()
+        return _engine().diagnose(scenario, payload.get("fusion_weights"),
+                                  payload.get("confidence_threshold", 0.6), graph=graph,
+                                  require_fault_type=require_fault_type)
+
+
+def submit_observation_diagnosis(payload):
+    payload = payload or {}
+    scenario = {"scenario_name": payload.get("scenario_name") or "观测诊断",
+                "faults": payload.get("faults"), "scenario_id": None}
+    try:
+        _diagnose_live(scenario, payload, require_fault_type=False)
+    except FaultInputError as exc:
+        return _bad(exc)
+
+    def work(_payload, tick):
+        tick(0.4, "根据观测现象推理")
+        return _diagnose_live(scenario, payload, require_fault_type=False)
+
+    return _spawn("FAULT_DIAGNOSE_OBSERVATION", payload, work)
+
+
 def _solution(sid):
-    from .planning_w4 import _PLANS, _PLOCK
-    with _PLOCK:
-        return _PLANS.get(sid)
+    from .planning_w4 import get_plan
+    result = get_plan(sid)
+    return result["data"] if result["code"] == CODE_OK else None
 
 
 def submit_impact(payload):
@@ -245,6 +266,17 @@ def submit_impact(payload):
         return _engine().impact(scenario, diagnosis, solution,
                                 payload.get("consider_backup_route", True))
     return _spawn("FAULT_IMPACT", payload, work)
+
+
+def get_impact_nodes(task_id, node_role=None, region=None):
+    impact = _impact(task_id)
+    if impact is None:
+        return {"code": CODE_TASK_NOT_FOUND, "message": "影响任务不存在或尚未完成", "data": None}
+    rows = [row for row in impact["affected_nodes"]
+            if (node_role is None or row.get("node_role") == node_role)
+            and (region is None or row.get("region") == region)]
+    return _ok({"total": len(rows), "items": rows,
+                "filters": {"node_role": node_role, "region": region}})
 
 
 def get_suggestions(diagnose_task_id, impact_task_id=None):

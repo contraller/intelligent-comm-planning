@@ -152,7 +152,12 @@ class Tiff:
         self.origin_lat = tp[4]
         nd = t.get("nodata", (None,))[0]
         self.nodata = float(nd) if nd not in (None, "") else None
-        self.dtype = ("int%d" if self.sample_format == 2 else "uint%d") % self.bits
+        if self.sample_format == 3:
+            if self.bits != 32:
+                raise TiffError("仅支持 float32，实际 bits=%d" % self.bits)
+            self.dtype = "float32"
+        else:
+            self.dtype = ("int%d" if self.sample_format == 2 else "uint%d") % self.bits
 
     @property
     def bbox(self):

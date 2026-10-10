@@ -277,7 +277,8 @@ class KnowledgeGraph:
 
         ops: [{op: add_triple, head_type, head, relation, tail_type, tail, weight, source}
               | {op: remove_triple, triple_id}
-              | {op: set_weight, triple_id, weight}]
+              | {op: set_weight, triple_id, weight}
+              | {op: set_link_rule, rule_id, threshold_value, source}]
         """
         errs = []
         for k, o in enumerate(ops):
@@ -305,6 +306,20 @@ class KnowledgeGraph:
                             raise ValueError
                     except (ValueError, TypeError):
                         errs.append("第 %d 项权重必须是非负有限数" % k)
+            elif o.get("op") == "set_link_rule":
+                rules = [e for e in self.entities.values()
+                         if e["type"] == "Metric" and e["attrs"].get("rule_id") == o.get("rule_id")]
+                if len(rules) != 1:
+                    errs.append("第 %d 项链路状态规则不存在" % k)
+                if not o.get("source"):
+                    errs.append("第 %d 项缺少门限变更来源 source" % k)
+                try:
+                    value = float(o.get("threshold_value"))
+                    metric = rules[0]["attrs"]["metric"] if rules else None
+                    if not math.isfinite(value) or metric in ("ber", "packet_loss_rate", "delay_ms", "throughput_kbps") and value < 0 or metric == "packet_loss_rate" and value > 1:
+                        raise ValueError
+                except (ValueError, TypeError):
+                    errs.append("第 %d 项门限值无效" % k)
             else:
                 errs.append("第 %d 项操作 %s 不支持" % (k, o.get("op")))
         if errs:
@@ -324,22 +339,38 @@ class KnowledgeGraph:
             ch["status"] = "REJECTED"
             self._log("REJECT", "%s 被 %s 驳回" % (change_id, reviewer))
             return dict(change_id=change_id, status="REJECTED", version=self.version)
-        if not self.versions:
-            self.freeze("审核前自动存档")
-        applied = []
-        for o in ch["ops"]:
-            if o["op"] == "add_triple":
-                tid = self.add_triple((o["head_type"], o["head"]), o["relation"],
-                                      (o["tail_type"], o["tail"]),
-                                      weight=float(o.get("weight", 1.0)),
-                                      source=o["source"], graph=o.get("graph", "update"))
-                applied.append(tid)
-            elif o["op"] == "remove_triple":
-                self.remove_triple(o["triple_id"])
-                applied.append(o["triple_id"])
-            elif o["op"] == "set_weight":
-                self.triples[o["triple_id"]]["weight"] = float(o["weight"])
-                applied.append(o["triple_id"])
+        before = self._snapshot()
+        versions_before, log_before = copy.deepcopy(self.versions), copy.deepcopy(self.log)
+        try:
+            if not self.versions:
+                self.freeze("审核前自动存档")
+            applied = []
+            for o in ch["ops"]:
+                if o["op"] == "add_triple":
+                    tid = self.add_triple((o["head_type"], o["head"]), o["relation"],
+                                          (o["tail_type"], o["tail"]),
+                                          weight=float(o.get("weight", 1.0)),
+                                          source=o["source"], graph=o.get("graph", "update"))
+                    applied.append(tid)
+                elif o["op"] == "remove_triple":
+                    self.remove_triple(o["triple_id"])
+                    applied.append(o["triple_id"])
+                elif o["op"] == "set_weight":
+                    self.triples[o["triple_id"]]["weight"] = float(o["weight"])
+                    applied.append(o["triple_id"])
+                elif o["op"] == "set_link_rule":
+                    from diagnosis.link_state_kg import _fmt, _val
+                    rule = next(e for e in self.entities.values()
+                                if e["type"] == "Metric" and e["attrs"].get("rule_id") == o["rule_id"])
+                    attrs = rule["attrs"]
+                    attrs["threshold"] = _val(attrs["metric"], o["threshold_value"])
+                    attrs["threshold_text"] = _fmt(attrs["metric"], attrs["threshold"])
+                    attrs["review_source"] = o["source"]
+                    applied.append(o["rule_id"])
+        except Exception:
+            self._restore(before)
+            self.versions, self.log = versions_before, log_before
+            raise
         ch["status"] = "APPROVED"
         self.version += 1
         self.freeze("发布 %s（%s）" % (change_id, ch["note"]))

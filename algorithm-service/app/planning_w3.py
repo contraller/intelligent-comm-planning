@@ -12,12 +12,15 @@ plan_check），本层只做参数校验、任务编排与结果序列化。
 from __future__ import annotations
 
 import csv
+import os
 import sys
 import threading
 import time
 import uuid
 from pathlib import Path
 from typing import Any
+
+from .runtime_store import read_json, write_json
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 for _p in (REPO_ROOT / "scripts", REPO_ROOT / "scripts" / "planning"):
@@ -27,6 +30,7 @@ for _p in (REPO_ROOT / "scripts", REPO_ROOT / "scripts" / "planning"):
 _TASKS: dict[str, dict[str, Any]] = {}
 _LOCK = threading.Lock()
 _CACHE: dict[str, Any] = {}
+TASK_DIR = Path(os.environ.get("ALGORITHM_TASK_DIR", REPO_ROOT / "data" / "runtime" / "tasks"))
 
 # 业务错误码，与接口文档 1.3 一致
 CODE_OK = 0
@@ -81,9 +85,26 @@ def _devices():
 def _set(tid: str, **kw) -> None:
     with _LOCK:
         _TASKS.setdefault(tid, {}).update(kw)
+        if _TASKS[tid].get("status") in ("SUCCESS", "FAILED"):
+            write_json(TASK_DIR / (tid + ".json"), _TASKS[tid])
+
+
+def get_task_record(task_id: str) -> dict[str, Any]:
+    with _LOCK:
+        task = _TASKS.get(task_id)
+        if task is None and task_id.startswith("tsk-") and len(task_id) == 16 and all(
+                char in "0123456789abcdef" for char in task_id[4:]):
+            path = TASK_DIR / (task_id + ".json")
+            if path.exists():
+                task = read_json(path)
+                _TASKS[task_id] = task
+        return dict(task or {})
 
 
 def _spawn(kind: str, payload: dict[str, Any], fn) -> dict[str, Any]:
+    if payload.get("callback_url") not in (None, ""):
+        return {"code": CODE_BAD_PARAM, "message": "callback_url 尚未支持，请使用任务查询接口轮询",
+                "data": None}
     tid = "tsk-%s" % uuid.uuid4().hex[:12]
     _set(tid, task_id=tid, kind=kind, status="PENDING", progress=0.0,
          stage="排队中", submitted_at=time.time(), result=None, error=None)
@@ -106,8 +127,7 @@ def _spawn(kind: str, payload: dict[str, Any], fn) -> dict[str, Any]:
 
 def query_task(task_id: str) -> dict[str, Any]:
     """三个接口共用的任务查询端点。"""
-    with _LOCK:
-        t = dict(_TASKS.get(task_id) or {})
+    t = get_task_record(task_id)
     if not t:
         return {"code": CODE_TASK_NOT_FOUND, "message": "任务不存在或已过期", "data": None}
     if t["status"] == "FAILED":
@@ -172,7 +192,17 @@ def _do_route(payload, tick):
 
 
 def submit_route(payload: dict[str, Any]) -> dict[str, Any]:
-    return _spawn("ROUTE", payload or {}, _do_route)
+    import routing
+    payload = payload or {}
+    strategies = [payload.get("strategy", "MAX_RELIABILITY")]
+    demands = payload.get("demands") or []
+    if not isinstance(demands, list) or any(not isinstance(row, dict) for row in demands):
+        return {"code": CODE_BAD_PARAM, "message": "demands 必须是对象列表", "data": None}
+    strategies.extend(row["strategy"] for row in demands if row.get("strategy") is not None)
+    if any(strategy not in routing.STRATEGIES for strategy in strategies):
+        return {"code": CODE_BAD_ENUM, "message": "strategy 只能是 %s" % "/".join(routing.STRATEGIES),
+                "data": None}
+    return _spawn("ROUTE", payload, _do_route)
 
 
 # ---------------------------------------------------------------- 频率分配
@@ -204,7 +234,10 @@ def _do_frequency(payload, tick):
 
 
 def submit_frequency(payload: dict[str, Any]) -> dict[str, Any]:
-    return _spawn("FREQUENCY", payload or {}, _do_frequency)
+    payload = payload or {}
+    if str(payload.get("granularity") or "NET").upper() not in ("NET", "LINK"):
+        return {"code": CODE_BAD_ENUM, "message": "granularity 只能是 NET / LINK", "data": None}
+    return _spawn("FREQUENCY", payload, _do_frequency)
 
 
 # ---------------------------------------------------------------- 电台参数
@@ -241,7 +274,14 @@ def _do_radio_params(payload, tick):
 
 
 def submit_radio_params(payload: dict[str, Any]) -> dict[str, Any]:
-    return _spawn("RADIO_PARAMS", payload or {}, _do_radio_params)
+    import radio_params as RP
+    payload = payload or {}
+    presets = payload.get("presets") or list(RP.PRESETS)
+    if not isinstance(presets, list) or any(not isinstance(preset, str) or preset not in RP.PRESETS
+                                             for preset in presets):
+        return {"code": CODE_BAD_ENUM, "message": "presets 只能包含 %s" % "/".join(RP.PRESETS),
+                "data": None}
+    return _spawn("RADIO_PARAMS", payload, _do_radio_params)
 
 
 # ---------------------------------------------------------------- 方案校验

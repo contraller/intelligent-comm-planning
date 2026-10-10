@@ -156,7 +156,8 @@ def main():
     # ── 3 数值合理性 ──
     print("\n[3] 数值范围")
     def rng_check(label, vals, lo, hi):
-        bad = [v for v in vals if not (lo <= v <= hi)]
+        eps = 0.5e-6 if label.endswith((".lat", ".lon")) else 0
+        bad = [v for v in vals if not (lo - eps <= v <= hi + eps)]
         if bad:
             WARN.append("%s 有 %d 个值超出 [%s, %s]" % (label, len(bad), lo, hi))
             print("   ! %-34s %d 个越界, 例 %s" % (label, len(bad), bad[:3]))
@@ -233,11 +234,11 @@ def main():
     print("   总需求 %d，其中必要需求 %d (%.0f%%)"
           % (len(demands), len(mand), 100.0 * len(mand) / max(1, len(demands))))
     if bad_mand:
-        ERR.append("有 %d 条必要通联关系两端不连通，SR-4.2.4 硬约束必然无解: %s"
+        WARN.append("部署前有 %d 条必要通联关系两端不连通，需在新增中继和资源规划后验证: %s"
                    % (len(bad_mand), [d["demand_id"] for d in bad_mand][:5]))
-        print("   ✗ %d 条必要需求两端不连通 → SR-4.2.4 硬约束无解" % len(bad_mand))
+        print("   ! 部署前 %d 条必要需求两端不连通；不能据此判定部署优化无解" % len(bad_mand))
     else:
-        print("   ✓ 全部 %d 条必要需求两端连通（SR-4.2.4 硬约束存在可行解）" % len(mand))
+        print("   ✓ 部署前全部 %d 条必要需求在可达图中连通；仍须验证端口、部署和资源约束" % len(mand))
     print("   %s 非必要需求中 %d 条两端不连通（可由中继规划解决，属正常）"
           % ("·", len(bad_all) - len(bad_mand)))
 

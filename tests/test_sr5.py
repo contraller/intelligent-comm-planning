@@ -13,12 +13,14 @@ sys.path.insert(0, str(ROOT / "algorithm-service"))
 
 from diagnosis.sr5 import FaultEngine, _eval_condition
 from app import fault as service
+from app import planning_w3
 from app.main import app
 from fastapi.testclient import TestClient
 
 
 @pytest.fixture
 def client(tmp_path, monkeypatch):
+    monkeypatch.setattr(planning_w3, "TASK_DIR", tmp_path / "tasks")
     monkeypatch.setattr(service, "STORE_PATH", tmp_path / "scenarios.json")
     monkeypatch.setattr(service, "REPORT_DIR", tmp_path / "reports")
     monkeypatch.setattr(service, "_SCENARIOS", None)
@@ -86,6 +88,15 @@ def test_four_fault_types_and_reports(client):
         impacted = completed(client, impact_submit["data"]["task_id"])
         assert impacted["code"] == 0
         assert impacted["data"]["summary"]["affected_node_count"] >= 1
+        assert {row["level"] for row in impacted["data"]["affected_nodes"]} <= {
+            "SEVERE", "MODERATE", "MINOR"}
+        node = impacted["data"]["affected_nodes"][0]
+        filtered = client.get(f"/api/v1/fault/impact/{impact_submit['data']['task_id']}/nodes",
+                              params={"node_role": node["node_role"], "region": node["region"]}).json()
+        assert filtered["code"] == 0
+        assert node in filtered["data"]["items"]
+        assert all(row["node_role"] == node["node_role"] and row["region"] == node["region"]
+                   for row in filtered["data"]["items"])
         if kind == "EMI":
             assert all(row["state"] == "DEGRADED" for row in impacted["data"]["affected_links"])
         suggestion = client.get("/api/v1/fault/suggestions", params={
@@ -106,6 +117,40 @@ def test_four_fault_types_and_reports(client):
             assert xlsx.content.startswith(b"PK")
             png = client.get(f"/api/v1/fault/impact/{impact_submit['data']['task_id']}/export?format=png")
             assert png.content.startswith(b"\x89PNG")
+
+
+def test_observation_diagnosis_does_not_require_ground_truth(client):
+    example = service._engine().default_scenarios[0]["faults"][0]
+    observation = {key: value for key, value in example.items() if key != "fault_type"}
+    submitted = client.post("/api/v1/fault/diagnose/observations", json={
+        "faults": [observation]}).json()
+    assert submitted["code"] == 0
+    result = completed(client, submitted["data"]["task_id"])
+    assert result["code"] == 0
+    assert result["data"]["results"][0]["fused"]["fault_type"] == "HW_FAILURE"
+    assert client.post("/api/v1/fault/diagnose/observations", json={
+        "faults": [example]}).json()["code"] == 1001
+    assert client.post("/api/v1/fault/diagnose/observations", json={
+        "faults": [dict(observation, symptom_ids=["UNKNOWN"])]}).json()["code"] == 1002
+
+
+def test_minor_impact_for_nonmandatory_degraded_endpoint(monkeypatch):
+    engine = FaultEngine()
+    scenario = next(s for s in engine.default_scenarios if s["scenario_id"] == "FS-0004")
+    lid = scenario["faults"][0]["object_id"]
+    link = engine.links[lid]
+    endpoints = {link["node_a_id"], link["node_b_id"]}
+    outer = [nid for nid in engine.nodes if nid not in endpoints][:2]
+    demand = next(d for d in engine.demands.values() if d["is_mandatory"] != "true")
+    route = {"demand_id": demand["demand_id"], "primary": {
+        "node_path": [outer[0], link["node_a_id"], link["node_b_id"], outer[1]],
+        "link_path": [lid]}, "backup": None}
+    monkeypatch.setattr(engine, "_routes", lambda _: ([route], {lid: link}, "TEST"))
+    impact = engine.impact(scenario, {})
+    levels = {row["node_id"]: row["level"] for row in impact["affected_nodes"]}
+    assert levels[outer[0]] == "MINOR"
+    assert levels[outer[1]] == "MINOR"
+    assert all(levels[nid] == "MODERATE" for nid in endpoints)
 
 
 def test_csv_and_xlsx_batch_import(client):
@@ -132,19 +177,23 @@ def test_csv_and_xlsx_batch_import(client):
     assert response["data"]["imported"] == 1
 
 
-def test_plan_impact_and_invalid_input(client):
-    from app.planning_w4 import _PLANS
-    link = service._engine().links["LK-0322"]
-    plan_id = "PL-SR5-TEST"
-    _PLANS[plan_id] = {"solution_id": plan_id, "kind": "SR4_FLOW",
-                       "detail": {"links": [link], "routes": {"routes": [{
-                           "demand_id": "CD-0010", "primary": {
-                               "node_path": [link["node_a_id"], link["node_b_id"]],
-                               "link_path": [link["link_id"]]}, "backup": None}]}}}
+def test_plan_impact_and_invalid_input(client, tmp_path, monkeypatch):
+    from app import planning_w4
+    monkeypatch.setattr(planning_w4, "PLAN_DIR", tmp_path / "plans")
+    scenario = service._scenarios()["FS-0002"]
+    link_id = next(f["object_id"] for f in scenario["faults"]
+                   if f["object_type"] == "LINK")
+    link = service._engine().links[link_id]
+    plan_id = planning_w4._save_plan("SR4_FLOW", {"check_passed": False},
+                                     {"links": [link], "routes": {"routes": [{
+                                         "demand_id": "CD-0010", "primary": {
+                                             "node_path": [link["node_a_id"], link["node_b_id"]],
+                                             "link_path": [link["link_id"]]}, "backup": None}]}})
+    planning_w4._PLANS.pop(plan_id)
     try:
         invalid = client.post("/api/v1/fault/scenarios/validate", json={
             "scenario_name": "bad params", "faults": [{"object_type": "LINK",
-            "object_id": "LK-0322", "fault_type": "LINK_DOWN", "params": "bad"}]}).json()
+            "object_id": link_id, "fault_type": "LINK_DOWN", "params": "bad"}]}).json()
         assert invalid["code"] == 1001
         diagnosis = client.post("/api/v1/fault/diagnose", json={
             "scenario_id": "FS-0002", "network_solution_id": plan_id}).json()
@@ -153,12 +202,12 @@ def test_plan_impact_and_invalid_input(client):
             "diagnose_task_id": diagnosis["data"]["task_id"]}).json()
         result = completed(client, impact["data"]["task_id"])
         assert result["data"]["network_solution_id"] == plan_id
-        assert result["data"]["affected_links"][0]["link_id"] == "LK-0322"
+        assert result["data"]["affected_links"][0]["link_id"] == link_id
         assert result["data"]["affected_demands"][0]["state"] == "INTERRUPTED"
         assert result["data"]["summary"]["total_bandwidth_loss_kbps"] > 0
-        _PLANS[plan_id]["detail"]["links"] = []
+        planning_w4._PLANS[plan_id]["detail"]["links"] = []
         rejected = client.post("/api/v1/fault/impact", json={
             "diagnose_task_id": diagnosis["data"]["task_id"]}).json()
         assert rejected["code"] == 1002
     finally:
-        _PLANS.pop(plan_id, None)
+        planning_w4._PLANS.pop(plan_id, None)

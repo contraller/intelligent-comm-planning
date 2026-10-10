@@ -182,10 +182,13 @@ from echelon import (ECHELON_CAP, SUBTYPE_ECHELON, SUBTYPE_MOBILITY,
 # 任务区分布在规划区内，覆盖山地、山前过渡与平原三类地形，
 # 使部署规划与传播计算都能落到有区分度的地形上。
 TASK_AREAS = [
-    ("太行山区", 114.16, 37.55, 0.14),
-    ("山前过渡区", 114.42, 37.25, 0.16),
-    ("中部平原区", 114.85, 37.65, 0.18),
-    ("东部平原区", 115.20, 37.20, 0.18),
+    (name, LON0 + x * (LON1 - LON0), LAT0 + y * (LAT1 - LAT0), radius)
+    for name, x, y, radius in [
+        ("太行山区", .10, .60, .14),
+        ("山前过渡区", .30, .30, .16),
+        ("中部平原区", .60, .70, .18),
+        ("东部平原区", .85, .27, .18),
+    ]
 ]
 
 
@@ -205,6 +208,7 @@ def gen_nodes():
         n += 1
         lon = min(max(lon, LON0 + 0.02), LON1 - 0.02)
         lat = min(max(lat, LAT0 + 0.02), LAT1 - 0.02)
+        lon, lat = round(lon, 6), round(lat, 6)
         cap = ECHELON_CAP[subtype]
         cls = ";".join(b for b in ("HF", "VUHF") if cap[b] > 0)
         nd = dict(
@@ -248,7 +252,9 @@ def gen_nodes():
             sc = terrain.elevation(lo, la) - 40 * sl
             if best is None or sc > best[0]:
                 best = (sc, lo, la)
-        return (best[1], best[2]) if best else (lon_c or 114.7, lat_c or 37.45)
+        return (best[1], best[2]) if best else (
+            lon_c if lon_c is not None else (LON0 + LON1) / 2,
+            lat_c if lat_c is not None else (LAT0 + LAT1) / 2)
 
     # ── 行1：Ⅰ 固定站与机动站（同行互为备份）──
     lo, la = pick_high()
@@ -732,6 +738,7 @@ def gen_interference(freq_pool=None):
         hf = i % 2 == 0
         lo = rng.uniform(LON0 + 0.08, LON1 - 0.08)
         la = rng.uniform(LAT0 + 0.08, LAT1 - 0.08)
+        lo, la = round(lo, 6), round(la, 6)
         band_ch = chans.get("HF" if hf else "VUHF")
         h_ant = round(rng.uniform(5, 40), 1)
         if band_ch:

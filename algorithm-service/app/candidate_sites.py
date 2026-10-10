@@ -2,14 +2,18 @@
 from __future__ import annotations
 
 import math
+import json
 from dataclasses import dataclass
 from typing import Any
 
-from .data_loader import candidate_sites, task_scenarios, to_float
+from .data_loader import DATA_ROOT, candidate_sites, task_scenarios, to_float
 
 
 # 规划区，与 scripts/terrain.py 的 BBOX 保持一致（2026-09-16 西移）
 DEFAULT_AREA_BBOX = [114.0465, 36.9110, 115.4045, 37.9890]
+_dem_header = DATA_ROOT / "raw" / "dem" / "dem_current.json"
+if _dem_header.exists():
+    DEFAULT_AREA_BBOX = json.loads(_dem_header.read_text(encoding="utf-8"))["planning_bbox"]
 
 
 @dataclass(frozen=True)
@@ -45,7 +49,9 @@ def haversine_m(lon1: float, lat1: float, lon2: float, lat2: float) -> float:
 
 def _in_bbox(site: dict[str, str], bbox: list[float]) -> bool:
     lon, lat = to_float(site, "lon"), to_float(site, "lat")
-    return bbox[0] <= lon <= bbox[2] and bbox[1] <= lat <= bbox[3]
+    # Generated coordinates are rounded to six decimal places.
+    eps = 0.5e-6
+    return bbox[0] - eps <= lon <= bbox[2] + eps and bbox[1] - eps <= lat <= bbox[3] + eps
 
 
 def _base_reject_reasons(site: dict[str, str], constraints: CandidateConstraints) -> list[str]:
