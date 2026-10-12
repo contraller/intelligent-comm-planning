@@ -13,7 +13,7 @@
 ── 层序（自底向上）──────────────────────────────────────
   Ⅳ            → Ⅲ                      cdb
   Ⅲ            → Ⅱ机动站 / Ⅱ机动节点站   cdb
-  Ⅲ(剩余)      → 已接入的 Ⅲ（借道中继）  db     ← 合作方口头补充
+  Ⅲ(剩余)      → 已接入的 Ⅲ（借道中继）  db，借不到再 cdb  ← 合作方口头补充
   Ⅱ机动站/节点站 → Ⅱ固定站                db
   Ⅱ固定站      → Ⅰ                       db
   a车 / b车     → Ⅰ机动站                 db
@@ -41,8 +41,10 @@ LAYER_PLAN = [
     (("MANPACK",), ("VEHICLE_A", "VEHICLE_B"), E.HF, "背负式 上行 机动车"),
 ]
 
-# Ⅲ 层内借道中继：上一步没配上 Ⅱ 的 Ⅲ，可挂已接入的 Ⅲ（用空闲的 db 端口）
-PEER_RELAY = ("III_MOBILE", E.HF)
+# Ⅲ 层内借道中继：上一步没配上 Ⅱ 的 Ⅲ，可挂已接入的 Ⅲ。先用空闲的 db 端口，
+# 借不到再用 cdb——此时 Ⅳ 接入与 Ⅲ 上行两层已先跑完，cdb 端口剩下的才拿来借道
+# （合作方 2026-09-29：同组 Ⅲ 可直连，未限频段）。借道者算借出方那一组，借道始终允许。
+PEER_RELAY = ("III_MOBILE", (E.HF, E.VUHF))
 
 
 class Solution:
@@ -141,22 +143,27 @@ def solve_assignment(fm, active=None, damaged=False):
         parents = [i for s in parent_subs for i in by_sub.get(s, [])]
         asg, un = run_layer(children, parents, band, label)
 
-        # Ⅲ 层：没配上 Ⅱ 的，尝试借道已配上的 Ⅲ（改用 db 端口），迭代到不动点
+        # Ⅲ 层：没配上 Ⅱ 的，尝试借道已配上的 Ⅲ，按 db、cdb 依次试，迭代到不动点
+        # （新借上的 Ⅲ 也能再借给别人）
         if child_subs == ("III_MOBILE",) and un:
-            sub, pband = PEER_RELAY
-            for c in un:                     # 上行频段由 cdb 改为 db，预留随之转移
-                _take(sol, c, band, -1)
-                _take(sol, c, pband, 1)
+            sub, pbands = PEER_RELAY
+            cur = band                       # 未配上者的上行预留当前在 cdb
             changed = True
             while changed and un:
                 changed = False
-                placed = [i for i in by_sub.get(sub, []) if i in sol.parent_of]
-                if not placed:
-                    break
-                a2, un2 = run_layer(un, placed, pband, "Ⅲ 借道邻近 Ⅲ 中继")
-                if a2:
-                    changed = True
-                un = un2
+                for pband in pbands:
+                    if not un:
+                        break
+                    for c in un:             # 换频段借道，上行预留随之转移
+                        _take(sol, c, cur, -1)
+                        _take(sol, c, pband, 1)
+                    cur = pband
+                    placed = [i for i in by_sub.get(sub, []) if i in sol.parent_of]
+                    if not placed:
+                        continue
+                    a2, un = run_layer(un, placed, pband, "Ⅲ 借道邻近 Ⅲ 中继（%s）" % pband)
+                    if a2:
+                        changed = True
 
     # 沿 parent 链能到根的才算连通
     memo = {}
@@ -571,6 +578,8 @@ def _margin_bound(fm, sol, ci, worst_k=5):
             continue
         if not (fm.normal[band][ci] >> c) & 1:
             continue
+        if not _may_parent(fm, sol, c, ci):
+            continue
         m2 = fm.margin_of(ci, c, band)
         if m2 is not None and m2 > m:
             gain = max(gain, m2 - m)
@@ -592,7 +601,7 @@ def _redundancy_bound(fm, sol, ci):
             low = m & -m
             j = low.bit_length() - 1
             m ^= low
-            if j in sol.connected and sol.parent_of.get(j):
+            if j in sol.connected and sol.parent_of.get(j) and _may_parent(fm, sol, j, ci):
                 cnt += 1
                 ms.append(fm.margin_of(ci, j, band) or 0.0)
         room = max(0, E.capacity(st.subtype, band) - 1)
@@ -601,6 +610,15 @@ def _redundancy_bound(fm, sol, ci):
             ms.sort(reverse=True)
             best, margin = g, sum(ms[:room]) / max(1, len(ms[:room]))
     return best, margin
+
+
+def _may_parent(fm, sol, c, j):
+    """j 能否算 c 的（第二）上级。同级的 Ⅲ 不是 Ⅲ 的上级——除非 c 本就是借道上行，
+    这时换一个 Ⅲ 借道仍算。超短波 Ⅲ──Ⅲ 加入关系表后，不加这条会把同级 Ⅲ 当成备份上级。"""
+    if not E.is_peer_pair(fm.stations[c].subtype, fm.stations[j].subtype):
+        return True
+    par = sol.parent_of.get(c)
+    return par is not None and fm.stations[par[0]].subtype == E.PEER_SUBTYPE
 
 
 def _plan_score(fm, sol, objective):
@@ -626,7 +644,8 @@ def _plan_score(fm, sol, objective):
         for c, (par, band) in sol.parent_of.items():
             alt = 0
             for j in fm.neighbors(c, band):
-                if j != par and j in sol.connected and _ports_left(sol, fm, j, band) > 0:
+                if (j != par and j in sol.connected and _ports_left(sol, fm, j, band) > 0
+                        and _may_parent(fm, sol, c, j)):
                     alt += 1
                     break
             spare += alt
@@ -676,6 +695,10 @@ def lower_bound(fm, sol):
             continue
         psub = parent_subs[0]
         c = E.capacity(psub, band) - (1 if psub not in E.ROOT_SUBTYPES else 0)
+        if child_subs == (PEER_RELAY[0],):
+            # 失联 Ⅲ 只能借道新增的 Ⅲ 接入（Ⅱ 不可部署）；一部新 Ⅲ 除自己上行占 1 口外，
+            # db、cdb 端口都能借出
+            c = sum(E.capacity(PEER_RELAY[0], b) for b in PEER_RELAY[1]) - 1
         if c > 0:
             need += -(-len(orphans) // c)        # ceil
     return need

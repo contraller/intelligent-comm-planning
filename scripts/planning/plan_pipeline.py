@@ -69,6 +69,11 @@ def root_links(fm, sol):
     return out
 
 
+def uplinks_by_sid(fm, sol):
+    """主上行关系 {下级台站号: 上级台站号}，供方案校验识别 Ⅲ 借道链路。"""
+    return {fm.stations[c].sid: fm.stations[p].sid for c, (p, _b) in sol.parent_of.items()}
+
+
 def topology_from_deployment(stations, terrain, nodes=None, devices=None,
                              models=None, candidate_rows=None, verbose=False):
     """第 3 周的输入 = 第 2 周部署规划的**完整输出**，不是 link.csv 全集。
@@ -105,26 +110,39 @@ def topology_from_deployment(stations, terrain, nodes=None, devices=None,
         edges.append((ra, rb, band, False))
         used[(ra, band)] = used.get((ra, band), 0) + 1
         used[(rb, band)] = used.get((rb, band), 0) + 1
-    # 备份父链路：只在两端端口都还有余量时才建，保证不越编成定额
-    for child, (parent, band) in sorted(sol.parent_of.items()):
-        ca = _E.capacity(fm.stations[child].subtype, band)
-        if used.get((child, band), 0) >= ca:
-            continue
-        best = None
-        for j in fm.neighbors(child, band):
-            if j == parent or j not in sol.connected:
+    # 备份父链路：只在两端端口都还有余量时才建，保证不越编成定额。
+    # 分两轮：先 Ⅲ──Ⅲ 以外的（含 Ⅲ 双归属到另一个 Ⅱ），再同组 Ⅲ──Ⅲ。后者要等前一轮
+    # 定下双归属才知道谁和谁同组，cdb 端口也要先让给 Ⅳ 接入与 Ⅲ 上行（合作方 2026-09-29）。
+    def sub(i):
+        return fm.stations[i].subtype
+    uplink = {c: p for c, (p, _b) in sol.parent_of.items()}
+    backed = set()
+    for peer_round in (False, True):
+        groups = _E.peer_groups(sub, edges, uplink) if peer_round else None
+        for child, (parent, band) in sorted(sol.parent_of.items()):
+            ca = _E.capacity(sub(child), band)
+            if child in backed or used.get((child, band), 0) >= ca:
                 continue
-            cb = _E.capacity(fm.stations[j].subtype, band)
-            if used.get((j, band), 0) >= cb:
-                continue
-            m = fm.margin_of(child, j, band)
-            if m is not None and (best is None or m > best[1]):
-                best = (j, m)
-        if best:
-            j = best[0]
-            used[(child, band)] = used.get((child, band), 0) + 1
-            used[(j, band)] = used.get((j, band), 0) + 1
-            edges.append((child, j, band, True))
+            best = None
+            for j in fm.neighbors(child, band):
+                if j == parent or j not in sol.connected:
+                    continue
+                if _E.is_peer_pair(sub(child), sub(j)) != peer_round:
+                    continue
+                if peer_round and not _E.peer_link_allowed(child, j, groups, uplink):
+                    continue
+                cb = _E.capacity(sub(j), band)
+                if used.get((j, band), 0) >= cb:
+                    continue
+                m = fm.margin_of(child, j, band)
+                if m is not None and (best is None or m > best[1]):
+                    best = (j, m)
+            if best:
+                j = best[0]
+                used[(child, band)] = used.get((child, band), 0) + 1
+                used[(j, band)] = used.get((j, band), 0) + 1
+                edges.append((child, j, band, True))
+                backed.add(child)
 
     rows = []
     for k, (i, j, band, is_bk) in enumerate(edges, start=1):
@@ -212,7 +230,8 @@ def run(strategy="MAX_RELIABILITY", preset="TERRAIN", granularity="NET",
     t0 = time.time()
     chk = plan_check.check(freq_result=freq, freq_tasks=ftasks,
                            param_result=chosen, route_result=routes,
-                           links=links, nodes=nodes, caps=caps)
+                           links=links, nodes=nodes, caps=caps,
+                           uplinks=uplinks_by_sid(fm, sol) if sol else None)
     steps.append(("方案校验", time.time() - t0))
 
     if verbose:

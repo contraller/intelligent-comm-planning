@@ -10,8 +10,9 @@
 3. **参数越界**   功率是否在型号档位内、挂高是否在天线区间内
 4. **余量不足**   链路余量是否达到本方案的衰落余量门限
 5. **容量越限**   每个 (节点, 频段) 的链路数是否超过编成定额
-6. **频段串联**   有没有短波链路直接接到超短波链路上（db/cdb 不得相连）
-7. **路由可达**   通联需求是否都有主用路由；有无单点故障且无备用的
+6. **Ⅲ 同组直连** Ⅲ──Ⅲ 链路两端是否共享一个 Ⅱ（借道链路除外，合作方 2026-09-29）
+7. **频段串联**   有没有短波链路直接接到超短波链路上（db/cdb 不得相连）
+8. **路由可达**   通联需求是否都有主用路由；有无单点故障且无备用的
 
 每一项都给出**问题清单**而不是只给一个布尔值，因为前端要把冲突逐条渲染出来。
 """
@@ -33,8 +34,13 @@ def _issue(kind, severity, detail, **kw):
 
 
 def check(freq_result=None, freq_tasks=None, param_result=None,
-          route_result=None, links=None, nodes=None, caps=None):
-    """交叉校验。各部分都可以缺省，缺的部分跳过对应检查。"""
+          route_result=None, links=None, nodes=None, caps=None, uplinks=None):
+    """交叉校验。各部分都可以缺省，缺的部分跳过对应检查。
+
+    uplinks：{下级台站号: 上级台站号} 的主上行关系，用于认出 Ⅲ 借道链路。
+    缺省时按链路表的约定推断——非备份的 Ⅲ──Ⅲ 行即借道，node_a 为下级
+    （plan_pipeline / sr4_flow 均按 (下级, 上级) 写主链路）。
+    """
     issues = []
     checked = []
 
@@ -117,6 +123,24 @@ def check(freq_result=None, freq_tasks=None, param_result=None,
                     "%s（%s）%s 链路 %d 条，超过编成定额 %d"
                     % (sid, sub.get(sid, "?"), band, d, cap),
                     node_id=sid, band=band, used=d, capacity=cap))
+        checked.append("Ⅲ 同组直连")
+        live = [l for l in links if str(l.get("is_available", "true")).lower() != "false"]
+        if uplinks is None:
+            uplinks = {l["node_a_id"]: l["node_b_id"] for l in live
+                       if E.is_peer_pair(sub.get(l["node_a_id"]), sub.get(l["node_b_id"]))
+                       and str(l.get("is_backup", "false")).lower() != "true"}
+        groups = E.peer_groups(sub, [(l["node_a_id"], l["node_b_id"]) for l in live], uplinks)
+        for l in live:
+            a, b = l["node_a_id"], l["node_b_id"]
+            if E.is_peer_pair(sub.get(a), sub.get(b)) and \
+                    not E.peer_link_allowed(a, b, groups, uplinks):
+                issues.append(_issue(
+                    "PEER_CROSS_GROUP", "SEVERE",
+                    "%s 的 %s—%s（%s）跨组直连：两个 Ⅲ 不共享 Ⅱ（%s 属 %s，%s 属 %s）"
+                    % (l["link_id"], a, b, l["device_class"],
+                       a, "/".join(sorted(groups.get(a, ()))) or "无",
+                       b, "/".join(sorted(groups.get(b, ()))) or "无"),
+                    link_ids=[l["link_id"]], node_ids=[a, b]))
         checked.append("频段串联")
         # 一条链路两端的 device_class 必须一致；跨频段只能在节点内部完成
         for l in links:

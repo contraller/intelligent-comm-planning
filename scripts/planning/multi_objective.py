@@ -19,6 +19,7 @@
 在第 2 周部署结果（树形编成 + P1 已补的中继）之上，决定：
 1. **备份链路**：每个节点可以再挂一条到「另一个合法上级」的链路（编成允许、物理可行、
    两端端口都有余量）。每个节点取余量最好的前两个候选，共几百个比特。
+   Ⅲ──Ⅲ 还须同组（共享一个 Ⅱ，合作方 2026-09-29），且放在其余链路之后，见 decode。
 2. **追加中继**：从候选位置里按「能给多少现网节点当备份上级」挑出前 K 个，
    选中即部署：上行接到最好的合法上级，并用剩余端口给附近节点当备份上级。
 3. **衰落余量档位**：6 / 8 / 10 / 12 dB。门限越高链路越稳，但要求功率越大，
@@ -90,8 +91,27 @@ class Problem:
             for k in ((a, band), (b, band)):
                 self.ports_base[k] = self.ports_base.get(k, 0) + 1
 
+        # Ⅲ 同组（合作方 2026-09-29：同一个 Ⅱ 下的 Ⅲ 才能直连）。挑候选时只知道基础拓扑，
+        # 而优化过程中 Ⅲ 还可能双归属到另一个 Ⅱ，所以按「基础拓扑 + 每个 Ⅲ 还能接上的、
+        # 两端 cdb 有余的 Ⅱ」宽松估计；真正是否同组由 decode 按实际拓扑判。
+        def st_of(i):
+            return fm.stations[i].subtype
+
+        def free_at_base(i, band):
+            return self.ports_base.get((i, band), 0) < E.capacity(st_of(i), band)
+
+        self.uplink = {c: p for c, (p, _b) in sol.parent_of.items()}
+        maybe = list(self.base)
+        for x in sol.connected:
+            if st_of(x) != E.PEER_SUBTYPE or not free_at_base(x, E.VUHF):
+                continue
+            maybe.extend((x, j) for j in fm.neighbors(x, E.VUHF)
+                         if st_of(j) in E.PEER_GROUP_HEADS and j in sol.connected
+                         and free_at_base(j, E.VUHF))
+        maybe_groups = E.peer_groups(st_of, maybe, self.uplink)
+
         # 候选备份链路：每个已连通节点，在它持有的**每个频段**里取余量最好的
-        # 前 backups_per_node 个合法对端（编成允许、物理可行、不是已有链路）。
+        # 前 backups_per_node 个合法对端（编成允许、物理可行、不是已有链路、Ⅲ──Ⅲ 可能同组）。
         #
         # 必须按「每个频段」找，不能只看上行频段：Ⅲ 的上行走超短波，但它那个
         # 短波口本就是留给「右支接入与 Ⅲ──Ⅲ 中继」的（合作方答复 2(b)
@@ -107,6 +127,9 @@ class Problem:
                 cands = []
                 for j in fm.neighbors(child, band):
                     if j not in sol.connected:
+                        continue
+                    if E.is_peer_pair(st_of(child), st_of(j)) and \
+                            not E.peer_link_allowed(child, j, maybe_groups, self.uplink):
                         continue
                     key = (min(child, j), max(child, j), band)
                     if key in existing:
@@ -141,11 +164,16 @@ class Problem:
                     m = fm.margin_of(i, j, band)
                     if m is not None:
                         out.append((m, j, band))
+            # 新增的 Ⅲ 接得上 Ⅱ 时，只与这些 Ⅱ 下的 Ⅲ 直连；一个 Ⅱ 都接不上时可借道任一 Ⅲ
+            heads = {j for _m, j, _b in out if st_of(j) in E.PEER_GROUP_HEADS}
+            if heads and st_of(i) == E.PEER_SUBTYPE:
+                out = [(m, j, b) for m, j, b in out
+                       if st_of(j) != E.PEER_SUBTYPE or maybe_groups.get(j, frozenset()) & heads]
             out.sort(reverse=True)
             return out
 
         def port_free(i, band, ports):
-            return ports.get((i, band), 0) < E.capacity(fm.stations[i].subtype, band)
+            return ports.get((i, band), 0) < E.capacity(st_of(i), band)
 
         cand_idx = [i for i, st in enumerate(fm.stations)
                     if st.is_candidate and i not in self.base_relays]
@@ -264,15 +292,27 @@ class Problem:
 # ─────────────────────────── 评估 ───────────────────────────
 
 def decode(pb, genome):
-    """基因 → 具体拓扑（含端口修复：超编成定额的备份链路按余量从低到高剔除）。"""
+    """基因 → 具体拓扑（含端口修复：超编成定额的备份链路按余量从低到高剔除）。
+
+    Ⅲ──Ⅲ 链路（中继的、备份的）一律放在最后，按那时的实际拓扑判同组：一是 cdb 端口
+    先让给 Ⅳ 接入与 Ⅲ 上行，二是要等双归属定下来才知道谁和谁同组（合作方 2026-09-29）。
+    追加的 Ⅲ 中继一个 Ⅱ 都没接上时，可借道一个 Ⅲ 上行（算借出方那一组，借道始终允许）。
+
+    返回 (链路, 部署的中继, 衰落余量门限, 主上行 {下级: 上级})。
+    """
     bits, lvl = genome
     nb = len(pb.backups)
     links = list(pb.base)
     ports = dict(pb.ports_base)
     relays = []
+    uplink = dict(pb.uplink)
+    peer_todo = []
+
+    def st_of(i):
+        return pb.fm.stations[i].subtype
 
     def cap(i, band):
-        return E.capacity(pb.fm.stations[i].subtype, band)
+        return E.capacity(st_of(i), band)
 
     def take(i, band):
         ports[(i, band)] = ports.get((i, band), 0) + 1
@@ -280,31 +320,52 @@ def decode(pb, genome):
     def free(i, band):
         return ports.get((i, band), 0) < cap(i, band)
 
+    def put(a, b, band):
+        if free(a, band) and free(b, band):
+            take(a, band)
+            take(b, band)
+            links.append((a, b, band))
+            return True
+        return False
+
     # 先放中继：按余量从高到低逐条接入合法对端，受两端端口约束；
     # 一条都接不上就不部署
     for k, rc in enumerate(pb.relay_cands):
         if not bits[nb + k]:
             continue
         i = rc["idx"]
-        got = 0
+        got, heads, peers = 0, False, []
         for m, j, band in rc["links"]:
-            if free(i, band) and free(j, band):
-                take(i, band)
-                take(j, band)
-                links.append((i, j, band))
+            if E.is_peer_pair(st_of(i), st_of(j)):
+                peers.append((i, j, band))
+            elif put(i, j, band):
                 got += 1
+                heads = heads or st_of(j) in E.PEER_GROUP_HEADS
+        if peers and not heads:              # 借道：取余量最好且端口有余的一个 Ⅲ
+            for t, (_i, j, band) in enumerate(peers):
+                if put(i, j, band):
+                    uplink[i] = j
+                    got += 1
+                    del peers[t]
+                    break
         if got:
             relays.append(i)
+            peer_todo.extend(peers)
     # 再放备份链路，按余量从高到低，放不下的丢弃
     chosen = [k for k in range(nb) if bits[k]]
     chosen.sort(key=lambda k: -(pb.fm.margin_of(*pb.backups[k]) or -1e9))
     for k in chosen:
         a, b, band = pb.backups[k]
-        if free(a, band) and free(b, band):
-            take(a, band)
-            take(b, band)
-            links.append((a, b, band))
-    return links, relays, MARGIN_LEVELS[lvl]
+        if E.is_peer_pair(st_of(a), st_of(b)):
+            peer_todo.append((a, b, band))
+        else:
+            put(a, b, band)
+    # 最后放 Ⅲ──Ⅲ，同组的才放
+    groups = E.peer_groups(st_of, links, uplink)
+    for a, b, band in peer_todo:
+        if E.peer_link_allowed(a, b, groups, uplink):
+            put(a, b, band)
+    return links, relays, MARGIN_LEVELS[lvl], uplink
 
 
 def _usable(pb, links, m_req):
@@ -372,7 +433,7 @@ def _bridges_and_times(nodes, adj):
 
 
 def evaluate(pb, genome):
-    links, relays, m_req = decode(pb, genome)
+    links, relays, m_req, uplink = decode(pb, genome)
     usable = _usable(pb, links, m_req)
     nodes = set()
     adj = {}
@@ -416,6 +477,7 @@ def evaluate(pb, genome):
     hops = _max_relay_chain(pb, usable, set(relays) | pb.base_relays)
 
     return dict(genome=genome, links=links, usable=usable, relays=relays, m_req=m_req,
+                uplinks=uplink,
                 connectivity=connectivity, mandatory_connectivity=mandatory_conn,
                 survivability=survivability, worst_bridge=worst_bridge,
                 total_power_w=power_w, devices_on=n_dev, relay_hops=hops,

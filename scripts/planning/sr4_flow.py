@@ -170,7 +170,9 @@ def run(task_id=None, preset="TERRAIN", strategy="MAX_RELIABILITY",
     params = RP.plan(st2, RP.topo_from_links(st2, links), caps2, terrain, preset=preset,
                      fade_margin_db=best["m_req"])
     chk = plan_check.check(freq_result=freq, freq_tasks=ftasks, param_result=params,
-                           route_result=routes, links=links, nodes=nodes2, caps=caps2)
+                           route_result=routes, links=links, nodes=nodes2, caps=caps2,
+                           uplinks={fm.stations[c].sid: fm.stations[p].sid
+                                    for c, p in best["uplinks"].items()})
     steps.append(("5 优化后重做路由/频率/功率/校验", time.time() - t0))
 
     # ── 6 干扰分析 ──

@@ -143,12 +143,14 @@ def backup_parents(fm, sol):
     """有第二可选上级的节点数 —— 抗毁性的直接度量（SR-4.2.4 d 的前置）。
 
     「可选」指：正常工况下编成允许、物理可行、且该上级尚有空余端口。
+    同级的 Ⅲ 不算 Ⅲ 的上级（借道者换借出方除外），见 deployment._may_parent。
     """
-    from deployment import _ports_left
+    from deployment import _ports_left, _may_parent
     n = 0
     for c, (par, band) in sol.parent_of.items():
         for j in fm.neighbors(c, band):
-            if j != par and j in sol.connected and _ports_left(sol, fm, j, band) > 0:
+            if (j != par and j in sol.connected and _ports_left(sol, fm, j, band) > 0
+                    and _may_parent(fm, sol, c, j)):
                 n += 1
                 break
     return n

@@ -4,13 +4,13 @@
 `gen_test_data.py` 与部署求解器共同引用，避免两份常量漂移。
 
 依据：《技术参考》内嵌的 Visio 图（`word/embeddings/Microsoft_Visio_Drawing.vsdx`，
-35 个形状、18 条连线），以及合作方 2026-09-18 的口头答复。
+35 个形状、18 条连线），以及合作方 2026-09-18、2026-09-29 的口头答复。
 
 ── 图上是五行，不是四行 ──────────────────────────────────────────
   行1  Ⅰdb固定站 ── Ⅰdb机动站          同行有链路，互为备份
   行2  Ⅱdb/cdb固定站                    单独一行，是行3两类 Ⅱ 的上级
   行3  Ⅱdb/cdb机动站  Ⅱdb/cdb机动节点站  同行之间无链路
-  行4  Ⅲdb/cdb机动站                    同行图上无链路，合作方补充可直连中继
+  行4  Ⅲdb/cdb机动站                    同行图上无链路，合作方补充可直连中继（限同组，见下）
   行5  Ⅳcdb机动站                       同行之间无链路
 
 层级 Ⅱ 内部有主从，因此**不能只看 echelon 判定跃迁**，必须用
@@ -19,6 +19,11 @@
 ── 两条硬约束 ────────────────────────────────────────────────
   1. db 不能和 cdb 相连：链路两端必须同频段，频段转换只发生在双频节点内部。
   2. 正常工况不得跨层级直连；作战损伤工况方可降级（《技术参考》标红段）。
+
+── Ⅲ──Ⅲ 还要过同组判据（不是站型能判的）──────────────────────────
+  合作方 2026-09-29：「同一个 Ⅱ 下的 Ⅲ 之间可以直接建链，不同 Ⅱ 下的不行。」
+  Ⅲ 挂哪个 Ⅱ 是规划时的选择，所以「同组」要看规划结果，不能放进按站型判断的
+  RELATIONS / 可行性矩阵，由各个加链处调用 peer_link_allowed() 判定。
 """
 
 # ── 频段 ──────────────────────────────────────────────────
@@ -117,10 +122,14 @@ RELATIONS = [
     ("II_FIXED",   "I_MOBILE",   HF,   True),   # 图中无；按「两个 Ⅰ 互为备份」推广，见 6.9-2
     ("I_FIXED",    "I_MOBILE",   HF,   True),   # 图中 1 条，同行互备
 
-    # ── Ⅲ 层内中继（合作方口头补充，图上无先例）──
-    # 用 Ⅲ 空闲的 db 端口。工程意义：被地形遮挡的 Ⅲ 借道邻近 Ⅲ 上行，
-    # 不必新增中继电台或移位。借道会消耗被借节点的端口容量。
+    # ── Ⅲ 层内直连（合作方口头补充，图上无先例；限同组，见 peer_link_allowed）──
+    # 工程意义：被地形遮挡的 Ⅲ 借道邻近 Ⅲ 上行，不必新增中继电台或移位；
+    # 同组 Ⅲ 之间互为备份。借道会消耗被借节点的端口容量。
+    # db：Ⅲ 的 db×1 在左支未被占用，本就留给右支接入与 Ⅲ──Ⅲ。
+    # cdb：合作方 2026-09-29 答复未限频段。cdb 端口要先满足 Ⅳ 接入（Ⅳ 只能接 Ⅲ 的 cdb）
+    #      与 Ⅲ 自己上行，剩下的才给 Ⅲ──Ⅲ——由加链处的先后顺序保证，不在本表表达。
     ("III_MOBILE", "III_MOBILE", HF,   True),
+    ("III_MOBILE", "III_MOBILE", VUHF, True),
 
     # ── 右支 · Ⅰ 直属短波机动力量（全为 db，不接触 Ⅳ）──
     ("I_MOBILE",   "VEHICLE_A",  HF,   True),
@@ -160,6 +169,59 @@ DEPLOYABLE_TYPES = ("III_MOBILE", "VEHICLE_A", "VEHICLE_B", "MANPACK")
 
 # 部署代价（用于平局时择优，数量相同则优先便宜的）
 DEPLOY_COST = {"MANPACK": 1.0, "VEHICLE_B": 2.0, "VEHICLE_A": 3.0, "III_MOBILE": 4.0}
+
+
+# ── Ⅲ 同组（合作方 2026-09-29 答复，用户同日确认口径）────────────
+# - 同组 = 规划结果中两个 Ⅲ 直接相连的 Ⅱ 有交集。Ⅲ 挂哪个 Ⅱ 是规划时的选择，
+#   可改挂、可双归属；nodes 表的 parent_node_id（编成上级）不作约束。
+# - 借道的 Ⅲ（够不到任何 Ⅱ、经邻近 Ⅲ 上行）算借出方那一组，借道链路本身始终允许。
+# - 作战损伤工况放宽，与损伤工况不查编成规则的口径一致——合作方未说，待确认。
+PEER_SUBTYPE = "III_MOBILE"
+PEER_GROUP_HEADS = frozenset({"II_MOBILE", "II_NODE"})   # Ⅲ 只上行到这两类 Ⅱ
+
+
+def is_peer_pair(sub_a, sub_b):
+    """两端都是 Ⅲ：除站型规则外还要过同组判据。"""
+    return sub_a == PEER_SUBTYPE and sub_b == PEER_SUBTYPE
+
+
+def peer_groups(subtype_of, links, uplink_of=None):
+    """规划结果中每个 Ⅲ 所属的组，返回 {Ⅲ: frozenset(Ⅱ)}。
+
+    subtype_of  节点 -> 子类型（dict 或可调用）
+    links       可迭代的 (a, b, ...)；其中每条 Ⅲ──Ⅱ 链路都计入归属，多条即双归属
+    uplink_of   节点 -> 主上行对端；对端是 Ⅲ 的即借道，借道者并入借出方的组（可链式）
+    """
+    sub = subtype_of if callable(subtype_of) else subtype_of.get
+    up = uplink_of or {}
+    direct, peers = {}, set()
+    for l in links:
+        a, b = l[0], l[1]
+        for x, y in ((a, b), (b, a)):
+            if sub(x) == PEER_SUBTYPE:
+                peers.add(x)
+                if sub(y) in PEER_GROUP_HEADS:
+                    direct.setdefault(x, set()).add(y)
+    peers.update(x for x in up if sub(x) == PEER_SUBTYPE)
+    out = {}
+    for x in peers:
+        g, cur, seen = set(), x, set()
+        while cur is not None and cur not in seen and sub(cur) == PEER_SUBTYPE:
+            seen.add(cur)
+            g |= direct.get(cur, set())
+            cur = up.get(cur)
+        out[x] = frozenset(g)
+    return out
+
+
+def peer_link_allowed(a, b, groups, uplink_of=None, damaged=False):
+    """两个 Ⅲ 之间能否直接建链：借道链路本身、或两端同组。"""
+    if damaged:
+        return True
+    up = uplink_of or {}
+    if up.get(a) == b or up.get(b) == a:
+        return True
+    return bool(groups.get(a, frozenset()) & groups.get(b, frozenset()))
 
 
 # ── 查询接口 ──────────────────────────────────────────────
@@ -240,7 +302,40 @@ def self_check():
     for t in DEPLOYABLE_TYPES:
         if t != "III_MOBILE" and VUHF in bands_of(t):
             problems.append("%s 不应带超短波" % t)
+
+    problems.extend(_peer_group_cases())
     return problems
+
+
+def _peer_group_cases():
+    """Ⅲ 同组判据的用例。A/B 是 Ⅱ，x/y/z/w 是 Ⅲ，c、d 借道。"""
+    bad = []
+    for band in (HF, VUHF):
+        if not relation_allowed(PEER_SUBTYPE, PEER_SUBTYPE, band):
+            bad.append("Ⅲ──Ⅲ 应允许走 %s（同组判据另判）" % band)
+    sub = {"A": "II_MOBILE", "B": "II_NODE", "F": "II_FIXED", "V": "VEHICLE_B",
+           "x": PEER_SUBTYPE, "y": PEER_SUBTYPE, "z": PEER_SUBTYPE, "w": PEER_SUBTYPE,
+           "c": PEER_SUBTYPE, "d": PEER_SUBTYPE, "o": PEER_SUBTYPE}
+    links = [("x", "A"), ("y", "A"), ("z", "B"), ("w", "A"), ("w", "B"),
+             ("c", "x"), ("d", "c"), ("A", "F"), ("o", "V")]
+    up = {"x": "A", "y": "A", "z": "B", "w": "A", "c": "x", "d": "c", "A": "F", "o": "V"}
+    g = peer_groups(sub, links, up)
+    cases = [("x", "y", False, True, "同一个 Ⅱ 下"),
+             ("x", "z", False, False, "不同 Ⅱ 下"),
+             ("w", "z", False, True, "双归属的 Ⅲ 与另一个 Ⅱ 下的 Ⅲ"),
+             ("c", "x", False, True, "借道链路本身"),
+             ("c", "y", False, True, "借道者与借出方同组的 Ⅲ"),
+             ("c", "z", False, False, "借道者与借出方不同组的 Ⅲ"),
+             ("d", "y", False, True, "链式借道继承到底"),
+             ("o", "x", False, False, "没挂 Ⅱ 也没借道的 Ⅲ"),
+             ("x", "z", True, True, "损伤工况放宽")]
+    for a, b, dmg, want, what in cases:
+        got = peer_link_allowed(a, b, g, up, damaged=dmg)
+        if got != want:
+            bad.append("同组判据错误：%s（%s──%s 应为 %s，得 %s）" % (what, a, b, want, got))
+    if g.get("w") != frozenset({"A", "B"}):
+        bad.append("双归属应同属两组，得 %s" % sorted(g.get("w", ())))
+    return bad
 
 
 if __name__ == "__main__":
@@ -257,3 +352,4 @@ if __name__ == "__main__":
     print("\n禁止的同行链路：")
     for a, b in FORBIDDEN_PEER:
         print("  %-12s ── %-12s  （图上无连线）" % (a, b))
+    print("\nⅢ──Ⅲ 另须同组（共享一个 Ⅱ；借道者算借出方那一组），同组判据用例全部通过")
