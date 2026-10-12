@@ -81,6 +81,23 @@ def test_html_sources_nodes_and_all_detailed_results_are_fresh():
     assert all(0 <= c < 14400 for z in cov['blind'] for c in z['cells'])
 
 
+def test_html_embeds_traceable_fault_knowledge():
+    d = demo()
+    kg = d['sr5']
+    with (ROOT / 'data/fault/cases/fault_cases_v1.csv').open(encoding='utf-8', newline='') as f:
+        cases = list(csv.DictReader(f))
+    with (ROOT / 'data/fault/knowledge_graph/fault_triples_v1.csv').open(
+            encoding='utf-8', newline='') as f:
+        triples = list(csv.DictReader(f))
+    assert kg['stats']['cases'] == len(cases) == 240
+    assert kg['stats']['triples'] == len(triples) == 2022
+    assert len(kg['symptoms']) == 15
+    assert {row[1] for row in kg['cases']} == {
+        'HW_FAILURE', 'LINK_DOWN', 'SW_CONFIG', 'EMI'}
+    assert all('[CONSTRUCTED]' in row[7] for row in kg['triples'])
+    assert kg['stats']['relations']['diagnosedBy'] == 960
+
+
 def test_coverage_cache_identity_changes_with_dem_input(tmp_path, monkeypatch):
     from app.coverage import _key
     import terrain

@@ -22,7 +22,18 @@ const { pathToFileURL } = require('node:url');
     }, id);
     await page.waitForTimeout(100);
     views.push({id, text: (await page.locator('#panel').innerText()).slice(0, 1200)});
-    if (['overview', 'cov', 'param', 'w4'].includes(id))
+    if (id === 'knowledge') {
+      await page.evaluate(() => {
+        const ex = KG.examples.EMI;
+        Knowledge.selected = new Set(ex.symptom_ids);
+        Knowledge.object = ex.object_type;
+        Knowledge.band = ex.device_class;
+        Knowledge.selectedCase = ex.case_id;
+        App.refresh();
+      });
+      await page.waitForTimeout(100);
+    }
+    if (['overview', 'cov', 'param', 'knowledge', 'w4'].includes(id))
       await page.screenshot({path: path.join(target, `desktop-${id}.png`)});
   }
   const canvas = await page.evaluate(() => {
@@ -50,11 +61,13 @@ const { pathToFileURL } = require('node:url');
   await page.waitForTimeout(200);
   await page.screenshot({path: path.join(target, 'mobile-overview.png'), fullPage: true});
   const mobile = await page.evaluate(() => ({scrollWidth: document.documentElement.scrollWidth, width: innerWidth}));
-  const report = {selfcheck, views, errors, canvas, mobile};
+  const knowledge = views.find(v => v.id === 'knowledge');
+  const report = {selfcheck, views, errors, canvas, mobile, knowledge};
   fs.writeFileSync(path.join(target, 'browser_validation.json'), JSON.stringify(report, null, 2));
   console.log(JSON.stringify({selfcheck, errors, canvas, mobile}, null, 2));
   await browser.close();
   if (errors.length || !selfcheck.badge.includes('3/3') || Object.values(selfcheck.results).some(r => !r.ok)
-      || canvas.colors < 100 || Object.values(canvas.assets).some(w => !w) || mobile.scrollWidth > mobile.width)
+      || canvas.colors < 100 || Object.values(canvas.assets).some(w => !w) || mobile.scrollWidth > mobile.width
+      || !knowledge || !knowledge.text.includes('可溯源三元组'))
     process.exitCode = 1;
 })().catch(e => { console.error(e); process.exitCode = 1; });

@@ -19,6 +19,7 @@ import re
 import subprocess
 import sys
 import time
+from collections import Counter
 
 from PIL import Image
 
@@ -370,8 +371,41 @@ def normalize_status(data):
             plan['metrics']['proved_optimal'] = False
 
 
+def fault_knowledge_demo():
+    """Pack the checked-in SR-5/SR-6 knowledge into the offline demo."""
+    symptoms = load('symptom_dict.csv')
+    cases = load('fault_case.csv')
+    rules = load('fault_rule.csv')
+    triple_path = ROOT / 'data/fault/knowledge_graph/fault_triples_v1.csv'
+    with triple_path.open(encoding='utf-8-sig', newline='') as handle:
+        triples = list(csv.DictReader(handle))
+    relations = Counter(row['relation'] for row in triples)
+    examples = {}
+    for row in cases:
+        examples.setdefault(row['fault_type'], dict(
+            case_id=row['case_id'], object_type=row['object_type'],
+            device_class=row['device_class'], symptom_ids=row['symptom_ids'].split(';')))
+    return dict(
+        stats=dict(cases=len(cases), rules=len(rules), triples=len(triples),
+                   symptoms=len(symptoms), relations=dict(sorted(relations.items()))),
+        symptoms=[[row['symptom_id'], row['symptom_name'], row['observable_from'],
+                   row['metric_field'], row['threshold_expr']] for row in symptoms],
+        cases=[[row['case_id'], row['fault_type'], row['fault_subtype'],
+                row['object_type'], row['device_class'], row['symptom_ids'].split(';'),
+                row['root_cause'], row['fault_component'],
+                list(filter(None, row['diagnosis_steps'].split(';'))), row['solution'],
+                row['repair_time_min'], row['source_doc']] for row in cases],
+        triples=[[row['triple_id'], row['head'], row['head_type'], row['relation'],
+                  row['tail'], row['tail_type'], float(row['weight']), row['source_doc']]
+                 for row in triples],
+        examples=examples,
+        limitations=['全部案例及关系标记为 CONSTRUCTED。',
+                     '置信度仅用于构造案例候选排序，不代表现场诊断准确率。'])
+
+
 def publish(html, match, data):
     normalize_status(data)
+    data['sr5'] = fault_knowledge_demo()
     packed = json.dumps(data, ensure_ascii=False, separators=(',', ':'), allow_nan=False).replace('</', '<\\/')
     HTML.write_text(html[:match.start(2)] + packed + html[match.end(2):], encoding='utf-8')
     (RESULTS / 'demo_data.json').write_text(packed, encoding='utf-8')
