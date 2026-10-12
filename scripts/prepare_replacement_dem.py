@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
-"""Import the current DEM without changing its geographic coordinates."""
+"""Import the current DEM without changing its geographic coordinates.
+
+由 `prepare_geodata.py` 调用；单独运行时只重新生成 DEM。
+原始 GeoTIFF 来自本地导入批次 `data/imported/taihang_20261009/`（不进 git）。
+"""
 import array
 import datetime as dt
 import gzip
@@ -15,7 +19,7 @@ sys.path.insert(0, str(HERE / "geo"))
 from tiff import Tiff
 
 
-def convert(source, output):
+def convert(source, output, label=None):
     tif = Tiff(str(source))
     if tif.dtype not in ("int16", "float32") or tif.samples != 1:
         raise ValueError("Expected a single-band int16 or float32 DEM")
@@ -65,7 +69,7 @@ def convert(source, output):
                 origin_lat=tif.origin_lat, pixel_lon=tif.pixel_lon,
                 pixel_lat=tif.pixel_lat, row_direction="north_to_south",
                 bbox=bbox, source_bbox=bbox, planning_bbox=planning,
-                source=source.name, source_sha256=digest,
+                source=label or source.name, source_sha256=digest,
                 elevation_min=low, elevation_max=high, nodata_count=missing,
                 raw_bytes=raw_bytes, data_file=output.name + ".bin.gz",
                 generated=dt.datetime.now().astimezone().isoformat(timespec="seconds"),
@@ -73,11 +77,13 @@ def convert(source, output):
     tif.close()
     temporary.replace(str(output) + ".bin.gz")
     header = Path(str(output) + ".json.tmp")
-    header.write_text(json.dumps(meta, indent=2), encoding="utf-8")
+    header.write_text(json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
     header.replace(str(output) + ".json")
-    print(json.dumps(meta, indent=2))
+    print(json.dumps(meta, ensure_ascii=False, indent=2))
     return meta
 
 
 if __name__ == "__main__":
-    convert(ROOT / "dem_taihang(1).tif", ROOT / "data/raw/dem/dem_current")
+    convert(ROOT / "data/imported/taihang_20261009/raw/dem/dem_taihang.tif",
+            ROOT / "data/raw/dem/dem_current",
+            label="太行山东麓_20261009.zip / dem/dem_taihang.tif")

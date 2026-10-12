@@ -3,19 +3,21 @@
 
     python3 scripts/prepare_geodata.py
 
-输入（本地归档，不进 git）：data/imported/data_zip_20260911/raw/
-输出（进 git）：
-    data/raw/dem/dem_taihang.json        + .bin.gz    高程网格
+输入（本地归档，不进 git）：
+    data/imported/taihang_20261009/raw/      DEM、地物、道路（「太行山东麓_20261009」批次）
+    data/imported/data_zip_20260911/raw/     仅第 4 步小体量 CSV 仍取自 9/11 批次，缺失则跳过
+输出（进 git，普通文件，不走 LFS）：
+    data/raw/dem/dem_current.json        + .bin.gz    高程网格（原生经纬度，含规划区 planning_bbox）
     data/raw/landcover/landcover_taihang.json + .bin.gz 地物网格（降采样到约 28 m）
     data/raw/landcover/landcover_legend.csv            地物编码对照
     data/raw/roads/roads_taihang.geojson.gz            道路（GBK 转 UTF-8）
 
 为什么不直接提交原始文件：
-    地物 GeoTIFF 未压缩 357 MB，道路 shapefile 合计 1.5 GB，均超 GitHub 100 MB 单文件限制；
-    且 GeoTIFF / Shapefile 都需要 GDAL 系依赖才能读，与项目「只用标准库」的约束冲突。
-    转换后的网格用 gzip + struct 即可读取，运行时零依赖。
+    地物 GeoTIFF 展开约 358 MB，读它要逐行解码；GeoTIFF / Shapefile 通用读法都需要 GDAL 系依赖，
+    与项目「只用标准库」的约束冲突。转换后的网格用 gzip + struct 即可读取，运行时零依赖。
+    2026-10-12 起不再使用 Git LFS：没装 LFS 的人拉下来只是指针文件，地形加载直接失败。
 """
-import csv, gzip, json, os, shutil, struct, sys, time, zlib
+import csv, gzip, json, os, shutil, sys, time, zlib
 import datetime as dt
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -24,13 +26,13 @@ from tiff import Tiff                     # noqa: E402
 from shapefile import Shp, Dbf, clip_line  # noqa: E402
 
 ROOT = os.path.normpath(os.path.join(HERE, ".."))
-SRC = os.path.join(ROOT, "data", "imported", "data_zip_20260911", "raw")
+BATCH = "太行山东麓_20261009.zip"
+SRC = os.path.join(ROOT, "data", "imported", "taihang_20261009", "raw")
+LEGACY_SRC = os.path.join(ROOT, "data", "imported", "data_zip_20260911", "raw")
 OUT = os.path.join(ROOT, "data", "raw")
 
-# 数据覆盖范围。以 terrain.BBOX_DATA 为唯一来源，避免与规划区常量各自漂移。
 sys.path.insert(0, HERE)
-from terrain import BBOX_DATA as BBOX_BUF  # noqa: E402
-LANDCOVER_STEP = 3          # 10 m -> 约 28 m，与 DEM 的 30 m 量级对齐
+LANDCOVER_STEP = 3          # 约 9 m -> 约 28 m，与 DEM 的 30 m 量级对齐
 
 STAMP = dt.datetime.now(dt.timezone(dt.timedelta(hours=8))).isoformat(timespec="seconds")
 
@@ -68,27 +70,18 @@ def grid_meta(tif, width, height, step, name, source, note):
 
 
 def convert_dem():
-    src = os.path.join(SRC, "terrain", "dem_taihang.tif")
+    """DEM 按原生经纬度落盘，并在其正中取 120 km × 120 km 规划区（见 prepare_replacement_dem）。"""
+    from pathlib import Path
+    from prepare_replacement_dem import convert
+    src = os.path.join(SRC, "dem", "dem_taihang.tif")
     print("[1/4] DEM")
     t0 = time.time()
-    t = Tiff(src)
-    buf = bytearray()
-    for row in t.rows():
-        buf += row
-    t.close()
-    vals = struct.unpack("<%dh" % (len(buf) // 2), bytes(buf))
-    nd = int(t.nodata) if t.nodata is not None else None
-    good = [v for v in vals if v != nd]
-    meta = grid_meta(t, t.width, t.height, 1, "dem_taihang",
-                     "data.zip / raw/terrain/dem_taihang.tif（30 m DEM，来源待确认）",
-                     "由原始 LZW 分块 GeoTIFF 解码后平铺存储；"
-                     "平铺 gzip 加载耗时 0.1 s，原 GeoTIFF 需 5.5 s 解码")
-    meta["elevation_min"] = min(good)
-    meta["elevation_max"] = max(good)
-    meta["nodata_count"] = len(vals) - len(good)
-    sz = write_grid(os.path.join(OUT, "dem", "dem_taihang"), bytes(buf), meta)
-    print("      %d x %d int16   高程 %d ~ %d m   NoData %d" %
-          (t.width, t.height, min(good), max(good), len(vals) - len(good)))
+    meta = convert(Path(src), Path(os.path.join(OUT, "dem", "dem_current")),
+                   label="%s / dem/dem_taihang.tif" % BATCH)
+    sz = os.path.getsize(os.path.join(OUT, "dem", "dem_current.bin.gz"))
+    print("      %d x %d %s   高程 %s ~ %s m   NoData %d" %
+          (meta["width"], meta["height"], meta["dtype"], meta["elevation_min"],
+           meta["elevation_max"], meta["nodata_count"]))
     print("      %s -> %s   %.1fs" % (human(os.path.getsize(src)), human(sz), time.time() - t0))
     return sz
 
@@ -110,9 +103,11 @@ def convert_landcover():
     import collections
     cnt = collections.Counter(out)
     meta = grid_meta(t, w, h, step, "landcover_taihang",
-                     "data.zip / raw/landcover/landcover_taihang.tif（ESA WorldCover 量级 10 m，来源待确认）",
-                     "原图 10 m 未压缩 357 MB；按 %d 倍最近邻降采样至约 28 m，"
-                     "与 DEM 的 30 m 量级对齐后 gzip 存储" % step)
+                     "%s / landcover/landcover_taihang.tif（ESA WorldCover 编码，约 9 m，来源待确认）"
+                     % BATCH,
+                     "原图约 9 m、未压缩 %.0f MB；按 %d 倍最近邻降采样至约 28 m，"
+                     "与 DEM 的 30 m 量级对齐后 gzip 存储"
+                     % (t.width * t.height / 1048576.0, step))
     meta["downsample_factor"] = step
     meta["class_histogram"] = {str(k): v for k, v in sorted(cnt.items())}
     sz = write_grid(os.path.join(OUT, "landcover", "landcover_taihang"), bytes(out), meta)
@@ -133,7 +128,9 @@ DRIVABLE = {"motorway", "motorway_link", "trunk", "trunk_link", "primary", "prim
 
 
 def convert_roads():
-    base = os.path.join(SRC, "road", "road_taihang", "road_taihang_bbox")
+    # 道路裁到 DEM 覆盖范围。DEM 已在第 1 步重新生成，此处才读它的头文件
+    from terrain import BBOX_DATA as BBOX_BUF
+    base = os.path.join(SRC, "road", "road_taihang_bbox")
     print("[3/4] 道路")
     t0 = time.time()
     dbf = Dbf(base + ".dbf", encoding="gbk")    # .cpg 声明 GBK
@@ -165,7 +162,7 @@ def convert_roads():
           "name": "roads_taihang",
           "crs": {"type": "name", "properties": {"name": "urn:ogc:def:crs:OGC:1.3:CRS84"}},
           "properties": {
-              "source": "data.zip / raw/road/road_taihang/road_taihang_bbox.shp（OpenStreetMap，ODbL 1.0）",
+              "source": "%s / road/road_taihang_bbox.shp（OpenStreetMap，ODbL 1.0）" % BATCH,
               "generated": STAMP,
               "bbox": list(BBOX_BUF),
               "note": "仅保留车辆可通行等级，属性精简为 fclass 与 name；"
@@ -227,12 +224,12 @@ def fix_fault_cases(src, dst):
 
 def copy_small_csv():
     print("[4/4] 小体量 CSV")
-    fsrc = os.path.join(SRC, "fault", "fault_case.csv")
+    fsrc = os.path.join(LEGACY_SRC, "fault", "fault_case.csv")
     fdst = os.path.join(OUT, "maintenance_docs", "fault_case_imported.csv")
     if os.path.exists(fsrc):
         n = fix_fault_cases(fsrc, fdst)
         print("      %-28s %s（已修正列错位）" % (os.path.basename(fdst), human(os.path.getsize(fdst))))
-    jobs = [(os.path.join(SRC, "docs", "index.csv"),
+    jobs = [(os.path.join(LEGACY_SRC, "docs", "index.csv"),
              os.path.join(OUT, "maintenance_docs", "docs_index.csv"))]
     total = 0
     for s, d in jobs:
@@ -254,7 +251,7 @@ def copy_small_csv():
 def main():
     if not os.path.isdir(SRC):
         print("找不到导入批次目录：%s" % SRC)
-        print("请先解压 data/imported/data_zip_20260911/source/data.zip")
+        print("请先把 %s 解压到该目录（去掉压缩包内的顶层文件夹），见同级 README.md" % BATCH)
         return 1
     print("地理数据预处理  %s\n" % STAMP)
     total = convert_dem() + convert_landcover() + convert_roads() + copy_small_csv()

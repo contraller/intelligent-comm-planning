@@ -22,7 +22,8 @@ def demo():
 def test_native_dem_and_planning_extent():
     meta = json.loads(Path(DEM_HEADER).read_text(encoding='utf-8'))
     assert meta['bbox'] == meta['source_bbox']
-    assert meta['source'] == 'dem_taihang(1).tif'
+    # 源文件以哈希为准：「太行山东麓_20261009」批次的 dem/dem_taihang.tif
+    assert meta['source_sha256'] == 'a42f42e17d38218f539cb04323696cacb296c4bcc11bb50a77cccf927f91bf7f'
     assert meta['nodata_count'] == 0
     assert tuple(meta['planning_bbox']) == BBOX
     assert list(BBOX) == DEFAULT_AREA_BBOX
@@ -35,7 +36,9 @@ def test_native_dem_and_planning_extent():
 
 def test_unmeasured_landcover_is_not_clamped():
     t = default_terrain(False)
-    assert t.landcover(113.5, 37) == '未知'
+    # 2026-10-12 起地物覆盖整个 DEM 范围，规划区内不应再有「未知」；数据范围外仍不外推边缘值
+    assert t.landcover(113.5, 37) != '未知'
+    assert t.landcover(113.0, 37) == '未知'
 
 
 def test_candidate_rounding_at_boundary_is_accepted():

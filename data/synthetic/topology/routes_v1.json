@@ -1,725 +1,419 @@
 [
   {
-    "route_id": "CD-0015-PRIMARY",
-    "demand_id": "CD-0015",
-    "task_id": "TS-0001",
-    "route_type": "PRIMARY",
-    "node_path": [
-      "ND-0114",
-      "ND-0047",
-      "ND-0116",
-      "ND-0040",
-      "ND-0028",
-      "ND-0009"
-    ],
-    "link_path": [
-      "LK-0133",
-      "LK-0197",
-      "LK-0070",
-      "LK-0114",
-      "LK-0240"
-    ],
-    "hop_count": 5,
-    "total_distance_m": 49543.8,
-    "bottleneck_margin_db": 39.94,
-    "estimated_reliability": 0.9752,
-    "route_cost": 49543.8,
-    "is_feasible": true,
-    "note": "derived from topology_links_v1.csv"
-  },
-  {
-    "route_id": "CD-0015-BACKUP",
-    "demand_id": "CD-0015",
-    "task_id": "TS-0001",
-    "route_type": "BACKUP",
-    "node_path": [
-      "ND-0114",
-      "ND-0023",
-      "ND-0117",
-      "ND-0009"
-    ],
-    "link_path": [
-      "LK-0334",
-      "LK-0256",
-      "LK-0015"
-    ],
-    "hop_count": 3,
-    "total_distance_m": 50841.5,
-    "bottleneck_margin_db": 20.86,
-    "estimated_reliability": 0.9654,
-    "route_cost": 50841.5,
-    "is_feasible": true,
-    "note": "derived from topology_links_v1.csv"
-  },
-  {
-    "route_id": "CD-0018-PRIMARY",
-    "demand_id": "CD-0018",
-    "task_id": "TS-0001",
-    "route_type": "PRIMARY",
-    "node_path": [
-      "ND-0040",
-      "ND-0037",
-      "ND-0065",
-      "ND-0093",
-      "ND-0014",
-      "ND-0066"
-    ],
-    "link_path": [
-      "LK-0116",
-      "LK-0063",
-      "LK-0125",
-      "LK-0050",
-      "LK-0101"
-    ],
-    "hop_count": 5,
-    "total_distance_m": 26331.0,
-    "bottleneck_margin_db": 11.22,
-    "estimated_reliability": 0.9218,
-    "route_cost": 28861.18,
-    "is_feasible": true,
-    "note": "derived from topology_links_v1.csv"
-  },
-  {
-    "route_id": "CD-0018-BACKUP",
-    "demand_id": "CD-0018",
-    "task_id": "TS-0001",
-    "route_type": "BACKUP",
-    "node_path": [
-      "ND-0040",
-      "ND-0028",
-      "ND-0003",
-      "ND-0126",
-      "ND-0008",
-      "ND-0038",
-      "ND-0066"
-    ],
-    "link_path": [
-      "LK-0114",
-      "LK-0113",
-      "LK-0067",
-      "LK-0034",
-      "LK-0278",
-      "LK-0109"
-    ],
-    "hop_count": 6,
-    "total_distance_m": 47097.3,
-    "bottleneck_margin_db": 15.01,
-    "estimated_reliability": 0.951,
-    "route_cost": 48775.21,
-    "is_feasible": true,
-    "note": "derived from topology_links_v1.csv"
-  },
-  {
-    "route_id": "CD-0019-PRIMARY",
-    "demand_id": "CD-0019",
-    "task_id": "TS-0001",
-    "route_type": "PRIMARY",
-    "node_path": [
-      "ND-0003",
-      "ND-0110",
-      "ND-0013",
-      "ND-0022"
-    ],
-    "link_path": [
-      "LK-0020",
-      "LK-0373",
-      "LK-0345"
-    ],
-    "hop_count": 3,
-    "total_distance_m": 70194.9,
-    "bottleneck_margin_db": 19.87,
-    "estimated_reliability": 0.9654,
-    "route_cost": 70405.39,
-    "is_feasible": true,
-    "note": "derived from topology_links_v1.csv"
-  },
-  {
-    "route_id": "CD-0019-BACKUP",
-    "demand_id": "CD-0019",
-    "task_id": "TS-0001",
-    "route_type": "BACKUP",
-    "node_path": [
-      "ND-0003",
-      "ND-0041",
-      "ND-0098",
-      "ND-0086",
-      "ND-0058",
-      "ND-0042",
-      "ND-0022"
-    ],
-    "link_path": [
-      "LK-0369",
-      "LK-0182",
-      "LK-0066",
-      "LK-0176",
-      "LK-0103",
-      "LK-0075"
-    ],
-    "hop_count": 6,
-    "total_distance_m": 71546.3,
-    "bottleneck_margin_db": 3.87,
-    "estimated_reliability": 0.9172,
-    "route_cost": 80575.87,
-    "is_feasible": true,
-    "note": "derived from topology_links_v1.csv"
-  },
-  {
-    "route_id": "CD-0022-PRIMARY",
-    "demand_id": "CD-0022",
-    "task_id": "TS-0001",
-    "route_type": "PRIMARY",
-    "node_path": [
-      "ND-0014",
-      "ND-0046"
-    ],
-    "link_path": [
-      "LK-0306"
-    ],
-    "hop_count": 1,
-    "total_distance_m": 25912.8,
-    "bottleneck_margin_db": 41.55,
-    "estimated_reliability": 0.995,
-    "route_cost": 25912.8,
-    "is_feasible": true,
-    "note": "derived from topology_links_v1.csv"
-  },
-  {
-    "route_id": "CD-0022-BACKUP",
-    "demand_id": "CD-0022",
-    "task_id": "TS-0001",
-    "route_type": "BACKUP",
-    "node_path": [
-      "ND-0014",
-      "ND-0041",
-      "ND-0013",
-      "ND-0046"
-    ],
-    "link_path": [
-      "LK-0238",
-      "LK-0192",
-      "LK-0155"
-    ],
-    "hop_count": 3,
-    "total_distance_m": 39655.6,
-    "bottleneck_margin_db": 36.9,
-    "estimated_reliability": 0.9851,
-    "route_cost": 39655.6,
-    "is_feasible": true,
-    "note": "derived from topology_links_v1.csv"
-  },
-  {
-    "route_id": "CD-0028-PRIMARY",
-    "demand_id": "CD-0028",
-    "task_id": "TS-0001",
-    "route_type": "PRIMARY",
-    "node_path": [
-      "ND-0110",
-      "ND-0003",
-      "ND-0125"
-    ],
-    "link_path": [
-      "LK-0020",
-      "LK-0145"
-    ],
-    "hop_count": 2,
-    "total_distance_m": 9871.7,
-    "bottleneck_margin_db": 55.02,
-    "estimated_reliability": 0.99,
-    "route_cost": 9871.7,
-    "is_feasible": true,
-    "note": "derived from topology_links_v1.csv"
-  },
-  {
-    "route_id": "CD-0028-BACKUP",
-    "demand_id": "CD-0028",
-    "task_id": "TS-0001",
-    "route_type": "BACKUP",
-    "node_path": [
-      "ND-0110",
-      "ND-0001",
-      "ND-0124",
-      "ND-0127",
-      "ND-0113",
-      "ND-0109",
-      "ND-0125"
-    ],
-    "link_path": [
-      "LK-0039",
-      "LK-0232",
-      "LK-0007",
-      "LK-0004",
-      "LK-0135",
-      "LK-0031"
-    ],
-    "hop_count": 6,
-    "total_distance_m": 28865.2,
-    "bottleneck_margin_db": 18.91,
-    "estimated_reliability": 0.9606,
-    "route_cost": 29789.85,
-    "is_feasible": true,
-    "note": "derived from topology_links_v1.csv"
-  },
-  {
-    "route_id": "CD-0031-PRIMARY",
-    "demand_id": "CD-0031",
-    "task_id": "TS-0001",
-    "route_type": "PRIMARY",
-    "node_path": [
-      "ND-0035",
-      "ND-0027",
-      "ND-0131"
-    ],
-    "link_path": [
-      "LK-0106",
-      "LK-0008"
-    ],
-    "hop_count": 2,
-    "total_distance_m": 6772.8,
-    "bottleneck_margin_db": 51.68,
-    "estimated_reliability": 0.99,
-    "route_cost": 6772.8,
-    "is_feasible": true,
-    "note": "derived from topology_links_v1.csv"
-  },
-  {
-    "route_id": "CD-0031-BACKUP",
-    "demand_id": "CD-0031",
-    "task_id": "TS-0001",
-    "route_type": "BACKUP",
-    "node_path": [
-      "ND-0035",
-      "ND-0132",
-      "ND-0125",
-      "ND-0115",
-      "ND-0131"
-    ],
-    "link_path": [
-      "LK-0058",
-      "LK-0115",
-      "LK-0033",
-      "LK-0162"
-    ],
-    "hop_count": 4,
-    "total_distance_m": 21360.4,
-    "bottleneck_margin_db": 34.91,
-    "estimated_reliability": 0.9801,
-    "route_cost": 21360.4,
-    "is_feasible": true,
-    "note": "derived from topology_links_v1.csv"
-  },
-  {
-    "route_id": "CD-0040-PRIMARY",
-    "demand_id": "CD-0040",
-    "task_id": "TS-0001",
-    "route_type": "PRIMARY",
-    "node_path": [
-      "ND-0043",
-      "ND-0108",
-      "ND-0115",
-      "ND-0003",
-      "ND-0041",
-      "ND-0069",
-      "ND-0050"
-    ],
-    "link_path": [
-      "LK-0009",
-      "LK-0118",
-      "LK-0165",
-      "LK-0369",
-      "LK-0198",
-      "LK-0073"
-    ],
-    "hop_count": 6,
-    "total_distance_m": 69863.9,
-    "bottleneck_margin_db": 13.45,
-    "estimated_reliability": 0.9172,
-    "route_cost": 74104.04,
-    "is_feasible": true,
-    "note": "derived from topology_links_v1.csv"
-  },
-  {
-    "route_id": "CD-0040-BACKUP",
-    "demand_id": "CD-0040",
-    "task_id": "TS-0001",
-    "route_type": "BACKUP",
-    "node_path": [
-      "ND-0043",
-      "ND-0009",
-      "ND-0011",
-      "ND-0050"
-    ],
-    "link_path": [
-      "LK-0324",
-      "LK-0236",
-      "LK-0332"
-    ],
-    "hop_count": 3,
-    "total_distance_m": 77445.4,
-    "bottleneck_margin_db": 10.88,
-    "estimated_reliability": 0.9311,
-    "route_cost": 92612.08,
-    "is_feasible": true,
-    "note": "derived from topology_links_v1.csv"
-  },
-  {
-    "route_id": "CD-0042-PRIMARY",
-    "demand_id": "CD-0042",
-    "task_id": "TS-0001",
-    "route_type": "PRIMARY",
-    "node_path": [
-      "ND-0048",
-      "ND-0025"
-    ],
-    "link_path": [
-      "LK-0042"
-    ],
-    "hop_count": 1,
-    "total_distance_m": 1927.7,
-    "bottleneck_margin_db": 62.97,
-    "estimated_reliability": 0.995,
-    "route_cost": 1927.7,
-    "is_feasible": true,
-    "note": "derived from topology_links_v1.csv"
-  },
-  {
-    "route_id": "CD-0042-BACKUP",
-    "demand_id": "CD-0042",
-    "task_id": "TS-0001",
-    "route_type": "BACKUP",
-    "node_path": [
-      "ND-0048",
-      "ND-0025"
-    ],
-    "link_path": [
-      "LK-0043"
-    ],
-    "hop_count": 1,
-    "total_distance_m": 1927.7,
-    "bottleneck_margin_db": 30.25,
-    "estimated_reliability": 0.995,
-    "route_cost": 1927.7,
-    "is_feasible": true,
-    "note": "derived from topology_links_v1.csv"
-  },
-  {
-    "route_id": "CD-0046-PRIMARY",
-    "demand_id": "CD-0046",
-    "task_id": "TS-0001",
-    "route_type": "PRIMARY",
-    "node_path": [
-      "ND-0109",
-      "ND-0125",
-      "ND-0040"
-    ],
-    "link_path": [
-      "LK-0031",
-      "LK-0239"
-    ],
-    "hop_count": 2,
-    "total_distance_m": 18913.0,
-    "bottleneck_margin_db": 31.24,
-    "estimated_reliability": 0.99,
-    "route_cost": 18913.0,
-    "is_feasible": true,
-    "note": "derived from topology_links_v1.csv"
-  },
-  {
-    "route_id": "CD-0046-BACKUP",
-    "demand_id": "CD-0046",
-    "task_id": "TS-0001",
-    "route_type": "BACKUP",
-    "node_path": [
-      "ND-0109",
-      "ND-0115",
-      "ND-0003",
-      "ND-0028",
-      "ND-0040"
-    ],
-    "link_path": [
-      "LK-0026",
-      "LK-0165",
-      "LK-0113",
-      "LK-0114"
-    ],
-    "hop_count": 4,
-    "total_distance_m": 25056.3,
-    "bottleneck_margin_db": 52.98,
-    "estimated_reliability": 0.9801,
-    "route_cost": 25056.3,
-    "is_feasible": true,
-    "note": "derived from topology_links_v1.csv"
-  },
-  {
-    "route_id": "CD-0050-PRIMARY",
-    "demand_id": "CD-0050",
-    "task_id": "TS-0001",
-    "route_type": "PRIMARY",
-    "node_path": [
-      "ND-0044",
-      "ND-0003",
-      "ND-0014",
-      "ND-0066"
-    ],
-    "link_path": [
-      "LK-0186",
-      "LK-0246",
-      "LK-0101"
-    ],
-    "hop_count": 3,
-    "total_distance_m": 35719.2,
-    "bottleneck_margin_db": 11.22,
-    "estimated_reliability": 0.9405,
-    "route_cost": 38249.38,
-    "is_feasible": true,
-    "note": "derived from topology_links_v1.csv"
-  },
-  {
-    "route_id": "CD-0050-BACKUP",
-    "demand_id": "CD-0050",
-    "task_id": "TS-0001",
-    "route_type": "BACKUP",
-    "node_path": [
-      "ND-0044",
-      "ND-0094",
-      "ND-0008",
-      "ND-0038",
-      "ND-0066"
-    ],
-    "link_path": [
-      "LK-0120",
-      "LK-0056",
-      "LK-0278",
-      "LK-0109"
-    ],
-    "hop_count": 4,
-    "total_distance_m": 37933.3,
-    "bottleneck_margin_db": 15.01,
-    "estimated_reliability": 0.9605,
-    "route_cost": 39611.21,
-    "is_feasible": true,
-    "note": "derived from topology_links_v1.csv"
-  },
-  {
-    "route_id": "CD-0055-PRIMARY",
-    "demand_id": "CD-0055",
-    "task_id": "TS-0001",
-    "route_type": "PRIMARY",
-    "node_path": [
-      "ND-0008",
-      "ND-0094",
-      "ND-0009",
-      "ND-0011",
-      "ND-0032",
-      "ND-0046",
-      "ND-0019",
-      "ND-0030"
-    ],
-    "link_path": [
-      "LK-0056",
-      "LK-0150",
-      "LK-0236",
-      "LK-0052",
-      "LK-0102",
-      "LK-0350",
-      "LK-0012"
-    ],
-    "hop_count": 7,
-    "total_distance_m": 70703.8,
-    "bottleneck_margin_db": 41.28,
-    "estimated_reliability": 0.9655,
-    "route_cost": 70703.8,
-    "is_feasible": true,
-    "note": "derived from topology_links_v1.csv"
-  },
-  {
-    "route_id": "CD-0055-BACKUP",
-    "demand_id": "CD-0055",
-    "task_id": "TS-0001",
-    "route_type": "BACKUP",
-    "node_path": [
-      "ND-0008",
-      "ND-0126",
-      "ND-0003",
-      "ND-0028",
-      "ND-0019",
-      "ND-0030"
-    ],
-    "link_path": [
-      "LK-0034",
-      "LK-0067",
-      "LK-0113",
-      "LK-0439",
-      "LK-0013"
-    ],
-    "hop_count": 5,
-    "total_distance_m": 72848.6,
-    "bottleneck_margin_db": 22.08,
-    "estimated_reliability": 0.9654,
-    "route_cost": 72848.6,
-    "is_feasible": true,
-    "note": "derived from topology_links_v1.csv"
-  },
-  {
-    "route_id": "CD-0081-PRIMARY",
-    "demand_id": "CD-0081",
+    "route_id": "CD-0005-PRIMARY",
+    "demand_id": "CD-0005",
     "task_id": "TS-0001",
     "route_type": "PRIMARY",
     "node_path": [
       "ND-0010",
-      "ND-0009",
-      "ND-0117",
-      "ND-0045",
-      "ND-0110",
-      "ND-0001"
+      "ND-0012",
+      "ND-0117"
     ],
     "link_path": [
-      "LK-0143",
-      "LK-0015",
-      "LK-0071",
-      "LK-0152",
-      "LK-0039"
+      "LK-0138",
+      "LK-0051"
     ],
-    "hop_count": 5,
-    "total_distance_m": 24783.7,
-    "bottleneck_margin_db": 41.44,
-    "estimated_reliability": 0.9752,
-    "route_cost": 24783.7,
+    "hop_count": 2,
+    "total_distance_m": 11033.7,
+    "bottleneck_margin_db": 42.61,
+    "estimated_reliability": 0.99,
+    "route_cost": 11033.7,
     "is_feasible": true,
     "note": "derived from topology_links_v1.csv"
   },
   {
-    "route_id": "CD-0081-BACKUP",
-    "demand_id": "CD-0081",
+    "route_id": "CD-0005-BACKUP",
+    "demand_id": "CD-0005",
     "task_id": "TS-0001",
     "route_type": "BACKUP",
     "node_path": [
       "ND-0010",
-      "ND-0008",
-      "ND-0126",
-      "ND-0003",
-      "ND-0110",
-      "ND-0002",
-      "ND-0001"
-    ],
-    "link_path": [
-      "LK-0194",
-      "LK-0034",
-      "LK-0067",
-      "LK-0020",
-      "LK-0032",
-      "LK-0057"
-    ],
-    "hop_count": 6,
-    "total_distance_m": 22807.2,
-    "bottleneck_margin_db": 10.83,
-    "estimated_reliability": 0.9265,
-    "route_cost": 28641.38,
-    "is_feasible": true,
-    "note": "derived from topology_links_v1.csv"
-  },
-  {
-    "route_id": "CD-0083-PRIMARY",
-    "demand_id": "CD-0083",
-    "task_id": "TS-0001",
-    "route_type": "PRIMARY",
-    "node_path": [
-      "ND-0024",
       "ND-0007",
       "ND-0023",
       "ND-0008",
-      "ND-0104"
+      "ND-0036",
+      "ND-0009",
+      "ND-0117"
     ],
     "link_path": [
-      "LK-0030",
+      "LK-0196",
       "LK-0005",
-      "LK-0189",
-      "LK-0279"
+      "LK-0185",
+      "LK-0027",
+      "LK-0177",
+      "LK-0015"
     ],
-    "hop_count": 4,
-    "total_distance_m": 35117.6,
-    "bottleneck_margin_db": 35.35,
-    "estimated_reliability": 0.9801,
-    "route_cost": 35117.6,
+    "hop_count": 6,
+    "total_distance_m": 39714.8,
+    "bottleneck_margin_db": 32.25,
+    "estimated_reliability": 0.9704,
+    "route_cost": 39714.8,
     "is_feasible": true,
     "note": "derived from topology_links_v1.csv"
   },
   {
-    "route_id": "CD-0083-BACKUP",
-    "demand_id": "CD-0083",
+    "route_id": "CD-0006-PRIMARY",
+    "demand_id": "CD-0006",
+    "task_id": "TS-0001",
+    "route_type": "PRIMARY",
+    "node_path": [
+      "ND-0056",
+      "ND-0065",
+      "ND-0093",
+      "ND-0014",
+      "ND-0041",
+      "ND-0098",
+      "ND-0058",
+      "ND-0042"
+    ],
+    "link_path": [
+      "LK-0188",
+      "LK-0123",
+      "LK-0050",
+      "LK-0241",
+      "LK-0173",
+      "LK-0172",
+      "LK-0103"
+    ],
+    "hop_count": 7,
+    "total_distance_m": 69221.0,
+    "bottleneck_margin_db": 7.26,
+    "estimated_reliability": 0.9034,
+    "route_cost": 76664.72,
+    "is_feasible": true,
+    "note": "derived from topology_links_v1.csv"
+  },
+  {
+    "route_id": "CD-0006-BACKUP",
+    "demand_id": "CD-0006",
     "task_id": "TS-0001",
     "route_type": "BACKUP",
     "node_path": [
-      "ND-0024",
-      "ND-0003",
-      "ND-0028",
-      "ND-0040",
       "ND-0056",
-      "ND-0104"
+      "ND-0040",
+      "ND-0028",
+      "ND-0019",
+      "ND-0042"
     ],
     "link_path": [
-      "LK-0218",
-      "LK-0113",
-      "LK-0114",
-      "LK-0065",
-      "LK-0095"
+      "LK-0063",
+      "LK-0112",
+      "LK-0451",
+      "LK-0152"
     ],
-    "hop_count": 5,
-    "total_distance_m": 36852.7,
-    "bottleneck_margin_db": 11.27,
-    "estimated_reliability": 0.9311,
-    "route_cost": 38293.72,
+    "hop_count": 4,
+    "total_distance_m": 80074.7,
+    "bottleneck_margin_db": 3.01,
+    "estimated_reliability": 0.9264,
+    "route_cost": 84477.66,
     "is_feasible": true,
     "note": "derived from topology_links_v1.csv"
   },
   {
-    "route_id": "CD-0084-PRIMARY",
-    "demand_id": "CD-0084",
+    "route_id": "CD-0007-PRIMARY",
+    "demand_id": "CD-0007",
+    "task_id": "TS-0001",
+    "route_type": "PRIMARY",
+    "node_path": [
+      "ND-0035",
+      "ND-0118",
+      "ND-0014",
+      "ND-0038",
+      "ND-0066"
+    ],
+    "link_path": [
+      "LK-0150",
+      "LK-0322",
+      "LK-0131",
+      "LK-0107"
+    ],
+    "hop_count": 4,
+    "total_distance_m": 51784.0,
+    "bottleneck_margin_db": 5.18,
+    "estimated_reliability": 0.9264,
+    "route_cost": 56767.3,
+    "is_feasible": true,
+    "note": "derived from topology_links_v1.csv"
+  },
+  {
+    "route_id": "CD-0009-PRIMARY",
+    "demand_id": "CD-0009",
+    "task_id": "TS-0001",
+    "route_type": "PRIMARY",
+    "node_path": [
+      "ND-0010",
+      "ND-0046",
+      "ND-0013"
+    ],
+    "link_path": [
+      "LK-0364",
+      "LK-0153"
+    ],
+    "hop_count": 2,
+    "total_distance_m": 41827.3,
+    "bottleneck_margin_db": 26.39,
+    "estimated_reliability": 0.9801,
+    "route_cost": 41827.3,
+    "is_feasible": true,
+    "note": "derived from topology_links_v1.csv"
+  },
+  {
+    "route_id": "CD-0009-BACKUP",
+    "demand_id": "CD-0009",
+    "task_id": "TS-0001",
+    "route_type": "BACKUP",
+    "node_path": [
+      "ND-0010",
+      "ND-0012",
+      "ND-0117",
+      "ND-0009",
+      "ND-0013"
+    ],
+    "link_path": [
+      "LK-0138",
+      "LK-0051",
+      "LK-0015",
+      "LK-0341"
+    ],
+    "hop_count": 4,
+    "total_distance_m": 40611.6,
+    "bottleneck_margin_db": 18.81,
+    "estimated_reliability": 0.9703,
+    "route_cost": 42338.69,
+    "is_feasible": true,
+    "note": "derived from topology_links_v1.csv"
+  },
+  {
+    "route_id": "CD-0033-PRIMARY",
+    "demand_id": "CD-0033",
+    "task_id": "TS-0001",
+    "route_type": "PRIMARY",
+    "node_path": [
+      "ND-0094",
+      "ND-0036",
+      "ND-0008",
+      "ND-0126",
+      "ND-0040"
+    ],
+    "link_path": [
+      "LK-0053",
+      "LK-0027",
+      "LK-0033",
+      "LK-0220"
+    ],
+    "hop_count": 4,
+    "total_distance_m": 21318.7,
+    "bottleneck_margin_db": 17.78,
+    "estimated_reliability": 0.9605,
+    "route_cost": 21598.86,
+    "is_feasible": true,
+    "note": "derived from topology_links_v1.csv"
+  },
+  {
+    "route_id": "CD-0033-BACKUP",
+    "demand_id": "CD-0033",
+    "task_id": "TS-0001",
+    "route_type": "BACKUP",
+    "node_path": [
+      "ND-0094",
+      "ND-0044",
+      "ND-0003",
+      "ND-0028",
+      "ND-0040"
+    ],
+    "link_path": [
+      "LK-0117",
+      "LK-0175",
+      "LK-0110",
+      "LK-0112"
+    ],
+    "hop_count": 4,
+    "total_distance_m": 32481.5,
+    "bottleneck_margin_db": 44.49,
+    "estimated_reliability": 0.9801,
+    "route_cost": 32481.5,
+    "is_feasible": true,
+    "note": "derived from topology_links_v1.csv"
+  },
+  {
+    "route_id": "CD-0044-PRIMARY",
+    "demand_id": "CD-0044",
+    "task_id": "TS-0001",
+    "route_type": "PRIMARY",
+    "node_path": [
+      "ND-0023",
+      "ND-0007",
+      "ND-0024",
+      "ND-0002"
+    ],
+    "link_path": [
+      "LK-0005",
+      "LK-0029",
+      "LK-0224"
+    ],
+    "hop_count": 3,
+    "total_distance_m": 17502.7,
+    "bottleneck_margin_db": 20.91,
+    "estimated_reliability": 0.9752,
+    "route_cost": 17502.7,
+    "is_feasible": true,
+    "note": "derived from topology_links_v1.csv"
+  },
+  {
+    "route_id": "CD-0044-BACKUP",
+    "demand_id": "CD-0044",
+    "task_id": "TS-0001",
+    "route_type": "BACKUP",
+    "node_path": [
+      "ND-0023",
+      "ND-0122",
+      "ND-0107",
+      "ND-0003",
+      "ND-0110",
+      "ND-0002"
+    ],
+    "link_path": [
+      "LK-0169",
+      "LK-0016",
+      "LK-0068",
+      "LK-0020",
+      "LK-0031"
+    ],
+    "hop_count": 5,
+    "total_distance_m": 17634.6,
+    "bottleneck_margin_db": 35.87,
+    "estimated_reliability": 0.9752,
+    "route_cost": 17634.6,
+    "is_feasible": true,
+    "note": "derived from topology_links_v1.csv"
+  },
+  {
+    "route_id": "CD-0053-PRIMARY",
+    "demand_id": "CD-0053",
+    "task_id": "TS-0001",
+    "route_type": "PRIMARY",
+    "node_path": [
+      "ND-0001",
+      "ND-0117",
+      "ND-0012"
+    ],
+    "link_path": [
+      "LK-0178",
+      "LK-0051"
+    ],
+    "hop_count": 2,
+    "total_distance_m": 14017.2,
+    "bottleneck_margin_db": 30.08,
+    "estimated_reliability": 0.99,
+    "route_cost": 14017.2,
+    "is_feasible": true,
+    "note": "derived from topology_links_v1.csv"
+  },
+  {
+    "route_id": "CD-0053-BACKUP",
+    "demand_id": "CD-0053",
+    "task_id": "TS-0001",
+    "route_type": "BACKUP",
+    "node_path": [
+      "ND-0001",
+      "ND-0110",
+      "ND-0003",
+      "ND-0044",
+      "ND-0012"
+    ],
+    "link_path": [
+      "LK-0038",
+      "LK-0020",
+      "LK-0175",
+      "LK-0093"
+    ],
+    "hop_count": 4,
+    "total_distance_m": 19288.8,
+    "bottleneck_margin_db": 50.27,
+    "estimated_reliability": 0.9801,
+    "route_cost": 19288.8,
+    "is_feasible": true,
+    "note": "derived from topology_links_v1.csv"
+  },
+  {
+    "route_id": "CD-0057-PRIMARY",
+    "demand_id": "CD-0057",
+    "task_id": "TS-0001",
+    "route_type": "PRIMARY",
+    "node_path": [
+      "ND-0025",
+      "ND-0048",
+      "ND-0116",
+      "ND-0110",
+      "ND-0001",
+      "ND-0117"
+    ],
+    "link_path": [
+      "LK-0041",
+      "LK-0136",
+      "LK-0227",
+      "LK-0038",
+      "LK-0178"
+    ],
+    "hop_count": 5,
+    "total_distance_m": 40437.3,
+    "bottleneck_margin_db": 30.08,
+    "estimated_reliability": 0.9752,
+    "route_cost": 40437.3,
+    "is_feasible": true,
+    "note": "derived from topology_links_v1.csv"
+  },
+  {
+    "route_id": "CD-0057-BACKUP",
+    "demand_id": "CD-0057",
+    "task_id": "TS-0001",
+    "route_type": "BACKUP",
+    "node_path": [
+      "ND-0025",
+      "ND-0048",
+      "ND-0037",
+      "ND-0028",
+      "ND-0003",
+      "ND-0117"
+    ],
+    "link_path": [
+      "LK-0042",
+      "LK-0248",
+      "LK-0024",
+      "LK-0110",
+      "LK-0195"
+    ],
+    "hop_count": 5,
+    "total_distance_m": 41730.9,
+    "bottleneck_margin_db": 30.25,
+    "estimated_reliability": 0.9752,
+    "route_cost": 41730.9,
+    "is_feasible": true,
+    "note": "derived from topology_links_v1.csv"
+  },
+  {
+    "route_id": "CD-0080-PRIMARY",
+    "demand_id": "CD-0080",
     "task_id": "TS-0002",
     "route_type": "PRIMARY",
     "node_path": [
-      "ND-0074",
-      "ND-0011",
-      "ND-0013",
-      "ND-0022"
-    ],
-    "link_path": [
-      "LK-0148",
-      "LK-0191",
-      "LK-0345"
-    ],
-    "hop_count": 3,
-    "total_distance_m": 54098.7,
-    "bottleneck_margin_db": 19.87,
-    "estimated_reliability": 0.9654,
-    "route_cost": 54309.19,
-    "is_feasible": true,
-    "note": "derived from topology_links_v1.csv"
-  },
-  {
-    "route_id": "CD-0084-BACKUP",
-    "demand_id": "CD-0084",
-    "task_id": "TS-0002",
-    "route_type": "BACKUP",
-    "node_path": [
-      "ND-0074",
-      "ND-0032",
-      "ND-0046",
-      "ND-0019",
+      "ND-0022",
       "ND-0042",
-      "ND-0022"
+      "ND-0004",
+      "ND-0060",
+      "ND-0088"
     ],
     "link_path": [
-      "LK-0132",
-      "LK-0102",
-      "LK-0350",
-      "LK-0153",
-      "LK-0075"
+      "LK-0071",
+      "LK-0375",
+      "LK-0252",
+      "LK-0262"
     ],
-    "hop_count": 5,
-    "total_distance_m": 60460.3,
-    "bottleneck_margin_db": 31.03,
-    "estimated_reliability": 0.9752,
-    "route_cost": 60460.3,
+    "hop_count": 4,
+    "total_distance_m": 77038.1,
+    "bottleneck_margin_db": 1.89,
+    "estimated_reliability": 0.9171,
+    "route_cost": 98019.2,
     "is_feasible": true,
     "note": "derived from topology_links_v1.csv"
   },
@@ -729,541 +423,439 @@
     "task_id": "TS-0002",
     "route_type": "PRIMARY",
     "node_path": [
-      "ND-0054",
-      "ND-0090",
-      "ND-0050",
-      "ND-0069"
-    ],
-    "link_path": [
-      "LK-0292",
-      "LK-0288",
-      "LK-0073"
-    ],
-    "hop_count": 3,
-    "total_distance_m": 49446.0,
-    "bottleneck_margin_db": 17.01,
-    "estimated_reliability": 0.9752,
-    "route_cost": 52915.46,
-    "is_feasible": true,
-    "note": "derived from topology_links_v1.csv"
-  },
-  {
-    "route_id": "CD-0085-BACKUP",
-    "demand_id": "CD-0085",
-    "task_id": "TS-0002",
-    "route_type": "BACKUP",
-    "node_path": [
-      "ND-0054",
-      "ND-0070",
-      "ND-0077",
-      "ND-0082",
-      "ND-0069"
-    ],
-    "link_path": [
-      "LK-0178",
-      "LK-0190",
-      "LK-0035",
-      "LK-0354"
-    ],
-    "hop_count": 4,
-    "total_distance_m": 58413.6,
-    "bottleneck_margin_db": 7.28,
-    "estimated_reliability": 0.9358,
-    "route_cost": 79456.8,
-    "is_feasible": true,
-    "note": "derived from topology_links_v1.csv"
-  },
-  {
-    "route_id": "CD-0089-PRIMARY",
-    "demand_id": "CD-0089",
-    "task_id": "TS-0002",
-    "route_type": "PRIMARY",
-    "node_path": [
-      "ND-0074",
-      "ND-0011",
-      "ND-0009",
-      "ND-0043",
-      "ND-0063",
-      "ND-0031"
-    ],
-    "link_path": [
-      "LK-0148",
-      "LK-0236",
-      "LK-0324",
-      "LK-0014",
-      "LK-0040"
-    ],
-    "hop_count": 5,
-    "total_distance_m": 58367.7,
-    "bottleneck_margin_db": 19.18,
-    "estimated_reliability": 0.9654,
-    "route_cost": 59575.13,
-    "is_feasible": true,
-    "note": "derived from topology_links_v1.csv"
-  },
-  {
-    "route_id": "CD-0089-BACKUP",
-    "demand_id": "CD-0089",
-    "task_id": "TS-0002",
-    "route_type": "BACKUP",
-    "node_path": [
-      "ND-0074",
-      "ND-0032",
-      "ND-0011",
-      "ND-0045",
-      "ND-0110",
-      "ND-0003",
-      "ND-0115",
-      "ND-0108",
-      "ND-0031"
-    ],
-    "link_path": [
-      "LK-0132",
-      "LK-0052",
-      "LK-0264",
-      "LK-0152",
-      "LK-0020",
-      "LK-0165",
-      "LK-0118",
-      "LK-0047"
-    ],
-    "hop_count": 8,
-    "total_distance_m": 60702.0,
-    "bottleneck_margin_db": 18.76,
-    "estimated_reliability": 0.951,
-    "route_cost": 61946.0,
-    "is_feasible": true,
-    "note": "derived from topology_links_v1.csv"
-  },
-  {
-    "route_id": "CD-0095-PRIMARY",
-    "demand_id": "CD-0095",
-    "task_id": "TS-0002",
-    "route_type": "PRIMARY",
-    "node_path": [
-      "ND-0004",
-      "ND-0046",
-      "ND-0019",
-      "ND-0020"
-    ],
-    "link_path": [
-      "LK-0044",
-      "LK-0350",
-      "LK-0126"
-    ],
-    "hop_count": 3,
-    "total_distance_m": 42873.8,
-    "bottleneck_margin_db": 41.28,
-    "estimated_reliability": 0.9851,
-    "route_cost": 42873.8,
-    "is_feasible": true,
-    "note": "derived from topology_links_v1.csv"
-  },
-  {
-    "route_id": "CD-0095-BACKUP",
-    "demand_id": "CD-0095",
-    "task_id": "TS-0002",
-    "route_type": "BACKUP",
-    "node_path": [
-      "ND-0004",
-      "ND-0074",
-      "ND-0011",
-      "ND-0049",
-      "ND-0019",
-      "ND-0026",
-      "ND-0020"
-    ],
-    "link_path": [
-      "LK-0201",
-      "LK-0148",
-      "LK-0316",
-      "LK-0296",
-      "LK-0019",
-      "LK-0139"
-    ],
-    "hop_count": 6,
-    "total_distance_m": 83428.0,
-    "bottleneck_margin_db": 34.12,
-    "estimated_reliability": 0.9704,
-    "route_cost": 83428.0,
-    "is_feasible": true,
-    "note": "derived from topology_links_v1.csv"
-  },
-  {
-    "route_id": "CD-0098-PRIMARY",
-    "demand_id": "CD-0098",
-    "task_id": "TS-0002",
-    "route_type": "PRIMARY",
-    "node_path": [
-      "ND-0020",
-      "ND-0019",
-      "ND-0046",
-      "ND-0032",
-      "ND-0011",
-      "ND-0009",
-      "ND-0094",
-      "ND-0008"
-    ],
-    "link_path": [
-      "LK-0126",
-      "LK-0350",
-      "LK-0102",
-      "LK-0052",
-      "LK-0236",
-      "LK-0150",
-      "LK-0056"
-    ],
-    "hop_count": 7,
-    "total_distance_m": 78455.1,
-    "bottleneck_margin_db": 41.28,
-    "estimated_reliability": 0.9655,
-    "route_cost": 78455.1,
-    "is_feasible": true,
-    "note": "derived from topology_links_v1.csv"
-  },
-  {
-    "route_id": "CD-0098-BACKUP",
-    "demand_id": "CD-0098",
-    "task_id": "TS-0002",
-    "route_type": "BACKUP",
-    "node_path": [
-      "ND-0020",
-      "ND-0014",
-      "ND-0003",
-      "ND-0126",
-      "ND-0008"
-    ],
-    "link_path": [
-      "LK-0428",
-      "LK-0246",
-      "LK-0067",
-      "LK-0034"
-    ],
-    "hop_count": 4,
-    "total_distance_m": 77868.0,
-    "bottleneck_margin_db": 18.98,
-    "estimated_reliability": 0.9703,
-    "route_cost": 80637.48,
-    "is_feasible": true,
-    "note": "derived from topology_links_v1.csv"
-  },
-  {
-    "route_id": "CD-0124-PRIMARY",
-    "demand_id": "CD-0124",
-    "task_id": "TS-0002",
-    "route_type": "PRIMARY",
-    "node_path": [
-      "ND-0011",
-      "ND-0032",
-      "ND-0046",
-      "ND-0019",
-      "ND-0034"
-    ],
-    "link_path": [
-      "LK-0052",
-      "LK-0102",
-      "LK-0350",
-      "LK-0091"
-    ],
-    "hop_count": 4,
-    "total_distance_m": 45800.9,
-    "bottleneck_margin_db": 41.28,
-    "estimated_reliability": 0.9801,
-    "route_cost": 45800.9,
-    "is_feasible": true,
-    "note": "derived from topology_links_v1.csv"
-  },
-  {
-    "route_id": "CD-0124-BACKUP",
-    "demand_id": "CD-0124",
-    "task_id": "TS-0002",
-    "route_type": "BACKUP",
-    "node_path": [
-      "ND-0011",
-      "ND-0049",
-      "ND-0019",
-      "ND-0077",
-      "ND-0034"
-    ],
-    "link_path": [
-      "LK-0316",
-      "LK-0296",
-      "LK-0141",
-      "LK-0083"
-    ],
-    "hop_count": 4,
-    "total_distance_m": 64950.8,
-    "bottleneck_margin_db": 29.11,
-    "estimated_reliability": 0.9703,
-    "route_cost": 64950.8,
-    "is_feasible": true,
-    "note": "derived from topology_links_v1.csv"
-  },
-  {
-    "route_id": "CD-0127-PRIMARY",
-    "demand_id": "CD-0127",
-    "task_id": "TS-0002",
-    "route_type": "PRIMARY",
-    "node_path": [
-      "ND-0054",
-      "ND-0070",
-      "ND-0077",
-      "ND-0019",
-      "ND-0046",
-      "ND-0073",
-      "ND-0100"
-    ],
-    "link_path": [
-      "LK-0178",
-      "LK-0190",
-      "LK-0141",
-      "LK-0350",
-      "LK-0313",
-      "LK-0096"
-    ],
-    "hop_count": 6,
-    "total_distance_m": 97636.9,
-    "bottleneck_margin_db": 10.67,
-    "estimated_reliability": 0.9172,
-    "route_cost": 100126.94,
-    "is_feasible": true,
-    "note": "derived from topology_links_v1.csv"
-  },
-  {
-    "route_id": "CD-0127-BACKUP",
-    "demand_id": "CD-0127",
-    "task_id": "TS-0002",
-    "route_type": "BACKUP",
-    "node_path": [
-      "ND-0054",
-      "ND-0090",
-      "ND-0022",
-      "ND-0013",
-      "ND-0011",
-      "ND-0009",
-      "ND-0100"
-    ],
-    "link_path": [
-      "LK-0292",
-      "LK-0077",
-      "LK-0345",
-      "LK-0191",
-      "LK-0236",
-      "LK-0104"
-    ],
-    "hop_count": 6,
-    "total_distance_m": 95623.1,
-    "bottleneck_margin_db": 2.42,
-    "estimated_reliability": 0.8988,
-    "route_cost": 104640.26,
-    "is_feasible": true,
-    "note": "derived from topology_links_v1.csv"
-  },
-  {
-    "route_id": "CD-0131-PRIMARY",
-    "demand_id": "CD-0131",
-    "task_id": "TS-0002",
-    "route_type": "PRIMARY",
-    "node_path": [
-      "ND-0034",
-      "ND-0019",
-      "ND-0049"
-    ],
-    "link_path": [
-      "LK-0091",
-      "LK-0296"
-    ],
-    "hop_count": 2,
-    "total_distance_m": 28635.9,
-    "bottleneck_margin_db": 43.16,
-    "estimated_reliability": 0.99,
-    "route_cost": 28635.9,
-    "is_feasible": true,
-    "note": "derived from topology_links_v1.csv"
-  },
-  {
-    "route_id": "CD-0131-BACKUP",
-    "demand_id": "CD-0131",
-    "task_id": "TS-0002",
-    "route_type": "BACKUP",
-    "node_path": [
-      "ND-0034",
-      "ND-0077",
-      "ND-0019",
-      "ND-0042",
-      "ND-0022",
+      "ND-0106",
+      "ND-0041",
       "ND-0049"
     ],
     "link_path": [
       "LK-0083",
-      "LK-0141",
-      "LK-0153",
-      "LK-0075",
-      "LK-0365"
+      "LK-0371"
     ],
-    "hop_count": 5,
-    "total_distance_m": 61938.4,
-    "bottleneck_margin_db": 29.11,
-    "estimated_reliability": 0.9654,
-    "route_cost": 61938.4,
+    "hop_count": 2,
+    "total_distance_m": 38297.9,
+    "bottleneck_margin_db": 0.25,
+    "estimated_reliability": 0.9025,
+    "route_cost": 53719.17,
     "is_feasible": true,
     "note": "derived from topology_links_v1.csv"
   },
   {
-    "route_id": "CD-0133-PRIMARY",
-    "demand_id": "CD-0133",
+    "route_id": "CD-0091-PRIMARY",
+    "demand_id": "CD-0091",
     "task_id": "TS-0002",
     "route_type": "PRIMARY",
     "node_path": [
-      "ND-0098",
-      "ND-0086",
-      "ND-0058",
-      "ND-0042",
+      "ND-0020",
       "ND-0019",
-      "ND-0020"
+      "ND-0046",
+      "ND-0044",
+      "ND-0094",
+      "ND-0036",
+      "ND-0087",
+      "ND-0064"
     ],
     "link_path": [
-      "LK-0066",
-      "LK-0176",
-      "LK-0103",
-      "LK-0153",
-      "LK-0126"
+      "LK-0124",
+      "LK-0366",
+      "LK-0311",
+      "LK-0117",
+      "LK-0053",
+      "LK-0109",
+      "LK-0079"
     ],
-    "hop_count": 5,
-    "total_distance_m": 38397.5,
-    "bottleneck_margin_db": 3.87,
-    "estimated_reliability": 0.9311,
-    "route_cost": 47427.07,
+    "hop_count": 7,
+    "total_distance_m": 87690.7,
+    "bottleneck_margin_db": 17.78,
+    "estimated_reliability": 0.9558,
+    "route_cost": 87970.86,
     "is_feasible": true,
     "note": "derived from topology_links_v1.csv"
   },
   {
-    "route_id": "CD-0133-BACKUP",
-    "demand_id": "CD-0133",
-    "task_id": "TS-0002",
-    "route_type": "BACKUP",
-    "node_path": [
-      "ND-0098",
-      "ND-0041",
-      "ND-0069",
-      "ND-0050",
-      "ND-0020"
-    ],
-    "link_path": [
-      "LK-0182",
-      "LK-0198",
-      "LK-0073",
-      "LK-0305"
-    ],
-    "hop_count": 4,
-    "total_distance_m": 53809.6,
-    "bottleneck_margin_db": 13.45,
-    "estimated_reliability": 0.9358,
-    "route_cost": 58049.74,
-    "is_feasible": true,
-    "note": "derived from topology_links_v1.csv"
-  },
-  {
-    "route_id": "CD-0137-PRIMARY",
-    "demand_id": "CD-0137",
+    "route_id": "CD-0096-PRIMARY",
+    "demand_id": "CD-0096",
     "task_id": "TS-0002",
     "route_type": "PRIMARY",
     "node_path": [
-      "ND-0022",
+      "ND-0013",
+      "ND-0077",
+      "ND-0019",
       "ND-0042",
-      "ND-0058",
-      "ND-0086",
-      "ND-0098"
+      "ND-0022"
     ],
     "link_path": [
-      "LK-0075",
-      "LK-0103",
-      "LK-0176",
-      "LK-0066"
+      "LK-0348",
+      "LK-0145",
+      "LK-0152",
+      "LK-0071"
     ],
     "hop_count": 4,
-    "total_distance_m": 24619.1,
-    "bottleneck_margin_db": 3.87,
-    "estimated_reliability": 0.9358,
-    "route_cost": 33648.67,
+    "total_distance_m": 52917.4,
+    "bottleneck_margin_db": 28.39,
+    "estimated_reliability": 0.9605,
+    "route_cost": 52917.4,
     "is_feasible": true,
     "note": "derived from topology_links_v1.csv"
   },
   {
-    "route_id": "CD-0137-BACKUP",
-    "demand_id": "CD-0137",
+    "route_id": "CD-0096-BACKUP",
+    "demand_id": "CD-0096",
     "task_id": "TS-0002",
     "route_type": "BACKUP",
     "node_path": [
-      "ND-0022",
-      "ND-0098"
+      "ND-0013",
+      "ND-0046",
+      "ND-0004",
+      "ND-0042",
+      "ND-0022"
     ],
     "link_path": [
-      "LK-0270"
+      "LK-0153",
+      "LK-0043",
+      "LK-0375",
+      "LK-0072"
     ],
-    "hop_count": 1,
-    "total_distance_m": 20359.1,
-    "bottleneck_margin_db": 3.98,
-    "estimated_reliability": 0.95,
-    "route_cost": 36666.74,
+    "hop_count": 4,
+    "total_distance_m": 50335.5,
+    "bottleneck_margin_db": 18.03,
+    "estimated_reliability": 0.9703,
+    "route_cost": 53755.91,
     "is_feasible": true,
     "note": "derived from topology_links_v1.csv"
   },
   {
-    "route_id": "CD-0139-PRIMARY",
-    "demand_id": "CD-0139",
+    "route_id": "CD-0107-PRIMARY",
+    "demand_id": "CD-0107",
     "task_id": "TS-0002",
     "route_type": "PRIMARY",
     "node_path": [
-      "ND-0011",
-      "ND-0045",
-      "ND-0040",
-      "ND-0116",
-      "ND-0047"
-    ],
-    "link_path": [
-      "LK-0264",
-      "LK-0271",
-      "LK-0070",
-      "LK-0197"
-    ],
-    "hop_count": 4,
-    "total_distance_m": 57088.8,
-    "bottleneck_margin_db": 18.76,
-    "estimated_reliability": 0.9605,
-    "route_cost": 58332.8,
-    "is_feasible": true,
-    "note": "derived from topology_links_v1.csv"
-  },
-  {
-    "route_id": "CD-0139-BACKUP",
-    "demand_id": "CD-0139",
-    "task_id": "TS-0002",
-    "route_type": "BACKUP",
-    "node_path": [
+      "ND-0032",
       "ND-0011",
       "ND-0009",
       "ND-0117",
-      "ND-0045",
-      "ND-0110",
-      "ND-0003",
-      "ND-0103",
-      "ND-0047"
+      "ND-0012",
+      "ND-0060",
+      "ND-0088"
     ],
     "link_path": [
-      "LK-0236",
+      "LK-0052",
+      "LK-0238",
       "LK-0015",
-      "LK-0071",
+      "LK-0051",
+      "LK-0155",
+      "LK-0262"
+    ],
+    "hop_count": 6,
+    "total_distance_m": 52215.5,
+    "bottleneck_margin_db": 19.11,
+    "estimated_reliability": 0.9606,
+    "route_cost": 53099.41,
+    "is_feasible": true,
+    "note": "derived from topology_links_v1.csv"
+  },
+  {
+    "route_id": "CD-0112-PRIMARY",
+    "demand_id": "CD-0112",
+    "task_id": "TS-0002",
+    "route_type": "PRIMARY",
+    "node_path": [
+      "ND-0074",
+      "ND-0004",
+      "ND-0042",
+      "ND-0022"
+    ],
+    "link_path": [
+      "LK-0193",
+      "LK-0375",
+      "LK-0071"
+    ],
+    "hop_count": 3,
+    "total_distance_m": 51923.8,
+    "bottleneck_margin_db": 18.03,
+    "estimated_reliability": 0.9752,
+    "route_cost": 55344.21,
+    "is_feasible": true,
+    "note": "derived from topology_links_v1.csv"
+  },
+  {
+    "route_id": "CD-0118-PRIMARY",
+    "demand_id": "CD-0118",
+    "task_id": "TS-0002",
+    "route_type": "PRIMARY",
+    "node_path": [
+      "ND-0030",
+      "ND-0019",
+      "ND-0020",
+      "ND-0021"
+    ],
+    "link_path": [
+      "LK-0012",
+      "LK-0124",
+      "LK-0125"
+    ],
+    "hop_count": 3,
+    "total_distance_m": 17001.8,
+    "bottleneck_margin_db": 47.89,
+    "estimated_reliability": 0.9851,
+    "route_cost": 17001.8,
+    "is_feasible": true,
+    "note": "derived from topology_links_v1.csv"
+  },
+  {
+    "route_id": "CD-0118-BACKUP",
+    "demand_id": "CD-0118",
+    "task_id": "TS-0002",
+    "route_type": "BACKUP",
+    "node_path": [
+      "ND-0030",
+      "ND-0026",
+      "ND-0020",
+      "ND-0021"
+    ],
+    "link_path": [
+      "LK-0010",
+      "LK-0142",
+      "LK-0126"
+    ],
+    "hop_count": 3,
+    "total_distance_m": 17354.5,
+    "bottleneck_margin_db": 42.02,
+    "estimated_reliability": 0.9851,
+    "route_cost": 17354.5,
+    "is_feasible": true,
+    "note": "derived from topology_links_v1.csv"
+  },
+  {
+    "route_id": "CD-0119-PRIMARY",
+    "demand_id": "CD-0119",
+    "task_id": "TS-0002",
+    "route_type": "PRIMARY",
+    "node_path": [
+      "ND-0098",
+      "ND-0041",
+      "ND-0097"
+    ],
+    "link_path": [
+      "LK-0173",
+      "LK-0091"
+    ],
+    "hop_count": 2,
+    "total_distance_m": 16499.2,
+    "bottleneck_margin_db": 21.11,
+    "estimated_reliability": 0.9801,
+    "route_cost": 16499.2,
+    "is_feasible": true,
+    "note": "derived from topology_links_v1.csv"
+  },
+  {
+    "route_id": "CD-0119-BACKUP",
+    "demand_id": "CD-0119",
+    "task_id": "TS-0002",
+    "route_type": "BACKUP",
+    "node_path": [
+      "ND-0098",
+      "ND-0058",
+      "ND-0042",
+      "ND-0019",
+      "ND-0077",
+      "ND-0013",
+      "ND-0097"
+    ],
+    "link_path": [
+      "LK-0172",
+      "LK-0103",
       "LK-0152",
-      "LK-0020",
-      "LK-0252",
-      "LK-0112"
+      "LK-0145",
+      "LK-0348",
+      "LK-0149"
+    ],
+    "hop_count": 6,
+    "total_distance_m": 75500.8,
+    "bottleneck_margin_db": 7.26,
+    "estimated_reliability": 0.8669,
+    "route_cost": 85496.39,
+    "is_feasible": true,
+    "note": "derived from topology_links_v1.csv"
+  },
+  {
+    "route_id": "CD-0120-PRIMARY",
+    "demand_id": "CD-0120",
+    "task_id": "TS-0002",
+    "route_type": "PRIMARY",
+    "node_path": [
+      "ND-0098",
+      "ND-0041",
+      "ND-0033",
+      "ND-0029"
+    ],
+    "link_path": [
+      "LK-0173",
+      "LK-0384",
+      "LK-0054"
+    ],
+    "hop_count": 3,
+    "total_distance_m": 52296.3,
+    "bottleneck_margin_db": 20.75,
+    "estimated_reliability": 0.9752,
+    "route_cost": 52296.3,
+    "is_feasible": true,
+    "note": "derived from topology_links_v1.csv"
+  },
+  {
+    "route_id": "CD-0120-BACKUP",
+    "demand_id": "CD-0120",
+    "task_id": "TS-0002",
+    "route_type": "BACKUP",
+    "node_path": [
+      "ND-0098",
+      "ND-0058",
+      "ND-0042",
+      "ND-0050",
+      "ND-0033",
+      "ND-0029"
+    ],
+    "link_path": [
+      "LK-0172",
+      "LK-0103",
+      "LK-0206",
+      "LK-0424",
+      "LK-0055"
+    ],
+    "hop_count": 5,
+    "total_distance_m": 82713.2,
+    "bottleneck_margin_db": 7.26,
+    "estimated_reliability": 0.9125,
+    "route_cost": 104157.54,
+    "is_feasible": true,
+    "note": "derived from topology_links_v1.csv"
+  },
+  {
+    "route_id": "CD-0123-PRIMARY",
+    "demand_id": "CD-0123",
+    "task_id": "TS-0002",
+    "route_type": "PRIMARY",
+    "node_path": [
+      "ND-0004",
+      "ND-0046",
+      "ND-0013",
+      "ND-0038",
+      "ND-0066"
+    ],
+    "link_path": [
+      "LK-0043",
+      "LK-0153",
+      "LK-0350",
+      "LK-0107"
+    ],
+    "hop_count": 4,
+    "total_distance_m": 48886.7,
+    "bottleneck_margin_db": 5.18,
+    "estimated_reliability": 0.9264,
+    "route_cost": 56622.54,
+    "is_feasible": true,
+    "note": "derived from topology_links_v1.csv"
+  },
+  {
+    "route_id": "CD-0138-PRIMARY",
+    "demand_id": "CD-0138",
+    "task_id": "TS-0002",
+    "route_type": "PRIMARY",
+    "node_path": [
+      "ND-0098",
+      "ND-0041"
+    ],
+    "link_path": [
+      "LK-0173"
+    ],
+    "hop_count": 1,
+    "total_distance_m": 11390.8,
+    "bottleneck_margin_db": 31.81,
+    "estimated_reliability": 0.995,
+    "route_cost": 11390.8,
+    "is_feasible": true,
+    "note": "derived from topology_links_v1.csv"
+  },
+  {
+    "route_id": "CD-0138-BACKUP",
+    "demand_id": "CD-0138",
+    "task_id": "TS-0002",
+    "route_type": "BACKUP",
+    "node_path": [
+      "ND-0098",
+      "ND-0058",
+      "ND-0042",
+      "ND-0019",
+      "ND-0077",
+      "ND-0013",
+      "ND-0097",
+      "ND-0041"
+    ],
+    "link_path": [
+      "LK-0172",
+      "LK-0103",
+      "LK-0152",
+      "LK-0145",
+      "LK-0348",
+      "LK-0149",
+      "LK-0091"
     ],
     "hop_count": 7,
-    "total_distance_m": 57749.0,
-    "bottleneck_margin_db": 15.36,
-    "estimated_reliability": 0.9558,
-    "route_cost": 62130.55,
+    "total_distance_m": 80609.2,
+    "bottleneck_margin_db": 7.26,
+    "estimated_reliability": 0.8539,
+    "route_cost": 90604.79,
+    "is_feasible": true,
+    "note": "derived from topology_links_v1.csv"
+  },
+  {
+    "route_id": "CD-0140-PRIMARY",
+    "demand_id": "CD-0140",
+    "task_id": "TS-0002",
+    "route_type": "PRIMARY",
+    "node_path": [
+      "ND-0013",
+      "ND-0009",
+      "ND-0117",
+      "ND-0001",
+      "ND-0110",
+      "ND-0002"
+    ],
+    "link_path": [
+      "LK-0341",
+      "LK-0015",
+      "LK-0178",
+      "LK-0038",
+      "LK-0031"
+    ],
+    "hop_count": 5,
+    "total_distance_m": 44560.0,
+    "bottleneck_margin_db": 18.81,
+    "estimated_reliability": 0.9654,
+    "route_cost": 46287.09,
+    "is_feasible": true,
+    "note": "derived from topology_links_v1.csv"
+  },
+  {
+    "route_id": "CD-0140-BACKUP",
+    "demand_id": "CD-0140",
+    "task_id": "TS-0002",
+    "route_type": "BACKUP",
+    "node_path": [
+      "ND-0013",
+      "ND-0046",
+      "ND-0044",
+      "ND-0002"
+    ],
+    "link_path": [
+      "LK-0153",
+      "LK-0311",
+      "LK-0182"
+    ],
+    "hop_count": 3,
+    "total_distance_m": 47449.2,
+    "bottleneck_margin_db": 28.95,
+    "estimated_reliability": 0.9752,
+    "route_cost": 47449.2,
     "is_feasible": true,
     "note": "derived from topology_links_v1.csv"
   },
@@ -1273,21 +865,21 @@
     "task_id": "TS-0002",
     "route_type": "PRIMARY",
     "node_path": [
-      "ND-0019",
-      "ND-0046",
       "ND-0032",
-      "ND-0074"
+      "ND-0004",
+      "ND-0050",
+      "ND-0070"
     ],
     "link_path": [
-      "LK-0350",
-      "LK-0102",
-      "LK-0132"
+      "LK-0121",
+      "LK-0328",
+      "LK-0225"
     ],
     "hop_count": 3,
-    "total_distance_m": 46858.8,
-    "bottleneck_margin_db": 31.03,
-    "estimated_reliability": 0.9851,
-    "route_cost": 46858.8,
+    "total_distance_m": 51426.8,
+    "bottleneck_margin_db": 13.39,
+    "estimated_reliability": 0.9217,
+    "route_cost": 58072.47,
     "is_feasible": true,
     "note": "derived from topology_links_v1.csv"
   },
@@ -1297,49 +889,173 @@
     "task_id": "TS-0002",
     "route_type": "BACKUP",
     "node_path": [
-      "ND-0019",
-      "ND-0049",
-      "ND-0011",
-      "ND-0074"
+      "ND-0032",
+      "ND-0046",
+      "ND-0013",
+      "ND-0077",
+      "ND-0070"
     ],
     "link_path": [
-      "LK-0296",
-      "LK-0316",
-      "LK-0148"
+      "LK-0102",
+      "LK-0153",
+      "LK-0348",
+      "LK-0186"
     ],
-    "hop_count": 3,
-    "total_distance_m": 60795.5,
-    "bottleneck_margin_db": 34.12,
-    "estimated_reliability": 0.9851,
-    "route_cost": 60795.5,
+    "hop_count": 4,
+    "total_distance_m": 58166.4,
+    "bottleneck_margin_db": 28.39,
+    "estimated_reliability": 0.9703,
+    "route_cost": 58166.4,
+    "is_feasible": true,
+    "note": "derived from topology_links_v1.csv"
+  },
+  {
+    "route_id": "CD-0145-PRIMARY",
+    "demand_id": "CD-0145",
+    "task_id": "TS-0003",
+    "route_type": "PRIMARY",
+    "node_path": [
+      "ND-0005",
+      "ND-0067"
+    ],
+    "link_path": [
+      "LK-0214"
+    ],
+    "hop_count": 1,
+    "total_distance_m": 15578.4,
+    "bottleneck_margin_db": 26.74,
+    "estimated_reliability": 0.985,
+    "route_cost": 15578.4,
+    "is_feasible": true,
+    "note": "derived from topology_links_v1.csv"
+  },
+  {
+    "route_id": "CD-0145-BACKUP",
+    "demand_id": "CD-0145",
+    "task_id": "TS-0003",
+    "route_type": "BACKUP",
+    "node_path": [
+      "ND-0005",
+      "ND-0016",
+      "ND-0039",
+      "ND-0053",
+      "ND-0029",
+      "ND-0089",
+      "ND-0067"
+    ],
+    "link_path": [
+      "LK-0228",
+      "LK-0001",
+      "LK-0333",
+      "LK-0070",
+      "LK-0148",
+      "LK-0347"
+    ],
+    "hop_count": 6,
+    "total_distance_m": 87972.3,
+    "bottleneck_margin_db": 5.33,
+    "estimated_reliability": 0.908,
+    "route_cost": 111337.28,
+    "is_feasible": true,
+    "note": "derived from topology_links_v1.csv"
+  },
+  {
+    "route_id": "CD-0147-PRIMARY",
+    "demand_id": "CD-0147",
+    "task_id": "TS-0003",
+    "route_type": "PRIMARY",
+    "node_path": [
+      "ND-0089",
+      "ND-0029",
+      "ND-0053",
+      "ND-0039",
+      "ND-0016"
+    ],
+    "link_path": [
+      "LK-0148",
+      "LK-0070",
+      "LK-0333",
+      "LK-0001"
+    ],
+    "hop_count": 4,
+    "total_distance_m": 41391.4,
+    "bottleneck_margin_db": 19.17,
+    "estimated_reliability": 0.9605,
+    "route_cost": 42567.71,
+    "is_feasible": true,
+    "note": "derived from topology_links_v1.csv"
+  },
+  {
+    "route_id": "CD-0147-BACKUP",
+    "demand_id": "CD-0147",
+    "task_id": "TS-0003",
+    "route_type": "BACKUP",
+    "node_path": [
+      "ND-0089",
+      "ND-0017",
+      "ND-0029",
+      "ND-0015",
+      "ND-0039",
+      "ND-0016"
+    ],
+    "link_path": [
+      "LK-0111",
+      "LK-0048",
+      "LK-0232",
+      "LK-0229",
+      "LK-0002"
+    ],
+    "hop_count": 5,
+    "total_distance_m": 42241.4,
+    "bottleneck_margin_db": 16.81,
+    "estimated_reliability": 0.9557,
+    "route_cost": 44899.08,
     "is_feasible": true,
     "note": "derived from topology_links_v1.csv"
   },
   {
     "route_id": "CD-0148-PRIMARY",
     "demand_id": "CD-0148",
-    "task_id": "TS-0002",
+    "task_id": "TS-0003",
     "route_type": "PRIMARY",
     "node_path": [
-      "ND-0105",
-      "ND-0049",
-      "ND-0011",
-      "ND-0009",
-      "ND-0060",
-      "ND-0088"
+      "ND-0016",
+      "ND-0005"
     ],
     "link_path": [
-      "LK-0129",
-      "LK-0316",
-      "LK-0236",
-      "LK-0151",
-      "LK-0260"
+      "LK-0228"
     ],
-    "hop_count": 5,
-    "total_distance_m": 82868.7,
-    "bottleneck_margin_db": 19.11,
-    "estimated_reliability": 0.9557,
-    "route_cost": 83752.61,
+    "hop_count": 1,
+    "total_distance_m": 16330.5,
+    "bottleneck_margin_db": 35.36,
+    "estimated_reliability": 0.995,
+    "route_cost": 16330.5,
+    "is_feasible": true,
+    "note": "derived from topology_links_v1.csv"
+  },
+  {
+    "route_id": "CD-0148-BACKUP",
+    "demand_id": "CD-0148",
+    "task_id": "TS-0003",
+    "route_type": "BACKUP",
+    "node_path": [
+      "ND-0016",
+      "ND-0039",
+      "ND-0015",
+      "ND-0061",
+      "ND-0005"
+    ],
+    "link_path": [
+      "LK-0001",
+      "LK-0229",
+      "LK-0078",
+      "LK-0316"
+    ],
+    "hop_count": 4,
+    "total_distance_m": 47469.9,
+    "bottleneck_margin_db": 11.47,
+    "estimated_reliability": 0.9358,
+    "route_cost": 58869.39,
     "is_feasible": true,
     "note": "derived from topology_links_v1.csv"
   },
@@ -1349,19 +1065,25 @@
     "task_id": "TS-0003",
     "route_type": "PRIMARY",
     "node_path": [
-      "ND-0016",
-      "ND-0039",
-      "ND-0005"
+      "ND-0005",
+      "ND-0110",
+      "ND-0003",
+      "ND-0126",
+      "ND-0128",
+      "ND-0121"
     ],
     "link_path": [
-      "LK-0001",
-      "LK-0228"
+      "LK-0443",
+      "LK-0020",
+      "LK-0065",
+      "LK-0045",
+      "LK-0022"
     ],
-    "hop_count": 2,
-    "total_distance_m": 16331.6,
-    "bottleneck_margin_db": 19.07,
-    "estimated_reliability": 0.9801,
-    "route_cost": 17090.99,
+    "hop_count": 5,
+    "total_distance_m": 63081.7,
+    "bottleneck_margin_db": 14.95,
+    "estimated_reliability": 0.9311,
+    "route_cost": 77168.35,
     "is_feasible": true,
     "note": "derived from topology_links_v1.csv"
   },
@@ -1371,569 +1093,31 @@
     "task_id": "TS-0003",
     "route_type": "BACKUP",
     "node_path": [
+      "ND-0005",
       "ND-0016",
       "ND-0039",
-      "ND-0067",
-      "ND-0005"
-    ],
-    "link_path": [
-      "LK-0002",
-      "LK-0207",
-      "LK-0225"
-    ],
-    "hop_count": 3,
-    "total_distance_m": 29275.5,
-    "bottleneck_margin_db": 13.64,
-    "estimated_reliability": 0.9311,
-    "route_cost": 33630.96,
-    "is_feasible": true,
-    "note": "derived from topology_links_v1.csv"
-  },
-  {
-    "route_id": "CD-0155-PRIMARY",
-    "demand_id": "CD-0155",
-    "task_id": "TS-0003",
-    "route_type": "PRIMARY",
-    "node_path": [
-      "ND-0017",
-      "ND-0029",
-      "ND-0033"
-    ],
-    "link_path": [
-      "LK-0048",
-      "LK-0054"
-    ],
-    "hop_count": 2,
-    "total_distance_m": 4799.1,
-    "bottleneck_margin_db": 73.08,
-    "estimated_reliability": 0.99,
-    "route_cost": 4799.1,
-    "is_feasible": true,
-    "note": "derived from topology_links_v1.csv"
-  },
-  {
-    "route_id": "CD-0155-BACKUP",
-    "demand_id": "CD-0155",
-    "task_id": "TS-0003",
-    "route_type": "BACKUP",
-    "node_path": [
-      "ND-0017",
-      "ND-0029",
-      "ND-0033"
-    ],
-    "link_path": [
-      "LK-0049",
-      "LK-0055"
-    ],
-    "hop_count": 2,
-    "total_distance_m": 4799.1,
-    "bottleneck_margin_db": 62.35,
-    "estimated_reliability": 0.99,
-    "route_cost": 4799.1,
-    "is_feasible": true,
-    "note": "derived from topology_links_v1.csv"
-  },
-  {
-    "route_id": "CD-0160-PRIMARY",
-    "demand_id": "CD-0160",
-    "task_id": "TS-0003",
-    "route_type": "PRIMARY",
-    "node_path": [
-      "ND-0005",
-      "ND-0039",
-      "ND-0018",
-      "ND-0053"
+      "ND-0047",
+      "ND-0127",
+      "ND-0121"
     ],
     "link_path": [
       "LK-0228",
-      "LK-0250",
-      "LK-0166"
-    ],
-    "hop_count": 3,
-    "total_distance_m": 45577.2,
-    "bottleneck_margin_db": 6.11,
-    "estimated_reliability": 0.9311,
-    "route_cost": 59420.62,
-    "is_feasible": true,
-    "note": "derived from topology_links_v1.csv"
-  },
-  {
-    "route_id": "CD-0160-BACKUP",
-    "demand_id": "CD-0160",
-    "task_id": "TS-0003",
-    "route_type": "BACKUP",
-    "node_path": [
-      "ND-0005",
-      "ND-0067",
-      "ND-0039",
-      "ND-0047",
-      "ND-0053"
-    ],
-    "link_path": [
-      "LK-0225",
-      "LK-0207",
-      "LK-0353",
-      "LK-0208"
-    ],
-    "hop_count": 4,
-    "total_distance_m": 76099.5,
-    "bottleneck_margin_db": 13.64,
-    "estimated_reliability": 0.8845,
-    "route_cost": 83967.8,
-    "is_feasible": true,
-    "note": "derived from topology_links_v1.csv"
-  },
-  {
-    "route_id": "CD-0161-PRIMARY",
-    "demand_id": "CD-0161",
-    "task_id": "TS-0003",
-    "route_type": "PRIMARY",
-    "node_path": [
-      "ND-0053",
-      "ND-0018",
-      "ND-0039",
-      "ND-0016"
-    ],
-    "link_path": [
-      "LK-0166",
-      "LK-0250",
-      "LK-0001"
-    ],
-    "hop_count": 3,
-    "total_distance_m": 29247.0,
-    "bottleneck_margin_db": 6.11,
-    "estimated_reliability": 0.9405,
-    "route_cost": 42331.03,
-    "is_feasible": true,
-    "note": "derived from topology_links_v1.csv"
-  },
-  {
-    "route_id": "CD-0161-BACKUP",
-    "demand_id": "CD-0161",
-    "task_id": "TS-0003",
-    "route_type": "BACKUP",
-    "node_path": [
-      "ND-0053",
-      "ND-0047",
-      "ND-0039",
-      "ND-0016"
-    ],
-    "link_path": [
-      "LK-0208",
-      "LK-0353",
-      "LK-0002"
-    ],
-    "hop_count": 3,
-    "total_distance_m": 46825.4,
-    "bottleneck_margin_db": 14.89,
-    "estimated_reliability": 0.9405,
-    "route_cost": 50338.24,
-    "is_feasible": true,
-    "note": "derived from topology_links_v1.csv"
-  },
-  {
-    "route_id": "CD-0163-PRIMARY",
-    "demand_id": "CD-0163",
-    "task_id": "TS-0003",
-    "route_type": "PRIMARY",
-    "node_path": [
-      "ND-0005",
-      "ND-0039",
-      "ND-0018",
-      "ND-0017"
-    ],
-    "link_path": [
-      "LK-0228",
-      "LK-0250",
-      "LK-0094"
-    ],
-    "hop_count": 3,
-    "total_distance_m": 40406.0,
-    "bottleneck_margin_db": 6.11,
-    "estimated_reliability": 0.9311,
-    "route_cost": 54249.42,
-    "is_feasible": true,
-    "note": "derived from topology_links_v1.csv"
-  },
-  {
-    "route_id": "CD-0163-BACKUP",
-    "demand_id": "CD-0163",
-    "task_id": "TS-0003",
-    "route_type": "BACKUP",
-    "node_path": [
-      "ND-0005",
-      "ND-0067",
-      "ND-0039",
-      "ND-0015",
-      "ND-0017"
-    ],
-    "link_path": [
-      "LK-0225",
-      "LK-0207",
-      "LK-0229",
-      "LK-0237"
-    ],
-    "hop_count": 4,
-    "total_distance_m": 63110.5,
-    "bottleneck_margin_db": 13.64,
-    "estimated_reliability": 0.8845,
-    "route_cost": 72090.07,
-    "is_feasible": true,
-    "note": "derived from topology_links_v1.csv"
-  },
-  {
-    "route_id": "CD-0168-PRIMARY",
-    "demand_id": "CD-0168",
-    "task_id": "TS-0003",
-    "route_type": "PRIMARY",
-    "node_path": [
-      "ND-0053",
-      "ND-0018",
-      "ND-0029",
-      "ND-0095"
-    ],
-    "link_path": [
-      "LK-0166",
-      "LK-0117",
-      "LK-0110"
-    ],
-    "hop_count": 3,
-    "total_distance_m": 24277.0,
-    "bottleneck_margin_db": 50.33,
-    "estimated_reliability": 0.9851,
-    "route_cost": 24277.0,
-    "is_feasible": true,
-    "note": "derived from topology_links_v1.csv"
-  },
-  {
-    "route_id": "CD-0168-BACKUP",
-    "demand_id": "CD-0168",
-    "task_id": "TS-0003",
-    "route_type": "BACKUP",
-    "node_path": [
-      "ND-0053",
-      "ND-0047",
-      "ND-0081",
-      "ND-0095"
-    ],
-    "link_path": [
-      "LK-0208",
-      "LK-0036",
-      "LK-0283"
-    ],
-    "hop_count": 3,
-    "total_distance_m": 37248.6,
-    "bottleneck_margin_db": 14.89,
-    "estimated_reliability": 0.9311,
-    "route_cost": 40967.64,
-    "is_feasible": true,
-    "note": "derived from topology_links_v1.csv"
-  },
-  {
-    "route_id": "CD-0170-PRIMARY",
-    "demand_id": "CD-0170",
-    "task_id": "TS-0003",
-    "route_type": "PRIMARY",
-    "node_path": [
-      "ND-0005",
-      "ND-0039",
-      "ND-0047",
-      "ND-0081",
-      "ND-0079",
-      "ND-0087"
-    ],
-    "link_path": [
-      "LK-0228",
-      "LK-0353",
-      "LK-0036",
-      "LK-0336",
-      "LK-0069"
+      "LK-0001",
+      "LK-0367",
+      "LK-0356",
+      "LK-0212"
     ],
     "hop_count": 5,
-    "total_distance_m": 85798.9,
-    "bottleneck_margin_db": 19.07,
-    "estimated_reliability": 0.9557,
-    "route_cost": 87780.75,
-    "is_feasible": true,
-    "note": "derived from topology_links_v1.csv"
-  },
-  {
-    "route_id": "CD-0170-BACKUP",
-    "demand_id": "CD-0170",
-    "task_id": "TS-0003",
-    "route_type": "BACKUP",
-    "node_path": [
-      "ND-0005",
-      "ND-0009",
-      "ND-0094",
-      "ND-0008",
-      "ND-0036",
-      "ND-0087"
-    ],
-    "link_path": [
-      "LK-0451",
-      "LK-0150",
-      "LK-0056",
-      "LK-0028",
-      "LK-0111"
-    ],
-    "hop_count": 5,
-    "total_distance_m": 85519.6,
-    "bottleneck_margin_db": 18.78,
+    "total_distance_m": 96353.4,
+    "bottleneck_margin_db": 25.46,
     "estimated_reliability": 0.9654,
-    "route_cost": 89521.23,
+    "route_cost": 96353.4,
     "is_feasible": true,
     "note": "derived from topology_links_v1.csv"
   },
   {
-    "route_id": "CD-0171-PRIMARY",
-    "demand_id": "CD-0171",
-    "task_id": "TS-0003",
-    "route_type": "PRIMARY",
-    "node_path": [
-      "ND-0018",
-      "ND-0039",
-      "ND-0016"
-    ],
-    "link_path": [
-      "LK-0250",
-      "LK-0001"
-    ],
-    "hop_count": 2,
-    "total_distance_m": 18840.2,
-    "bottleneck_margin_db": 6.11,
-    "estimated_reliability": 0.9452,
-    "route_cost": 31924.23,
-    "is_feasible": true,
-    "note": "derived from topology_links_v1.csv"
-  },
-  {
-    "route_id": "CD-0171-BACKUP",
-    "demand_id": "CD-0171",
-    "task_id": "TS-0003",
-    "route_type": "BACKUP",
-    "node_path": [
-      "ND-0018",
-      "ND-0017",
-      "ND-0015",
-      "ND-0039",
-      "ND-0016"
-    ],
-    "link_path": [
-      "LK-0094",
-      "LK-0237",
-      "LK-0229",
-      "LK-0002"
-    ],
-    "hop_count": 4,
-    "total_distance_m": 39072.0,
-    "bottleneck_margin_db": 14.68,
-    "estimated_reliability": 0.9358,
-    "route_cost": 43696.12,
-    "is_feasible": true,
-    "note": "derived from topology_links_v1.csv"
-  },
-  {
-    "route_id": "CD-0174-PRIMARY",
-    "demand_id": "CD-0174",
-    "task_id": "TS-0003",
-    "route_type": "PRIMARY",
-    "node_path": [
-      "ND-0067",
-      "ND-0039",
-      "ND-0018",
-      "ND-0017"
-    ],
-    "link_path": [
-      "LK-0207",
-      "LK-0250",
-      "LK-0094"
-    ],
-    "hop_count": 3,
-    "total_distance_m": 37771.5,
-    "bottleneck_margin_db": 6.11,
-    "estimated_reliability": 0.898,
-    "route_cost": 55210.99,
-    "is_feasible": true,
-    "note": "derived from topology_links_v1.csv"
-  },
-  {
-    "route_id": "CD-0174-BACKUP",
-    "demand_id": "CD-0174",
-    "task_id": "TS-0003",
-    "route_type": "BACKUP",
-    "node_path": [
-      "ND-0067",
-      "ND-0005",
-      "ND-0039",
-      "ND-0015",
-      "ND-0017"
-    ],
-    "link_path": [
-      "LK-0225",
-      "LK-0228",
-      "LK-0229",
-      "LK-0237"
-    ],
-    "hop_count": 4,
-    "total_distance_m": 65745.0,
-    "bottleneck_margin_db": 14.68,
-    "estimated_reliability": 0.9171,
-    "route_cost": 71128.5,
-    "is_feasible": true,
-    "note": "derived from topology_links_v1.csv"
-  },
-  {
-    "route_id": "CD-0178-PRIMARY",
-    "demand_id": "CD-0178",
-    "task_id": "TS-0003",
-    "route_type": "PRIMARY",
-    "node_path": [
-      "ND-0089",
-      "ND-0029",
-      "ND-0038",
-      "ND-0014",
-      "ND-0046"
-    ],
-    "link_path": [
-      "LK-0146",
-      "LK-0275",
-      "LK-0131",
-      "LK-0306"
-    ],
-    "hop_count": 4,
-    "total_distance_m": 64503.8,
-    "bottleneck_margin_db": 29.58,
-    "estimated_reliability": 0.9703,
-    "route_cost": 64503.8,
-    "is_feasible": true,
-    "note": "derived from topology_links_v1.csv"
-  },
-  {
-    "route_id": "CD-0178-BACKUP",
-    "demand_id": "CD-0178",
-    "task_id": "TS-0003",
-    "route_type": "BACKUP",
-    "node_path": [
-      "ND-0089",
-      "ND-0065",
-      "ND-0037",
-      "ND-0004",
-      "ND-0046"
-    ],
-    "link_path": [
-      "LK-0357",
-      "LK-0063",
-      "LK-0372",
-      "LK-0044"
-    ],
-    "hop_count": 4,
-    "total_distance_m": 75520.0,
-    "bottleneck_margin_db": 7.16,
-    "estimated_reliability": 0.9264,
-    "route_cost": 101518.62,
-    "is_feasible": true,
-    "note": "derived from topology_links_v1.csv"
-  },
-  {
-    "route_id": "CD-0179-PRIMARY",
-    "demand_id": "CD-0179",
-    "task_id": "TS-0003",
-    "route_type": "PRIMARY",
-    "node_path": [
-      "ND-0029",
-      "ND-0033",
-      "ND-0025",
-      "ND-0103"
-    ],
-    "link_path": [
-      "LK-0054",
-      "LK-0159",
-      "LK-0138"
-    ],
-    "hop_count": 3,
-    "total_distance_m": 21246.4,
-    "bottleneck_margin_db": 37.26,
-    "estimated_reliability": 0.9851,
-    "route_cost": 21246.4,
-    "is_feasible": true,
-    "note": "derived from topology_links_v1.csv"
-  },
-  {
-    "route_id": "CD-0179-BACKUP",
-    "demand_id": "CD-0179",
-    "task_id": "TS-0003",
-    "route_type": "BACKUP",
-    "node_path": [
-      "ND-0029",
-      "ND-0033",
-      "ND-0047",
-      "ND-0103"
-    ],
-    "link_path": [
-      "LK-0055",
-      "LK-0209",
-      "LK-0112"
-    ],
-    "hop_count": 3,
-    "total_distance_m": 23211.7,
-    "bottleneck_margin_db": 13.52,
-    "estimated_reliability": 0.9405,
-    "route_cost": 27694.18,
-    "is_feasible": true,
-    "note": "derived from topology_links_v1.csv"
-  },
-  {
-    "route_id": "CD-0183-PRIMARY",
-    "demand_id": "CD-0183",
-    "task_id": "TS-0003",
-    "route_type": "PRIMARY",
-    "node_path": [
-      "ND-0089",
-      "ND-0029",
-      "ND-0095"
-    ],
-    "link_path": [
-      "LK-0146",
-      "LK-0110"
-    ],
-    "hop_count": 2,
-    "total_distance_m": 15943.8,
-    "bottleneck_margin_db": 29.58,
-    "estimated_reliability": 0.9801,
-    "route_cost": 15943.8,
-    "is_feasible": true,
-    "note": "derived from topology_links_v1.csv"
-  },
-  {
-    "route_id": "CD-0183-BACKUP",
-    "demand_id": "CD-0183",
-    "task_id": "TS-0003",
-    "route_type": "BACKUP",
-    "node_path": [
-      "ND-0089",
-      "ND-0061",
-      "ND-0068",
-      "ND-0081",
-      "ND-0095"
-    ],
-    "link_path": [
-      "LK-0244",
-      "LK-0224",
-      "LK-0045",
-      "LK-0283"
-    ],
-    "hop_count": 4,
-    "total_distance_m": 56903.7,
-    "bottleneck_margin_db": 10.93,
-    "estimated_reliability": 0.9264,
-    "route_cost": 65173.08,
-    "is_feasible": true,
-    "note": "derived from topology_links_v1.csv"
-  },
-  {
-    "route_id": "CD-0184-PRIMARY",
-    "demand_id": "CD-0184",
+    "route_id": "CD-0154-PRIMARY",
+    "demand_id": "CD-0154",
     "task_id": "TS-0003",
     "route_type": "PRIMARY",
     "node_path": [
@@ -1945,15 +1129,15 @@
     ],
     "hop_count": 1,
     "total_distance_m": 5235.6,
-    "bottleneck_margin_db": 55.88,
+    "bottleneck_margin_db": 55.72,
     "estimated_reliability": 0.995,
     "route_cost": 5235.6,
     "is_feasible": true,
     "note": "derived from topology_links_v1.csv"
   },
   {
-    "route_id": "CD-0184-BACKUP",
-    "demand_id": "CD-0184",
+    "route_id": "CD-0154-BACKUP",
+    "demand_id": "CD-0154",
     "task_id": "TS-0003",
     "route_type": "BACKUP",
     "node_path": [
@@ -1962,58 +1146,600 @@
       "ND-0017"
     ],
     "link_path": [
-      "LK-0117",
+      "LK-0114",
       "LK-0048"
     ],
     "hop_count": 2,
     "total_distance_m": 9316.0,
-    "bottleneck_margin_db": 58.72,
+    "bottleneck_margin_db": 48.91,
     "estimated_reliability": 0.99,
     "route_cost": 9316.0,
     "is_feasible": true,
     "note": "derived from topology_links_v1.csv"
   },
   {
-    "route_id": "CD-0185-PRIMARY",
-    "demand_id": "CD-0185",
+    "route_id": "CD-0155-PRIMARY",
+    "demand_id": "CD-0155",
     "task_id": "TS-0003",
     "route_type": "PRIMARY",
     "node_path": [
-      "ND-0018",
       "ND-0017",
+      "ND-0029",
       "ND-0015"
     ],
     "link_path": [
-      "LK-0094",
-      "LK-0237"
+      "LK-0048",
+      "LK-0232"
     ],
     "hop_count": 2,
-    "total_distance_m": 22619.5,
-    "bottleneck_margin_db": 14.68,
-    "estimated_reliability": 0.9452,
-    "route_cost": 27243.62,
+    "total_distance_m": 18928.1,
+    "bottleneck_margin_db": 16.81,
+    "estimated_reliability": 0.9801,
+    "route_cost": 21585.78,
     "is_feasible": true,
     "note": "derived from topology_links_v1.csv"
   },
   {
-    "route_id": "CD-0185-BACKUP",
-    "demand_id": "CD-0185",
+    "route_id": "CD-0155-BACKUP",
+    "demand_id": "CD-0155",
+    "task_id": "TS-0003",
+    "route_type": "BACKUP",
+    "node_path": [
+      "ND-0017",
+      "ND-0029",
+      "ND-0053",
+      "ND-0061",
+      "ND-0015"
+    ],
+    "link_path": [
+      "LK-0049",
+      "LK-0070",
+      "LK-0217",
+      "LK-0078"
+    ],
+    "hop_count": 4,
+    "total_distance_m": 26178.3,
+    "bottleneck_margin_db": 18.4,
+    "estimated_reliability": 0.9703,
+    "route_cost": 27434.44,
+    "is_feasible": true,
+    "note": "derived from topology_links_v1.csv"
+  },
+  {
+    "route_id": "CD-0156-PRIMARY",
+    "demand_id": "CD-0156",
+    "task_id": "TS-0003",
+    "route_type": "PRIMARY",
+    "node_path": [
+      "ND-0017",
+      "ND-0029",
+      "ND-0053"
+    ],
+    "link_path": [
+      "LK-0048",
+      "LK-0070"
+    ],
+    "hop_count": 2,
+    "total_distance_m": 6187.2,
+    "bottleneck_margin_db": 42.4,
+    "estimated_reliability": 0.99,
+    "route_cost": 6187.2,
+    "is_feasible": true,
+    "note": "derived from topology_links_v1.csv"
+  },
+  {
+    "route_id": "CD-0156-BACKUP",
+    "demand_id": "CD-0156",
+    "task_id": "TS-0003",
+    "route_type": "BACKUP",
+    "node_path": [
+      "ND-0017",
+      "ND-0029",
+      "ND-0033",
+      "ND-0053"
+    ],
+    "link_path": [
+      "LK-0049",
+      "LK-0054",
+      "LK-0030"
+    ],
+    "hop_count": 3,
+    "total_distance_m": 6187.6,
+    "bottleneck_margin_db": 43.93,
+    "estimated_reliability": 0.9851,
+    "route_cost": 6187.6,
+    "is_feasible": true,
+    "note": "derived from topology_links_v1.csv"
+  },
+  {
+    "route_id": "CD-0157-PRIMARY",
+    "demand_id": "CD-0157",
+    "task_id": "TS-0003",
+    "route_type": "PRIMARY",
+    "node_path": [
+      "ND-0017",
+      "ND-0089",
+      "ND-0067"
+    ],
+    "link_path": [
+      "LK-0111",
+      "LK-0347"
+    ],
+    "hop_count": 2,
+    "total_distance_m": 37111.2,
+    "bottleneck_margin_db": 5.33,
+    "estimated_reliability": 0.9357,
+    "route_cost": 59299.87,
+    "is_feasible": true,
+    "note": "derived from topology_links_v1.csv"
+  },
+  {
+    "route_id": "CD-0157-BACKUP",
+    "demand_id": "CD-0157",
+    "task_id": "TS-0003",
+    "route_type": "BACKUP",
+    "node_path": [
+      "ND-0017",
+      "ND-0029",
+      "ND-0053",
+      "ND-0039",
+      "ND-0016",
+      "ND-0005",
+      "ND-0067"
+    ],
+    "link_path": [
+      "LK-0048",
+      "LK-0070",
+      "LK-0333",
+      "LK-0001",
+      "LK-0228",
+      "LK-0214"
+    ],
+    "hop_count": 6,
+    "total_distance_m": 66441.7,
+    "bottleneck_margin_db": 19.17,
+    "estimated_reliability": 0.951,
+    "route_cost": 67618.01,
+    "is_feasible": true,
+    "note": "derived from topology_links_v1.csv"
+  },
+  {
+    "route_id": "CD-0158-PRIMARY",
+    "demand_id": "CD-0158",
+    "task_id": "TS-0003",
+    "route_type": "PRIMARY",
+    "node_path": [
+      "ND-0018",
+      "ND-0029",
+      "ND-0015"
+    ],
+    "link_path": [
+      "LK-0114",
+      "LK-0232"
+    ],
+    "hop_count": 2,
+    "total_distance_m": 23713.1,
+    "bottleneck_margin_db": 16.81,
+    "estimated_reliability": 0.9801,
+    "route_cost": 26370.78,
+    "is_feasible": true,
+    "note": "derived from topology_links_v1.csv"
+  },
+  {
+    "route_id": "CD-0158-BACKUP",
+    "demand_id": "CD-0158",
     "task_id": "TS-0003",
     "route_type": "BACKUP",
     "node_path": [
       "ND-0018",
-      "ND-0033",
+      "ND-0053",
+      "ND-0061",
       "ND-0015"
     ],
     "link_path": [
-      "LK-0147",
-      "LK-0248"
+      "LK-0165",
+      "LK-0217",
+      "LK-0078"
+    ],
+    "hop_count": 3,
+    "total_distance_m": 30397.9,
+    "bottleneck_margin_db": 18.4,
+    "estimated_reliability": 0.9752,
+    "route_cost": 31654.04,
+    "is_feasible": true,
+    "note": "derived from topology_links_v1.csv"
+  },
+  {
+    "route_id": "CD-0162-PRIMARY",
+    "demand_id": "CD-0162",
+    "task_id": "TS-0003",
+    "route_type": "PRIMARY",
+    "node_path": [
+      "ND-0067",
+      "ND-0089",
+      "ND-0017",
+      "ND-0018"
+    ],
+    "link_path": [
+      "LK-0347",
+      "LK-0111",
+      "LK-0094"
+    ],
+    "hop_count": 3,
+    "total_distance_m": 42346.8,
+    "bottleneck_margin_db": 5.33,
+    "estimated_reliability": 0.9311,
+    "route_cost": 64535.47,
+    "is_feasible": true,
+    "note": "derived from topology_links_v1.csv"
+  },
+  {
+    "route_id": "CD-0162-BACKUP",
+    "demand_id": "CD-0162",
+    "task_id": "TS-0003",
+    "route_type": "BACKUP",
+    "node_path": [
+      "ND-0067",
+      "ND-0005",
+      "ND-0016",
+      "ND-0039",
+      "ND-0053",
+      "ND-0018"
+    ],
+    "link_path": [
+      "LK-0214",
+      "LK-0228",
+      "LK-0001",
+      "LK-0333",
+      "LK-0165"
+    ],
+    "hop_count": 5,
+    "total_distance_m": 70661.3,
+    "bottleneck_margin_db": 19.17,
+    "estimated_reliability": 0.9557,
+    "route_cost": 71837.61,
+    "is_feasible": true,
+    "note": "derived from topology_links_v1.csv"
+  },
+  {
+    "route_id": "CD-0163-PRIMARY",
+    "demand_id": "CD-0163",
+    "task_id": "TS-0003",
+    "route_type": "PRIMARY",
+    "node_path": [
+      "ND-0029",
+      "ND-0033",
+      "ND-0025",
+      "ND-0048",
+      "ND-0116",
+      "ND-0110",
+      "ND-0001"
+    ],
+    "link_path": [
+      "LK-0054",
+      "LK-0159",
+      "LK-0041",
+      "LK-0136",
+      "LK-0227",
+      "LK-0038"
+    ],
+    "hop_count": 6,
+    "total_distance_m": 41170.3,
+    "bottleneck_margin_db": 32.63,
+    "estimated_reliability": 0.9704,
+    "route_cost": 41170.3,
+    "is_feasible": true,
+    "note": "derived from topology_links_v1.csv"
+  },
+  {
+    "route_id": "CD-0163-BACKUP",
+    "demand_id": "CD-0163",
+    "task_id": "TS-0003",
+    "route_type": "BACKUP",
+    "node_path": [
+      "ND-0029",
+      "ND-0053",
+      "ND-0047",
+      "ND-0001"
+    ],
+    "link_path": [
+      "LK-0070",
+      "LK-0194",
+      "LK-0313"
+    ],
+    "hop_count": 3,
+    "total_distance_m": 43954.2,
+    "bottleneck_margin_db": 14.71,
+    "estimated_reliability": 0.898,
+    "route_cost": 54419.06,
+    "is_feasible": true,
+    "note": "derived from topology_links_v1.csv"
+  },
+  {
+    "route_id": "CD-0168-PRIMARY",
+    "demand_id": "CD-0168",
+    "task_id": "TS-0003",
+    "route_type": "PRIMARY",
+    "node_path": [
+      "ND-0018",
+      "ND-0029",
+      "ND-0033",
+      "ND-0041",
+      "ND-0098",
+      "ND-0058",
+      "ND-0042",
+      "ND-0022"
+    ],
+    "link_path": [
+      "LK-0114",
+      "LK-0054",
+      "LK-0384",
+      "LK-0173",
+      "LK-0172",
+      "LK-0103",
+      "LK-0071"
+    ],
+    "hop_count": 7,
+    "total_distance_m": 80783.3,
+    "bottleneck_margin_db": 7.26,
+    "estimated_reliability": 0.9126,
+    "route_cost": 88005.99,
+    "is_feasible": true,
+    "note": "derived from topology_links_v1.csv"
+  },
+  {
+    "route_id": "CD-0168-BACKUP",
+    "demand_id": "CD-0168",
+    "task_id": "TS-0003",
+    "route_type": "BACKUP",
+    "node_path": [
+      "ND-0018",
+      "ND-0017",
+      "ND-0029",
+      "ND-0033",
+      "ND-0050",
+      "ND-0042",
+      "ND-0022"
+    ],
+    "link_path": [
+      "LK-0094",
+      "LK-0048",
+      "LK-0055",
+      "LK-0424",
+      "LK-0206",
+      "LK-0072"
+    ],
+    "hop_count": 6,
+    "total_distance_m": 76843.2,
+    "bottleneck_margin_db": 15.22,
+    "estimated_reliability": 0.951,
+    "route_cost": 91064.85,
+    "is_feasible": true,
+    "note": "derived from topology_links_v1.csv"
+  },
+  {
+    "route_id": "CD-0169-PRIMARY",
+    "demand_id": "CD-0169",
+    "task_id": "TS-0003",
+    "route_type": "PRIMARY",
+    "node_path": [
+      "ND-0018",
+      "ND-0053",
+      "ND-0039",
+      "ND-0016"
+    ],
+    "link_path": [
+      "LK-0165",
+      "LK-0333",
+      "LK-0001"
+    ],
+    "hop_count": 3,
+    "total_distance_m": 38752.4,
+    "bottleneck_margin_db": 19.17,
+    "estimated_reliability": 0.9752,
+    "route_cost": 39928.71,
+    "is_feasible": true,
+    "note": "derived from topology_links_v1.csv"
+  },
+  {
+    "route_id": "CD-0169-BACKUP",
+    "demand_id": "CD-0169",
+    "task_id": "TS-0003",
+    "route_type": "BACKUP",
+    "node_path": [
+      "ND-0018",
+      "ND-0029",
+      "ND-0015",
+      "ND-0039",
+      "ND-0016"
+    ],
+    "link_path": [
+      "LK-0114",
+      "LK-0232",
+      "LK-0229",
+      "LK-0002"
+    ],
+    "hop_count": 4,
+    "total_distance_m": 40165.6,
+    "bottleneck_margin_db": 16.81,
+    "estimated_reliability": 0.9703,
+    "route_cost": 42823.28,
+    "is_feasible": true,
+    "note": "derived from topology_links_v1.csv"
+  },
+  {
+    "route_id": "CD-0172-PRIMARY",
+    "demand_id": "CD-0172",
+    "task_id": "TS-0003",
+    "route_type": "PRIMARY",
+    "node_path": [
+      "ND-0015",
+      "ND-0061",
+      "ND-0081",
+      "ND-0027",
+      "ND-0007",
+      "ND-0010"
+    ],
+    "link_path": [
+      "LK-0078",
+      "LK-0231",
+      "LK-0349",
+      "LK-0040",
+      "LK-0196"
+    ],
+    "hop_count": 5,
+    "total_distance_m": 67217.7,
+    "bottleneck_margin_db": 19.31,
+    "estimated_reliability": 0.9654,
+    "route_cost": 68272.78,
+    "is_feasible": true,
+    "note": "derived from topology_links_v1.csv"
+  },
+  {
+    "route_id": "CD-0172-BACKUP",
+    "demand_id": "CD-0172",
+    "task_id": "TS-0003",
+    "route_type": "BACKUP",
+    "node_path": [
+      "ND-0015",
+      "ND-0118",
+      "ND-0125",
+      "ND-0010"
+    ],
+    "link_path": [
+      "LK-0400",
+      "LK-0011",
+      "LK-0260"
+    ],
+    "hop_count": 3,
+    "total_distance_m": 61540.2,
+    "bottleneck_margin_db": 13.69,
+    "estimated_reliability": 0.9311,
+    "route_cost": 74687.34,
+    "is_feasible": true,
+    "note": "derived from topology_links_v1.csv"
+  },
+  {
+    "route_id": "CD-0178-PRIMARY",
+    "demand_id": "CD-0178",
+    "task_id": "TS-0003",
+    "route_type": "PRIMARY",
+    "node_path": [
+      "ND-0033",
+      "ND-0050",
+      "ND-0078"
+    ],
+    "link_path": [
+      "LK-0424",
+      "LK-0146"
     ],
     "hop_count": 2,
-    "total_distance_m": 27950.2,
-    "bottleneck_margin_db": 37.04,
-    "estimated_reliability": 0.99,
-    "route_cost": 27950.2,
+    "total_distance_m": 56769.1,
+    "bottleneck_margin_db": 12.44,
+    "estimated_reliability": 0.9357,
+    "route_cost": 71591.7,
+    "is_feasible": true,
+    "note": "derived from topology_links_v1.csv"
+  },
+  {
+    "route_id": "CD-0181-PRIMARY",
+    "demand_id": "CD-0181",
+    "task_id": "TS-0003",
+    "route_type": "PRIMARY",
+    "node_path": [
+      "ND-0089",
+      "ND-0067"
+    ],
+    "link_path": [
+      "LK-0347"
+    ],
+    "hop_count": 1,
+    "total_distance_m": 30250.4,
+    "bottleneck_margin_db": 5.33,
+    "estimated_reliability": 0.95,
+    "route_cost": 52439.07,
+    "is_feasible": true,
+    "note": "derived from topology_links_v1.csv"
+  },
+  {
+    "route_id": "CD-0181-BACKUP",
+    "demand_id": "CD-0181",
+    "task_id": "TS-0003",
+    "route_type": "BACKUP",
+    "node_path": [
+      "ND-0089",
+      "ND-0029",
+      "ND-0053",
+      "ND-0039",
+      "ND-0016",
+      "ND-0005",
+      "ND-0067"
+    ],
+    "link_path": [
+      "LK-0148",
+      "LK-0070",
+      "LK-0333",
+      "LK-0001",
+      "LK-0228",
+      "LK-0214"
+    ],
+    "hop_count": 6,
+    "total_distance_m": 73300.3,
+    "bottleneck_margin_db": 19.17,
+    "estimated_reliability": 0.9414,
+    "route_cost": 74476.61,
+    "is_feasible": true,
+    "note": "derived from topology_links_v1.csv"
+  },
+  {
+    "route_id": "CD-0188-PRIMARY",
+    "demand_id": "CD-0188",
+    "task_id": "TS-0003",
+    "route_type": "PRIMARY",
+    "node_path": [
+      "ND-0016",
+      "ND-0039",
+      "ND-0053",
+      "ND-0029",
+      "ND-0017"
+    ],
+    "link_path": [
+      "LK-0001",
+      "LK-0333",
+      "LK-0070",
+      "LK-0048"
+    ],
+    "hop_count": 4,
+    "total_distance_m": 34532.8,
+    "bottleneck_margin_db": 19.17,
+    "estimated_reliability": 0.9703,
+    "route_cost": 35709.11,
+    "is_feasible": true,
+    "note": "derived from topology_links_v1.csv"
+  },
+  {
+    "route_id": "CD-0188-BACKUP",
+    "demand_id": "CD-0188",
+    "task_id": "TS-0003",
+    "route_type": "BACKUP",
+    "node_path": [
+      "ND-0016",
+      "ND-0039",
+      "ND-0015",
+      "ND-0029",
+      "ND-0017"
+    ],
+    "link_path": [
+      "LK-0002",
+      "LK-0229",
+      "LK-0232",
+      "LK-0049"
+    ],
+    "hop_count": 4,
+    "total_distance_m": 35380.6,
+    "bottleneck_margin_db": 16.81,
+    "estimated_reliability": 0.9703,
+    "route_cost": 38038.28,
     "is_feasible": true,
     "note": "derived from topology_links_v1.csv"
   },
@@ -2023,21 +1749,25 @@
     "task_id": "TS-0003",
     "route_type": "PRIMARY",
     "node_path": [
-      "ND-0017",
-      "ND-0018",
+      "ND-0016",
       "ND-0039",
-      "ND-0016"
+      "ND-0047",
+      "ND-0127",
+      "ND-0027",
+      "ND-0007"
     ],
     "link_path": [
-      "LK-0094",
-      "LK-0250",
-      "LK-0001"
+      "LK-0001",
+      "LK-0367",
+      "LK-0356",
+      "LK-0021",
+      "LK-0040"
     ],
-    "hop_count": 3,
-    "total_distance_m": 24075.8,
-    "bottleneck_margin_db": 6.11,
-    "estimated_reliability": 0.9405,
-    "route_cost": 37159.83,
+    "hop_count": 5,
+    "total_distance_m": 67219.8,
+    "bottleneck_margin_db": 25.46,
+    "estimated_reliability": 0.9654,
+    "route_cost": 67219.8,
     "is_feasible": true,
     "note": "derived from topology_links_v1.csv"
   },
@@ -2047,125 +1777,69 @@
     "task_id": "TS-0003",
     "route_type": "BACKUP",
     "node_path": [
-      "ND-0017",
+      "ND-0016",
+      "ND-0039",
       "ND-0015",
-      "ND-0039",
-      "ND-0016"
-    ],
-    "link_path": [
-      "LK-0237",
-      "LK-0229",
-      "LK-0002"
-    ],
-    "hop_count": 3,
-    "total_distance_m": 33836.4,
-    "bottleneck_margin_db": 14.68,
-    "estimated_reliability": 0.9405,
-    "route_cost": 38460.52,
-    "is_feasible": true,
-    "note": "derived from topology_links_v1.csv"
-  },
-  {
-    "route_id": "CD-0194-PRIMARY",
-    "demand_id": "CD-0194",
-    "task_id": "TS-0003",
-    "route_type": "PRIMARY",
-    "node_path": [
-      "ND-0057",
-      "ND-0039",
-      "ND-0016"
-    ],
-    "link_path": [
-      "LK-0300",
-      "LK-0001"
-    ],
-    "hop_count": 2,
-    "total_distance_m": 24553.1,
-    "bottleneck_margin_db": 13.4,
-    "estimated_reliability": 0.9452,
-    "route_cost": 32655.39,
-    "is_feasible": true,
-    "note": "derived from topology_links_v1.csv"
-  },
-  {
-    "route_id": "CD-0194-BACKUP",
-    "demand_id": "CD-0194",
-    "task_id": "TS-0003",
-    "route_type": "BACKUP",
-    "node_path": [
-      "ND-0057",
-      "ND-0017",
-      "ND-0018",
-      "ND-0039",
-      "ND-0016"
-    ],
-    "link_path": [
-      "LK-0119",
-      "LK-0094",
-      "LK-0250",
-      "LK-0002"
-    ],
-    "hop_count": 4,
-    "total_distance_m": 31188.8,
-    "bottleneck_margin_db": 6.11,
-    "estimated_reliability": 0.9264,
-    "route_cost": 44272.83,
-    "is_feasible": true,
-    "note": "derived from topology_links_v1.csv"
-  },
-  {
-    "route_id": "CD-0200-PRIMARY",
-    "demand_id": "CD-0200",
-    "task_id": "TS-0003",
-    "route_type": "PRIMARY",
-    "node_path": [
-      "ND-0057",
-      "ND-0068",
+      "ND-0061",
       "ND-0081",
-      "ND-0027",
+      "ND-0055",
       "ND-0007"
     ],
     "link_path": [
-      "LK-0161",
-      "LK-0045",
-      "LK-0331",
-      "LK-0041"
-    ],
-    "hop_count": 4,
-    "total_distance_m": 44592.0,
-    "bottleneck_margin_db": 19.31,
-    "estimated_reliability": 0.9703,
-    "route_cost": 45647.08,
-    "is_feasible": true,
-    "note": "derived from topology_links_v1.csv"
-  },
-  {
-    "route_id": "CD-0200-BACKUP",
-    "demand_id": "CD-0200",
-    "task_id": "TS-0003",
-    "route_type": "BACKUP",
-    "node_path": [
-      "ND-0057",
-      "ND-0017",
-      "ND-0025",
-      "ND-0048",
-      "ND-0043",
-      "ND-0108",
-      "ND-0007"
-    ],
-    "link_path": [
-      "LK-0119",
-      "LK-0203",
-      "LK-0042",
-      "LK-0277",
-      "LK-0009",
-      "LK-0217"
+      "LK-0002",
+      "LK-0229",
+      "LK-0078",
+      "LK-0231",
+      "LK-0235",
+      "LK-0240"
     ],
     "hop_count": 6,
-    "total_distance_m": 58618.0,
-    "bottleneck_margin_db": 23.53,
-    "estimated_reliability": 0.951,
-    "route_cost": 58618.0,
+    "total_distance_m": 72081.3,
+    "bottleneck_margin_db": 24.0,
+    "estimated_reliability": 0.9606,
+    "route_cost": 72081.3,
+    "is_feasible": true,
+    "note": "derived from topology_links_v1.csv"
+  },
+  {
+    "route_id": "CD-0197-PRIMARY",
+    "demand_id": "CD-0197",
+    "task_id": "TS-0003",
+    "route_type": "PRIMARY",
+    "node_path": [
+      "ND-0053",
+      "ND-0018"
+    ],
+    "link_path": [
+      "LK-0165"
+    ],
+    "hop_count": 1,
+    "total_distance_m": 10406.8,
+    "bottleneck_margin_db": 40.53,
+    "estimated_reliability": 0.995,
+    "route_cost": 10406.8,
+    "is_feasible": true,
+    "note": "derived from topology_links_v1.csv"
+  },
+  {
+    "route_id": "CD-0197-BACKUP",
+    "demand_id": "CD-0197",
+    "task_id": "TS-0003",
+    "route_type": "BACKUP",
+    "node_path": [
+      "ND-0053",
+      "ND-0029",
+      "ND-0018"
+    ],
+    "link_path": [
+      "LK-0070",
+      "LK-0114"
+    ],
+    "hop_count": 2,
+    "total_distance_m": 10972.2,
+    "bottleneck_margin_db": 42.4,
+    "estimated_reliability": 0.99,
+    "route_cost": 10972.2,
     "is_feasible": true,
     "note": "derived from topology_links_v1.csv"
   },
@@ -2175,19 +1849,21 @@
     "task_id": "TS-0003",
     "route_type": "PRIMARY",
     "node_path": [
-      "ND-0015",
-      "ND-0033",
-      "ND-0029"
+      "ND-0005",
+      "ND-0016",
+      "ND-0039",
+      "ND-0053"
     ],
     "link_path": [
-      "LK-0248",
-      "LK-0054"
+      "LK-0228",
+      "LK-0001",
+      "LK-0333"
     ],
-    "hop_count": 2,
-    "total_distance_m": 21303.3,
-    "bottleneck_margin_db": 37.04,
-    "estimated_reliability": 0.99,
-    "route_cost": 21303.3,
+    "hop_count": 3,
+    "total_distance_m": 44676.1,
+    "bottleneck_margin_db": 19.17,
+    "estimated_reliability": 0.9752,
+    "route_cost": 45852.41,
     "is_feasible": true,
     "note": "derived from topology_links_v1.csv"
   },
@@ -2197,69 +1873,19 @@
     "task_id": "TS-0003",
     "route_type": "BACKUP",
     "node_path": [
-      "ND-0015",
-      "ND-0017",
-      "ND-0029"
-    ],
-    "link_path": [
-      "LK-0237",
-      "LK-0048"
-    ],
-    "hop_count": 2,
-    "total_distance_m": 19649.4,
-    "bottleneck_margin_db": 14.68,
-    "estimated_reliability": 0.9452,
-    "route_cost": 24273.52,
-    "is_feasible": true,
-    "note": "derived from topology_links_v1.csv"
-  },
-  {
-    "route_id": "CD-0202-PRIMARY",
-    "demand_id": "CD-0202",
-    "task_id": "TS-0003",
-    "route_type": "PRIMARY",
-    "node_path": [
-      "ND-0067",
-      "ND-0039",
-      "ND-0018"
-    ],
-    "link_path": [
-      "LK-0207",
-      "LK-0250"
-    ],
-    "hop_count": 2,
-    "total_distance_m": 32535.9,
-    "bottleneck_margin_db": 6.11,
-    "estimated_reliability": 0.9025,
-    "route_cost": 49975.39,
-    "is_feasible": true,
-    "note": "derived from topology_links_v1.csv"
-  },
-  {
-    "route_id": "CD-0202-BACKUP",
-    "demand_id": "CD-0202",
-    "task_id": "TS-0003",
-    "route_type": "BACKUP",
-    "node_path": [
-      "ND-0067",
       "ND-0005",
-      "ND-0039",
-      "ND-0015",
-      "ND-0017",
-      "ND-0018"
+      "ND-0061",
+      "ND-0053"
     ],
     "link_path": [
-      "LK-0225",
-      "LK-0228",
-      "LK-0229",
-      "LK-0237",
-      "LK-0094"
+      "LK-0316",
+      "LK-0217"
     ],
-    "hop_count": 5,
-    "total_distance_m": 70980.6,
-    "bottleneck_margin_db": 14.68,
-    "estimated_reliability": 0.9125,
-    "route_cost": 76364.1,
+    "hop_count": 2,
+    "total_distance_m": 42429.7,
+    "bottleneck_margin_db": 11.47,
+    "estimated_reliability": 0.9357,
+    "route_cost": 55085.33,
     "is_feasible": true,
     "note": "derived from topology_links_v1.csv"
   },
@@ -2269,19 +1895,25 @@
     "task_id": "TS-0003",
     "route_type": "PRIMARY",
     "node_path": [
+      "ND-0005",
+      "ND-0016",
+      "ND-0039",
       "ND-0053",
-      "ND-0018",
-      "ND-0039"
+      "ND-0029",
+      "ND-0089"
     ],
     "link_path": [
-      "LK-0166",
-      "LK-0250"
+      "LK-0228",
+      "LK-0001",
+      "LK-0333",
+      "LK-0070",
+      "LK-0148"
     ],
-    "hop_count": 2,
-    "total_distance_m": 29246.3,
-    "bottleneck_margin_db": 6.11,
-    "estimated_reliability": 0.9452,
-    "route_cost": 42330.33,
+    "hop_count": 5,
+    "total_distance_m": 57721.9,
+    "bottleneck_margin_db": 19.17,
+    "estimated_reliability": 0.9557,
+    "route_cost": 58898.21,
     "is_feasible": true,
     "note": "derived from topology_links_v1.csv"
   },
@@ -2291,693 +1923,489 @@
     "task_id": "TS-0003",
     "route_type": "BACKUP",
     "node_path": [
-      "ND-0053",
-      "ND-0047",
-      "ND-0039"
+      "ND-0005",
+      "ND-0067",
+      "ND-0089"
     ],
     "link_path": [
-      "LK-0208",
-      "LK-0353"
+      "LK-0214",
+      "LK-0347"
     ],
     "hop_count": 2,
-    "total_distance_m": 46824.7,
-    "bottleneck_margin_db": 14.89,
-    "estimated_reliability": 0.9452,
-    "route_cost": 50337.54,
+    "total_distance_m": 45828.8,
+    "bottleneck_margin_db": 5.33,
+    "estimated_reliability": 0.9357,
+    "route_cost": 68017.47,
     "is_feasible": true,
     "note": "derived from topology_links_v1.csv"
   },
   {
-    "route_id": "CD-0206-PRIMARY",
-    "demand_id": "CD-0206",
+    "route_id": "CD-0210-PRIMARY",
+    "demand_id": "CD-0210",
     "task_id": "TS-0003",
     "route_type": "PRIMARY",
     "node_path": [
-      "ND-0061",
-      "ND-0068",
-      "ND-0081",
-      "ND-0047",
+      "ND-0057",
+      "ND-0025",
+      "ND-0048",
+      "ND-0037",
+      "ND-0049",
+      "ND-0102"
+    ],
+    "link_path": [
+      "LK-0135",
+      "LK-0041",
+      "LK-0248",
+      "LK-0439",
+      "LK-0168"
+    ],
+    "hop_count": 5,
+    "total_distance_m": 94456.4,
+    "bottleneck_margin_db": 16.76,
+    "estimated_reliability": 0.9461,
+    "route_cost": 96240.42,
+    "is_feasible": true,
+    "note": "derived from topology_links_v1.csv"
+  },
+  {
+    "route_id": "CD-0218-PRIMARY",
+    "demand_id": "CD-0218",
+    "task_id": "TS-0003",
+    "route_type": "PRIMARY",
+    "node_path": [
+      "ND-0039",
+      "ND-0053",
+      "ND-0033"
+    ],
+    "link_path": [
+      "LK-0333",
+      "LK-0030"
+    ],
+    "hop_count": 2,
+    "total_distance_m": 29733.4,
+    "bottleneck_margin_db": 19.17,
+    "estimated_reliability": 0.9801,
+    "route_cost": 30909.71,
+    "is_feasible": true,
+    "note": "derived from topology_links_v1.csv"
+  },
+  {
+    "route_id": "CD-0218-BACKUP",
+    "demand_id": "CD-0218",
+    "task_id": "TS-0003",
+    "route_type": "BACKUP",
+    "node_path": [
+      "ND-0039",
+      "ND-0015",
+      "ND-0029",
+      "ND-0033"
+    ],
+    "link_path": [
+      "LK-0229",
+      "LK-0232",
+      "LK-0054"
+    ],
+    "hop_count": 3,
+    "total_distance_m": 35648.0,
+    "bottleneck_margin_db": 16.81,
+    "estimated_reliability": 0.9752,
+    "route_cost": 38305.68,
+    "is_feasible": true,
+    "note": "derived from topology_links_v1.csv"
+  },
+  {
+    "route_id": "CD-0223-PRIMARY",
+    "demand_id": "CD-0223",
+    "task_id": "TS-0003",
+    "route_type": "PRIMARY",
+    "node_path": [
+      "ND-0039",
+      "ND-0053",
+      "ND-0033",
+      "ND-0041",
+      "ND-0097",
+      "ND-0013"
+    ],
+    "link_path": [
+      "LK-0333",
+      "LK-0030",
+      "LK-0384",
+      "LK-0091",
+      "LK-0149"
+    ],
+    "hop_count": 5,
+    "total_distance_m": 82426.0,
+    "bottleneck_margin_db": 13.98,
+    "estimated_reliability": 0.9033,
+    "route_cost": 86375.22,
+    "is_feasible": true,
+    "note": "derived from topology_links_v1.csv"
+  },
+  {
+    "route_id": "CD-0223-BACKUP",
+    "demand_id": "CD-0223",
+    "task_id": "TS-0003",
+    "route_type": "BACKUP",
+    "node_path": [
+      "ND-0039",
+      "ND-0015",
+      "ND-0029",
+      "ND-0038",
+      "ND-0013"
+    ],
+    "link_path": [
+      "LK-0229",
+      "LK-0232",
+      "LK-0275",
+      "LK-0350"
+    ],
+    "hop_count": 4,
+    "total_distance_m": 84820.1,
+    "bottleneck_margin_db": 16.81,
+    "estimated_reliability": 0.9605,
+    "route_cost": 90230.33,
+    "is_feasible": true,
+    "note": "derived from topology_links_v1.csv"
+  },
+  {
+    "route_id": "CD-0225-PRIMARY",
+    "demand_id": "CD-0225",
+    "task_id": "TS-0003",
+    "route_type": "PRIMARY",
+    "node_path": [
+      "ND-0053",
+      "ND-0033",
+      "ND-0025",
+      "ND-0048",
       "ND-0116",
-      "ND-0040",
-      "ND-0045",
+      "ND-0044",
+      "ND-0012"
+    ],
+    "link_path": [
+      "LK-0030",
+      "LK-0159",
+      "LK-0041",
+      "LK-0136",
+      "LK-0307",
+      "LK-0093"
+    ],
+    "hop_count": 6,
+    "total_distance_m": 51915.8,
+    "bottleneck_margin_db": 24.71,
+    "estimated_reliability": 0.9606,
+    "route_cost": 51915.8,
+    "is_feasible": true,
+    "note": "derived from topology_links_v1.csv"
+  },
+  {
+    "route_id": "CD-0225-BACKUP",
+    "demand_id": "CD-0225",
+    "task_id": "TS-0003",
+    "route_type": "BACKUP",
+    "node_path": [
+      "ND-0053",
+      "ND-0029",
+      "ND-0038",
+      "ND-0014",
+      "ND-0009",
       "ND-0117",
       "ND-0012"
     ],
     "link_path": [
-      "LK-0224",
-      "LK-0045",
-      "LK-0036",
-      "LK-0197",
       "LK-0070",
-      "LK-0271",
-      "LK-0071",
+      "LK-0275",
+      "LK-0131",
+      "LK-0257",
+      "LK-0015",
       "LK-0051"
     ],
-    "hop_count": 8,
-    "total_distance_m": 62342.0,
-    "bottleneck_margin_db": 23.46,
-    "estimated_reliability": 0.951,
-    "route_cost": 62342.0,
-    "is_feasible": true,
-    "note": "derived from topology_links_v1.csv"
-  },
-  {
-    "route_id": "CD-0206-BACKUP",
-    "demand_id": "CD-0206",
-    "task_id": "TS-0003",
-    "route_type": "BACKUP",
-    "node_path": [
-      "ND-0061",
-      "ND-0015",
-      "ND-0040",
-      "ND-0028",
-      "ND-0009",
-      "ND-0052",
-      "ND-0012"
-    ],
-    "link_path": [
-      "LK-0081",
-      "LK-0341",
-      "LK-0114",
-      "LK-0240",
-      "LK-0087",
-      "LK-0086"
-    ],
     "hop_count": 6,
-    "total_distance_m": 69909.2,
-    "bottleneck_margin_db": 19.16,
-    "estimated_reliability": 0.9606,
-    "route_cost": 71248.26,
+    "total_distance_m": 55408.7,
+    "bottleneck_margin_db": 35.22,
+    "estimated_reliability": 0.9704,
+    "route_cost": 55408.7,
     "is_feasible": true,
     "note": "derived from topology_links_v1.csv"
   },
   {
-    "route_id": "CD-0209-PRIMARY",
-    "demand_id": "CD-0209",
+    "route_id": "CD-0228-PRIMARY",
+    "demand_id": "CD-0228",
     "task_id": "TS-0003",
     "route_type": "PRIMARY",
     "node_path": [
-      "ND-0016",
-      "ND-0039",
-      "ND-0067"
-    ],
-    "link_path": [
-      "LK-0001",
-      "LK-0207"
-    ],
-    "hop_count": 2,
-    "total_distance_m": 13697.1,
-    "bottleneck_margin_db": 13.64,
-    "estimated_reliability": 0.9452,
-    "route_cost": 18052.56,
-    "is_feasible": true,
-    "note": "derived from topology_links_v1.csv"
-  },
-  {
-    "route_id": "CD-0209-BACKUP",
-    "demand_id": "CD-0209",
-    "task_id": "TS-0003",
-    "route_type": "BACKUP",
-    "node_path": [
-      "ND-0016",
-      "ND-0039",
-      "ND-0005",
-      "ND-0067"
-    ],
-    "link_path": [
-      "LK-0002",
-      "LK-0228",
-      "LK-0225"
-    ],
-    "hop_count": 3,
-    "total_distance_m": 31910.0,
-    "bottleneck_margin_db": 19.07,
-    "estimated_reliability": 0.9654,
-    "route_cost": 32669.39,
-    "is_feasible": true,
-    "note": "derived from topology_links_v1.csv"
-  },
-  {
-    "route_id": "CD-0213-PRIMARY",
-    "demand_id": "CD-0213",
-    "task_id": "TS-0003",
-    "route_type": "PRIMARY",
-    "node_path": [
-      "ND-0005",
-      "ND-0009",
-      "ND-0011",
-      "ND-0032",
-      "ND-0046",
-      "ND-0004"
-    ],
-    "link_path": [
-      "LK-0451",
-      "LK-0236",
-      "LK-0052",
-      "LK-0102",
-      "LK-0044"
-    ],
-    "hop_count": 5,
-    "total_distance_m": 93289.8,
-    "bottleneck_margin_db": 18.78,
-    "estimated_reliability": 0.9654,
-    "route_cost": 97291.43,
-    "is_feasible": true,
-    "note": "derived from topology_links_v1.csv"
-  },
-  {
-    "route_id": "CD-0213-BACKUP",
-    "demand_id": "CD-0213",
-    "task_id": "TS-0003",
-    "route_type": "BACKUP",
-    "node_path": [
-      "ND-0005",
-      "ND-0039",
-      "ND-0047",
-      "ND-0038",
-      "ND-0004"
-    ],
-    "link_path": [
-      "LK-0228",
-      "LK-0353",
-      "LK-0297",
-      "LK-0367"
-    ],
-    "hop_count": 4,
-    "total_distance_m": 108684.9,
-    "bottleneck_margin_db": 18.24,
-    "estimated_reliability": 0.9509,
-    "route_cost": 112557.97,
-    "is_feasible": true,
-    "note": "derived from topology_links_v1.csv"
-  },
-  {
-    "route_id": "CD-0214-PRIMARY",
-    "demand_id": "CD-0214",
-    "task_id": "TS-0004",
-    "route_type": "PRIMARY",
-    "node_path": [
-      "ND-0021",
-      "ND-0030",
-      "ND-0006"
-    ],
-    "link_path": [
-      "LK-0222",
-      "LK-0378"
-    ],
-    "hop_count": 2,
-    "total_distance_m": 53808.6,
-    "bottleneck_margin_db": 18.83,
-    "estimated_reliability": 0.9702,
-    "route_cost": 56072.68,
-    "is_feasible": true,
-    "note": "derived from topology_links_v1.csv"
-  },
-  {
-    "route_id": "CD-0214-BACKUP",
-    "demand_id": "CD-0214",
-    "task_id": "TS-0004",
-    "route_type": "BACKUP",
-    "node_path": [
-      "ND-0021",
-      "ND-0020",
-      "ND-0019",
-      "ND-0046",
-      "ND-0004",
-      "ND-0006"
-    ],
-    "link_path": [
-      "LK-0127",
-      "LK-0126",
-      "LK-0350",
-      "LK-0044",
-      "LK-0465"
-    ],
-    "hop_count": 5,
-    "total_distance_m": 119453.9,
-    "bottleneck_margin_db": 10.29,
-    "estimated_reliability": 0.9311,
-    "route_cost": 152619.18,
-    "is_feasible": true,
-    "note": "derived from topology_links_v1.csv"
-  },
-  {
-    "route_id": "CD-0221-PRIMARY",
-    "demand_id": "CD-0221",
-    "task_id": "TS-0004",
-    "route_type": "PRIMARY",
-    "node_path": [
-      "ND-0021",
-      "ND-0030",
-      "ND-0019",
-      "ND-0046",
-      "ND-0032",
-      "ND-0011"
-    ],
-    "link_path": [
-      "LK-0222",
-      "LK-0012",
-      "LK-0350",
-      "LK-0102",
-      "LK-0052"
-    ],
-    "hop_count": 5,
-    "total_distance_m": 56529.5,
-    "bottleneck_margin_db": 20.77,
-    "estimated_reliability": 0.9654,
-    "route_cost": 56529.5,
-    "is_feasible": true,
-    "note": "derived from topology_links_v1.csv"
-  },
-  {
-    "route_id": "CD-0221-BACKUP",
-    "demand_id": "CD-0221",
-    "task_id": "TS-0004",
-    "route_type": "BACKUP",
-    "node_path": [
-      "ND-0021",
-      "ND-0042",
-      "ND-0022",
-      "ND-0013",
-      "ND-0011"
-    ],
-    "link_path": [
-      "LK-0187",
-      "LK-0075",
-      "LK-0345",
-      "LK-0191"
-    ],
-    "hop_count": 4,
-    "total_distance_m": 60904.2,
-    "bottleneck_margin_db": 17.46,
-    "estimated_reliability": 0.9509,
-    "route_cost": 62634.92,
-    "is_feasible": true,
-    "note": "derived from topology_links_v1.csv"
-  },
-  {
-    "route_id": "CD-0222-PRIMARY",
-    "demand_id": "CD-0222",
-    "task_id": "TS-0004",
-    "route_type": "PRIMARY",
-    "node_path": [
-      "ND-0021",
-      "ND-0030",
-      "ND-0019",
-      "ND-0046",
-      "ND-0032",
-      "ND-0011",
-      "ND-0009",
-      "ND-0010"
-    ],
-    "link_path": [
-      "LK-0222",
-      "LK-0012",
-      "LK-0350",
-      "LK-0102",
-      "LK-0052",
-      "LK-0236",
-      "LK-0143"
-    ],
-    "hop_count": 7,
-    "total_distance_m": 82989.7,
-    "bottleneck_margin_db": 20.77,
-    "estimated_reliability": 0.9558,
-    "route_cost": 82989.7,
-    "is_feasible": true,
-    "note": "derived from topology_links_v1.csv"
-  },
-  {
-    "route_id": "CD-0222-BACKUP",
-    "demand_id": "CD-0222",
-    "task_id": "TS-0004",
-    "route_type": "BACKUP",
-    "node_path": [
-      "ND-0021",
-      "ND-0020",
-      "ND-0050",
-      "ND-0069",
-      "ND-0009",
-      "ND-0052",
-      "ND-0010"
-    ],
-    "link_path": [
-      "LK-0127",
-      "LK-0305",
-      "LK-0073",
-      "LK-0403",
-      "LK-0087",
-      "LK-0085"
-    ],
-    "hop_count": 6,
-    "total_distance_m": 91379.8,
-    "bottleneck_margin_db": 19.93,
-    "estimated_reliability": 0.9606,
-    "route_cost": 91535.68,
-    "is_feasible": true,
-    "note": "derived from topology_links_v1.csv"
-  },
-  {
-    "route_id": "CD-0224-PRIMARY",
-    "demand_id": "CD-0224",
-    "task_id": "TS-0004",
-    "route_type": "PRIMARY",
-    "node_path": [
-      "ND-0006",
-      "ND-0030",
-      "ND-0019",
-      "ND-0028",
-      "ND-0040",
-      "ND-0056",
-      "ND-0104"
-    ],
-    "link_path": [
-      "LK-0378",
-      "LK-0012",
-      "LK-0439",
-      "LK-0114",
-      "LK-0065",
-      "LK-0095"
-    ],
-    "hop_count": 6,
-    "total_distance_m": 114987.7,
-    "bottleneck_margin_db": 11.27,
-    "estimated_reliability": 0.908,
-    "route_cost": 118692.8,
-    "is_feasible": true,
-    "note": "derived from topology_links_v1.csv"
-  },
-  {
-    "route_id": "CD-0224-BACKUP",
-    "demand_id": "CD-0224",
-    "task_id": "TS-0004",
-    "route_type": "BACKUP",
-    "node_path": [
-      "ND-0006",
-      "ND-0018",
-      "ND-0017",
+      "ND-0053",
+      "ND-0033",
       "ND-0025",
       "ND-0103",
       "ND-0075",
-      "ND-0080",
-      "ND-0104"
+      "ND-0055",
+      "ND-0043",
+      "ND-0099"
     ],
     "link_path": [
-      "LK-0497",
-      "LK-0094",
-      "LK-0203",
-      "LK-0138",
-      "LK-0122",
-      "LK-0108",
-      "LK-0177"
+      "LK-0030",
+      "LK-0159",
+      "LK-0141",
+      "LK-0119",
+      "LK-0120",
+      "LK-0061",
+      "LK-0176"
     ],
     "hop_count": 7,
-    "total_distance_m": 140073.6,
-    "bottleneck_margin_db": 7.79,
-    "estimated_reliability": 0.9126,
-    "route_cost": 146926.1,
+    "total_distance_m": 49900.5,
+    "bottleneck_margin_db": 16.78,
+    "estimated_reliability": 0.9558,
+    "route_cost": 51775.43,
     "is_feasible": true,
     "note": "derived from topology_links_v1.csv"
   },
   {
-    "route_id": "CD-0227-PRIMARY",
-    "demand_id": "CD-0227",
-    "task_id": "TS-0004",
-    "route_type": "PRIMARY",
-    "node_path": [
-      "ND-0021",
-      "ND-0030",
-      "ND-0019",
-      "ND-0028",
-      "ND-0085"
-    ],
-    "link_path": [
-      "LK-0222",
-      "LK-0012",
-      "LK-0439",
-      "LK-0124"
-    ],
-    "hop_count": 4,
-    "total_distance_m": 83558.6,
-    "bottleneck_margin_db": 20.77,
-    "estimated_reliability": 0.9605,
-    "route_cost": 83558.6,
-    "is_feasible": true,
-    "note": "derived from topology_links_v1.csv"
-  },
-  {
-    "route_id": "CD-0227-BACKUP",
-    "demand_id": "CD-0227",
-    "task_id": "TS-0004",
+    "route_id": "CD-0228-BACKUP",
+    "demand_id": "CD-0228",
+    "task_id": "TS-0003",
     "route_type": "BACKUP",
     "node_path": [
-      "ND-0021",
-      "ND-0020",
-      "ND-0019",
-      "ND-0046",
-      "ND-0032",
-      "ND-0011",
-      "ND-0009",
-      "ND-0094",
-      "ND-0008",
-      "ND-0085"
+      "ND-0053",
+      "ND-0047",
+      "ND-0081",
+      "ND-0075",
+      "ND-0031",
+      "ND-0108",
+      "ND-0112",
+      "ND-0035",
+      "ND-0099"
     ],
     "link_path": [
-      "LK-0127",
-      "LK-0126",
-      "LK-0350",
-      "LK-0102",
-      "LK-0052",
-      "LK-0236",
-      "LK-0150",
-      "LK-0056",
-      "LK-0242"
+      "LK-0194",
+      "LK-0035",
+      "LK-0166",
+      "LK-0183",
+      "LK-0047",
+      "LK-0140",
+      "LK-0026",
+      "LK-0099"
     ],
-    "hop_count": 9,
-    "total_distance_m": 104453.8,
-    "bottleneck_margin_db": 3.93,
-    "estimated_reliability": 0.9127,
-    "route_cost": 118700.02,
+    "hop_count": 8,
+    "total_distance_m": 55728.3,
+    "bottleneck_margin_db": 14.89,
+    "estimated_reliability": 0.908,
+    "route_cost": 59241.14,
     "is_feasible": true,
     "note": "derived from topology_links_v1.csv"
   },
   {
     "route_id": "CD-0231-PRIMARY",
     "demand_id": "CD-0231",
-    "task_id": "TS-0004",
+    "task_id": "TS-0003",
     "route_type": "PRIMARY",
     "node_path": [
-      "ND-0006",
-      "ND-0030",
-      "ND-0019",
-      "ND-0028",
-      "ND-0003",
-      "ND-0110",
-      "ND-0002"
+      "ND-0067",
+      "ND-0005",
+      "ND-0016",
+      "ND-0039",
+      "ND-0053"
     ],
     "link_path": [
-      "LK-0378",
-      "LK-0012",
-      "LK-0439",
-      "LK-0113",
-      "LK-0020",
-      "LK-0032"
+      "LK-0214",
+      "LK-0228",
+      "LK-0001",
+      "LK-0333"
     ],
-    "hop_count": 6,
-    "total_distance_m": 108580.4,
-    "bottleneck_margin_db": 18.83,
-    "estimated_reliability": 0.951,
-    "route_cost": 110844.48,
+    "hop_count": 4,
+    "total_distance_m": 60254.5,
+    "bottleneck_margin_db": 19.17,
+    "estimated_reliability": 0.9605,
+    "route_cost": 61430.81,
     "is_feasible": true,
     "note": "derived from topology_links_v1.csv"
   },
   {
     "route_id": "CD-0231-BACKUP",
     "demand_id": "CD-0231",
+    "task_id": "TS-0003",
+    "route_type": "BACKUP",
+    "node_path": [
+      "ND-0067",
+      "ND-0089",
+      "ND-0029",
+      "ND-0053"
+    ],
+    "link_path": [
+      "LK-0347",
+      "LK-0148",
+      "LK-0070"
+    ],
+    "hop_count": 3,
+    "total_distance_m": 43296.2,
+    "bottleneck_margin_db": 5.33,
+    "estimated_reliability": 0.9311,
+    "route_cost": 65484.87,
+    "is_feasible": true,
+    "note": "derived from topology_links_v1.csv"
+  },
+  {
+    "route_id": "CD-0232-PRIMARY",
+    "demand_id": "CD-0232",
+    "task_id": "TS-0004",
+    "route_type": "PRIMARY",
+    "node_path": [
+      "ND-0006",
+      "ND-0030",
+      "ND-0019",
+      "ND-0020",
+      "ND-0021"
+    ],
+    "link_path": [
+      "LK-0387",
+      "LK-0012",
+      "LK-0124",
+      "LK-0125"
+    ],
+    "hop_count": 4,
+    "total_distance_m": 55704.0,
+    "bottleneck_margin_db": 18.83,
+    "estimated_reliability": 0.9703,
+    "route_cost": 57968.08,
+    "is_feasible": true,
+    "note": "derived from topology_links_v1.csv"
+  },
+  {
+    "route_id": "CD-0232-BACKUP",
+    "demand_id": "CD-0232",
     "task_id": "TS-0004",
     "route_type": "BACKUP",
     "node_path": [
       "ND-0006",
-      "ND-0004",
-      "ND-0046",
-      "ND-0032",
-      "ND-0011",
-      "ND-0045",
-      "ND-0110",
-      "ND-0001",
-      "ND-0002"
+      "ND-0026",
+      "ND-0020",
+      "ND-0021"
     ],
     "link_path": [
-      "LK-0465",
-      "LK-0044",
-      "LK-0102",
-      "LK-0052",
-      "LK-0264",
-      "LK-0152",
-      "LK-0039",
-      "LK-0057"
+      "LK-0388",
+      "LK-0142",
+      "LK-0126"
     ],
-    "hop_count": 8,
-    "total_distance_m": 112732.9,
-    "bottleneck_margin_db": 10.29,
-    "estimated_reliability": 0.908,
-    "route_cost": 147142.18,
+    "hop_count": 3,
+    "total_distance_m": 56055.4,
+    "bottleneck_margin_db": 5.4,
+    "estimated_reliability": 0.9405,
+    "route_cost": 84498.75,
     "is_feasible": true,
     "note": "derived from topology_links_v1.csv"
   },
   {
-    "route_id": "CD-0235-PRIMARY",
-    "demand_id": "CD-0235",
+    "route_id": "CD-0234-PRIMARY",
+    "demand_id": "CD-0234",
     "task_id": "TS-0004",
     "route_type": "PRIMARY",
     "node_path": [
       "ND-0021",
-      "ND-0030",
+      "ND-0020",
       "ND-0019",
       "ND-0046",
-      "ND-0032",
-      "ND-0011",
-      "ND-0009",
-      "ND-0094",
-      "ND-0008"
+      "ND-0044",
+      "ND-0007"
     ],
     "link_path": [
-      "LK-0222",
-      "LK-0012",
-      "LK-0350",
-      "LK-0102",
-      "LK-0052",
-      "LK-0236",
-      "LK-0150",
-      "LK-0056"
+      "LK-0125",
+      "LK-0124",
+      "LK-0366",
+      "LK-0311",
+      "LK-0259"
     ],
-    "hop_count": 8,
-    "total_distance_m": 85810.2,
-    "bottleneck_margin_db": 20.77,
-    "estimated_reliability": 0.951,
-    "route_cost": 85810.2,
+    "hop_count": 5,
+    "total_distance_m": 94500.5,
+    "bottleneck_margin_db": 36.94,
+    "estimated_reliability": 0.9752,
+    "route_cost": 94500.5,
     "is_feasible": true,
     "note": "derived from topology_links_v1.csv"
   },
   {
-    "route_id": "CD-0235-BACKUP",
-    "demand_id": "CD-0235",
+    "route_id": "CD-0234-BACKUP",
+    "demand_id": "CD-0234",
     "task_id": "TS-0004",
     "route_type": "BACKUP",
     "node_path": [
       "ND-0021",
       "ND-0020",
-      "ND-0019",
-      "ND-0028",
-      "ND-0003",
-      "ND-0126",
-      "ND-0008"
+      "ND-0013",
+      "ND-0046",
+      "ND-0032",
+      "ND-0011",
+      "ND-0007"
     ],
     "link_path": [
-      "LK-0127",
       "LK-0126",
-      "LK-0439",
-      "LK-0113",
-      "LK-0067",
-      "LK-0034"
+      "LK-0373",
+      "LK-0153",
+      "LK-0102",
+      "LK-0052",
+      "LK-0382"
     ],
     "hop_count": 6,
-    "total_distance_m": 88868.4,
-    "bottleneck_margin_db": 22.08,
-    "estimated_reliability": 0.9606,
-    "route_cost": 88868.4,
+    "total_distance_m": 98089.5,
+    "bottleneck_margin_db": 21.05,
+    "estimated_reliability": 0.951,
+    "route_cost": 98089.5,
     "is_feasible": true,
     "note": "derived from topology_links_v1.csv"
   },
   {
-    "route_id": "CD-0236-PRIMARY",
-    "demand_id": "CD-0236",
+    "route_id": "CD-0240-PRIMARY",
+    "demand_id": "CD-0240",
     "task_id": "TS-0004",
     "route_type": "PRIMARY",
     "node_path": [
       "ND-0006",
       "ND-0030",
       "ND-0019",
-      "ND-0050",
-      "ND-0005",
-      "ND-0067"
+      "ND-0042",
+      "ND-0058",
+      "ND-0098",
+      "ND-0041",
+      "ND-0014"
     ],
     "link_path": [
-      "LK-0378",
+      "LK-0387",
       "LK-0012",
-      "LK-0267",
-      "LK-0429",
-      "LK-0225"
+      "LK-0152",
+      "LK-0103",
+      "LK-0172",
+      "LK-0173",
+      "LK-0241"
     ],
-    "hop_count": 5,
-    "total_distance_m": 130157.7,
-    "bottleneck_margin_db": 18.83,
-    "estimated_reliability": 0.9557,
-    "route_cost": 132421.78,
+    "hop_count": 7,
+    "total_distance_m": 95064.6,
+    "bottleneck_margin_db": 7.26,
+    "estimated_reliability": 0.9126,
+    "route_cost": 104551.37,
     "is_feasible": true,
     "note": "derived from topology_links_v1.csv"
   },
   {
-    "route_id": "CD-0236-BACKUP",
-    "demand_id": "CD-0236",
+    "route_id": "CD-0240-BACKUP",
+    "demand_id": "CD-0240",
     "task_id": "TS-0004",
     "route_type": "BACKUP",
     "node_path": [
       "ND-0006",
       "ND-0018",
-      "ND-0039",
-      "ND-0067"
+      "ND-0017",
+      "ND-0038",
+      "ND-0014"
     ],
     "link_path": [
-      "LK-0497",
-      "LK-0250",
-      "LK-0207"
+      "LK-0496",
+      "LK-0094",
+      "LK-0282",
+      "LK-0131"
     ],
-    "hop_count": 3,
-    "total_distance_m": 119881.9,
-    "bottleneck_margin_db": 6.11,
-    "estimated_reliability": 0.898,
-    "route_cost": 137321.39,
-    "is_feasible": true,
-    "note": "derived from topology_links_v1.csv"
-  },
-  {
-    "route_id": "CD-0242-PRIMARY",
-    "demand_id": "CD-0242",
-    "task_id": "TS-0004",
-    "route_type": "PRIMARY",
-    "node_path": [
-      "ND-0021",
-      "ND-0020"
-    ],
-    "link_path": [
-      "LK-0127"
-    ],
-    "hop_count": 1,
-    "total_distance_m": 8268.5,
-    "bottleneck_margin_db": 47.89,
-    "estimated_reliability": 0.995,
-    "route_cost": 8268.5,
-    "is_feasible": true,
-    "note": "derived from topology_links_v1.csv"
-  },
-  {
-    "route_id": "CD-0242-BACKUP",
-    "demand_id": "CD-0242",
-    "task_id": "TS-0004",
-    "route_type": "BACKUP",
-    "node_path": [
-      "ND-0021",
-      "ND-0020"
-    ],
-    "link_path": [
-      "LK-0128"
-    ],
-    "hop_count": 1,
-    "total_distance_m": 8268.5,
-    "bottleneck_margin_db": 42.02,
-    "estimated_reliability": 0.995,
-    "route_cost": 8268.5,
+    "hop_count": 4,
+    "total_distance_m": 122588.5,
+    "bottleneck_margin_db": 28.33,
+    "estimated_reliability": 0.9703,
+    "route_cost": 122588.5,
     "is_feasible": true,
     "note": "derived from topology_links_v1.csv"
   },
@@ -2988,16 +2416,18 @@
     "route_type": "PRIMARY",
     "node_path": [
       "ND-0006",
-      "ND-0018"
+      "ND-0018",
+      "ND-0017"
     ],
     "link_path": [
-      "LK-0497"
+      "LK-0496",
+      "LK-0094"
     ],
-    "hop_count": 1,
-    "total_distance_m": 87346.0,
+    "hop_count": 2,
+    "total_distance_m": 92581.6,
     "bottleneck_margin_db": 36.06,
-    "estimated_reliability": 0.995,
-    "route_cost": 87346.0,
+    "estimated_reliability": 0.99,
+    "route_cost": 92581.6,
     "is_feasible": true,
     "note": "derived from topology_links_v1.csv"
   },
@@ -3010,88 +2440,136 @@
       "ND-0006",
       "ND-0030",
       "ND-0019",
-      "ND-0046",
-      "ND-0014",
-      "ND-0038",
+      "ND-0050",
+      "ND-0033",
       "ND-0029",
-      "ND-0018"
+      "ND-0017"
     ],
     "link_path": [
-      "LK-0378",
+      "LK-0387",
       "LK-0012",
-      "LK-0350",
-      "LK-0306",
-      "LK-0131",
-      "LK-0275",
-      "LK-0117"
+      "LK-0268",
+      "LK-0424",
+      "LK-0054",
+      "LK-0048"
     ],
-    "hop_count": 7,
-    "total_distance_m": 134252.3,
-    "bottleneck_margin_db": 18.83,
-    "estimated_reliability": 0.9558,
-    "route_cost": 136516.38,
+    "hop_count": 6,
+    "total_distance_m": 111927.4,
+    "bottleneck_margin_db": 15.22,
+    "estimated_reliability": 0.951,
+    "route_cost": 125601.79,
     "is_feasible": true,
     "note": "derived from topology_links_v1.csv"
   },
   {
-    "route_id": "CD-0245-PRIMARY",
-    "demand_id": "CD-0245",
+    "route_id": "CD-0244-PRIMARY",
+    "demand_id": "CD-0244",
     "task_id": "TS-0004",
     "route_type": "PRIMARY",
     "node_path": [
       "ND-0006",
       "ND-0030",
       "ND-0019",
-      "ND-0028",
-      "ND-0003",
-      "ND-0115",
-      "ND-0108",
-      "ND-0043",
-      "ND-0063"
+      "ND-0046",
+      "ND-0010"
     ],
     "link_path": [
-      "LK-0378",
+      "LK-0387",
       "LK-0012",
-      "LK-0439",
-      "LK-0113",
-      "LK-0165",
-      "LK-0118",
-      "LK-0009",
-      "LK-0014"
+      "LK-0366",
+      "LK-0364"
     ],
-    "hop_count": 8,
-    "total_distance_m": 124427.1,
+    "hop_count": 4,
+    "total_distance_m": 104074.2,
     "bottleneck_margin_db": 18.83,
-    "estimated_reliability": 0.9415,
-    "route_cost": 126691.18,
+    "estimated_reliability": 0.9605,
+    "route_cost": 106338.28,
     "is_feasible": true,
     "note": "derived from topology_links_v1.csv"
   },
   {
-    "route_id": "CD-0245-BACKUP",
-    "demand_id": "CD-0245",
+    "route_id": "CD-0244-BACKUP",
+    "demand_id": "CD-0244",
     "task_id": "TS-0004",
     "route_type": "BACKUP",
     "node_path": [
       "ND-0006",
-      "ND-0018",
-      "ND-0068",
-      "ND-0081",
-      "ND-0055",
-      "ND-0063"
+      "ND-0026",
+      "ND-0030",
+      "ND-0012",
+      "ND-0010"
     ],
     "link_path": [
-      "LK-0497",
-      "LK-0272",
-      "LK-0045",
-      "LK-0234",
-      "LK-0068"
+      "LK-0388",
+      "LK-0010",
+      "LK-0441",
+      "LK-0138"
+    ],
+    "hop_count": 4,
+    "total_distance_m": 102961.5,
+    "bottleneck_margin_db": 5.4,
+    "estimated_reliability": 0.9264,
+    "route_cost": 141227.03,
+    "is_feasible": true,
+    "note": "derived from topology_links_v1.csv"
+  },
+  {
+    "route_id": "CD-0246-PRIMARY",
+    "demand_id": "CD-0246",
+    "task_id": "TS-0004",
+    "route_type": "PRIMARY",
+    "node_path": [
+      "ND-0021",
+      "ND-0020",
+      "ND-0019",
+      "ND-0046",
+      "ND-0044",
+      "ND-0002"
+    ],
+    "link_path": [
+      "LK-0125",
+      "LK-0124",
+      "LK-0366",
+      "LK-0311",
+      "LK-0182"
     ],
     "hop_count": 5,
-    "total_distance_m": 130736.3,
-    "bottleneck_margin_db": 36.06,
-    "estimated_reliability": 0.9752,
-    "route_cost": 130736.3,
+    "total_distance_m": 87013.7,
+    "bottleneck_margin_db": 28.95,
+    "estimated_reliability": 0.9654,
+    "route_cost": 87013.7,
+    "is_feasible": true,
+    "note": "derived from topology_links_v1.csv"
+  },
+  {
+    "route_id": "CD-0246-BACKUP",
+    "demand_id": "CD-0246",
+    "task_id": "TS-0004",
+    "route_type": "BACKUP",
+    "node_path": [
+      "ND-0021",
+      "ND-0020",
+      "ND-0026",
+      "ND-0019",
+      "ND-0028",
+      "ND-0003",
+      "ND-0110",
+      "ND-0002"
+    ],
+    "link_path": [
+      "LK-0126",
+      "LK-0142",
+      "LK-0019",
+      "LK-0451",
+      "LK-0110",
+      "LK-0020",
+      "LK-0031"
+    ],
+    "hop_count": 7,
+    "total_distance_m": 87122.1,
+    "bottleneck_margin_db": 19.47,
+    "estimated_reliability": 0.9558,
+    "route_cost": 88720.61,
     "is_feasible": true,
     "note": "derived from topology_links_v1.csv"
   },
@@ -3102,36 +2580,18 @@
     "route_type": "PRIMARY",
     "node_path": [
       "ND-0021",
-      "ND-0030",
-      "ND-0019",
-      "ND-0046",
-      "ND-0032",
-      "ND-0011",
-      "ND-0009",
-      "ND-0117",
-      "ND-0023",
-      "ND-0007",
-      "ND-0027",
-      "ND-0127"
+      "ND-0005",
+      "ND-0067"
     ],
     "link_path": [
-      "LK-0222",
-      "LK-0012",
-      "LK-0350",
-      "LK-0102",
-      "LK-0052",
-      "LK-0236",
-      "LK-0015",
-      "LK-0256",
-      "LK-0005",
-      "LK-0041",
-      "LK-0021"
+      "LK-0483",
+      "LK-0214"
     ],
-    "hop_count": 11,
-    "total_distance_m": 96802.9,
-    "bottleneck_margin_db": 20.77,
-    "estimated_reliability": 0.9274,
-    "route_cost": 96802.9,
+    "hop_count": 2,
+    "total_distance_m": 91276.7,
+    "bottleneck_margin_db": 26.74,
+    "estimated_reliability": 0.9801,
+    "route_cost": 91276.7,
     "is_feasible": true,
     "note": "derived from topology_links_v1.csv"
   },
@@ -3143,69 +2603,139 @@
     "node_path": [
       "ND-0021",
       "ND-0020",
-      "ND-0014",
-      "ND-0127"
+      "ND-0050",
+      "ND-0033",
+      "ND-0029",
+      "ND-0089",
+      "ND-0067"
     ],
     "link_path": [
-      "LK-0127",
-      "LK-0428",
-      "LK-0356"
+      "LK-0125",
+      "LK-0309",
+      "LK-0424",
+      "LK-0054",
+      "LK-0148",
+      "LK-0347"
     ],
-    "hop_count": 3,
-    "total_distance_m": 96105.7,
-    "bottleneck_margin_db": 18.98,
-    "estimated_reliability": 0.9654,
-    "route_cost": 98875.18,
+    "hop_count": 6,
+    "total_distance_m": 123563.9,
+    "bottleneck_margin_db": 5.33,
+    "estimated_reliability": 0.908,
+    "route_cost": 157162.88,
     "is_feasible": true,
     "note": "derived from topology_links_v1.csv"
   },
   {
-    "route_id": "CD-0251-PRIMARY",
-    "demand_id": "CD-0251",
+    "route_id": "CD-0252-PRIMARY",
+    "demand_id": "CD-0252",
     "task_id": "TS-0004",
     "route_type": "PRIMARY",
     "node_path": [
       "ND-0021",
-      "ND-0030",
-      "ND-0019",
-      "ND-0028",
-      "ND-0003"
+      "ND-0020",
+      "ND-0013",
+      "ND-0097",
+      "ND-0041",
+      "ND-0014",
+      "ND-0093"
     ],
     "link_path": [
-      "LK-0222",
-      "LK-0012",
-      "LK-0439",
-      "LK-0113"
+      "LK-0125",
+      "LK-0373",
+      "LK-0149",
+      "LK-0091",
+      "LK-0241",
+      "LK-0050"
     ],
-    "hop_count": 4,
-    "total_distance_m": 82766.0,
-    "bottleneck_margin_db": 20.77,
-    "estimated_reliability": 0.9605,
-    "route_cost": 82766.0,
+    "hop_count": 6,
+    "total_distance_m": 77109.4,
+    "bottleneck_margin_db": 13.98,
+    "estimated_reliability": 0.908,
+    "route_cost": 79882.3,
     "is_feasible": true,
     "note": "derived from topology_links_v1.csv"
   },
   {
-    "route_id": "CD-0251-BACKUP",
-    "demand_id": "CD-0251",
+    "route_id": "CD-0252-BACKUP",
+    "demand_id": "CD-0252",
     "task_id": "TS-0004",
     "route_type": "BACKUP",
     "node_path": [
       "ND-0021",
       "ND-0020",
-      "ND-0014",
-      "ND-0003"
+      "ND-0019",
+      "ND-0028",
+      "ND-0065",
+      "ND-0093"
     ],
     "link_path": [
-      "LK-0127",
-      "LK-0428",
-      "LK-0246"
+      "LK-0126",
+      "LK-0124",
+      "LK-0451",
+      "LK-0074",
+      "LK-0123"
     ],
-    "hop_count": 3,
-    "total_distance_m": 80947.5,
-    "bottleneck_margin_db": 18.98,
-    "estimated_reliability": 0.9752,
-    "route_cost": 83716.98,
+    "hop_count": 5,
+    "total_distance_m": 88863.5,
+    "bottleneck_margin_db": 19.47,
+    "estimated_reliability": 0.9557,
+    "route_cost": 90462.01,
+    "is_feasible": true,
+    "note": "derived from topology_links_v1.csv"
+  },
+  {
+    "route_id": "CD-0253-PRIMARY",
+    "demand_id": "CD-0253",
+    "task_id": "TS-0004",
+    "route_type": "PRIMARY",
+    "node_path": [
+      "ND-0006",
+      "ND-0018",
+      "ND-0053",
+      "ND-0039",
+      "ND-0016"
+    ],
+    "link_path": [
+      "LK-0496",
+      "LK-0165",
+      "LK-0333",
+      "LK-0001"
+    ],
+    "hop_count": 4,
+    "total_distance_m": 126098.4,
+    "bottleneck_margin_db": 19.17,
+    "estimated_reliability": 0.9703,
+    "route_cost": 127274.71,
+    "is_feasible": true,
+    "note": "derived from topology_links_v1.csv"
+  },
+  {
+    "route_id": "CD-0253-BACKUP",
+    "demand_id": "CD-0253",
+    "task_id": "TS-0004",
+    "route_type": "BACKUP",
+    "node_path": [
+      "ND-0006",
+      "ND-0030",
+      "ND-0019",
+      "ND-0050",
+      "ND-0069",
+      "ND-0039",
+      "ND-0016"
+    ],
+    "link_path": [
+      "LK-0387",
+      "LK-0012",
+      "LK-0268",
+      "LK-0069",
+      "LK-0460",
+      "LK-0002"
+    ],
+    "hop_count": 6,
+    "total_distance_m": 126849.3,
+    "bottleneck_margin_db": 18.83,
+    "estimated_reliability": 0.9606,
+    "route_cost": 129113.38,
     "is_feasible": true,
     "note": "derived from topology_links_v1.csv"
   },
@@ -3215,19 +2745,25 @@
     "task_id": "TS-0004",
     "route_type": "PRIMARY",
     "node_path": [
-      "ND-0021",
-      "ND-0020",
-      "ND-0050"
+      "ND-0006",
+      "ND-0030",
+      "ND-0019",
+      "ND-0050",
+      "ND-0005",
+      "ND-0067"
     ],
     "link_path": [
-      "LK-0127",
-      "LK-0305"
+      "LK-0387",
+      "LK-0012",
+      "LK-0268",
+      "LK-0442",
+      "LK-0214"
     ],
-    "hop_count": 2,
-    "total_distance_m": 33913.9,
-    "bottleneck_margin_db": 42.48,
-    "estimated_reliability": 0.99,
-    "route_cost": 33913.9,
+    "hop_count": 5,
+    "total_distance_m": 130157.7,
+    "bottleneck_margin_db": 18.83,
+    "estimated_reliability": 0.9557,
+    "route_cost": 132421.78,
     "is_feasible": true,
     "note": "derived from topology_links_v1.csv"
   },
@@ -3237,73 +2773,79 @@
     "task_id": "TS-0004",
     "route_type": "BACKUP",
     "node_path": [
-      "ND-0021",
-      "ND-0030",
-      "ND-0019",
-      "ND-0050"
+      "ND-0006",
+      "ND-0018",
+      "ND-0017",
+      "ND-0089",
+      "ND-0067"
     ],
     "link_path": [
-      "LK-0222",
-      "LK-0012",
-      "LK-0267"
+      "LK-0496",
+      "LK-0094",
+      "LK-0111",
+      "LK-0347"
     ],
-    "hop_count": 3,
-    "total_distance_m": 35790.6,
-    "bottleneck_margin_db": 20.77,
-    "estimated_reliability": 0.9752,
-    "route_cost": 35790.6,
+    "hop_count": 4,
+    "total_distance_m": 129692.8,
+    "bottleneck_margin_db": 5.33,
+    "estimated_reliability": 0.9264,
+    "route_cost": 151881.47,
     "is_feasible": true,
     "note": "derived from topology_links_v1.csv"
   },
   {
-    "route_id": "CD-0255-PRIMARY",
-    "demand_id": "CD-0255",
+    "route_id": "CD-0258-PRIMARY",
+    "demand_id": "CD-0258",
     "task_id": "TS-0004",
     "route_type": "PRIMARY",
     "node_path": [
       "ND-0006",
-      "ND-0030",
-      "ND-0019",
-      "ND-0042",
-      "ND-0022"
+      "ND-0018",
+      "ND-0029",
+      "ND-0015"
     ],
     "link_path": [
-      "LK-0378",
-      "LK-0012",
-      "LK-0153",
-      "LK-0075"
+      "LK-0496",
+      "LK-0114",
+      "LK-0232"
     ],
-    "hop_count": 4,
-    "total_distance_m": 52794.7,
-    "bottleneck_margin_db": 18.83,
-    "estimated_reliability": 0.9703,
-    "route_cost": 55058.78,
+    "hop_count": 3,
+    "total_distance_m": 111059.1,
+    "bottleneck_margin_db": 16.81,
+    "estimated_reliability": 0.9752,
+    "route_cost": 113716.78,
     "is_feasible": true,
     "note": "derived from topology_links_v1.csv"
   },
   {
-    "route_id": "CD-0255-BACKUP",
-    "demand_id": "CD-0255",
+    "route_id": "CD-0258-BACKUP",
+    "demand_id": "CD-0258",
     "task_id": "TS-0004",
     "route_type": "BACKUP",
     "node_path": [
       "ND-0006",
-      "ND-0004",
-      "ND-0046",
-      "ND-0013",
-      "ND-0022"
+      "ND-0030",
+      "ND-0019",
+      "ND-0050",
+      "ND-0033",
+      "ND-0053",
+      "ND-0061",
+      "ND-0015"
     ],
     "link_path": [
-      "LK-0465",
-      "LK-0044",
-      "LK-0155",
-      "LK-0345"
+      "LK-0387",
+      "LK-0012",
+      "LK-0268",
+      "LK-0424",
+      "LK-0030",
+      "LK-0217",
+      "LK-0078"
     ],
-    "hop_count": 4,
-    "total_distance_m": 112273.2,
-    "bottleneck_margin_db": 10.29,
-    "estimated_reliability": 0.9264,
-    "route_cost": 145648.98,
+    "hop_count": 7,
+    "total_distance_m": 128507.9,
+    "bottleneck_margin_db": 15.22,
+    "estimated_reliability": 0.9367,
+    "route_cost": 143438.43,
     "is_feasible": true,
     "note": "derived from topology_links_v1.csv"
   },
@@ -3313,19 +2855,29 @@
     "task_id": "TS-0004",
     "route_type": "PRIMARY",
     "node_path": [
-      "ND-0021",
-      "ND-0020",
-      "ND-0014"
+      "ND-0006",
+      "ND-0030",
+      "ND-0019",
+      "ND-0046",
+      "ND-0044",
+      "ND-0094",
+      "ND-0036",
+      "ND-0079"
     ],
     "link_path": [
-      "LK-0127",
-      "LK-0428"
+      "LK-0387",
+      "LK-0012",
+      "LK-0366",
+      "LK-0311",
+      "LK-0117",
+      "LK-0053",
+      "LK-0144"
     ],
-    "hop_count": 2,
-    "total_distance_m": 62572.0,
-    "bottleneck_margin_db": 18.98,
-    "estimated_reliability": 0.9801,
-    "route_cost": 65341.48,
+    "hop_count": 7,
+    "total_distance_m": 116445.3,
+    "bottleneck_margin_db": 17.78,
+    "estimated_reliability": 0.9462,
+    "route_cost": 118989.54,
     "is_feasible": true,
     "note": "derived from topology_links_v1.csv"
   },
@@ -3335,73 +2887,203 @@
     "task_id": "TS-0004",
     "route_type": "BACKUP",
     "node_path": [
-      "ND-0021",
-      "ND-0042",
-      "ND-0058",
-      "ND-0086",
-      "ND-0098",
-      "ND-0041",
-      "ND-0014"
+      "ND-0006",
+      "ND-0018",
+      "ND-0040",
+      "ND-0126",
+      "ND-0008",
+      "ND-0036",
+      "ND-0087",
+      "ND-0079"
     ],
     "link_path": [
-      "LK-0187",
-      "LK-0103",
-      "LK-0176",
-      "LK-0066",
-      "LK-0182",
-      "LK-0238"
+      "LK-0496",
+      "LK-0310",
+      "LK-0220",
+      "LK-0033",
+      "LK-0027",
+      "LK-0109",
+      "LK-0066"
     ],
-    "hop_count": 6,
-    "total_distance_m": 61455.5,
-    "bottleneck_margin_db": 3.87,
-    "estimated_reliability": 0.9172,
-    "route_cost": 72005.3,
+    "hop_count": 7,
+    "total_distance_m": 142386.2,
+    "bottleneck_margin_db": 16.34,
+    "estimated_reliability": 0.9462,
+    "route_cost": 147102.44,
     "is_feasible": true,
     "note": "derived from topology_links_v1.csv"
   },
   {
-    "route_id": "CD-0265-PRIMARY",
-    "demand_id": "CD-0265",
+    "route_id": "CD-0260-PRIMARY",
+    "demand_id": "CD-0260",
+    "task_id": "TS-0004",
+    "route_type": "PRIMARY",
+    "node_path": [
+      "ND-0021",
+      "ND-0020",
+      "ND-0050",
+      "ND-0033",
+      "ND-0029",
+      "ND-0018"
+    ],
+    "link_path": [
+      "LK-0125",
+      "LK-0309",
+      "LK-0424",
+      "LK-0054",
+      "LK-0114"
+    ],
+    "hop_count": 5,
+    "total_distance_m": 91239.9,
+    "bottleneck_margin_db": 15.22,
+    "estimated_reliability": 0.9654,
+    "route_cost": 102650.21,
+    "is_feasible": true,
+    "note": "derived from topology_links_v1.csv"
+  },
+  {
+    "route_id": "CD-0260-BACKUP",
+    "demand_id": "CD-0260",
+    "task_id": "TS-0004",
+    "route_type": "BACKUP",
+    "node_path": [
+      "ND-0021",
+      "ND-0020",
+      "ND-0013",
+      "ND-0038",
+      "ND-0017",
+      "ND-0018"
+    ],
+    "link_path": [
+      "LK-0126",
+      "LK-0373",
+      "LK-0350",
+      "LK-0282",
+      "LK-0094"
+    ],
+    "hop_count": 5,
+    "total_distance_m": 100438.4,
+    "bottleneck_margin_db": 18.2,
+    "estimated_reliability": 0.9461,
+    "route_cost": 103190.94,
+    "is_feasible": true,
+    "note": "derived from topology_links_v1.csv"
+  },
+  {
+    "route_id": "CD-0261-PRIMARY",
+    "demand_id": "CD-0261",
     "task_id": "TS-0004",
     "route_type": "PRIMARY",
     "node_path": [
       "ND-0006",
-      "ND-0030",
-      "ND-0019"
+      "ND-0018",
+      "ND-0029",
+      "ND-0033",
+      "ND-0025",
+      "ND-0048",
+      "ND-0076"
     ],
     "link_path": [
-      "LK-0378",
-      "LK-0012"
+      "LK-0496",
+      "LK-0114",
+      "LK-0054",
+      "LK-0159",
+      "LK-0041",
+      "LK-0085"
     ],
-    "hop_count": 2,
-    "total_distance_m": 39193.2,
-    "bottleneck_margin_db": 18.83,
-    "estimated_reliability": 0.9801,
-    "route_cost": 41457.28,
+    "hop_count": 6,
+    "total_distance_m": 113392.2,
+    "bottleneck_margin_db": 17.23,
+    "estimated_reliability": 0.9606,
+    "route_cost": 114035.16,
     "is_feasible": true,
     "note": "derived from topology_links_v1.csv"
   },
   {
-    "route_id": "CD-0265-BACKUP",
-    "demand_id": "CD-0265",
+    "route_id": "CD-0261-BACKUP",
+    "demand_id": "CD-0261",
     "task_id": "TS-0004",
     "route_type": "BACKUP",
     "node_path": [
       "ND-0006",
-      "ND-0004",
-      "ND-0046",
-      "ND-0019"
+      "ND-0030",
+      "ND-0019",
+      "ND-0028",
+      "ND-0037",
+      "ND-0048",
+      "ND-0047",
+      "ND-0076"
     ],
     "link_path": [
-      "LK-0465",
-      "LK-0044",
-      "LK-0350"
+      "LK-0387",
+      "LK-0012",
+      "LK-0451",
+      "LK-0024",
+      "LK-0248",
+      "LK-0076",
+      "LK-0132"
     ],
-    "hop_count": 3,
-    "total_distance_m": 102943.1,
-    "bottleneck_margin_db": 10.29,
-    "estimated_reliability": 0.9405,
-    "route_cost": 136108.38,
+    "hop_count": 7,
+    "total_distance_m": 131188.7,
+    "bottleneck_margin_db": 7.48,
+    "estimated_reliability": 0.9034,
+    "route_cost": 140286.77,
+    "is_feasible": true,
+    "note": "derived from topology_links_v1.csv"
+  },
+  {
+    "route_id": "CD-0267-PRIMARY",
+    "demand_id": "CD-0267",
+    "task_id": "TS-0004",
+    "route_type": "PRIMARY",
+    "node_path": [
+      "ND-0021",
+      "ND-0020",
+      "ND-0019",
+      "ND-0046",
+      "ND-0032",
+      "ND-0011"
+    ],
+    "link_path": [
+      "LK-0125",
+      "LK-0124",
+      "LK-0366",
+      "LK-0102",
+      "LK-0052"
+    ],
+    "hop_count": 5,
+    "total_distance_m": 57442.9,
+    "bottleneck_margin_db": 40.72,
+    "estimated_reliability": 0.9752,
+    "route_cost": 57442.9,
+    "is_feasible": true,
+    "note": "derived from topology_links_v1.csv"
+  },
+  {
+    "route_id": "CD-0267-BACKUP",
+    "demand_id": "CD-0267",
+    "task_id": "TS-0004",
+    "route_type": "BACKUP",
+    "node_path": [
+      "ND-0021",
+      "ND-0020",
+      "ND-0026",
+      "ND-0019",
+      "ND-0049",
+      "ND-0011"
+    ],
+    "link_path": [
+      "LK-0126",
+      "LK-0142",
+      "LK-0019",
+      "LK-0299",
+      "LK-0330"
+    ],
+    "hop_count": 5,
+    "total_distance_m": 69332.9,
+    "bottleneck_margin_db": 30.53,
+    "estimated_reliability": 0.9752,
+    "route_cost": 69332.9,
     "is_feasible": true,
     "note": "derived from topology_links_v1.csv"
   },
@@ -3411,19 +3093,23 @@
     "task_id": "TS-0004",
     "route_type": "PRIMARY",
     "node_path": [
-      "ND-0006",
-      "ND-0018",
-      "ND-0053"
+      "ND-0021",
+      "ND-0020",
+      "ND-0019",
+      "ND-0046",
+      "ND-0010"
     ],
     "link_path": [
-      "LK-0497",
-      "LK-0166"
+      "LK-0125",
+      "LK-0124",
+      "LK-0366",
+      "LK-0364"
     ],
-    "hop_count": 2,
-    "total_distance_m": 97752.8,
-    "bottleneck_margin_db": 36.06,
-    "estimated_reliability": 0.99,
-    "route_cost": 97752.8,
+    "hop_count": 4,
+    "total_distance_m": 81391.8,
+    "bottleneck_margin_db": 26.39,
+    "estimated_reliability": 0.9703,
+    "route_cost": 81391.8,
     "is_feasible": true,
     "note": "derived from topology_links_v1.csv"
   },
@@ -3433,29 +3119,85 @@
     "task_id": "TS-0004",
     "route_type": "BACKUP",
     "node_path": [
+      "ND-0021",
+      "ND-0020",
+      "ND-0013",
+      "ND-0009",
+      "ND-0117",
+      "ND-0012",
+      "ND-0010"
+    ],
+    "link_path": [
+      "LK-0126",
+      "LK-0373",
+      "LK-0341",
+      "LK-0015",
+      "LK-0051",
+      "LK-0138"
+    ],
+    "hop_count": 6,
+    "total_distance_m": 83568.7,
+    "bottleneck_margin_db": 18.81,
+    "estimated_reliability": 0.951,
+    "route_cost": 85295.79,
+    "is_feasible": true,
+    "note": "derived from topology_links_v1.csv"
+  },
+  {
+    "route_id": "CD-0270-PRIMARY",
+    "demand_id": "CD-0270",
+    "task_id": "TS-0004",
+    "route_type": "PRIMARY",
+    "node_path": [
       "ND-0006",
       "ND-0030",
       "ND-0019",
       "ND-0028",
       "ND-0040",
-      "ND-0116",
-      "ND-0047",
-      "ND-0053"
+      "ND-0056",
+      "ND-0104"
     ],
     "link_path": [
-      "LK-0378",
+      "LK-0387",
       "LK-0012",
-      "LK-0439",
-      "LK-0114",
-      "LK-0070",
-      "LK-0197",
-      "LK-0208"
+      "LK-0451",
+      "LK-0112",
+      "LK-0063",
+      "LK-0095"
     ],
-    "hop_count": 7,
-    "total_distance_m": 136751.4,
-    "bottleneck_margin_db": 14.89,
-    "estimated_reliability": 0.9034,
-    "route_cost": 142528.32,
+    "hop_count": 6,
+    "total_distance_m": 114987.7,
+    "bottleneck_margin_db": 3.01,
+    "estimated_reliability": 0.908,
+    "route_cost": 121654.74,
+    "is_feasible": true,
+    "note": "derived from topology_links_v1.csv"
+  },
+  {
+    "route_id": "CD-0270-BACKUP",
+    "demand_id": "CD-0270",
+    "task_id": "TS-0004",
+    "route_type": "BACKUP",
+    "node_path": [
+      "ND-0006",
+      "ND-0018",
+      "ND-0040",
+      "ND-0126",
+      "ND-0008",
+      "ND-0104"
+    ],
+    "link_path": [
+      "LK-0496",
+      "LK-0310",
+      "LK-0220",
+      "LK-0033",
+      "LK-0280"
+    ],
+    "hop_count": 5,
+    "total_distance_m": 152181.1,
+    "bottleneck_margin_db": 16.34,
+    "estimated_reliability": 0.9461,
+    "route_cost": 156897.34,
     "is_feasible": true,
     "note": "derived from topology_links_v1.csv"
   },
@@ -3468,550 +3210,390 @@
       "ND-0006",
       "ND-0030",
       "ND-0019",
-      "ND-0050",
-      "ND-0069",
+      "ND-0042",
+      "ND-0058",
+      "ND-0098",
+      "ND-0041",
       "ND-0106"
     ],
     "link_path": [
-      "LK-0378",
+      "LK-0387",
       "LK-0012",
-      "LK-0267",
-      "LK-0073",
-      "LK-0206"
+      "LK-0152",
+      "LK-0103",
+      "LK-0172",
+      "LK-0173",
+      "LK-0083"
     ],
-    "hop_count": 5,
-    "total_distance_m": 76611.3,
-    "bottleneck_margin_db": 13.35,
-    "estimated_reliability": 0.9218,
-    "route_cost": 83330.38,
+    "hop_count": 7,
+    "total_distance_m": 82097.3,
+    "bottleneck_margin_db": 0.25,
+    "estimated_reliability": 0.8713,
+    "route_cost": 96068.01,
     "is_feasible": true,
     "note": "derived from topology_links_v1.csv"
   },
   {
-    "route_id": "CD-0274-PRIMARY",
-    "demand_id": "CD-0274",
+    "route_id": "CD-0277-PRIMARY",
+    "demand_id": "CD-0277",
     "task_id": "TS-0004",
     "route_type": "PRIMARY",
     "node_path": [
-      "ND-0021",
+      "ND-0006",
       "ND-0030",
       "ND-0019",
       "ND-0046",
-      "ND-0032",
-      "ND-0011",
-      "ND-0009",
-      "ND-0060"
+      "ND-0044",
+      "ND-0002"
     ],
     "link_path": [
-      "LK-0222",
+      "LK-0387",
       "LK-0012",
-      "LK-0350",
-      "LK-0102",
-      "LK-0052",
-      "LK-0236",
-      "LK-0151"
+      "LK-0366",
+      "LK-0311",
+      "LK-0182"
     ],
-    "hop_count": 7,
-    "total_distance_m": 83411.3,
-    "bottleneck_margin_db": 20.77,
-    "estimated_reliability": 0.9558,
-    "route_cost": 83411.3,
+    "hop_count": 5,
+    "total_distance_m": 109696.1,
+    "bottleneck_margin_db": 18.83,
+    "estimated_reliability": 0.9557,
+    "route_cost": 111960.18,
     "is_feasible": true,
     "note": "derived from topology_links_v1.csv"
   },
   {
-    "route_id": "CD-0274-BACKUP",
-    "demand_id": "CD-0274",
+    "route_id": "CD-0277-BACKUP",
+    "demand_id": "CD-0277",
+    "task_id": "TS-0004",
+    "route_type": "BACKUP",
+    "node_path": [
+      "ND-0006",
+      "ND-0018",
+      "ND-0040",
+      "ND-0028",
+      "ND-0003",
+      "ND-0110",
+      "ND-0002"
+    ],
+    "link_path": [
+      "LK-0496",
+      "LK-0310",
+      "LK-0112",
+      "LK-0110",
+      "LK-0020",
+      "LK-0031"
+    ],
+    "hop_count": 6,
+    "total_distance_m": 129067.6,
+    "bottleneck_margin_db": 16.34,
+    "estimated_reliability": 0.9606,
+    "route_cost": 133783.84,
+    "is_feasible": true,
+    "note": "derived from topology_links_v1.csv"
+  },
+  {
+    "route_id": "CD-0281-PRIMARY",
+    "demand_id": "CD-0281",
+    "task_id": "TS-0004",
+    "route_type": "PRIMARY",
+    "node_path": [
+      "ND-0021",
+      "ND-0020",
+      "ND-0019",
+      "ND-0046",
+      "ND-0044",
+      "ND-0008"
+    ],
+    "link_path": [
+      "LK-0125",
+      "LK-0124",
+      "LK-0366",
+      "LK-0311",
+      "LK-0154"
+    ],
+    "hop_count": 5,
+    "total_distance_m": 84735.2,
+    "bottleneck_margin_db": 36.94,
+    "estimated_reliability": 0.9752,
+    "route_cost": 84735.2,
+    "is_feasible": true,
+    "note": "derived from topology_links_v1.csv"
+  },
+  {
+    "route_id": "CD-0281-BACKUP",
+    "demand_id": "CD-0281",
     "task_id": "TS-0004",
     "route_type": "BACKUP",
     "node_path": [
       "ND-0021",
-      "ND-0042",
-      "ND-0022",
+      "ND-0020",
       "ND-0013",
-      "ND-0011",
-      "ND-0045",
-      "ND-0060"
-    ],
-    "link_path": [
-      "LK-0187",
-      "LK-0075",
-      "LK-0345",
-      "LK-0191",
-      "LK-0264",
-      "LK-0183"
-    ],
-    "hop_count": 6,
-    "total_distance_m": 92452.3,
-    "bottleneck_margin_db": 9.83,
-    "estimated_reliability": 0.8898,
-    "route_cost": 101266.43,
-    "is_feasible": true,
-    "note": "derived from topology_links_v1.csv"
-  },
-  {
-    "route_id": "CD-0275-PRIMARY",
-    "demand_id": "CD-0275",
-    "task_id": "TS-0005",
-    "route_type": "PRIMARY",
-    "node_path": [
       "ND-0009",
-      "ND-0028",
-      "ND-0065",
-      "ND-0093",
-      "ND-0014"
+      "ND-0036",
+      "ND-0008"
     ],
     "link_path": [
-      "LK-0240",
-      "LK-0078",
-      "LK-0125",
-      "LK-0050"
-    ],
-    "hop_count": 4,
-    "total_distance_m": 32045.1,
-    "bottleneck_margin_db": 26.47,
-    "estimated_reliability": 0.9703,
-    "route_cost": 32045.1,
-    "is_feasible": true,
-    "note": "derived from topology_links_v1.csv"
-  },
-  {
-    "route_id": "CD-0275-BACKUP",
-    "demand_id": "CD-0275",
-    "task_id": "TS-0005",
-    "route_type": "BACKUP",
-    "node_path": [
-      "ND-0009",
-      "ND-0117",
-      "ND-0045",
-      "ND-0110",
-      "ND-0003",
-      "ND-0014"
-    ],
-    "link_path": [
-      "LK-0015",
-      "LK-0071",
-      "LK-0152",
-      "LK-0020",
-      "LK-0246"
+      "LK-0126",
+      "LK-0373",
+      "LK-0341",
+      "LK-0177",
+      "LK-0027"
     ],
     "hop_count": 5,
-    "total_distance_m": 33011.7,
-    "bottleneck_margin_db": 41.44,
-    "estimated_reliability": 0.9752,
-    "route_cost": 33011.7,
+    "total_distance_m": 84840.8,
+    "bottleneck_margin_db": 18.81,
+    "estimated_reliability": 0.9557,
+    "route_cost": 86567.89,
     "is_feasible": true,
     "note": "derived from topology_links_v1.csv"
   },
   {
     "route_id": "CD-0282-PRIMARY",
     "demand_id": "CD-0282",
-    "task_id": "TS-0005",
+    "task_id": "TS-0004",
     "route_type": "PRIMARY",
     "node_path": [
-      "ND-0076",
-      "ND-0048"
+      "ND-0006",
+      "ND-0030",
+      "ND-0019",
+      "ND-0046",
+      "ND-0012"
     ],
     "link_path": [
-      "LK-0088"
+      "LK-0387",
+      "LK-0012",
+      "LK-0366",
+      "LK-0301"
     ],
-    "hop_count": 1,
-    "total_distance_m": 4642.3,
-    "bottleneck_margin_db": 17.23,
-    "estimated_reliability": 0.985,
-    "route_cost": 5285.26,
+    "hop_count": 4,
+    "total_distance_m": 95992.9,
+    "bottleneck_margin_db": 18.83,
+    "estimated_reliability": 0.9703,
+    "route_cost": 98256.98,
     "is_feasible": true,
     "note": "derived from topology_links_v1.csv"
   },
   {
     "route_id": "CD-0282-BACKUP",
     "demand_id": "CD-0282",
-    "task_id": "TS-0005",
+    "task_id": "TS-0004",
     "route_type": "BACKUP",
     "node_path": [
-      "ND-0076",
-      "ND-0025",
-      "ND-0048"
+      "ND-0006",
+      "ND-0026",
+      "ND-0030",
+      "ND-0012"
     ],
     "link_path": [
-      "LK-0064",
-      "LK-0042"
+      "LK-0388",
+      "LK-0010",
+      "LK-0441"
     ],
-    "hop_count": 2,
-    "total_distance_m": 5206.6,
-    "bottleneck_margin_db": 16.84,
-    "estimated_reliability": 0.9801,
-    "route_cost": 5724.67,
-    "is_feasible": true,
-    "note": "derived from topology_links_v1.csv"
-  },
-  {
-    "route_id": "CD-0284-PRIMARY",
-    "demand_id": "CD-0284",
-    "task_id": "TS-0005",
-    "route_type": "PRIMARY",
-    "node_path": [
-      "ND-0121",
-      "ND-0128",
-      "ND-0126",
-      "ND-0008",
-      "ND-0094",
-      "ND-0009",
-      "ND-0117"
-    ],
-    "link_path": [
-      "LK-0022",
-      "LK-0046",
-      "LK-0034",
-      "LK-0056",
-      "LK-0150",
-      "LK-0015"
-    ],
-    "hop_count": 6,
-    "total_distance_m": 16905.5,
-    "bottleneck_margin_db": 53.3,
-    "estimated_reliability": 0.9704,
-    "route_cost": 16905.5,
-    "is_feasible": true,
-    "note": "derived from topology_links_v1.csv"
-  },
-  {
-    "route_id": "CD-0284-BACKUP",
-    "demand_id": "CD-0284",
-    "task_id": "TS-0005",
-    "route_type": "BACKUP",
-    "node_path": [
-      "ND-0121",
-      "ND-0028",
-      "ND-0003",
-      "ND-0110",
-      "ND-0045",
-      "ND-0117"
-    ],
-    "link_path": [
-      "LK-0180",
-      "LK-0113",
-      "LK-0020",
-      "LK-0152",
-      "LK-0071"
-    ],
-    "hop_count": 5,
-    "total_distance_m": 32232.8,
-    "bottleneck_margin_db": 31.47,
-    "estimated_reliability": 0.9752,
-    "route_cost": 32232.8,
+    "hop_count": 3,
+    "total_distance_m": 94252.3,
+    "bottleneck_margin_db": 5.4,
+    "estimated_reliability": 0.9311,
+    "route_cost": 132517.83,
     "is_feasible": true,
     "note": "derived from topology_links_v1.csv"
   },
   {
     "route_id": "CD-0286-PRIMARY",
     "demand_id": "CD-0286",
-    "task_id": "TS-0005",
+    "task_id": "TS-0004",
     "route_type": "PRIMARY",
     "node_path": [
-      "ND-0045",
-      "ND-0044",
-      "ND-0036"
+      "ND-0021",
+      "ND-0020"
     ],
     "link_path": [
-      "LK-0037",
-      "LK-0156"
+      "LK-0125"
     ],
-    "hop_count": 2,
-    "total_distance_m": 11505.1,
-    "bottleneck_margin_db": 33.17,
-    "estimated_reliability": 0.99,
-    "route_cost": 11505.1,
+    "hop_count": 1,
+    "total_distance_m": 8268.5,
+    "bottleneck_margin_db": 47.89,
+    "estimated_reliability": 0.995,
+    "route_cost": 8268.5,
     "is_feasible": true,
     "note": "derived from topology_links_v1.csv"
   },
   {
     "route_id": "CD-0286-BACKUP",
     "demand_id": "CD-0286",
-    "task_id": "TS-0005",
+    "task_id": "TS-0004",
     "route_type": "BACKUP",
     "node_path": [
-      "ND-0045",
-      "ND-0044",
-      "ND-0094",
-      "ND-0008",
-      "ND-0036"
+      "ND-0021",
+      "ND-0020"
     ],
     "link_path": [
-      "LK-0038",
-      "LK-0120",
-      "LK-0056",
-      "LK-0028"
+      "LK-0126"
     ],
-    "hop_count": 4,
-    "total_distance_m": 12775.1,
-    "bottleneck_margin_db": 53.57,
-    "estimated_reliability": 0.9801,
-    "route_cost": 12775.1,
+    "hop_count": 1,
+    "total_distance_m": 8268.5,
+    "bottleneck_margin_db": 42.02,
+    "estimated_reliability": 0.995,
+    "route_cost": 8268.5,
     "is_feasible": true,
     "note": "derived from topology_links_v1.csv"
   },
   {
-    "route_id": "CD-0295-PRIMARY",
-    "demand_id": "CD-0295",
+    "route_id": "CD-0287-PRIMARY",
+    "demand_id": "CD-0287",
+    "task_id": "TS-0004",
+    "route_type": "PRIMARY",
+    "node_path": [
+      "ND-0006",
+      "ND-0018"
+    ],
+    "link_path": [
+      "LK-0496"
+    ],
+    "hop_count": 1,
+    "total_distance_m": 87346.0,
+    "bottleneck_margin_db": 36.06,
+    "estimated_reliability": 0.995,
+    "route_cost": 87346.0,
+    "is_feasible": true,
+    "note": "derived from topology_links_v1.csv"
+  },
+  {
+    "route_id": "CD-0287-BACKUP",
+    "demand_id": "CD-0287",
+    "task_id": "TS-0004",
+    "route_type": "BACKUP",
+    "node_path": [
+      "ND-0006",
+      "ND-0030",
+      "ND-0019",
+      "ND-0050",
+      "ND-0033",
+      "ND-0029",
+      "ND-0018"
+    ],
+    "link_path": [
+      "LK-0387",
+      "LK-0012",
+      "LK-0268",
+      "LK-0424",
+      "LK-0054",
+      "LK-0114"
+    ],
+    "hop_count": 6,
+    "total_distance_m": 116712.4,
+    "bottleneck_margin_db": 15.22,
+    "estimated_reliability": 0.951,
+    "route_cost": 130386.79,
+    "is_feasible": true,
+    "note": "derived from topology_links_v1.csv"
+  },
+  {
+    "route_id": "CD-0290-PRIMARY",
+    "demand_id": "CD-0290",
     "task_id": "TS-0005",
     "route_type": "PRIMARY",
     "node_path": [
-      "ND-0010",
-      "ND-0007",
-      "ND-0024"
+      "ND-0008",
+      "ND-0044",
+      "ND-0046",
+      "ND-0004"
     ],
     "link_path": [
-      "LK-0210",
-      "LK-0030"
+      "LK-0154",
+      "LK-0311",
+      "LK-0043"
     ],
-    "hop_count": 2,
-    "total_distance_m": 15083.5,
-    "bottleneck_margin_db": 42.49,
-    "estimated_reliability": 0.99,
-    "route_cost": 15083.5,
+    "hop_count": 3,
+    "total_distance_m": 37598.1,
+    "bottleneck_margin_db": 36.94,
+    "estimated_reliability": 0.9851,
+    "route_cost": 37598.1,
     "is_feasible": true,
     "note": "derived from topology_links_v1.csv"
   },
   {
-    "route_id": "CD-0295-BACKUP",
-    "demand_id": "CD-0295",
+    "route_id": "CD-0290-BACKUP",
+    "demand_id": "CD-0290",
     "task_id": "TS-0005",
     "route_type": "BACKUP",
     "node_path": [
-      "ND-0010",
-      "ND-0052",
-      "ND-0051",
-      "ND-0072",
-      "ND-0024"
+      "ND-0008",
+      "ND-0011",
+      "ND-0032",
+      "ND-0004"
+    ],
+    "link_path": [
+      "LK-0329",
+      "LK-0052",
+      "LK-0121"
+    ],
+    "hop_count": 3,
+    "total_distance_m": 37653.4,
+    "bottleneck_margin_db": 22.24,
+    "estimated_reliability": 0.9654,
+    "route_cost": 37653.4,
+    "is_feasible": true,
+    "note": "derived from topology_links_v1.csv"
+  },
+  {
+    "route_id": "CD-0305-PRIMARY",
+    "demand_id": "CD-0305",
+    "task_id": "TS-0005",
+    "route_type": "PRIMARY",
+    "node_path": [
+      "ND-0076",
+      "ND-0048",
+      "ND-0047",
+      "ND-0039",
+      "ND-0016",
+      "ND-0005",
+      "ND-0067"
     ],
     "link_path": [
       "LK-0085",
-      "LK-0168",
-      "LK-0092",
-      "LK-0136"
+      "LK-0076",
+      "LK-0367",
+      "LK-0001",
+      "LK-0228",
+      "LK-0214"
     ],
-    "hop_count": 4,
-    "total_distance_m": 28517.3,
-    "bottleneck_margin_db": 18.91,
-    "estimated_reliability": 0.9703,
-    "route_cost": 29086.92,
+    "hop_count": 6,
+    "total_distance_m": 73814.3,
+    "bottleneck_margin_db": 17.23,
+    "estimated_reliability": 0.951,
+    "route_cost": 74457.26,
     "is_feasible": true,
     "note": "derived from topology_links_v1.csv"
   },
   {
-    "route_id": "CD-0297-PRIMARY",
-    "demand_id": "CD-0297",
-    "task_id": "TS-0005",
-    "route_type": "PRIMARY",
-    "node_path": [
-      "ND-0129",
-      "ND-0132",
-      "ND-0123"
-    ],
-    "link_path": [
-      "LK-0089",
-      "LK-0060"
-    ],
-    "hop_count": 2,
-    "total_distance_m": 7691.1,
-    "bottleneck_margin_db": 45.92,
-    "estimated_reliability": 0.99,
-    "route_cost": 7691.1,
-    "is_feasible": true,
-    "note": "derived from topology_links_v1.csv"
-  },
-  {
-    "route_id": "CD-0297-BACKUP",
-    "demand_id": "CD-0297",
+    "route_id": "CD-0305-BACKUP",
+    "demand_id": "CD-0305",
     "task_id": "TS-0005",
     "route_type": "BACKUP",
     "node_path": [
-      "ND-0129",
-      "ND-0108",
-      "ND-0112",
-      "ND-0035",
-      "ND-0123"
-    ],
-    "link_path": [
-      "LK-0079",
-      "LK-0137",
-      "LK-0027",
-      "LK-0017"
-    ],
-    "hop_count": 4,
-    "total_distance_m": 14709.5,
-    "bottleneck_margin_db": 55.35,
-    "estimated_reliability": 0.9801,
-    "route_cost": 14709.5,
-    "is_feasible": true,
-    "note": "derived from topology_links_v1.csv"
-  },
-  {
-    "route_id": "CD-0309-PRIMARY",
-    "demand_id": "CD-0309",
-    "task_id": "TS-0005",
-    "route_type": "PRIMARY",
-    "node_path": [
-      "ND-0037",
-      "ND-0028",
-      "ND-0019",
-      "ND-0034"
-    ],
-    "link_path": [
-      "LK-0024",
-      "LK-0439",
-      "LK-0091"
-    ],
-    "hop_count": 3,
-    "total_distance_m": 66149.6,
-    "bottleneck_margin_db": 22.08,
-    "estimated_reliability": 0.9752,
-    "route_cost": 66149.6,
-    "is_feasible": true,
-    "note": "derived from topology_links_v1.csv"
-  },
-  {
-    "route_id": "CD-0309-BACKUP",
-    "demand_id": "CD-0309",
-    "task_id": "TS-0005",
-    "route_type": "BACKUP",
-    "node_path": [
-      "ND-0037",
-      "ND-0065",
-      "ND-0093",
-      "ND-0014",
-      "ND-0020",
-      "ND-0034"
-    ],
-    "link_path": [
-      "LK-0063",
-      "LK-0125",
-      "LK-0050",
-      "LK-0428",
-      "LK-0130"
-    ],
-    "hop_count": 5,
-    "total_distance_m": 76156.8,
-    "bottleneck_margin_db": 11.88,
-    "estimated_reliability": 0.9125,
-    "route_cost": 82293.32,
-    "is_feasible": true,
-    "note": "derived from topology_links_v1.csv"
-  },
-  {
-    "route_id": "CD-0311-PRIMARY",
-    "demand_id": "CD-0311",
-    "task_id": "TS-0005",
-    "route_type": "PRIMARY",
-    "node_path": [
-      "ND-0002",
-      "ND-0110",
-      "ND-0045",
-      "ND-0117",
-      "ND-0012"
-    ],
-    "link_path": [
-      "LK-0032",
-      "LK-0152",
-      "LK-0071",
-      "LK-0051"
-    ],
-    "hop_count": 4,
-    "total_distance_m": 17121.9,
-    "bottleneck_margin_db": 41.44,
-    "estimated_reliability": 0.9801,
-    "route_cost": 17121.9,
-    "is_feasible": true,
-    "note": "derived from topology_links_v1.csv"
-  },
-  {
-    "route_id": "CD-0311-BACKUP",
-    "demand_id": "CD-0311",
-    "task_id": "TS-0005",
-    "route_type": "BACKUP",
-    "node_path": [
-      "ND-0002",
-      "ND-0001",
-      "ND-0110",
-      "ND-0003",
-      "ND-0044",
-      "ND-0117",
-      "ND-0009",
-      "ND-0052",
-      "ND-0012"
-    ],
-    "link_path": [
-      "LK-0057",
-      "LK-0039",
-      "LK-0020",
-      "LK-0186",
-      "LK-0059",
-      "LK-0015",
-      "LK-0087",
-      "LK-0086"
-    ],
-    "hop_count": 8,
-    "total_distance_m": 29408.6,
-    "bottleneck_margin_db": 40.58,
-    "estimated_reliability": 0.9607,
-    "route_cost": 29408.6,
-    "is_feasible": true,
-    "note": "derived from topology_links_v1.csv"
-  },
-  {
-    "route_id": "CD-0312-PRIMARY",
-    "demand_id": "CD-0312",
-    "task_id": "TS-0005",
-    "route_type": "PRIMARY",
-    "node_path": [
-      "ND-0081",
+      "ND-0076",
       "ND-0047",
-      "ND-0038",
-      "ND-0014"
-    ],
-    "link_path": [
-      "LK-0036",
-      "LK-0297",
-      "LK-0131"
-    ],
-    "hop_count": 3,
-    "total_distance_m": 34035.0,
-    "bottleneck_margin_db": 21.52,
-    "estimated_reliability": 0.9752,
-    "route_cost": 34035.0,
-    "is_feasible": true,
-    "note": "derived from topology_links_v1.csv"
-  },
-  {
-    "route_id": "CD-0312-BACKUP",
-    "demand_id": "CD-0312",
-    "task_id": "TS-0005",
-    "route_type": "BACKUP",
-    "node_path": [
       "ND-0081",
-      "ND-0055",
-      "ND-0063",
-      "ND-0043",
-      "ND-0108",
-      "ND-0115",
-      "ND-0003",
-      "ND-0014"
+      "ND-0068",
+      "ND-0057",
+      "ND-0017",
+      "ND-0089",
+      "ND-0067"
     ],
     "link_path": [
-      "LK-0234",
-      "LK-0068",
-      "LK-0014",
-      "LK-0009",
-      "LK-0118",
-      "LK-0165",
-      "LK-0246"
+      "LK-0132",
+      "LK-0035",
+      "LK-0044",
+      "LK-0162",
+      "LK-0116",
+      "LK-0111",
+      "LK-0347"
     ],
     "hop_count": 7,
-    "total_distance_m": 57319.7,
-    "bottleneck_margin_db": 37.54,
-    "estimated_reliability": 0.9655,
-    "route_cost": 57319.7,
+    "total_distance_m": 66528.0,
+    "bottleneck_margin_db": 5.33,
+    "estimated_reliability": 0.8626,
+    "route_cost": 93952.16,
     "is_feasible": true,
     "note": "derived from topology_links_v1.csv"
   },
@@ -4021,27 +3603,21 @@
     "task_id": "TS-0005",
     "route_type": "PRIMARY",
     "node_path": [
-      "ND-0087",
-      "ND-0036",
-      "ND-0008",
-      "ND-0126",
-      "ND-0003",
-      "ND-0028",
-      "ND-0037"
+      "ND-0072",
+      "ND-0024",
+      "ND-0007",
+      "ND-0010"
     ],
     "link_path": [
-      "LK-0111",
-      "LK-0028",
-      "LK-0034",
-      "LK-0067",
-      "LK-0113",
-      "LK-0024"
+      "LK-0137",
+      "LK-0029",
+      "LK-0196"
     ],
-    "hop_count": 6,
-    "total_distance_m": 21018.3,
-    "bottleneck_margin_db": 54.0,
-    "estimated_reliability": 0.9704,
-    "route_cost": 21018.3,
+    "hop_count": 3,
+    "total_distance_m": 23764.0,
+    "bottleneck_margin_db": 41.92,
+    "estimated_reliability": 0.9851,
+    "route_cost": 23764.0,
     "is_feasible": true,
     "note": "derived from topology_links_v1.csv"
   },
@@ -4051,73 +3627,241 @@
     "task_id": "TS-0005",
     "route_type": "BACKUP",
     "node_path": [
-      "ND-0087",
-      "ND-0027",
-      "ND-0112",
-      "ND-0028",
-      "ND-0037"
+      "ND-0072",
+      "ND-0051",
+      "ND-0083",
+      "ND-0052",
+      "ND-0012",
+      "ND-0010"
     ],
     "link_path": [
-      "LK-0100",
-      "LK-0097",
-      "LK-0293",
-      "LK-0025"
+      "LK-0090",
+      "LK-0046",
+      "LK-0151",
+      "LK-0084",
+      "LK-0138"
     ],
-    "hop_count": 4,
-    "total_distance_m": 35378.1,
-    "bottleneck_margin_db": 30.01,
-    "estimated_reliability": 0.9801,
-    "route_cost": 35378.1,
+    "hop_count": 5,
+    "total_distance_m": 29708.9,
+    "bottleneck_margin_db": 1.01,
+    "estimated_reliability": 0.9311,
+    "route_cost": 38716.62,
     "is_feasible": true,
     "note": "derived from topology_links_v1.csv"
   },
   {
-    "route_id": "CD-0320-PRIMARY",
-    "demand_id": "CD-0320",
+    "route_id": "CD-0329-PRIMARY",
+    "demand_id": "CD-0329",
     "task_id": "TS-0005",
     "route_type": "PRIMARY",
     "node_path": [
-      "ND-0131",
       "ND-0027",
       "ND-0127",
-      "ND-0113",
-      "ND-0012"
+      "ND-0124",
+      "ND-0107"
     ],
     "link_path": [
-      "LK-0008",
       "LK-0021",
-      "LK-0004",
-      "LK-0291"
+      "LK-0007",
+      "LK-0179"
     ],
-    "hop_count": 4,
-    "total_distance_m": 24059.2,
-    "bottleneck_margin_db": 30.02,
-    "estimated_reliability": 0.9801,
-    "route_cost": 24059.2,
+    "hop_count": 3,
+    "total_distance_m": 12594.9,
+    "bottleneck_margin_db": 21.79,
+    "estimated_reliability": 0.9752,
+    "route_cost": 12594.9,
     "is_feasible": true,
     "note": "derived from topology_links_v1.csv"
   },
   {
-    "route_id": "CD-0320-BACKUP",
-    "demand_id": "CD-0320",
+    "route_id": "CD-0329-BACKUP",
+    "demand_id": "CD-0329",
     "task_id": "TS-0005",
     "route_type": "BACKUP",
     "node_path": [
-      "ND-0131",
-      "ND-0045",
+      "ND-0027",
+      "ND-0007",
+      "ND-0023",
+      "ND-0122",
+      "ND-0107"
+    ],
+    "link_path": [
+      "LK-0040",
+      "LK-0005",
+      "LK-0169",
+      "LK-0016"
+    ],
+    "hop_count": 4,
+    "total_distance_m": 13545.2,
+    "bottleneck_margin_db": 35.87,
+    "estimated_reliability": 0.9801,
+    "route_cost": 13545.2,
+    "is_feasible": true,
+    "note": "derived from topology_links_v1.csv"
+  },
+  {
+    "route_id": "CD-0335-PRIMARY",
+    "demand_id": "CD-0335",
+    "task_id": "TS-0005",
+    "route_type": "PRIMARY",
+    "node_path": [
+      "ND-0066",
+      "ND-0038",
+      "ND-0014",
+      "ND-0041",
+      "ND-0098",
+      "ND-0086"
+    ],
+    "link_path": [
+      "LK-0107",
+      "LK-0131",
+      "LK-0241",
+      "LK-0173",
+      "LK-0064"
+    ],
+    "hop_count": 5,
+    "total_distance_m": 47294.1,
+    "bottleneck_margin_db": 5.18,
+    "estimated_reliability": 0.9311,
+    "route_cost": 52277.4,
+    "is_feasible": true,
+    "note": "derived from topology_links_v1.csv"
+  },
+  {
+    "route_id": "CD-0353-PRIMARY",
+    "demand_id": "CD-0353",
+    "task_id": "TS-0006",
+    "route_type": "PRIMARY",
+    "node_path": [
+      "ND-0030",
+      "ND-0019",
+      "ND-0050",
+      "ND-0078"
+    ],
+    "link_path": [
+      "LK-0012",
+      "LK-0268",
+      "LK-0146"
+    ],
+    "hop_count": 3,
+    "total_distance_m": 29711.4,
+    "bottleneck_margin_db": 12.44,
+    "estimated_reliability": 0.9405,
+    "route_cost": 33123.68,
+    "is_feasible": true,
+    "note": "derived from topology_links_v1.csv"
+  },
+  {
+    "route_id": "CD-0355-PRIMARY",
+    "demand_id": "CD-0355",
+    "task_id": "TS-0006",
+    "route_type": "PRIMARY",
+    "node_path": [
+      "ND-0013",
+      "ND-0020"
+    ],
+    "link_path": [
+      "LK-0373"
+    ],
+    "hop_count": 1,
+    "total_distance_m": 34688.6,
+    "bottleneck_margin_db": 21.05,
+    "estimated_reliability": 0.985,
+    "route_cost": 34688.6,
+    "is_feasible": true,
+    "note": "derived from topology_links_v1.csv"
+  },
+  {
+    "route_id": "CD-0355-BACKUP",
+    "demand_id": "CD-0355",
+    "task_id": "TS-0006",
+    "route_type": "BACKUP",
+    "node_path": [
+      "ND-0013",
+      "ND-0077",
+      "ND-0034",
+      "ND-0020"
+    ],
+    "link_path": [
+      "LK-0348",
+      "LK-0080",
+      "LK-0129"
+    ],
+    "hop_count": 3,
+    "total_distance_m": 42952.9,
+    "bottleneck_margin_db": 11.95,
+    "estimated_reliability": 0.9311,
+    "route_cost": 46290.91,
+    "is_feasible": true,
+    "note": "derived from topology_links_v1.csv"
+  },
+  {
+    "route_id": "CD-0357-PRIMARY",
+    "demand_id": "CD-0357",
+    "task_id": "TS-0006",
+    "route_type": "PRIMARY",
+    "node_path": [
+      "ND-0082",
+      "ND-0077",
+      "ND-0070",
+      "ND-0054"
+    ],
+    "link_path": [
+      "LK-0034",
+      "LK-0186",
+      "LK-0171"
+    ],
+    "hop_count": 3,
+    "total_distance_m": 25326.8,
+    "bottleneck_margin_db": 32.76,
+    "estimated_reliability": 0.9851,
+    "route_cost": 25326.8,
+    "is_feasible": true,
+    "note": "derived from topology_links_v1.csv"
+  },
+  {
+    "route_id": "CD-0358-PRIMARY",
+    "demand_id": "CD-0358",
+    "task_id": "TS-0006",
+    "route_type": "PRIMARY",
+    "node_path": [
+      "ND-0011",
+      "ND-0009",
       "ND-0117",
       "ND-0012"
     ],
     "link_path": [
-      "LK-0251",
-      "LK-0071",
+      "LK-0238",
+      "LK-0015",
       "LK-0051"
     ],
     "hop_count": 3,
-    "total_distance_m": 24962.1,
-    "bottleneck_margin_db": 17.95,
-    "estimated_reliability": 0.9752,
-    "route_cost": 26895.01,
+    "total_distance_m": 20259.2,
+    "bottleneck_margin_db": 48.21,
+    "estimated_reliability": 0.9851,
+    "route_cost": 20259.2,
+    "is_feasible": true,
+    "note": "derived from topology_links_v1.csv"
+  },
+  {
+    "route_id": "CD-0358-BACKUP",
+    "demand_id": "CD-0358",
+    "task_id": "TS-0006",
+    "route_type": "BACKUP",
+    "node_path": [
+      "ND-0011",
+      "ND-0044",
+      "ND-0012"
+    ],
+    "link_path": [
+      "LK-0249",
+      "LK-0093"
+    ],
+    "hop_count": 2,
+    "total_distance_m": 23374.5,
+    "bottleneck_margin_db": 17.51,
+    "estimated_reliability": 0.9801,
+    "route_cost": 25645.74,
     "is_feasible": true,
     "note": "derived from topology_links_v1.csv"
   }
