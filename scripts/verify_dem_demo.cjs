@@ -33,7 +33,7 @@ const { pathToFileURL } = require('node:url');
       });
       await page.waitForTimeout(100);
     }
-    if (['overview', 'cov', 'param', 'knowledge', 'w4'].includes(id))
+    if (['overview', 'cov', 'param', 'w4', 'fault', 'knowledge', 'sr6'].includes(id))
       await page.screenshot({path: path.join(target, `desktop-${id}.png`)});
   }
   const canvas = await page.evaluate(() => {
@@ -56,18 +56,27 @@ const { pathToFileURL } = require('node:url');
   await page.screenshot({path: path.join(target, 'desktop-p2.png')});
   await page.evaluate(() => { App.go('cov'); Cov.tab = 'hf'; App.refresh(); });
   await page.screenshot({path: path.join(target, 'desktop-hf.png')});
+  await page.evaluate(() => { App.go('sr6'); SR6Platform.tab = 'quality'; App.refresh(); });
+  await page.screenshot({path: path.join(target, 'desktop-sr6-quality.png')});
   await page.setViewportSize({width: 390, height: 844});
   await page.evaluate(() => App.go('overview'));
   await page.waitForTimeout(200);
   await page.screenshot({path: path.join(target, 'mobile-overview.png'), fullPage: true});
   const mobile = await page.evaluate(() => ({scrollWidth: document.documentElement.scrollWidth, width: innerWidth}));
+  await page.evaluate(() => App.go('fault'));
+  await page.waitForTimeout(100);
+  await page.screenshot({path: path.join(target, 'mobile-fault.png'), fullPage: true});
+  const mobileFault = await page.evaluate(() => ({scrollWidth: document.documentElement.scrollWidth, width: innerWidth}));
   const knowledge = views.find(v => v.id === 'knowledge');
-  const report = {selfcheck, views, errors, canvas, mobile, knowledge};
+  const fault = views.find(v => v.id === 'fault');
+  const sr6 = views.find(v => v.id === 'sr6');
+  const report = {selfcheck, views, errors, canvas, mobile, mobileFault, knowledge, fault, sr6};
   fs.writeFileSync(path.join(target, 'browser_validation.json'), JSON.stringify(report, null, 2));
   console.log(JSON.stringify({selfcheck, errors, canvas, mobile}, null, 2));
   await browser.close();
   if (errors.length || !selfcheck.badge.includes('3/3') || Object.values(selfcheck.results).some(r => !r.ok)
       || canvas.colors < 100 || Object.values(canvas.assets).some(w => !w) || mobile.scrollWidth > mobile.width
-      || !knowledge || !knowledge.text.includes('可溯源三元组'))
+      || mobileFault.scrollWidth > mobileFault.width || !knowledge || !knowledge.text.includes('可溯源三元组')
+      || !fault || !fault.text.includes('影响范围') || !sr6 || !sr6.text.includes('运行图谱规模'))
     process.exitCode = 1;
 })().catch(e => { console.error(e); process.exitCode = 1; });

@@ -18,7 +18,7 @@ ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT / "scripts") not in sys.path:
     sys.path.insert(0, str(ROOT / "scripts"))
 
-from diagnosis.sr5 import FaultEngine, FaultInputError  # noqa: E402
+from diagnosis.sr5 import ALLOWED_OBJECTS, FAULT_TYPES, FaultEngine, FaultInputError  # noqa: E402
 
 _ENGINE: FaultEngine | None = None
 _SCENARIOS: dict[str, dict[str, Any]] | None = None
@@ -175,9 +175,88 @@ def import_scenarios_file(filename, contents):
 
 def _diagnosis(tid):
     task = get_task_record(tid)
-    if task.get("kind") != "FAULT_DIAGNOSE" or task.get("status") != "SUCCESS":
+    if task.get("kind") not in {"FAULT_DIAGNOSE", "FAULT_DIAGNOSE_OBSERVATION"} or task.get("status") != "SUCCESS":
         return None
     return task["result"]
+
+
+def submit_diagnosis_feedback(task_id, payload):
+    """把人工确认结论送入 SR-6 待审核队列，审核发布后才参与后续推理。"""
+    diagnosis = _diagnosis(task_id)
+    if diagnosis is None:
+        return {"code": CODE_TASK_NOT_FOUND, "message": "诊断任务不存在或尚未完成", "data": None}
+    payload = payload or {}
+    reviewer = str(payload.get("reviewer") or "").strip()
+    index = payload.get("result_index", 0)
+    if not reviewer or not isinstance(index, int) or not 0 <= index < len(diagnosis["results"]):
+        return _bad(FaultInputError("reviewer 必填，result_index 必须指向有效诊断结果"))
+    result = diagnosis["results"][index]
+    observations = diagnosis.get("input_snapshot", {}).get("faults", [])
+    if index >= len(observations):
+        return _bad(FaultInputError("该任务由旧版本生成，缺少反馈所需的输入快照，请重新诊断"))
+    observation = observations[index]
+    fault_type = payload.get("confirmed_fault_type") or result["fused"].get("fault_type")
+    object_type = result["fault_object"]["object_type"]
+    if fault_type not in FAULT_TYPES or object_type not in ALLOWED_OBJECTS[fault_type]:
+        return _bad(FaultInputError("确认的故障类型与对象类型不适配", 3003))
+    symptom_ids = observation.get("symptom_ids") or []
+    if not symptom_ids:
+        return _bad(FaultInputError("至少需要一个已观察现象才能沉淀为可复用案例"))
+
+    kg_branch = next((row for row in result["branches"] if row["source"] == "KG"), {})
+    rule_branch = next((row for row in result["branches"] if row["source"] == "RULE"), {})
+    root_cause = str(payload.get("root_cause") or result["fused"].get("root_cause") or "").strip()
+    component = str(payload.get("fault_component") or result.get("fault_component") or "").strip()
+    solution = str(payload.get("solution") or kg_branch.get("action") or rule_branch.get("action") or "").strip()
+    steps = payload.get("diagnosis_steps")
+    if steps is None:
+        steps = kg_branch.get("steps") or []
+    if not root_cause or not solution or not isinstance(steps, list) or not all(
+            isinstance(step, str) and step.strip() for step in steps):
+        return _bad(FaultInputError("root_cause、solution 必填，diagnosis_steps 必须是字符串列表"))
+
+    case_id = "DF-%s-%02d" % (task_id.removeprefix("tsk-").upper(), index + 1)
+    source = "diagnosis_feedback#%s by %s [UNAUTHENTICATED_REVIEW]" % (case_id, reviewer)
+    ops = [
+        {"op": "add_triple", "head_type": "Fault", "head": case_id,
+         "relation": "instanceOf", "tail_type": "FaultType", "tail": fault_type, "source": source},
+        {"op": "add_triple", "head_type": "Fault", "head": case_id,
+         "relation": "occursOn", "tail_type": "ObjectType", "tail": object_type, "source": source},
+        {"op": "add_triple", "head_type": "Fault", "head": case_id,
+         "relation": "recordedIn", "tail_type": "Case", "tail": case_id, "source": source},
+        {"op": "add_triple", "head_type": "Fault", "head": case_id,
+         "relation": "causedBy", "tail_type": "Cause", "tail": root_cause, "source": source},
+        {"op": "add_triple", "head_type": "Fault", "head": case_id,
+         "relation": "resolvedBy", "tail_type": "Solution", "tail": solution, "source": source},
+    ]
+    if component:
+        ops.append({"op": "add_triple", "head_type": "Fault", "head": case_id,
+                    "relation": "locatedAt", "tail_type": "Component", "tail": component,
+                    "source": source})
+    for symptom_id in symptom_ids:
+        ops.append({"op": "add_triple", "head_type": "Fault", "head": case_id,
+                    "relation": "hasSymptom", "tail_type": "Symptom",
+                    "tail": _engine().symptoms[symptom_id], "source": source})
+    for step_index, step in enumerate(steps, 1):
+        ops.append({"op": "add_triple", "head_type": "Fault", "head": case_id,
+                    "relation": "diagnosedBy", "tail_type": "DiagnosisStep",
+                    "tail": "%02d:%s" % (step_index, step.strip()), "source": source})
+
+    from . import kg
+    with kg._LOCK:
+        graph, _ = kg._load()
+        duplicate_pending = any(change["status"] == "PENDING" and any(
+            op.get("op") == "add_triple" and op.get("head_type") == "Fault" and
+            op.get("head") == case_id for op in change["ops"]) for change in graph.pending)
+        if graph.get("Fault", case_id) is not None or duplicate_pending:
+            return _bad(FaultInputError("该诊断结果已经提交知识反馈，请勿重复提交"))
+        submitted = kg.submit({"ops": ops, "submitter": reviewer,
+                               "note": "SR-5 人工确认诊断反馈 %s" % case_id})
+    if submitted["code"] == CODE_OK:
+        submitted["data"].update({"case_id": case_id, "diagnose_task_id": task_id,
+                                  "requires_kg_review": True,
+                                  "provenance": "UNAUTHENTICATED_REVIEW"})
+    return submitted
 
 
 def _impact(tid):

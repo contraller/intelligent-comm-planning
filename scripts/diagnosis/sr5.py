@@ -211,23 +211,31 @@ class FaultEngine:
                 continue
             for triple in graph.incoming(eid, "hasSymptom"):
                 cid = graph.ent(triple["head"])["name"]
-                if cid in self.cases:
+                if graph.ent(triple["head"])["type"] == "Fault":
                     by_case[cid].add(sid)
                     evidence[cid].add(triple["tid"])
         candidates = []
         for cid, matches in by_case.items():
-            case = self.cases[cid]
-            if case["object_type"] != fault["object_type"] or (band and case["device_class"] != band):
+            fault_eid = graph.get("Fault", cid)
+            case = self.cases.get(cid)
+            type_edges = list(graph.outgoing(fault_eid, "instanceOf")) if fault_eid else []
+            object_edges = list(graph.outgoing(fault_eid, "occursOn")) if fault_eid else []
+            fault_type = (graph.ent(type_edges[0]["tail"])["name"] if type_edges else
+                          case.get("fault_type") if case else None)
+            object_type = (graph.ent(object_edges[0]["tail"])["name"] if object_edges else
+                           case.get("object_type") if case else None)
+            if not fault_type or object_type != fault["object_type"]:
+                continue
+            if case and band and case["device_class"] != band:
                 continue
             overlap = len(matches) / max(len(observed), 1)
             score = 0.45 + 0.45 * overlap
-            candidates.append((score, len(matches), cid))
+            candidates.append((score, len(matches), cid, fault_type))
         if not candidates:
             return {"source": "KG", "fault_type": None, "confidence": None,
                     "disabled_reason": "合成案例图谱无匹配路径", "evidence": {}}
-        candidates.sort(reverse=True)
-        score, _n, cid = candidates[0]
-        case = self.cases[cid]
+        candidates.sort(key=lambda item: (-item[0], -item[1], item[2]))
+        score, _n, cid, fault_type = candidates[0]
         equally_supported = [candidate for candidate in candidates
                              if candidate[0] == score and candidate[1] == _n]
         fault_eid = graph.get("Fault", cid)
@@ -240,14 +248,23 @@ class FaultEngine:
         step_triples = list(graph.outgoing(fault_eid, "diagnosedBy"))
         path_ids.update(t["tid"] for t in step_triples)
         steps = sorted(graph.ent(t["tail"])["name"] for t in step_triples)
-        return {"source": "KG", "fault_type": case["fault_type"],
+        ranking = []
+        for candidate_score, match_count, candidate_id, candidate_type in candidates[:10]:
+            tids = sorted(evidence[candidate_id])
+            ranking.append({"case_id": candidate_id, "fault_type": candidate_type,
+                            "score": round(candidate_score, 3),
+                            "matched_symptom_count": match_count,
+                            "triple_ids": tids,
+                            "source_docs": sorted({graph.triples[tid]["source"] for tid in tids})})
+        return {"source": "KG", "fault_type": fault_type,
                 "confidence": round(score, 3), "root_cause": related["causedBy"],
                 "fault_component": related["locatedAt"], "action": related["resolvedBy"],
                 "steps": [step.split(":", 1)[1] for step in steps],
                 "evidence": {"case_id": cid, "triple_ids": sorted(path_ids),
                              "equally_supported_cases": [item[2] for item in equally_supported[:10]],
+                             "candidate_rankings": ranking,
                              "source_docs": sorted({graph.triples[tid]["source"] for tid in path_ids}),
-                             "source_doc": "fault_cases_v1.csv#%s [CONSTRUCTED]" % cid}}
+                             "source_doc": sorted({graph.triples[tid]["source"] for tid in path_ids})[0]}}
 
     def diagnose(self, scenario, weights=None, threshold=0.6, graph=None,
                  require_fault_type=True):
@@ -285,8 +302,15 @@ class FaultEngine:
                             "branches": [rule, kg, ml],
                             "candidates": [{"fault_type": key, "confidence": round(value, 3)}
                                            for key, value in ranked]})
+        source_docs = [source for item in results
+                       for branch in item["branches"] if branch["source"] == "KG"
+                       for source in branch.get("evidence", {}).get("source_docs", [])]
+        data_source = ("MIXED_UNVERIFIED" if any("CONSTRUCTED" not in source for source in source_docs)
+                       else "CONSTRUCTED")
         return {"scenario_id": scenario.get("scenario_id"), "fusion_mode": "TWO_WAY_DEGRADED",
-                "data_source": "CONSTRUCTED", "results": results}
+                "data_source": data_source, "input_snapshot": {
+                    "scenario_name": scenario.get("scenario_name"),
+                    "faults": [dict(item) for item in scenario["faults"]]}, "results": results}
 
     def _routes(self, network_solution=None):
         if network_solution is None:

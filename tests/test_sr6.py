@@ -24,9 +24,10 @@ def client(tmp_path, monkeypatch):
 
 def test_three_domains_and_device_query(client):
     stats = client.get("/api/v1/kg/stats").json()["data"]
-    assert stats["graph"]["by_graph"]["fault"] == 2262
+    assert stats["graph"]["by_graph"]["fault"] == 2742
     assert stats["graph"]["by_relation"]["recordedIn"] == 240
     assert stats["graph"]["by_relation"]["diagnosedBy"] == 960
+    assert stats["graph"]["by_relation"]["occursOn"] == 240
     assert stats["graph"]["by_relation"]["hasRole"] == 132
     assert stats["graph"]["by_graph"]["device"] > 0
     assert stats["graph"]["by_graph"]["network"] > 0
@@ -91,6 +92,27 @@ def test_invalid_query_and_update_are_rejected(client):
         "relation": "hasSymptom", "tail_type": "Symptom", "tail": "missing source"
     }]}).json()["code"] == 1001
     assert client.post("/api/v1/kg/updates", json={"ops": ["not an object"]}).json()["code"] == 1001
+    assert client.post("/api/v1/kg/updates", json={"ops": [{
+        "op": "add_triple", "head_type": "Device", "head": "DV-0001",
+        "relation": "hasSymptom", "tail_type": "Parameter", "tail": "bad",
+        "source": "test"
+    }]}).json()["code"] == 1001
+
+
+def test_quality_and_traceable_triple_query(client):
+    quality = client.get("/api/v1/kg/quality").json()
+    assert quality["code"] == 0
+    assert quality["data"]["status"] == "PASS"
+    assert quality["data"]["checks"]["incomplete_fault_cases"] == 0
+    assert quality["data"]["provenance"]["field_validated"] is False
+    triples = client.get("/api/v1/kg/triples", params={
+        "graph": "fault", "relation": "hasSymptom", "source": "FC-0001", "limit": 10
+    }).json()
+    assert triples["code"] == 0
+    assert triples["data"]["total"] >= 1
+    assert all(row["relation"] == "hasSymptom" for row in triples["data"]["items"])
+    assert all("FC-0001" in row["source_doc"] for row in triples["data"]["items"])
+    assert client.get("/api/v1/kg/triples", params={"relation": "bad"}).json()["code"] == 1001
 
 
 def test_approved_fault_knowledge_reaches_diagnosis_and_rollback(client):
@@ -186,4 +208,5 @@ def test_old_saved_graph_migrates_diagnostic_steps(client):
     migrated, _ = kg._load()
     assert migrated.version == 2
     assert migrated.stats()["by_relation"]["diagnosedBy"] == 960
-    assert read_json(kg.STORE_PATH)["schema_revision"] == 2
+    assert migrated.stats()["by_relation"]["occursOn"] == 240
+    assert read_json(kg.STORE_PATH)["schema_revision"] == 3

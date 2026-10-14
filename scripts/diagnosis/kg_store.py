@@ -12,7 +12,7 @@
 - 操作日志（SR-6 主事件流 5）
 
 规模：第一版口径 500–2000 条三元组（数据字典 3.5），全内存。
-《技术参考》「3–5 跳 <200 ms」的参考指标待图谱建成后实测，目前尚未构建任何图谱数据。
+《技术参考》「3–5 跳 <200 ms」的参考指标仍须在目标部署环境实测。
 """
 import copy
 import csv
@@ -44,6 +44,39 @@ RELATIONS = {
     "hasSymptom", "causedBy", "locatedAt", "diagnosedBy", "resolvedBy",
     "affects", "propagatesTo", "requiresTool", "requiresSpare", "occursOn",
     "recordedIn",
+}
+
+# 关系两端的本体约束。集合中保留需求资料允许的扩展类型；增量审核先检查这些
+# 约束，防止把诸如“设备 hasSymptom 参数”一类语义错误发布进正式版本。
+RELATION_SIGNATURES = {
+    "hasComponent": ({"Device", "DeviceModel"}, {"Component"}),
+    "hasInterface": ({"Device", "DeviceModel"}, {"Interface"}),
+    "hasAntenna": ({"Device", "DeviceModel"}, {"Antenna"}),
+    "hasFunction": ({"Device", "DeviceModel"}, {"Function"}),
+    "hasParameter": ({"Device", "DeviceModel", "Link"}, {"Parameter"}),
+    "producedBy": ({"DeviceModel"}, {"Manufacturer"}),
+    "supportsMode": ({"Device", "DeviceModel"}, {"WorkMode"}),
+    "constrainedBy": ({"Device", "DeviceModel", "Function", "Link"}, {"Parameter"}),
+    "instanceOf": ({"Device", "Fault"}, {"DeviceModel", "FaultType"}),
+    "installedAt": ({"Device"}, {"Node"}),
+    "connects": ({"Link"}, {"Node"}),
+    "measuredBy": ({"Link"}, {"Metric"}),
+    "indicates": ({"Metric", "NetRule"}, {"LinkState"}),
+    "evaluatedAs": ({"Link"}, {"LinkState"}),
+    "followsRule": ({"Link", "Metric"}, {"NetRule"}),
+    "hasRole": ({"Node"}, {"NetworkRole"}),
+    "transitionsTo": ({"LinkState"}, {"LinkState"}),
+    "hasSymptom": ({"Fault", "FaultType"}, {"Symptom"}),
+    "causedBy": ({"Fault", "Symptom"}, {"Cause"}),
+    "locatedAt": ({"Fault", "Cause"}, {"Component", "Device", "Node", "Link"}),
+    "diagnosedBy": ({"Fault", "Symptom"}, {"DiagnosisStep"}),
+    "resolvedBy": ({"Fault", "Cause"}, {"Solution"}),
+    "affects": ({"Fault"}, {"Device", "Node", "Link", "Function"}),
+    "propagatesTo": ({"Fault", "Node", "Link"}, {"Fault", "Node", "Link"}),
+    "requiresTool": ({"Fault", "Solution", "DiagnosisStep"}, {"Tool"}),
+    "requiresSpare": ({"Fault", "Solution"}, {"Spare"}),
+    "occursOn": ({"Fault"}, {"ObjectType"}),
+    "recordedIn": ({"Fault"}, {"Case"}),
 }
 
 
@@ -247,6 +280,92 @@ class KnowledgeGraph:
                     by_relation=by_rel, by_entity_type=by_type,
                     pending=len(self.pending))
 
+    def query_triples(self, graph=None, relation=None, source=None, entity=None,
+                      offset=0, limit=100):
+        """按图域、关系、来源或实体检索可溯源三元组。"""
+        source_q = (source or "").strip().lower()
+        entity_q = (entity or "").strip().lower()
+        rows = []
+        for tid in sorted(self.triples):
+            tr = self.triples[tid]
+            head, tail = self.entities[tr["head"]], self.entities[tr["tail"]]
+            if graph and tr["graph"] != graph:
+                continue
+            if relation and tr["relation"] != relation:
+                continue
+            if source_q and source_q not in tr["source"].lower():
+                continue
+            if entity_q and entity_q not in head["name"].lower() and entity_q not in tail["name"].lower():
+                continue
+            rows.append({"triple_id": tid, "graph": tr["graph"],
+                         "head": head["name"], "head_type": head["type"],
+                         "relation": tr["relation"], "tail": tail["name"],
+                         "tail_type": tail["type"], "weight": tr["weight"],
+                         "source_doc": tr["source"]})
+        return {"total": len(rows), "offset": offset, "limit": limit,
+                "items": rows[offset:offset + limit]}
+
+    def quality_report(self, max_examples=20):
+        """检查结构完整性、来源、关系签名和故障案例必需知识。"""
+        errors, warnings = [], []
+
+        def issue(bucket, code, message, item_id):
+            bucket.append({"code": code, "message": message, "item_id": item_id})
+
+        semantic = set()
+        for tid, tr in self.triples.items():
+            head, tail = self.entities.get(tr["head"]), self.entities.get(tr["tail"])
+            if head is None or tail is None:
+                issue(errors, "DANGLING_ENDPOINT", "三元组端点实体不存在", tid)
+                continue
+            key = (tr["head"], tr["relation"], tr["tail"])
+            if key in semantic:
+                issue(errors, "DUPLICATE_TRIPLE", "存在重复语义三元组", tid)
+            semantic.add(key)
+            if tr["relation"] not in RELATIONS:
+                issue(errors, "UNKNOWN_RELATION", "关系未登记", tid)
+            signature = RELATION_SIGNATURES.get(tr["relation"])
+            if signature and (head["type"] not in signature[0] or tail["type"] not in signature[1]):
+                issue(errors, "RELATION_SIGNATURE", "%s -> %s 不符合关系 %s 的类型约束" %
+                      (head["type"], tail["type"], tr["relation"]), tid)
+            if not str(tr.get("source", "")).strip():
+                issue(errors, "MISSING_SOURCE", "三元组缺少来源", tid)
+            weight = tr.get("weight")
+            if not isinstance(weight, (int, float)) or not math.isfinite(weight) or weight < 0:
+                issue(errors, "INVALID_WEIGHT", "三元组权重无效", tid)
+
+        orphan_ids = [eid for eid in self.entities if not self.out.get(eid) and not self.inn.get(eid)]
+        for eid in orphan_ids[:max_examples]:
+            issue(warnings, "ORPHAN_ENTITY", "实体没有任何关联", eid)
+
+        required = {"hasSymptom", "causedBy", "diagnosedBy", "resolvedBy",
+                    "instanceOf", "occursOn", "recordedIn"}
+        incomplete = []
+        for fault in self.of_type("Fault"):
+            relations = {tr["relation"] for tr in self.outgoing(fault["eid"])}
+            missing = sorted(required - relations)
+            if missing:
+                incomplete.append({"entity_id": fault["eid"], "name": fault["name"],
+                                   "missing_relations": missing})
+        if incomplete:
+            warnings.append({"code": "INCOMPLETE_FAULT_CASE",
+                             "message": "%d 个故障案例缺少必需关系" % len(incomplete),
+                             "examples": incomplete[:max_examples]})
+
+        constructed = sum("CONSTRUCTED" in tr.get("source", "") for tr in self.triples.values())
+        checks = {"dangling_endpoints": sum(x["code"] == "DANGLING_ENDPOINT" for x in errors),
+                  "duplicate_triples": sum(x["code"] == "DUPLICATE_TRIPLE" for x in errors),
+                  "missing_sources": sum(x["code"] == "MISSING_SOURCE" for x in errors),
+                  "relation_signature_errors": sum(x["code"] == "RELATION_SIGNATURE" for x in errors),
+                  "orphan_entities": len(orphan_ids),
+                  "incomplete_fault_cases": len(incomplete)}
+        return {"status": "FAIL" if errors else "WARNING" if warnings else "PASS",
+                "version": self.version, "checks": checks,
+                "provenance": {"constructed_triples": constructed,
+                               "other_source_triples": len(self.triples) - constructed,
+                               "field_validated": False},
+                "errors": errors[:max_examples], "warnings": warnings[:max_examples]}
+
     # ─────────────────────── 增量更新、审核、版本 ───────────────────────
     def _snapshot(self):
         return dict(entities=copy.deepcopy(self.entities), triples=copy.deepcopy(self.triples),
@@ -288,6 +407,11 @@ class KnowledgeGraph:
                 for f in ("head_type", "tail_type"):
                     if o.get(f) not in ENTITY_TYPES:
                         errs.append("第 %d 项 %s=%s 未登记" % (k, f, o.get(f)))
+                signature = RELATION_SIGNATURES.get(o.get("relation"))
+                if signature and (o.get("head_type") not in signature[0] or
+                                  o.get("tail_type") not in signature[1]):
+                    errs.append("第 %d 项 %s -> %s 不符合关系 %s 的类型约束" %
+                                (k, o.get("head_type"), o.get("tail_type"), o.get("relation")))
                 if not o.get("source"):
                     errs.append("第 %d 项缺少知识来源 source（SR-6.3 扩展流 2 要求可溯源）" % k)
                 if not str(o.get("head", "")).strip() or not str(o.get("tail", "")).strip():

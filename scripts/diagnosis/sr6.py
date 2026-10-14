@@ -24,6 +24,17 @@ def add_diagnostic_steps(graph):
                              source=source, graph="fault")
 
 
+def add_fault_taxonomy(graph):
+    """为故障案例补齐类型与适用对象，供后续审核案例参与 SR-5 推理。"""
+    for row in _rows("fault_case.csv"):
+        cid = row["case_id"]
+        source = f"fault_cases_v1.csv#{cid} [CONSTRUCTED]"
+        graph.add_triple(("Fault", cid), "instanceOf", ("FaultType", row["fault_type"]),
+                         source=source, graph="fault")
+        graph.add_triple(("Fault", cid), "occursOn", ("ObjectType", row["object_type"]),
+                         source=source, graph="fault")
+
+
 def build_graph():
     graph = KnowledgeGraph("sr6_constructed")
     models = _rows("device_model.csv")
@@ -109,5 +120,6 @@ def build_graph():
         graph.add_entity("Case", cid, graph="fault", attrs=dict(row, dataset_origin="CONSTRUCTED"))
         graph.add_triple(("Fault", cid), "recordedIn", ("Case", cid),
                          source=f"fault_cases_v1.csv#{cid} [CONSTRUCTED]", graph="fault")
+    add_fault_taxonomy(graph)
     graph.freeze("Constructed device, network and fault knowledge; not field-validated")
     return graph, state

@@ -9,7 +9,7 @@ from .deployment import query_deployment, submit_deployment
 from .fault import (create_report, create_scenario, delete_scenario, export_impact,
                     get_impact_nodes, get_scenario, get_suggestions, import_scenarios, list_scenarios,
                     report_path, submit_diagnosis, submit_observation_diagnosis,
-                    submit_impact, update_scenario,
+                    submit_diagnosis_feedback, submit_impact, update_scenario,
                     validate_scenario)
 from . import kg
 from .planning_w3 import (query_task, submit_frequency, submit_plan_check,
@@ -251,6 +251,11 @@ def fault_diagnose_observations(payload: dict[str, Any]) -> dict[str, Any]:
     return submit_observation_diagnosis(payload)
 
 
+@app.post("/api/v1/fault/diagnoses/{task_id}/feedback")
+def fault_diagnosis_feedback(task_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+    return submit_diagnosis_feedback(task_id, payload)
+
+
 @app.post("/api/v1/fault/impact")
 def fault_impact(payload: dict[str, Any]) -> dict[str, Any]:
     return submit_impact(payload)
@@ -308,6 +313,18 @@ def kg_entity(entity_id: str) -> dict[str, Any]:
 @app.get("/api/v1/kg/search")
 def kg_search(q: str, type: str | None = None, limit: int = 20) -> dict[str, Any]:
     return kg.search(q, type, limit)
+
+
+@app.get("/api/v1/kg/triples")
+def kg_triples(graph: str | None = None, relation: str | None = None,
+               source: str | None = None, entity: str | None = None,
+               offset: int = 0, limit: int = 100) -> dict[str, Any]:
+    return kg.triples(graph, relation, source, entity, offset, limit)
+
+
+@app.get("/api/v1/kg/quality")
+def kg_quality() -> dict[str, Any]:
+    return kg.quality()
 
 
 @app.post("/api/v1/kg/query")

@@ -372,7 +372,10 @@ def normalize_status(data):
 
 
 def fault_knowledge_demo():
-    """Pack the checked-in SR-5/SR-6 knowledge into the offline demo."""
+    """Pack the checked-in SR-5 diagnosis data into the offline demo."""
+    from diagnosis.sr5 import FaultEngine
+    from diagnosis.sr6 import build_graph
+
     symptoms = load('symptom_dict.csv')
     cases = load('fault_case.csv')
     rules = load('fault_rule.csv')
@@ -385,6 +388,14 @@ def fault_knowledge_demo():
         examples.setdefault(row['fault_type'], dict(
             case_id=row['case_id'], object_type=row['object_type'],
             device_class=row['device_class'], symptom_ids=row['symptom_ids'].split(';')))
+    engine = FaultEngine()
+    graph, _state = build_graph()
+    scenarios = []
+    for scenario in engine.default_scenarios:
+        diagnosis = engine.diagnose(scenario, graph=graph)
+        impact = engine.impact(scenario, diagnosis)
+        scenarios.append(dict(scenario=scenario, diagnosis=diagnosis, impact=impact,
+                              suggestions=engine.suggestions(diagnosis, impact)))
     return dict(
         stats=dict(cases=len(cases), rules=len(rules), triples=len(triples),
                    symptoms=len(symptoms), relations=dict(sorted(relations.items()))),
@@ -398,14 +409,56 @@ def fault_knowledge_demo():
         triples=[[row['triple_id'], row['head'], row['head_type'], row['relation'],
                   row['tail'], row['tail_type'], float(row['weight']), row['source_doc']]
                  for row in triples],
-        examples=examples,
+        examples=examples, scenarios=scenarios,
         limitations=['全部案例及关系标记为 CONSTRUCTED。',
                      '置信度仅用于构造案例候选排序，不代表现场诊断准确率。'])
+
+
+def sr6_demo():
+    """Pack the three-domain graph, quality report and link-state examples."""
+    from diagnosis.sr6 import build_graph
+
+    graph, state = build_graph()
+    relation_domains = {}
+    for triple in graph.triples.values():
+        bucket = relation_domains.setdefault(triple['graph'], {})
+        bucket[triple['relation']] = bucket.get(triple['relation'], 0) + 1
+    models = []
+    for entity in sorted(graph.of_type('DeviceModel'), key=lambda row: row['name'])[:8]:
+        neighbors = graph.neighbors(entity['eid'])
+        models.append(dict(model=entity, neighbors=neighbors,
+                           triples=graph.query_triples(entity=entity['name'], limit=100)['items']))
+    metrics = load('link_metric.csv')
+    examples = []
+    picked = set()
+    for row in metrics:
+        target = row['link_state']
+        if target in picked:
+            continue
+        result = state.evaluate(row)
+        if result:
+            result['next_state_probability'] = state.predict_next(result['band'], result['link_state'])
+            examples.append(dict(input={key: row[key] for key in (
+                'link_id', 'snr_db', 'ber', 'packet_loss_rate', 'delay_ms', 'throughput_kbps')},
+                                 result=result))
+            picked.add(target)
+        if len(picked) == 4:
+            break
+    samples = {}
+    for domain in ('device', 'network', 'fault'):
+        samples[domain] = graph.query_triples(graph=domain, limit=12)['items']
+    return dict(stats=graph.stats(), quality=graph.quality_report(),
+                relation_domains=relation_domains, device_models=models,
+                link_state=state.summary(), link_rules=state.rules,
+                link_examples=examples, triple_samples=samples,
+                limitations=['图谱结构检查通过不代表知识经过现场验证。',
+                             '链路状态标签与构造规则同源，分类置信度不是现场准确率。'])
 
 
 def publish(html, match, data):
     normalize_status(data)
     data['sr5'] = fault_knowledge_demo()
+    data['sr6'] = sr6_demo()
     packed = json.dumps(data, ensure_ascii=False, separators=(',', ':'), allow_nan=False).replace('</', '<\\/')
     HTML.write_text(html[:match.start(2)] + packed + html[match.end(2):], encoding='utf-8')
     (RESULTS / 'demo_data.json').write_text(packed, encoding='utf-8')

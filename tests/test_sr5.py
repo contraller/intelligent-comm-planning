@@ -13,6 +13,7 @@ sys.path.insert(0, str(ROOT / "algorithm-service"))
 
 from diagnosis.sr5 import FaultEngine, _eval_condition
 from app import fault as service
+from app import kg
 from app import planning_w3
 from app.main import app
 from fastapi.testclient import TestClient
@@ -25,6 +26,9 @@ def client(tmp_path, monkeypatch):
     monkeypatch.setattr(service, "REPORT_DIR", tmp_path / "reports")
     monkeypatch.setattr(service, "_SCENARIOS", None)
     monkeypatch.setattr(service, "_ENGINE", None)
+    monkeypatch.setattr(kg, "STORE_PATH", tmp_path / "graph.json")
+    monkeypatch.setattr(kg, "_GRAPH", None)
+    monkeypatch.setattr(kg, "_STATE", None)
     with TestClient(app) as api:
         yield api
 
@@ -132,6 +136,41 @@ def test_observation_diagnosis_does_not_require_ground_truth(client):
         "faults": [example]}).json()["code"] == 1001
     assert client.post("/api/v1/fault/diagnose/observations", json={
         "faults": [dict(observation, symptom_ids=["UNKNOWN"])]}).json()["code"] == 1002
+
+
+def test_reviewed_diagnosis_feedback_enters_kg_and_future_inference(client):
+    example = service._engine().default_scenarios[0]["faults"][0]
+    observation = {key: value for key, value in example.items() if key != "fault_type"}
+    submitted = client.post("/api/v1/fault/diagnose/observations", json={
+        "scenario_name": "feedback case", "faults": [observation]}).json()
+    task_id = submitted["data"]["task_id"]
+    diagnosed = completed(client, task_id)
+    assert client.get("/api/v1/fault/suggestions", params={
+        "diagnose_task_id": task_id}).json()["code"] == 0
+
+    feedback = client.post(f"/api/v1/fault/diagnoses/{task_id}/feedback", json={
+        "reviewer": "operator-a", "result_index": 0}).json()
+    assert feedback["code"] == 0
+    assert feedback["data"]["requires_kg_review"] is True
+    case_id = feedback["data"]["case_id"]
+    change_id = feedback["data"]["change_id"]
+    assert client.post(f"/api/v1/fault/diagnoses/{task_id}/feedback", json={
+        "reviewer": "operator-a", "result_index": 0}).json()["code"] == 1001
+    assert client.get("/api/v1/kg/triples", params={"entity": case_id}).json()["data"]["total"] == 0
+    assert client.post(f"/api/v1/kg/updates/{change_id}/review", json={
+        "approve": True, "reviewer": "knowledge-reviewer"}).json()["code"] == 0
+
+    rows = client.get("/api/v1/kg/triples", params={"entity": case_id}).json()["data"]
+    assert rows["total"] >= 7
+    assert all("UNAUTHENTICATED_REVIEW" in row["source_doc"] for row in rows["items"])
+    assert client.get("/api/v1/kg/quality").json()["data"]["status"] == "PASS"
+    rerun = client.post("/api/v1/fault/diagnose/observations", json={
+        "scenario_name": "feedback reused", "faults": [observation]}).json()
+    rerun_result = completed(client, rerun["data"]["task_id"])["data"]
+    result = rerun_result["results"][0]
+    assert rerun_result["data_source"] == "MIXED_UNVERIFIED"
+    kg_branch = next(row for row in result["branches"] if row["source"] == "KG")
+    assert case_id in {row["case_id"] for row in kg_branch["evidence"]["candidate_rankings"]}
 
 
 def test_minor_impact_for_nonmandatory_degraded_endpoint(monkeypatch):

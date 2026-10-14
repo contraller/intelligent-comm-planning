@@ -101,6 +101,38 @@ def test_html_embeds_traceable_fault_knowledge():
     assert kg['stats']['relations']['diagnosedBy'] == 960
 
 
+def test_html_embeds_sr5_flow_and_sr6_platform_results():
+    d = demo()
+    sr5 = d['sr5']
+    sr6 = d['sr6']
+
+    assert len(sr5['scenarios']) == 5
+    assert all(s['diagnosis']['results'] for s in sr5['scenarios'])
+    assert all('affected_nodes' in s['impact'] for s in sr5['scenarios'])
+    assert all(s['suggestions']['suggestions'] for s in sr5['scenarios'])
+
+    assert sr6['stats']['entities'] == 1835
+    assert sr6['stats']['triples'] == 5853
+    assert sr6['stats']['by_graph'] == {
+        'device': 1449,
+        'network': 1662,
+        'fault': 2742,
+    }
+    assert sr6['quality']['status'] == 'PASS'
+    assert not sr6['quality']['errors']
+    assert len(sr6['device_models']) == 8
+    assert len(sr6['link_examples']) == 4
+    assert set(sr6['triple_samples']) == {'device', 'network', 'fault'}
+
+
+def test_html_discloses_requirements_gaps():
+    html = (ROOT / 'W1-W3算法演示.html').read_text(encoding='utf-8')
+    assert '需规复核后的未闭环项' in html
+    assert '图谱到网络规划的规则共享尚未接入' in html
+    assert '地形使用当前导入 DEM，其来源与授权待确认' in html
+    assert '或要求独立场景切换，仍需确认' in html
+
+
 def test_coverage_cache_identity_changes_with_dem_input(tmp_path, monkeypatch):
     from app.coverage import _key
     import terrain

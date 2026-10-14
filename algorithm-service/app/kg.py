@@ -13,7 +13,7 @@ if str(ROOT / "scripts") not in sys.path:
     sys.path.insert(0, str(ROOT / "scripts"))
 
 from diagnosis.kg_store import ENTITY_TYPES, RELATIONS  # noqa: E402
-from diagnosis.sr6 import add_diagnostic_steps, build_graph  # noqa: E402
+from diagnosis.sr6 import add_diagnostic_steps, add_fault_taxonomy, build_graph  # noqa: E402
 
 STORE_PATH = Path(os.environ.get("SR6_STORE_PATH", ROOT / "data" / "runtime" / "sr6_graph.json"))
 _LOCK = threading.RLock()
@@ -55,10 +55,14 @@ def _load():
                     graph.versions = saved["versions"]
                     graph.pending = saved["pending"]
                     graph.log = saved["log"]
-                    if saved.get("schema_revision", 1) < 2:
+                    revision = saved.get("schema_revision", 1)
+                    if revision < 2:
                         add_diagnostic_steps(graph)
+                    if revision < 3:
+                        add_fault_taxonomy(graph)
+                    if revision < 3:
                         graph.version += 1
-                        graph.freeze("Migrate ordered diagnostic steps from constructed cases")
+                        graph.freeze("Migrate ordered diagnostic steps and fault taxonomy")
                         migrated = True
                 _sync_link_rules(graph, state)
                 _GRAPH, _STATE = graph, state
@@ -69,7 +73,7 @@ def _load():
 
 def _save():
     graph, _ = _load()
-    data = {"schema_revision": 2, "snapshot": graph._snapshot(), "version": graph.version,
+    data = {"schema_revision": 3, "snapshot": graph._snapshot(), "version": graph.version,
             "versions": graph.versions, "pending": graph.pending, "log": graph.log}
     STORE_PATH.parent.mkdir(parents=True, exist_ok=True)
     tmp = STORE_PATH.with_suffix(".tmp")
@@ -103,6 +107,26 @@ def search(q, etype=None, limit=20):
         items = graph.search(q, etype, limit)
         return _ok({"total": len(items), "items": items}) if items else _bad(
             "没有匹配的知识", 4001, {"similar": graph.search(q[:2], etype, 5)})
+
+
+def triples(graph_name=None, relation=None, source=None, entity_name=None, offset=0, limit=100):
+    if graph_name not in (None, "device", "network", "fault", "update"):
+        return _bad("graph 应为 device、network、fault 或 update")
+    if relation is not None and relation not in RELATIONS:
+        return _bad("relation 未登记")
+    if not 0 <= offset or not 1 <= limit <= 500:
+        return _bad("offset 应不小于 0，limit 应在 1 到 500 之间")
+    with _LOCK:
+        graph, _ = _load()
+        return _ok(graph.query_triples(graph_name, relation, source, entity_name, offset, limit))
+
+
+def quality():
+    with _LOCK:
+        graph, _ = _load()
+        report = graph.quality_report()
+        report["note"] = "结构质量通过不代表知识经过真实设备或现场案例验证"
+        return _ok(report)
 
 
 def query(payload):
