@@ -325,8 +325,10 @@ def write_report(data):
         f"- 现网合成节点 {q['nodes']}（短波 {q['hf_nodes']}、超短波 {q['vuhf_nodes']}），设备 {q['devices']}，候选站址 {q['candidates']}，通联需求 {q['demands']}。",
         '- 四个合成任务区中心随规划区定位。合成台站重新布设，不代表移动真实已部署固定站。',
         '- 道路、地物保留原始地理坐标，仅使用重叠部分，不伪造新区域道路或地物。',
-        f'- 候选扫描网格中未知地物 {unknown}/{count}（{unknown / count:.1%}）；传播模型对此采用默认地物参数，结果需补充资料后复核。',
-        '- 距路约束会排除现有道路资料未覆盖的区域，不能据此断言那里没有道路；西部部署备选受资料范围限制。',
+        (f'- 候选扫描网格中未知地物 {unknown}/{count}（{unknown / count:.1%}）；' +
+         ('未知格点采用模型默认地物参数，结果需补充资料后复核。' if unknown else
+          '当前地物批次完整覆盖规划区。')),
+        '- 当前地物与道路批次覆盖规划区；DEM 与地物原始出处、授权状态及 OSM 署名要求仍须在交付前确认。',
         '- 覆盖射线不在 DEM 之外外推边缘高程。', '',
         '## W2 / W3',
         f"- 部署前连通 {w2['pre']['metrics']['connected']}/{q['nodes']}；P1 新增 {w2['p1']['count']} 台，连通 {w2['plans'][0]['metrics']['connected']}/{w2['plans'][0]['metrics']['stations']}。",
@@ -566,7 +568,7 @@ def main():
         python=platform.python_version(), platform=platform.platform(), timings=timings,
         pipeline_sec=sum(sec for _, sec in out['steps']), dem=meta, input_sha256=manifest['input_sha256'],
         data_limitations=['台站、通联需求、频率资源和干扰源为合成测试数据。',
-                          '道路和地物资料仅覆盖部分新规划区；未知地物采用模型默认值，未测绘区域不能据此判定无道路。'])
+                          '当前地物和道路覆盖规划区；DEM、地物来源授权与 OSM 署名要求仍待交付确认。'])
     data['meta'].pop('replacement_run', None)
     timings.append(dict(name='SR-4 全流程（W4）', sec=w4['total_s']))
     timings.append(dict(name='演示数据导出额外计算', sec=time.perf_counter() - started))
