@@ -607,19 +607,34 @@ def _route_measure(sc, lk, route_ctx, bad_links):
                if r.get("reachable") and lk.link_id in (r["primary"] or {}).get("link_path", [])]
     if not through:
         return None, []
+    # 在剔除全部中、重度受扰链路后的图上同时重算主用和备用路由。
+    # 不能只给 plan_one() 的主路由，否则采纳后会丢失原有的备用保护状态。
+    safe = routing.RouteGraph()
+    for info in g.links.values():
+        if info["link_id"] in bad_links:
+            continue
+        safe.add_link(info["link_id"], info["a"], info["b"], info["band"],
+                      info["margin_db"], info["distance_m"], info["delay_ms"])
+    safe.seal_band_switches()
     ok, fail = [], []
     for r in through:
         d = r["demand_id"]
         src, dst = r["primary"]["node_path"][0], r["primary"]["node_path"][-1]
-        alt = routing.plan_one(g, src, dst, r.get("strategy", "MAX_RELIABILITY"),
-                               banned_links=bad_links)
-        (ok if alt else fail).append((d, alt))
+        strategy = r.get("strategy", "MAX_RELIABILITY")
+        primary = routing.plan_one(safe, src, dst, strategy)
+        if primary is None:
+            fail.append(d)
+            continue
+        backup, backup_type = routing.backup_of(safe, src, dst, primary, strategy)
+        risks = (routing.single_point_risks(safe, src, dst, primary, strategy)
+                 if backup is None else [])
+        ok.append(dict(demand_id=d, strategy=strategy, reachable=True,
+                       primary=primary, backup=backup, backup_type=backup_type,
+                       single_point_risks=risks))
     cm = _cm("ROUTE_REBUILD", dict(link_id=lk.link_id),
              dict(demands_through_link=len(through),
-                  rerouted=[dict(demand_id=d, node_path=a["node_path"],
-                                 hop_count=a["hop_count"],
-                                 reliability=a["reliability"]) for d, a in ok],
-                  still_unreachable=[d for d, _a in fail]),
+                  banned_links=sorted(bad_links), rerouted=ok,
+                  still_unreachable=fail),
              None, None, None,
              note="绕开全部中、重度受扰链路重新选路")
     cm["pre_eval"] = dict(demands_affected_before=len(through),
@@ -834,6 +849,7 @@ def adopt(sc, cm):
                                    lon=det["to_lon"], lat=det["to_lat"])
     elif kind == "ROUTE_REBUILD":
         changed["routes"] = det["rerouted"]
+        changed["unreachable_demand_ids"] = det.get("still_unreachable", [])
     after = analyze(sc, area=False)
     return dict(adopted=cm["type"], changed=changed,
                 summary_after=after["summary"])

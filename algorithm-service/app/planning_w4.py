@@ -12,6 +12,7 @@ from __future__ import annotations
 import csv
 import io
 import json
+import math
 import os
 import threading
 import time
@@ -145,14 +146,82 @@ def submit_optimize(payload: dict[str, Any]) -> dict[str, Any]:
 
 # ─────────────────────────── 干扰分析 ───────────────────────────
 
+_JAMMER_NUMERIC_DEFAULTS = {
+    "elevation_m": 0.0,
+    "antenna_height_m": 10.0,
+    "bandwidth_khz": 25.0,
+    "antenna_gain_dbi": 0.0,
+    "azimuth_deg": 0.0,
+    "duty_cycle": 1.0,
+}
+
+
+def _interference_rows(payload: dict[str, Any]) -> list[dict[str, Any]]:
+    """Resolve built-in IDs or validate a complete front-end supplied source list.
+
+    ``interference_sources`` is an override, including an empty list. This makes
+    map editing deterministic: the front end submits exactly what is currently
+    drawn instead of depending on server-side preset state.
+    """
+    if "interference_sources" not in payload:
+        rows = _load("interference_source.csv")
+        ids = set(payload.get("interference_ids") or [])
+        if ids:
+            rows = [dict(r, active="true" if r["interference_id"] in ids else "false")
+                    for r in rows]
+        return rows
+
+    raw = payload.get("interference_sources")
+    if not isinstance(raw, list):
+        raise ValueError("interference_sources 必须是数组")
+    rows, seen = [], set()
+    for pos, source in enumerate(raw, start=1):
+        if not isinstance(source, dict):
+            raise ValueError("第 %d 个干扰源必须是对象" % pos)
+        row = dict(source)
+        jid = str(row.get("interference_id") or "IF-USER-%04d" % pos).strip()
+        if not jid or jid in seen:
+            raise ValueError("干扰源编号为空或重复：%s" % jid)
+        seen.add(jid)
+        row["interference_id"] = jid
+        row["name"] = str(row.get("name") or jid)
+        for key in ("lon", "lat", "center_freq_khz", "tx_power_dbm"):
+            try:
+                value = float(row[key])
+            except (KeyError, TypeError, ValueError):
+                raise ValueError("干扰源 %s 缺少有效字段 %s" % (jid, key)) from None
+            if not math.isfinite(value):
+                raise ValueError("干扰源 %s 的 %s 必须是有限数值" % (jid, key))
+            row[key] = value
+        if not (-180 <= row["lon"] <= 180 and -90 <= row["lat"] <= 90):
+            raise ValueError("干扰源 %s 经纬度越界" % jid)
+        if row["center_freq_khz"] <= 0:
+            raise ValueError("干扰源 %s 中心频率必须大于 0" % jid)
+        for key, default in _JAMMER_NUMERIC_DEFAULTS.items():
+            try:
+                value = float(row.get(key, default))
+            except (TypeError, ValueError):
+                raise ValueError("干扰源 %s 的 %s 必须是数值" % (jid, key)) from None
+            if not math.isfinite(value):
+                raise ValueError("干扰源 %s 的 %s 必须是有限数值" % (jid, key))
+            row[key] = value
+        if row["bandwidth_khz"] <= 0 or row["antenna_height_m"] <= 0:
+            raise ValueError("干扰源 %s 的带宽和天线高度必须大于 0" % jid)
+        if not 0 < row["duty_cycle"] <= 1:
+            raise ValueError("干扰源 %s 的占空比必须在 (0, 1]" % jid)
+        row["interference_type"] = str(row.get("interference_type") or "NOISE").upper()
+        row["pattern_type"] = str(row.get("pattern_type") or "OMNI").upper()
+        if row["pattern_type"] not in ("OMNI", "DIRECTIONAL"):
+            raise ValueError("干扰源 %s 的 pattern_type 只能是 OMNI/DIRECTIONAL" % jid)
+        row["active"] = "true" if str(row.get("active", "true")).lower() == "true" else "false"
+        rows.append(row)
+    return rows
+
 def _do_interference(payload, tick):
     import interference as IF
     st = _w3_state()
     tick(0.35, "构造干扰场景")
-    jam = _load("interference_source.csv")
-    ids = set(payload.get("interference_ids") or [])
-    if ids:
-        jam = [dict(r, active="true" if r["interference_id"] in ids else "false") for r in jam]
+    jam = _interference_rows(payload)
     sc = IF.scenario_from_plan(st, jam)
     tick(0.5, "计算受扰链路、节点与影响区域")
     ana = IF.analyze(sc, area=True, area_cell_m=float(payload.get("area_cell_m", 3000.0)))
@@ -168,13 +237,49 @@ def _do_interference(payload, tick):
         out.update(countermeasures=cms, unresolved=unresolved, measure_review=review)
     sid = "IA-%s" % uuid.uuid4().hex[:8].upper()
     with _PLOCK:
-        _SCENARIOS[sid] = dict(scenario=sc, countermeasures=out.get("countermeasures", []))
+        _SCENARIOS[sid] = dict(
+            scenario=sc,
+            countermeasures=out.get("countermeasures", []),
+            routes=json.loads(json.dumps(st["routes"]["routes"])),
+        )
     out["analysis_id"] = sid
     return out
 
 
 def submit_interference(payload: dict[str, Any]) -> dict[str, Any]:
     return _spawn("INTERFERENCE", payload or {}, _do_interference)
+
+
+def _apply_route_changes(routes: list[dict[str, Any]], detail: dict[str, Any]) -> dict[str, Any]:
+    """Apply a ROUTE_REBUILD result to the current analysis-session route set."""
+    by_id = {row["demand_id"]: dict(row) for row in routes}
+    order = [row["demand_id"] for row in routes]
+    for row in detail.get("rerouted", []):
+        did = row.get("demand_id")
+        if not did:
+            continue
+        if did not in by_id:
+            order.append(did)
+        by_id[did] = dict(row)
+    for did in detail.get("still_unreachable", []):
+        old = by_id.get(did, {})
+        if did not in by_id:
+            order.append(did)
+        by_id[did] = dict(demand_id=did, strategy=old.get("strategy", "MAX_RELIABILITY"),
+                          reachable=False, primary=None, backup=None, backup_type="NONE",
+                          single_point_risks=[])
+    current = [by_id[did] for did in order]
+    reachable = [row for row in current if row.get("reachable")]
+    return dict(
+        routes=current,
+        summary=dict(
+            total=len(current),
+            reachable=len(reachable),
+            unreachable=len(current) - len(reachable),
+            with_backup=sum(bool(row.get("backup")) for row in reachable),
+            node_disjoint=sum(row.get("backup_type") == "NODE_DISJOINT" for row in reachable),
+        ),
+    )
 
 
 def adopt_countermeasure(payload: dict[str, Any]) -> dict[str, Any]:
@@ -190,6 +295,11 @@ def adopt_countermeasure(payload: dict[str, Any]) -> dict[str, Any]:
         return {"code": CODE_BAD_PARAM, "message": "措施 %s 不存在" % cid, "data": None}
     t0 = time.time()
     res = IF.adopt(rec["scenario"], cm)
+    if cm.get("type") == "ROUTE_REBUILD":
+        route_state = _apply_route_changes(rec.get("routes", []), cm.get("detail") or {})
+        with _PLOCK:
+            rec["routes"] = route_state["routes"]
+        res["route_state"] = route_state
     res["elapsed_s"] = round(time.time() - t0, 3)
     return {"code": CODE_OK, "message": "success", "data": res}
 

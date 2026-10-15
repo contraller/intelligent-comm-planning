@@ -459,6 +459,7 @@ def sr6_demo():
 
 def publish(html, match, data):
     normalize_status(data)
+    data['w4']['interference_sources'] = load('interference_source.csv')
     data['sr5'] = fault_knowledge_demo()
     data['sr6'] = sr6_demo()
     packed = json.dumps(data, ensure_ascii=False, separators=(',', ':'), allow_nan=False).replace('</', '<\\/')

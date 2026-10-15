@@ -1,12 +1,14 @@
 import sys
 import io
 from pathlib import Path
+from types import SimpleNamespace
 
 from fastapi.testclient import TestClient
 from openpyxl import load_workbook
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
+sys.path.insert(0, str(ROOT / "scripts" / "planning"))
 sys.path.insert(0, str(ROOT / "algorithm-service"))
 
 from app.main import app
@@ -15,6 +17,87 @@ from app import planning_w3
 from app import coverage
 from app.runtime_store import write_json
 from app.planning_w4 import _PLANS, _save_plan
+
+
+def test_custom_interference_sources_override_presets():
+    rows = planning._interference_rows({
+        "interference_ids": ["IF-0001"],
+        "interference_sources": [{
+            "interference_id": "IF-USER-0001",
+            "name": "地图标绘源",
+            "lon": 114.2,
+            "lat": 37.1,
+            "center_freq_khz": 465906.2,
+            "bandwidth_khz": 25,
+            "tx_power_dbm": 50,
+            "active": True,
+        }],
+    })
+    assert len(rows) == 1
+    assert rows[0]["interference_id"] == "IF-USER-0001"
+    assert rows[0]["active"] == "true"
+    assert rows[0]["pattern_type"] == "OMNI"
+    assert rows[0]["duty_cycle"] == 1.0
+
+
+def test_custom_interference_source_validation():
+    try:
+        planning._interference_rows({"interference_sources": [{
+            "lon": 114.2, "lat": 37.1, "center_freq_khz": 0, "tx_power_dbm": 50,
+        }]})
+    except ValueError as exc:
+        assert "中心频率" in str(exc)
+    else:
+        raise AssertionError("zero center frequency should be rejected")
+
+
+def test_route_rebuild_updates_current_route_state():
+    routes = [{
+        "demand_id": "CD-0001", "strategy": "MAX_RELIABILITY", "reachable": True,
+        "primary": {"node_path": ["A", "B"]}, "backup": None,
+        "backup_type": "NONE", "single_point_risks": [],
+    }, {
+        "demand_id": "CD-0002", "strategy": "MAX_RELIABILITY", "reachable": True,
+        "primary": {"node_path": ["C", "D"]}, "backup": None,
+        "backup_type": "NONE", "single_point_risks": [],
+    }]
+    rebuilt = {
+        "demand_id": "CD-0001", "strategy": "MAX_RELIABILITY", "reachable": True,
+        "primary": {"node_path": ["A", "E", "B"]},
+        "backup": {"node_path": ["A", "F", "B"]},
+        "backup_type": "NODE_DISJOINT", "single_point_risks": [],
+    }
+    state = planning._apply_route_changes(
+        routes, {"rerouted": [rebuilt], "still_unreachable": ["CD-0002"]})
+    assert state["routes"][0]["primary"]["node_path"] == ["A", "E", "B"]
+    assert state["routes"][1]["reachable"] is False
+    assert state["summary"] == {
+        "total": 2, "reachable": 1, "unreachable": 1,
+        "with_backup": 1, "node_disjoint": 1,
+    }
+
+
+def test_route_measure_rebuilds_primary_and_backup_around_interference():
+    import interference
+    import routing
+
+    graph = routing.RouteGraph()
+    for lid, a, b in (("L-BAD", "A", "B"), ("L-AC", "A", "C"),
+                      ("L-CB", "C", "B"), ("L-AD", "A", "D"), ("L-DB", "D", "B")):
+        graph.add_link(lid, a, b, "VUHF", 20, 1000, 8)
+    graph.seal_band_switches()
+    routes = {"routes": [{
+        "demand_id": "CD-1", "strategy": "MAX_RELIABILITY", "reachable": True,
+        "primary": {"node_path": ["A", "B"], "link_path": ["L-BAD"]},
+        "backup": None, "backup_type": "NONE", "single_point_risks": [],
+    }]}
+    measure, reasons = interference._route_measure(
+        None, SimpleNamespace(link_id="L-BAD"), (graph, routes), {"L-BAD"})
+    rebuilt = measure["detail"]["rerouted"][0]
+    assert reasons == []
+    assert "L-BAD" not in rebuilt["primary"]["link_path"]
+    assert rebuilt["backup"] is not None
+    assert rebuilt["backup_type"] == "NODE_DISJOINT"
 
 
 def test_confirm_requires_successful_validation(tmp_path, monkeypatch):
