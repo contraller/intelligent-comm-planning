@@ -11,7 +11,7 @@ python -m uvicorn app.main:app --app-dir algorithm-service --host 127.0.0.1 --po
 
 ## 数据库与迁移
 
-数据库基础设施采用 SQLAlchemy 2.x 同步模式、Alembic 和 psycopg 3，目标数据库为 PostgreSQL/PostGIS。`0001_baseline` 是空迁移；`0002_task_input_persistence` 建立规划任务、不可变输入版本和保存回执三张表。现有 CSV/JSON 数据不会自动迁移。
+数据库基础设施采用 SQLAlchemy 2.x 同步模式、Alembic 和 psycopg 3，目标数据库为 PostgreSQL/PostGIS。`0001_baseline` 是空迁移；`0002_task_input_persistence` 建立规划任务、不可变输入版本和保存回执三张表；`0003_planning_jobs` 建立版本化规划作业表。现有 CSV/JSON 数据不会自动迁移。
 
 应用只从 `DATABASE_URL` 环境变量读取连接地址，不在仓库中保存真实凭据。可参考 `algorithm-service/.env.example`，在 PowerShell 中设置：
 
@@ -85,7 +85,33 @@ curl -X PUT 'http://127.0.0.1:8000/api/v1/task-inputs/DEMO-001' \
   -H 'Content-Type: application/json' --data-binary @request.json
 ```
 
-成功响应的 `data` 含 `task_id`、`revision`、`input_version`、`condition_version`、`resource_revision`、`input`、`updated_at` 和 `active_job_id`。再次保存同一任务时，`expected_revision` 填上次返回的 `revision`，并换一个 `request_id`；相同请求编号及内容重复提交会返回原版本。版本不一致或请求编号被不同内容复用时返回 HTTP 409。当前未校验 `resource_revision` 是否对应真实资源版本，`active_job_id` 返回 `null`；前端登录态联调需后续接入认证服务。
+成功响应的 `data` 含 `task_id`、`revision`、`input_version`、`condition_version`、`resource_revision`、`input`、`updated_at` 和 `active_job_id`。再次保存同一任务时，`expected_revision` 填上次返回的 `revision`，并换一个 `request_id`；相同请求编号及内容重复提交会返回原版本。版本不一致或请求编号被不同内容复用时返回 HTTP 409。保存接口不单独确认资源版本是否仍为当前版本；提交 SR4 时会同时校验任务、输入、条件和当前资源版本。`active_job_id` 目前仍返回 `null`；前端登录态联调需后续接入认证服务。
+
+### 提交版本化 SR4 作业
+
+任务保存成功后，将返回的版本字段原样传给 `POST /api/v1/plan/sr4-flow`：
+
+```json
+{
+  "context": "planning",
+  "request_id": "submit-DEMO-001-001",
+  "task_id": "DEMO-001",
+  "expected_revision": "TREV-替换为保存结果",
+  "input_version": "TREV-替换为保存结果",
+  "condition_version": "TCOND-替换为保存结果",
+  "resource_revision": "resource-替换为保存结果",
+  "parent_plan_id": null
+}
+```
+
+```bash
+curl -X POST 'http://127.0.0.1:8000/api/v1/plan/sr4-flow' \
+  -H 'Content-Type: application/json' --data-binary @sr4-submit.json
+```
+
+成功返回 HTTP 202，`data` 含 `job_id`、冻结的输入及三个版本号、`PENDING/RUNNING` 状态、进度和阶段列表。相同 `request_id` 与相同内容重复提交返回原作业；请求编号复用、任务版本变化、资源版本变化或同任务已有运行作业时返回 HTTP 409。当前支持三个基础预设和任务需求、连通率、最大中继跳数及抗毁性约束；频率过滤、部署高级条件、父方案和人工调整会明确返回不支持，不会静默忽略。
+
+该接口已经启动真实 SR4 算法并把作业状态写入 `planning_jobs`。`GET /api/v1/plan/tasks/{job_id}` 仍是旧结果结构，尚未适配前端严格的版本化作业响应；完成配套查询接口前，页面自动轮询不能视为已闭环。
 
 SR-5 场景及报告默认保存在 `data/runtime/`，可通过 `SR5_STORE_PATH` 和 `SR5_REPORT_DIR` 指定位置。SR-4 方案保存在 `data/runtime/plans/`（`SR4_PLAN_DIR`）；已完成的异步任务保存在 `data/runtime/tasks/`（`ALGORITHM_TASK_DIR`）；覆盖结果和覆盖任务分别保存在 `data/runtime/coverage/`（`COVERAGE_CACHE_DIR`）和 `data/runtime/coverage_tasks/`（`COVERAGE_TASK_DIR`）。运行中的任务在服务重启后不能恢复计算，须重新提交。运行目录已加入 `.gitignore`；正式部署时应配置持久卷并备份。当前持久化仅适用于单进程服务，多进程或多实例部署需另行设计共享存储。
 

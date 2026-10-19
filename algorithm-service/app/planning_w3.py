@@ -82,11 +82,12 @@ def _devices():
     return _CACHE["devices_x"]
 
 
-def _set(tid: str, **kw) -> None:
+def _set(tid: str, **kw) -> dict[str, Any]:
     with _LOCK:
         _TASKS.setdefault(tid, {}).update(kw)
         if _TASKS[tid].get("status") in ("SUCCESS", "FAILED"):
             write_json(TASK_DIR / (tid + ".json"), _TASKS[tid])
+        return dict(_TASKS[tid])
 
 
 def get_task_record(task_id: str) -> dict[str, Any]:
@@ -101,24 +102,31 @@ def get_task_record(task_id: str) -> dict[str, Any]:
         return dict(task or {})
 
 
-def _spawn(kind: str, payload: dict[str, Any], fn) -> dict[str, Any]:
+def _spawn(kind: str, payload: dict[str, Any], fn, *, task_id: str | None = None,
+           on_update=None) -> dict[str, Any]:
     if payload.get("callback_url") not in (None, ""):
         return {"code": CODE_BAD_PARAM, "message": "callback_url 尚未支持，请使用任务查询接口轮询",
                 "data": None}
-    tid = "tsk-%s" % uuid.uuid4().hex[:12]
-    _set(tid, task_id=tid, kind=kind, status="PENDING", progress=0.0,
-         stage="排队中", submitted_at=time.time(), result=None, error=None)
+    tid = task_id or "tsk-%s" % uuid.uuid4().hex[:12]
+
+    def publish(**fields):
+        state = _set(tid, **fields)
+        if on_update is not None:
+            on_update(state)
+
+    publish(task_id=tid, kind=kind, status="PENDING", progress=0.0,
+            stage="排队中", submitted_at=time.time(), result=None, error=None)
 
     def _worker():
         try:
-            _set(tid, status="RUNNING", progress=0.05, stage="加载数据")
-            data = fn(payload, lambda p, s: _set(tid, progress=p, stage=s))
-            _set(tid, status="SUCCESS", progress=1.0, stage="完成",
-                 result=data, finished_at=time.time())
+            publish(status="RUNNING", progress=0.05, stage="加载数据")
+            data = fn(payload, lambda p, s: publish(progress=p, stage=s))
+            publish(status="SUCCESS", progress=1.0, stage="完成",
+                    result=data, finished_at=time.time())
         except Exception as exc:                     # noqa: BLE001
-            _set(tid, status="FAILED", progress=1.0, stage="失败",
-                 error="%s: %s" % (type(exc).__name__, exc),
-                 finished_at=time.time())
+            publish(status="FAILED", progress=1.0, stage="失败",
+                    error="%s: %s" % (type(exc).__name__, exc),
+                    finished_at=time.time())
 
     threading.Thread(target=_worker, daemon=True).start()
     return {"code": CODE_OK, "message": "success",

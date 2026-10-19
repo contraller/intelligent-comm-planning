@@ -334,7 +334,8 @@ def _do_sr4(payload, tick):
                 check=o["check"]["summary"])
 
 
-def submit_sr4(payload: dict[str, Any]) -> dict[str, Any]:
+def submit_sr4(payload: dict[str, Any], *, job_id: str | None = None,
+               on_update=None) -> dict[str, Any]:
     import radio_params as RP
     import routing
     payload = payload or {}
@@ -350,7 +351,8 @@ def submit_sr4(payload: dict[str, Any]) -> dict[str, Any]:
     if payload.get("strategy", "MAX_RELIABILITY") not in routing.STRATEGIES:
         return {"code": CODE_BAD_ENUM, "message": "strategy 只能是 %s" % "/".join(routing.STRATEGIES),
                 "data": None}
-    return _spawn("SR4_FLOW", payload, _do_sr4)
+    return _spawn("SR4_FLOW", payload, _do_sr4,
+                  task_id=job_id, on_update=on_update)
 
 
 # ─────────────────────────── 方案管理（接口文档 2.8）───────────────────────────

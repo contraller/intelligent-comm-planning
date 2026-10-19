@@ -15,12 +15,15 @@ from .fault import (create_report, create_scenario, delete_scenario, export_impa
                     validate_scenario)
 from . import frontend_integration
 from . import kg
+from . import planning_job_service
 from . import sr4_integration
+from .planning_job_schemas import PlanningJobSubmitRequest
+from .planning_job_service import PlanningJobError
 from .planning_w3 import (query_task, submit_frequency, submit_plan_check,
                           submit_radio_params, submit_route)
 from .planning_w4 import (adopt_countermeasure, compare_plans, confirm_plan,
                           export_plan, get_plan, list_plans, submit_interference,
-                          submit_optimize, submit_sr4)
+                          submit_optimize)
 from .resource import (list_antenna_models, list_device_models,
                        list_frequency_pool, radio_param_presets)
 from .task_input_schemas import TaskSaveRequest
@@ -352,9 +355,40 @@ def interference_adopt(payload: dict[str, Any]) -> dict[str, Any]:
 
 
 @app.post("/api/v1/plan/sr4-flow")
-def plan_sr4_flow(payload: dict[str, Any]) -> dict[str, Any]:
+def plan_sr4_flow(payload: dict[str, Any], response: Response) -> dict[str, Any]:
     """SR-4 全流程：部署 → 路由 → 频率/功率 → 优化 → 闭环重做 → 干扰分析。"""
-    return submit_sr4(payload)
+    # 兼容旧调用方的枚举错误反馈；正式提交参数由下方版本化模型校验。
+    if "preset" in payload and payload["preset"] not in {
+            "TERRAIN", "MISSION", "INTERFERENCE"}:
+        return {"code": 1003, "message": "preset 取值非法", "data": None}
+    if "strategy" in payload and payload["strategy"] not in {
+            "SHORTEST_PATH", "MIN_DELAY", "MAX_RELIABILITY"}:
+        return {"code": 1003, "message": "strategy 取值非法", "data": None}
+    try:
+        request = PlanningJobSubmitRequest.model_validate(payload)
+        data = planning_job_service.submit_planning_job(request)
+        response.status_code = 202
+        return {"code": 0, "message": "计算任务已提交", "data": data,
+                "request_id": request.request_id}
+    except ValidationError as exc:
+        response.status_code = 422
+        issues = [{"objectId": str(payload.get("task_id") or "task"),
+                   "field": ".".join(map(str, issue["loc"])), "message": issue["msg"]}
+                  for issue in exc.errors()]
+        return {"code": 1001, "message": "SR4 提交参数校验失败", "data": issues,
+                "request_id": payload.get("request_id")}
+    except PlanningJobError as exc:
+        response.status_code = exc.status
+        return {"code": exc.code, "message": str(exc), "data": exc.data,
+                "request_id": payload.get("request_id")}
+    except DatabaseConfigurationError:
+        response.status_code = 503
+        return {"code": 5001, "message": "DATABASE_URL 未配置", "data": None,
+                "request_id": payload.get("request_id")}
+    except SQLAlchemyError:
+        response.status_code = 503
+        return {"code": 5002, "message": "数据库操作失败", "data": None,
+                "request_id": payload.get("request_id")}
 
 
 def _require_sr4_demo() -> None:

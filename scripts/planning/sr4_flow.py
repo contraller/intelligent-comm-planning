@@ -124,7 +124,11 @@ def run(task_id=None, preset="TERRAIN", strategy="MAX_RELIABILITY",
     demands_all = load("comm_demand.csv")
     if demand_rows is not None:
         replacements = {row["demand_id"]: dict(row) for row in demand_rows}
+        original_ids = {row["demand_id"] for row in demands_all}
         demands_all = [replacements.get(row["demand_id"], row) for row in demands_all]
+        # 数据库新建任务可使用自定义需求编号，不能只替换 CSV 中的既有需求。
+        demands_all.extend(row for demand_id, row in replacements.items()
+                           if demand_id not in original_ids)
     demands = [d for d in demands_all if task_id is None or d["task_id"] == task_id]
     if not demands:
         raise ValueError("任务 %s 没有通联需求" % task_id)
