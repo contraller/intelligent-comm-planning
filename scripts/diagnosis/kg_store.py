@@ -56,7 +56,7 @@ RELATION_SIGNATURES = {
     "hasParameter": ({"Device", "DeviceModel", "Link"}, {"Parameter"}),
     "producedBy": ({"DeviceModel"}, {"Manufacturer"}),
     "supportsMode": ({"Device", "DeviceModel"}, {"WorkMode"}),
-    "constrainedBy": ({"Device", "DeviceModel", "Function", "Link"}, {"Parameter"}),
+    "constrainedBy": ({"Device", "DeviceModel", "Function", "Link", "Fault"}, {"Parameter"}),
     "instanceOf": ({"Device", "Fault"}, {"DeviceModel", "FaultType"}),
     "installedAt": ({"Device"}, {"Node"}),
     "connects": ({"Link"}, {"Node"}),

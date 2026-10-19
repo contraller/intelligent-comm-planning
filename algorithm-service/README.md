@@ -9,6 +9,84 @@ python -m pip install -r algorithm-service/requirements.txt
 python -m uvicorn app.main:app --app-dir algorithm-service --host 127.0.0.1 --port 8000
 ```
 
+## 数据库与迁移
+
+数据库基础设施采用 SQLAlchemy 2.x 同步模式、Alembic 和 psycopg 3，目标数据库为 PostgreSQL/PostGIS。`0001_baseline` 是空迁移；`0002_task_input_persistence` 建立规划任务、不可变输入版本和保存回执三张表。现有 CSV/JSON 数据不会自动迁移。
+
+应用只从 `DATABASE_URL` 环境变量读取连接地址，不在仓库中保存真实凭据。可参考 `algorithm-service/.env.example`，在 PowerShell 中设置：
+
+```powershell
+$env:DATABASE_URL="postgresql+psycopg://radio_user:password@127.0.0.1:5432/radio_planning"
+```
+
+迁移命令均从仓库根目录执行：
+
+```powershell
+.\.venv\Scripts\python.exe -m alembic -c algorithm-service\alembic.ini history
+.\.venv\Scripts\python.exe -m alembic -c algorithm-service\alembic.ini current
+.\.venv\Scripts\python.exe -m alembic -c algorithm-service\alembic.ini upgrade head
+.\.venv\Scripts\python.exe -m alembic -c algorithm-service\alembic.ini downgrade -1
+```
+
+后续模型确认后，可生成新的迁移草稿：
+
+```powershell
+.\.venv\Scripts\python.exe -m alembic -c algorithm-service\alembic.ini revision --autogenerate -m "add core tables"
+```
+
+自动生成的迁移必须人工检查后再执行。正式环境不得使用 `Base.metadata.create_all()` 代替 Alembic。普通健康检查为 `GET /health`；数据库连接检查为 `GET /health/database`，后者执行 `SELECT 1`，数据库未配置或不可用时返回 HTTP 503。
+
+### 首个数据库业务接口
+
+本地演示可将数据库放在仓库 `data/runtime/` 下，并从仓库根目录运行迁移和服务：
+
+```powershell
+$env:DATABASE_URL="sqlite+pysqlite:///data/runtime/task_input_demo.sqlite"
+.\.venv\Scripts\python.exe -m alembic -c algorithm-service\alembic.ini upgrade head
+.\.venv\Scripts\python.exe -m uvicorn app.main:app --app-dir algorithm-service --host 127.0.0.1 --port 8000
+```
+
+若 `8000` 已被占用，可将启动命令中的端口改为 `8001`，并同步替换以下访问地址中的端口。
+
+打开 `http://127.0.0.1:8000/docs`，调用 `PUT /api/v1/task-inputs/{task_id}`。例如首次使用 `task_id=DEMO-001`，请求正文为：
+
+```json
+{
+  "context": "planning",
+  "task_id": "DEMO-001",
+  "expected_revision": null,
+  "resource_revision": "r1",
+  "request_id": "save-DEMO-001-001",
+  "input": {
+    "name": "测试通信任务",
+    "description": "接口验证",
+    "bbox": [113, 36, 116, 39],
+    "stationIds": ["N1", "N2"],
+    "presetId": "P1",
+    "frequencyId": "F1",
+    "startTime": null,
+    "durationH": null,
+    "constraints": {"connectivityPercent": 100, "maxRelayHops": 2, "survivabilityPercent": 90},
+    "demands": [{
+      "id": "D1", "sourceId": "N1", "targetId": "N2",
+      "endpointMode": "station", "sourceDeviceId": null, "targetDeviceId": null,
+      "preferredClass": null, "service": "数据", "priority": "P1",
+      "mandatory": true, "dataVolumeMb": 10, "requiredRateKbps": 64,
+      "maxDelayMs": 100, "minReliability": 0.95
+    }]
+  }
+}
+```
+
+也可用 curl 调用，将上述 JSON 放入本地 `request.json`（此文件无需加入版本库）：
+
+```bash
+curl -X PUT 'http://127.0.0.1:8000/api/v1/task-inputs/DEMO-001' \
+  -H 'Content-Type: application/json' --data-binary @request.json
+```
+
+成功响应的 `data` 含 `task_id`、`revision`、`input_version`、`condition_version`、`resource_revision`、`input`、`updated_at` 和 `active_job_id`。再次保存同一任务时，`expected_revision` 填上次返回的 `revision`，并换一个 `request_id`；相同请求编号及内容重复提交会返回原版本。版本不一致或请求编号被不同内容复用时返回 HTTP 409。当前未校验 `resource_revision` 是否对应真实资源版本，`active_job_id` 返回 `null`；前端登录态联调需后续接入认证服务。
+
 SR-5 场景及报告默认保存在 `data/runtime/`，可通过 `SR5_STORE_PATH` 和 `SR5_REPORT_DIR` 指定位置。SR-4 方案保存在 `data/runtime/plans/`（`SR4_PLAN_DIR`）；已完成的异步任务保存在 `data/runtime/tasks/`（`ALGORITHM_TASK_DIR`）；覆盖结果和覆盖任务分别保存在 `data/runtime/coverage/`（`COVERAGE_CACHE_DIR`）和 `data/runtime/coverage_tasks/`（`COVERAGE_TASK_DIR`）。运行中的任务在服务重启后不能恢复计算，须重新提交。运行目录已加入 `.gitignore`；正式部署时应配置持久卷并备份。当前持久化仅适用于单进程服务，多进程或多实例部署需另行设计共享存储。
 
 SR-6 三类知识图谱接口位于 `/api/v1/kg/*`，包含统计、实体/设备查询、模糊检索、子图/路径查询、按症状推理、链路状态评估、变更提交/审核、版本查询与回滚。`GET /api/v1/kg/triples` 可按 `graph`、`relation`、`source`、`entity` 追溯三元组；`GET /api/v1/kg/quality` 检查悬空实体、重复关系、缺失来源、关系类型约束和故障案例知识完整性。首版图谱由构造的设备台账、拓扑、链路状态及故障案例构建；`GET /api/v1/kg/stats` 返回各域规模和 `sr4_plan_validated=false`。链路状态规则使用构造记录挖掘，不能作为真实链路诊断准确率。故障推理结果有 `source_doc`，命中数仅用于排序。
@@ -36,6 +114,21 @@ SR-6 审核后的图谱、待审核变更与版本快照保存在 `data/runtime/
 影响结果的 `planning_check_passed` 保留上游 SR-4 方案的校验状态；若为 `false`，该次影响分析仅用于方案诊断和演示。
 `POST /api/v1/plans/{solution_id}/confirm` 仅接受通过全流程校验的 SR4_FLOW 方案或标记为可行的 NETWORK_OPTIMIZE 方案；当前含频率冲突的实跑方案不能确认。
 方案导出支持 JSON、CSV 和 XLSX。异步任务目前只支持轮询，非空 `callback_url` 会返回 `1001`；回调地址、签名与重试协议仍需联调确认。
+
+## 首个前端任务保存联调
+
+该联调入口使用固定身份，只用于本地验证“网络规划 → 保存任务”，不属于正式认证实现。数据库和运行文件均放在项目目录下。PowerShell 启动命令如下：
+
+```powershell
+$env:DATABASE_URL="sqlite+pysqlite:///data/runtime/task_input_demo.sqlite"
+$env:FRONTEND_INTEGRATION_DEMO="1"
+.\.venv\Scripts\python.exe -m alembic -c algorithm-service\alembic.ini upgrade head
+.\.venv\Scripts\python.exe -m uvicorn app.main:app --app-dir algorithm-service --host 127.0.0.1 --port 8001
+```
+
+联调身份仅授予规划查看、规划执行、资源查看和态势查看权限。前端初始化使用仓库现有节点、设备、型号、天线、频率及干扰源数据生成稳定资源版本；修改这些源文件后资源版本会随内容哈希变化。
+
+页面保存成功时，`data/runtime/task_input_demo.sqlite` 中的 `planning_tasks`、`planning_task_revisions` 和 `planning_operation_receipts` 会分别产生记录。正式账号密码、任务列表、历史任务打开和操作回执查询不在本次闭环范围内。
 
 ## 测试
 

@@ -19,3 +19,9 @@ venv/
 /data/runtime/
 /data/results/current_dem/*_checkpoint.pkl
 /.browser-tools/
+
+# 数据库本地配置与临时测试文件
+/algorithm-service/.env
+/algorithm-service/*.db
+/algorithm-service/*.sqlite
+/algorithm-service/*.sqlite3

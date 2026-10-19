@@ -99,7 +99,8 @@ def rows_from_solution(pb, e, nodes, devices, models):
 
 def run(task_id=None, preset="TERRAIN", strategy="MAX_RELIABILITY",
         constraints=None, pop_size=40, generations=40, verbose=True,
-        survivability_scope="NETWORK", extra_freq_rows=None):
+        survivability_scope="NETWORK", extra_freq_rows=None, interference_rows=None,
+        progress=None, demand_rows=None):
     """survivability_scope：抗毁性约束按全网（NETWORK，默认）还是按本任务（TASK）评估。
 
     默认按全网（待办 #20 的处理）：网络是各任务共用的，抗毁性是网络的属性；
@@ -121,20 +122,29 @@ def run(task_id=None, preset="TERRAIN", strategy="MAX_RELIABILITY",
     nodes, devices = load("node.csv"), load("device.csv")
     models, antennas = load("device_model.csv"), load("antenna_model.csv")
     demands_all = load("comm_demand.csv")
+    if demand_rows is not None:
+        replacements = {row["demand_id"]: dict(row) for row in demand_rows}
+        demands_all = [replacements.get(row["demand_id"], row) for row in demands_all]
     demands = [d for d in demands_all if task_id is None or d["task_id"] == task_id]
     if not demands:
         raise ValueError("任务 %s 没有通联需求" % task_id)
     pool_rows, jam_rows = load("frequency_resource.csv"), load("interference_source.csv")
+    if interference_rows is not None:
+        jam_rows = [dict(row) for row in interference_rows]
     pool_rows = pool_rows + extra_freq_rows
     metrics_rows, cand_rows = load("link_metric.csv"), load("candidate_site.csv")
     stations = stations_from_nodes(nodes, devices, models, antennas)
     steps.append(("1 任务条件输入（需求 %d 条）" % len(demands), time.time() - t0))
+    if progress:
+        progress(0.15, "任务与资源已加载")
 
     # ── 2 电台部署（第 2 周 P1）──
     t0 = time.time()
     fm, sol, links0, nodes1, devices1 = topology_from_deployment(
         stations, terrain, nodes, devices, models, cand_rows)
     steps.append(("2 电台部署（新增 %d 台）" % len(sol.added), time.time() - t0))
+    if progress:
+        progress(0.30, "电台部署完成")
 
     # ── 3 路由 + 频率 + 功率（第 3 周，在部署拓扑上）──
     t0 = time.time()
@@ -142,6 +152,8 @@ def run(task_id=None, preset="TERRAIN", strategy="MAX_RELIABILITY",
     caps1 = RP.capabilities_from_tables(st1, devices1, models, antennas)
     params1 = RP.plan(st1, RP.topo_from_links(st1, links0), caps1, terrain, preset=preset)
     steps.append(("3 初始功率配置", time.time() - t0))
+    if progress:
+        progress(0.40, "初始参数配置完成")
 
     # ── 4 方案优化（第 4 周 NSGA-II）──
     t0 = time.time()
@@ -153,6 +165,8 @@ def run(task_id=None, preset="TERRAIN", strategy="MAX_RELIABILITY",
     opt = MO.optimize(pb, constraints=cons, pop_size=pop_size, generations=generations)
     best = opt["solutions"][0]
     steps.append(("4 多目标优化（评估 %d 次）" % opt["evaluations"], time.time() - t0))
+    if progress:
+        progress(0.70, "多目标优化完成")
 
     # ── 5 闭环：在优化后的拓扑上重做路由、频率、功率 ──
     t0 = time.time()
@@ -174,6 +188,8 @@ def run(task_id=None, preset="TERRAIN", strategy="MAX_RELIABILITY",
                            uplinks={fm.stations[c].sid: fm.stations[p].sid
                                     for c, p in best["uplinks"].items()})
     steps.append(("5 优化后重做路由/频率/功率/校验", time.time() - t0))
+    if progress:
+        progress(0.85, "路由、频率与方案校验完成")
 
     # ── 6 干扰分析 ──
     t0 = time.time()
@@ -185,6 +201,8 @@ def run(task_id=None, preset="TERRAIN", strategy="MAX_RELIABILITY",
         sc, ana, freq_ctx=IF.FreqContext(ftasks, freq["assignments"]), caps=caps2,
         route_ctx=(g, routes), candidate_rows=cand_rows)
     steps.append(("6 干扰分析与抗干扰推荐", time.time() - t0))
+    if progress:
+        progress(0.95, "干扰分析完成，正在保存方案")
 
     total = time.time() - T
     out = dict(task_id=task_id, steps=steps, total_s=total, within_limit=total <= TIME_LIMIT_S,

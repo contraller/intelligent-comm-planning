@@ -32,7 +32,7 @@
    均超过 GitHub 单文件 100 MB 的硬限制，`git push` 会被直接拒绝。
    Git LFS 免费额度为 1 GB 存储 + 1 GB/月流量，一次 clone 即接近耗尽，不适合多人协作。
 2. **格式需要依赖**。GeoTIFF 与 Shapefile 都要 GDAL 系依赖才能读，
-   与 CLAUDE.md「只用标准库」的约束冲突。
+   与 PROJECT_RULES.md「只用标准库」的约束冲突。
 3. **版权**。41 份设备说明书为厂商版权资料（Motorola、Barrett、Harris、Yaesu 等），
    不适合公开分发，已从仓库排除，仅保留索引表。
 

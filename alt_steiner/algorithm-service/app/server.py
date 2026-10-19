@@ -1,6 +1,6 @@
 """阶段六 HTTP 接口层（SR-4.2.1.2 移动电台数量与位置规划）。
 
-纯标准库实现（http.server），满足 CLAUDE.md「纯标准库、禁止第三方依赖」硬约束；
+纯标准库实现（http.server），满足 PROJECT_RULES.md「纯标准库、禁止第三方依赖」硬约束；
 与算法核心 scripts/planning 解耦，仅通过 deployment_service 调用。
 
 实现的接口（对齐 docs/03_接口文档.md v0.1）：

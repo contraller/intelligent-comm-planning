@@ -40,7 +40,7 @@
 
 ## 为什么不直接提交原始文件
 
-1. **读取需要依赖、且慢**。GeoTIFF 与 Shapefile 的通用读法都要 GDAL 系依赖，与 CLAUDE.md「只用标准库」冲突；
+1. **读取需要依赖、且慢**。GeoTIFF 与 Shapefile 的通用读法都要 GDAL 系依赖，与 PROJECT_RULES.md「只用标准库」冲突；
    仓库自带的最小读取器能读，但地物原图 21600 × 17376 像素、展开 358 MB，每次加载都要逐行解码。
    预处理后的网格用 gzip + struct 即可读取，地形加载约 0.2 s。
 2. **没有可用的额外信息**。DEM 本身只有 30 m，地物保留约 9 m 原分辨率对传播计算没有增益。
@@ -63,7 +63,7 @@ python3 scripts/prepare_geodata.py
 
 DEM 的 `source_sha256` 记录原始 GeoTIFF 的哈希（`a42f42e1…`），可据此核对来源。
 
-**换了地理数据之后**，按 CLAUDE.md 重新生成测试数据与派生数据并校验：
+**换了地理数据之后**，按 PROJECT_RULES.md 重新生成测试数据与派生数据并校验：
 
 ```bash
 python3 scripts/gen_test_data.py

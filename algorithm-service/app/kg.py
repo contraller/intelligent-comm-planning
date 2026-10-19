@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import math
 import os
+import re
 import sys
 import threading
 from pathlib import Path
@@ -13,6 +14,7 @@ if str(ROOT / "scripts") not in sys.path:
     sys.path.insert(0, str(ROOT / "scripts"))
 
 from diagnosis.kg_store import ENTITY_TYPES, RELATIONS  # noqa: E402
+from diagnosis.sr5 import ALLOWED_OBJECTS, FAULT_TYPES  # noqa: E402
 from diagnosis.sr6 import add_diagnostic_steps, add_fault_taxonomy, build_graph  # noqa: E402
 
 STORE_PATH = Path(os.environ.get("SR6_STORE_PATH", ROOT / "data" / "runtime" / "sr6_graph.json"))
@@ -161,10 +163,13 @@ def device_knowledge(model_id):
 
 
 def infer(payload):
-    symptom_ids = payload.get("symptom_ids")
-    if not isinstance(symptom_ids, list) or not symptom_ids or not all(
-            isinstance(s, str) for s in symptom_ids):
-        return _bad("symptom_ids 必须是非空字符串列表")
+    symptom_ids = payload.get("symptom_ids") or []
+    symptom_names = payload.get("symptom_names") or []
+    if (not isinstance(symptom_ids, list) or not all(isinstance(s, str) for s in symptom_ids) or
+            not isinstance(symptom_names, list) or
+            not all(isinstance(s, str) and s.strip() for s in symptom_names) or
+            not symptom_ids and not symptom_names):
+        return _bad("symptom_ids 或 symptom_names 至少提供一项，且必须为非空字符串列表")
     from datapaths import path as data_path
     import csv
     with open(data_path("symptom_dict.csv"), encoding="utf-8-sig", newline="") as handle:
@@ -172,17 +177,19 @@ def infer(payload):
     missing = sorted(set(symptom_ids) - names.keys())
     if missing:
         return _bad("未知故障现象编号", data={"unknown_symptom_ids": missing})
+    query_names = {names[sid] for sid in symptom_ids}
+    query_names.update(name.strip() for name in symptom_names)
     with _LOCK:
         graph, _ = _load()
         found = {}
-        for sid in set(symptom_ids):
-            eid = graph.get("Symptom", names[sid])
+        for symptom_name in query_names:
+            eid = graph.get("Symptom", symptom_name)
             if eid is None:
                 continue
             for tr in graph.incoming(eid, "hasSymptom"):
                 fid = tr["head"]
                 rec = found.setdefault(fid, {"matched_symptom_ids": [], "evidence": []})
-                rec["matched_symptom_ids"].append(sid)
+                rec["matched_symptom_ids"].append(symptom_name)
                 rec["evidence"].append({"triple_id": tr["tid"], "source_doc": tr["source"]})
         ranked = []
         for fid, rec in found.items():
@@ -196,8 +203,148 @@ def infer(payload):
         ranked.sort(key=lambda r: (-r["match_count"], r["fault"]["name"]))
         if not ranked:
             return _bad("没有匹配的故障知识", 4001, {"similar": []})
-        return _ok({"candidates": ranked[:20], "provenance": "CONSTRUCTED",
+        provenance = ("MIXED_UNVERIFIED" if any(
+            "CONSTRUCTED" not in evidence["source_doc"] for row in ranked
+            for evidence in row["evidence"]) else "CONSTRUCTED")
+        return _ok({"candidates": ranked[:20], "provenance": provenance,
                     "confidence_note": "命中数仅用于排序，不是经真实案例校准的概率"})
+
+
+def _next_manual_case_id(graph):
+    used = {entity["name"] for entity in graph.of_type("Fault")}
+    for change in graph.pending:
+        for op in change.get("ops", []):
+            if op.get("op") == "add_triple" and op.get("head_type") == "Fault":
+                used.add(str(op.get("head", "")))
+    number = 1
+    while "FC-U%04d" % number in used:
+        number += 1
+    return "FC-U%04d" % number
+
+
+def _text(payload, key, required=True, max_length=500):
+    value = str(payload.get(key) or "").strip()
+    if required and not value:
+        raise ValueError(f"{key} 必填")
+    if len(value) > max_length:
+        raise ValueError(f"{key} 长度不得超过 {max_length}")
+    return value
+
+
+def submit_fault_case(payload):
+    """把一条人工故障案例展开成完整三元组变更，审核后发布到运行图谱。"""
+    payload = payload or {}
+    try:
+        fault_type = _text(payload, "fault_type", max_length=40)
+        object_type = _text(payload, "object_type", max_length=40)
+        device_class = _text(payload, "device_class", required=False, max_length=20)
+        root_cause = _text(payload, "root_cause")
+        component = _text(payload, "fault_component", required=False)
+        solution = _text(payload, "solution")
+        source_doc = _text(payload, "source_doc")
+        submitter = _text(payload, "submitter", max_length=100)
+        note = _text(payload, "note", required=False)
+        symptoms = payload.get("symptoms")
+        steps = payload.get("diagnosis_steps")
+        if fault_type not in FAULT_TYPES:
+            raise ValueError("fault_type 不在已登记故障类型中")
+        if object_type not in ALLOWED_OBJECTS[fault_type]:
+            raise ValueError(f"{fault_type} 不适用于对象类型 {object_type}")
+        if device_class not in ("", "HF", "VUHF"):
+            raise ValueError("device_class 应为 HF、VUHF 或留空")
+        if (not isinstance(symptoms, list) or not 1 <= len(symptoms) <= 20 or
+                not all(isinstance(item, str) and item.strip() for item in symptoms)):
+            raise ValueError("symptoms 必须是 1 到 20 项非空现象名称")
+        if (not isinstance(steps, list) or not 1 <= len(steps) <= 20 or
+                not all(isinstance(item, str) and item.strip() for item in steps)):
+            raise ValueError("diagnosis_steps 必须是 1 到 20 项非空步骤")
+        symptoms = list(dict.fromkeys(item.strip() for item in symptoms))
+        steps = list(dict.fromkeys(item.strip() for item in steps))
+    except ValueError as exc:
+        return _bad(str(exc))
+
+    with _LOCK:
+        graph, _ = _load()
+        case_id = str(payload.get("case_id") or "").strip().upper() or _next_manual_case_id(graph)
+        if not re.fullmatch(r"[A-Z0-9][A-Z0-9_-]{2,39}", case_id):
+            return _bad("case_id 仅允许 3 到 40 位大写字母、数字、下划线或连字符")
+        duplicate_pending = any(change.get("status") == "PENDING" and any(
+            op.get("op") == "add_triple" and op.get("head_type") == "Fault" and
+            op.get("head") == case_id for op in change.get("ops", [])) for change in graph.pending)
+        if graph.get("Fault", case_id) is not None or duplicate_pending:
+            return _bad("case_id 已存在或正在等待审核")
+
+        source = (source_doc if "MANUAL_UNVERIFIED" in source_doc
+                  else source_doc + " [MANUAL_UNVERIFIED]")
+        common = {"op": "add_triple", "head_type": "Fault", "head": case_id,
+                  "source": source, "graph": "fault"}
+        ops = [
+            {**common, "relation": "instanceOf", "tail_type": "FaultType", "tail": fault_type},
+            {**common, "relation": "occursOn", "tail_type": "ObjectType", "tail": object_type},
+            {**common, "relation": "recordedIn", "tail_type": "Case", "tail": case_id},
+            {**common, "relation": "causedBy", "tail_type": "Cause", "tail": root_cause},
+            {**common, "relation": "resolvedBy", "tail_type": "Solution", "tail": solution},
+        ]
+        if component:
+            ops.append({**common, "relation": "locatedAt", "tail_type": "Component",
+                        "tail": component})
+        if device_class:
+            ops.append({**common, "relation": "constrainedBy", "tail_type": "Parameter",
+                        "tail": "device_class=" + device_class})
+        ops.extend({**common, "relation": "hasSymptom", "tail_type": "Symptom", "tail": value}
+                   for value in symptoms)
+        ops.extend({**common, "relation": "diagnosedBy", "tail_type": "DiagnosisStep",
+                    "tail": "%02d:%s" % (index, value)}
+                   for index, value in enumerate(steps, 1))
+        change_id, errors = graph.submit_update(
+            ops, submitter, note or f"人工故障案例 {case_id}")
+        if errors:
+            return _bad("故障案例变更校验未通过", data={"errors": errors})
+        _save()
+        return _ok({"case_id": case_id, "change_id": change_id, "status": "PENDING",
+                    "triple_count": len(ops), "version": graph.version,
+                    "next_step": f"POST /api/v1/kg/updates/{change_id}/review"})
+
+
+def fault_cases(include_pending=True):
+    """列出已发布案例及其来源，供知识维护界面回显。"""
+    with _LOCK:
+        graph, _ = _load()
+        items = []
+        for fault in sorted(graph.of_type("Fault"), key=lambda item: item["name"]):
+            edges = list(graph.outgoing(fault["eid"]))
+            grouped = {}
+            for edge in edges:
+                grouped.setdefault(edge["relation"], []).append(
+                    (graph.ent(edge["tail"])["name"], edge["tid"], edge["source"]))
+            first = lambda relation: grouped.get(relation, [(None, None, None)])[0][0]
+            constraints = [row[0] for row in grouped.get("constrainedBy", [])]
+            items.append({"case_id": fault["name"], "status": "PUBLISHED",
+                          "fault_type": first("instanceOf"), "object_type": first("occursOn"),
+                          "device_class": next((x.split("=", 1)[1] for x in constraints
+                                                if x.startswith("device_class=")), None),
+                          "symptoms": [row[0] for row in grouped.get("hasSymptom", [])],
+                          "root_cause": first("causedBy"), "fault_component": first("locatedAt"),
+                          "solution": first("resolvedBy"),
+                          "diagnosis_steps": [row[0].split(":", 1)[-1]
+                                              for row in sorted(grouped.get("diagnosedBy", []))],
+                          "triple_ids": sorted(edge["tid"] for edge in edges),
+                          "source_docs": sorted({edge["source"] for edge in edges})})
+        pending_items = []
+        if include_pending:
+            for change in graph.pending:
+                if change.get("status") != "PENDING":
+                    continue
+                fault_ops = [op for op in change.get("ops", [])
+                             if op.get("op") == "add_triple" and op.get("head_type") == "Fault"]
+                if fault_ops:
+                    pending_items.append({"case_id": fault_ops[0].get("head"),
+                                          "change_id": change["change_id"],
+                                          "submitter": change.get("submitter"),
+                                          "note": change.get("note"),
+                                          "triple_count": len(fault_ops), "status": "PENDING"})
+        return _ok({"total": len(items), "items": items,
+                    "pending_total": len(pending_items), "pending_items": pending_items})
 
 
 def evaluate_link_state(payload):

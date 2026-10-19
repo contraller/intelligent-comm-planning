@@ -191,6 +191,10 @@ input[type=range] { width: 100%; accent-color: var(--accent); }
 input[type=number], input[type=text], select {
   background: var(--surface-3); border: 1px solid var(--border); border-radius: 6px; height: 28px; padding: 0 8px; min-width: 0;
 }
+textarea {
+  width: 100%; min-height: 68px; resize: vertical; background: var(--surface-3); color: var(--text-primary);
+  border: 1px solid var(--border); border-radius: 6px; padding: 7px 8px; font: inherit; line-height: 1.5;
+}
 input[type=checkbox] { accent-color: var(--accent); }
 .btn {
   height: 30px; padding: 0 14px; border-radius: 6px; border: 1px solid var(--border-strong);
@@ -222,6 +226,10 @@ input[type=checkbox] { accent-color: var(--accent); }
 .jam-form label { display: grid; gap: 3px; color: var(--text-muted); font-size: 11px; min-width: 0; }
 .jam-form input, .jam-form select { width: 100%; color: var(--text-primary); }
 .jam-form .wide { grid-column: 1 / -1; }
+.kg-form { display: grid; grid-template-columns: 1fr 1fr; gap: 9px; }
+.kg-form label { display: grid; gap: 4px; color: var(--text-muted); font-size: 11px; min-width: 0; }
+.kg-form input, .kg-form select { width: 100%; color: var(--text-primary); }
+.kg-form .wide { grid-column: 1 / -1; }
 .banner { border-radius: 8px; padding: 10px 12px; margin-bottom: 12px; font-size: 12.5px; border: 1px solid; display: flex; gap: 10px; align-items: flex-start; }
 .banner.ok { border-color: rgba(12, 163, 12, .5); background: rgba(12, 163, 12, .1); }
 .banner.bad { border-color: rgba(208, 59, 59, .55); background: rgba(208, 59, 59, .1); }
@@ -275,6 +283,8 @@ svg text { font-family: var(--font); }
   #console-body { height: 110px; }
   aside#panel { border-left: 0; overflow: visible; }
   .p-head { position: static; }
+  .kg-form { grid-template-columns: minmax(0, 1fr); }
+  .kg-form .wide { grid-column: auto; }
   #legend { max-width: 60%; font-size: 11px; }
 }
 </style>
@@ -2636,6 +2646,47 @@ const KG_REL = { hasSymptom: '表现为', causedBy: '根因', locatedAt: '定位
 const KG_SYM = new Map(KG.symptoms.map(r => [r[0], { id: r[0], name: r[1], source: r[2], metric: r[3], threshold: r[4] }]));
 const KG_CASES = KG.cases.map(r => ({ id: r[0], type: r[1], subtype: r[2], object: r[3], band: r[4], symptoms: r[5], cause: r[6], component: r[7], steps: r[8], solution: r[9], repair: r[10], source: r[11] }));
 const KG_TRIPLES = KG.triples.map(r => ({ id: r[0], head: r[1], headType: r[2], relation: r[3], tail: r[4], tailType: r[5], weight: r[6], source: r[7] }));
+const KG_USER_STORAGE = 'intelligent-planning.manual-fault-cases.v1';
+let KG_USER_CASES = [];
+try {
+  const saved = JSON.parse(localStorage.getItem(KG_USER_STORAGE) || '[]');
+  if (Array.isArray(saved)) KG_USER_CASES = saved;
+} catch (_) { KG_USER_CASES = []; }
+function kgHash(text) {
+  let h = 2166136261;
+  for (const ch of text) { h ^= ch.codePointAt(0); h = Math.imul(h, 16777619); }
+  return (h >>> 0).toString(36).toUpperCase();
+}
+function kgSymptomId(name) {
+  const found = [...KG_SYM.values()].find(row => row.name === name);
+  if (found) return found.id;
+  let id = 'SY-U' + kgHash(name).slice(0, 7), suffix = 1;
+  while (KG_SYM.has(id) && KG_SYM.get(id).name !== name) id = 'SY-U' + kgHash(name).slice(0, 5) + suffix++;
+  KG_SYM.set(id, { id, name, source: 'MANUAL', metric: '', threshold: '', user: true });
+  return id;
+}
+function kgInstallUserCase(raw) {
+  if (!raw || !raw.id || KG_CASES.some(row => row.id === raw.id)) return;
+  const source = `${raw.source || '浏览器手工录入'} [BROWSER_LOCAL_UNVERIFIED]`;
+  const symptomNames = [...new Set((raw.symptoms || []).map(v => String(v).trim()).filter(Boolean))];
+  const symptomIds = symptomNames.map(kgSymptomId);
+  const c = { id: raw.id, type: raw.type, subtype: raw.component || '人工案例', object: raw.object,
+    band: raw.band || '', symptoms: symptomIds, cause: raw.cause, component: raw.component || '未填写',
+    steps: raw.steps || [], solution: raw.solution, repair: raw.repair || '—', source, user: true };
+  KG_CASES.push(c);
+  const rows = [
+    ['instanceOf', raw.type, 'FaultType'], ['occursOn', raw.object, 'ObjectType'],
+    ['recordedIn', raw.id, 'Case'], ['causedBy', raw.cause, 'Cause'],
+    ['resolvedBy', raw.solution, 'Solution'],
+  ];
+  if (raw.component) rows.push(['locatedAt', raw.component, 'Component']);
+  if (raw.band) rows.push(['constrainedBy', `device_class=${raw.band}`, 'Parameter']);
+  symptomNames.forEach(name => rows.push(['hasSymptom', name, 'Symptom']));
+  (raw.steps || []).forEach((step, i) => rows.push(['diagnosedBy', `${String(i + 1).padStart(2, '0')}:${step}`, 'DiagnosisStep']));
+  rows.forEach((row, i) => KG_TRIPLES.push({ id: `KGL-${raw.id}-${String(i + 1).padStart(2, '0')}`,
+    head: raw.id, headType: 'Fault', relation: row[0], tail: row[1], tailType: row[2], weight: 1, source }));
+}
+KG_USER_CASES.forEach(kgInstallUserCase);
 const KG_BY_HEAD = new Map();
 for (const t of KG_TRIPLES) { if (!KG_BY_HEAD.has(t.head)) KG_BY_HEAD.set(t.head, []); KG_BY_HEAD.get(t.head).push(t); }
 
@@ -2719,21 +2770,21 @@ const Knowledge = {
       <div class="small sec">命中 ${r.hit.map(id => esc(KG_SYM.get(id).name)).join('、')}</div><div class="small muted">${esc(r.c.cause)}</div></div>`).join('');
     return `<p class="p-desc">选择观测现象，页面按 SR-5 图谱分支的同一评分规则查找候选案例，并展示可追溯三元组路径。</p>
       <section class="card"><h2>图谱规模</h2><div class="kpis">
-        <div class="kpi"><div class="l">故障案例</div><div class="v">${KG.stats.cases}<small>条</small></div></div>
-        <div class="kpi"><div class="l">故障三元组</div><div class="v">${KG.stats.triples}<small>条</small></div></div>
+        <div class="kpi"><div class="l">故障案例</div><div class="v">${KG_CASES.length}<small>条</small></div><div class="d">手工新增 ${KG_USER_CASES.length}</div></div>
+        <div class="kpi"><div class="l">故障三元组</div><div class="v">${KG_TRIPLES.length}<small>条</small></div></div>
         <div class="kpi"><div class="l">诊断规则</div><div class="v">${KG.stats.rules}<small>条</small></div></div>
-        <div class="kpi"><div class="l">故障现象</div><div class="v">${KG.stats.symptoms}<small>种</small></div></div>
+        <div class="kpi"><div class="l">故障现象</div><div class="v">${KG_SYM.size}<small>种</small></div></div>
       </div></section>
       <section class="card"><h2>测试输入<span class="sp"></span><button class="btn sm" id="kg-clear">清空</button></h2>
         <div class="row" style="margin-bottom:8px"><select id="kg-object" aria-label="对象类型"><option value="DEVICE" ${this.object === 'DEVICE' ? 'selected' : ''}>设备</option><option value="LINK" ${this.object === 'LINK' ? 'selected' : ''}>链路</option><option value="NODE" ${this.object === 'NODE' ? 'selected' : ''}>节点</option><option value="ALL" ${this.object === 'ALL' ? 'selected' : ''}>全部对象</option></select>
         <select id="kg-band" aria-label="频段"><option value="VUHF" ${this.band === 'VUHF' ? 'selected' : ''}>超短波</option><option value="HF" ${this.band === 'HF' ? 'selected' : ''}>短波</option><option value="ALL" ${this.band === 'ALL' ? 'selected' : ''}>全部频段</option></select></div>
-        <div class="chips">${KG.symptoms.map(s => `<label class="cbx"><input type="checkbox" data-kgsym="${s[0]}" ${this.selected.has(s[0]) ? 'checked' : ''}>${esc(s[1])}</label>`).join('')}</div>
+        <div class="chips">${[...KG_SYM.values()].map(s => `<label class="cbx"><input type="checkbox" data-kgsym="${s.id}" ${this.selected.has(s.id) ? 'checked' : ''}>${esc(s.name)}${s.user ? ' · 手工' : ''}</label>`).join('')}</div>
         <div class="row" style="margin-top:10px"><span class="small muted">一键样例</span>${byType}</div>
       </section>
       <section class="card"><h2>候选故障（${rows.length}）<span class="sp"></span>${chosen ? `<span class="tag fe">图谱置信度 ${pct(chosen.score, 0)}</span>` : ''}</h2>
         <div class="scroll" style="max-height:250px">${resultRows || '<div class="banner warn"><span class="ic">!</span><div>当前构造图谱没有匹配路径，请调整对象、频段或现象。</div></div>'}</div>
       </section>
-      ${c ? `<section class="card"><h2>${c.id} · ${esc(KG_TYPE[c.type] || c.type)}</h2>${kv([
+      ${c ? `<section class="card"><h2>${c.id} · ${esc(KG_TYPE[c.type] || c.type)}${c.user ? '<span class="tag warn">本机知识</span>' : ''}</h2>${kv([
         ['根因', esc(c.cause)], ['故障部件', esc(c.component)], ['处置方案', esc(c.solution)], ['预计维修', esc(c.repair) + ' min'], ['人工复核', '<span class="warn-t">需要</span>']])}
         <div class="stepper" style="margin-top:10px">${c.steps.map((s, i) => `<div class="step done"><div class="b">${i + 1}</div><div class="small">${esc(s)}</div></div>`).join('')}</div></section>
       <section class="card"><h2>可溯源三元组（${path.length}）</h2><div class="scroll" style="max-height:310px"><table class="t"><thead><tr><th>ID</th><th>关系路径</th></tr></thead><tbody>${path.map(t => `<tr><td class="mono">${t.id}</td><td><div>${esc(t.head)} <span class="tag">${esc(t.relation)}</span> ${esc(t.tail)}</div><div class="small muted">${esc(t.source)}</div></td></tr>`).join('')}</tbody></table></div></section>` : ''}
@@ -2773,7 +2824,7 @@ const Knowledge = {
     box(leftX, cy - bh / 2, bw, bh, 'Symptom', symptomNames, C.vuhf);
     box(faultPos[0], faultPos[1], fw, 80, 'Fault', `${c.id} · ${KG_TYPE[c.type]}`, C.critical);
     for (const [y, title, value, color] of right) box(rightX, y, Math.min(230, W - rightX - 24), bh, title, value, color);
-    ctx.fillStyle = C['text-muted']; ctx.font = '11px ' + MONO; ctx.fillText(`source: fault_cases_v1.csv#${c.id} [CONSTRUCTED]`, 28, H - 24);
+    ctx.fillStyle = C['text-muted']; ctx.font = '11px ' + MONO; ctx.fillText(`source: ${c.source}`, 28, H - 24);
     ctx.restore();
   },
 };
@@ -2785,19 +2836,41 @@ App.register(Knowledge);
 const SR6 = D.sr6;
 const SR6Platform = {
   id: 'sr6', title: '知识图谱平台', group: '第 6 周 · SR-6 知识图谱', sub: '设备 · 态势 · 故障 · 质量',
-  tags: [['SR-6.1–SR-6.3'], ['三域 5853 条关系', 'be'], ['结构质量 PASS', 'fe']],
-  tab: 'overview', model: 0, linkExample: 0, domain: 'device',
+  tags: [['SR-6.1–SR-6.3'], [`三域 ${SR6.stats.triples + KG_TRIPLES.length - KG.stats.triples} 条关系`, 'be'], ['基础结构 PASS', 'fe']],
+  tab: 'overview', model: 0, linkExample: 0, domain: 'device', formError: '', formStatus: '',
   layers: { terrain: false, landcover: false, roads: false, grid: false, bbox: false },
   enter() { $('#layerctl').style.display = 'none'; $('#readout').style.display = 'none'; $('#zin').parentElement.style.display = 'none'; },
   leave() { $('#layerctl').style.display = ''; $('#readout').style.display = ''; $('#zin').parentElement.style.display = ''; },
-  tabs() { return `<div class="seg" style="margin-bottom:12px">${[['overview', '三域总览'], ['device', '设备知识'], ['network', '网络态势'], ['quality', '质量与追溯']].map(([k, v]) => `<button data-sr6tab="${k}" class="${this.tab === k ? 'on' : ''}">${v}</button>`).join('')}</div>`; },
-  render() { return this.tabs() + (this.tab === 'overview' ? this.renderOverview() : this.tab === 'device' ? this.renderDevice() : this.tab === 'network' ? this.renderNetwork() : this.renderQuality()); },
+  tabs() { return `<div class="seg" style="margin-bottom:12px">${[['overview', '三域总览'], ['device', '设备知识'], ['network', '网络态势'], ['maintain', '故障知识维护'], ['quality', '质量与追溯']].map(([k, v]) => `<button data-sr6tab="${k}" class="${this.tab === k ? 'on' : ''}">${v}</button>`).join('')}</div>`; },
+  render() { return this.tabs() + (this.tab === 'overview' ? this.renderOverview() : this.tab === 'device' ? this.renderDevice() : this.tab === 'network' ? this.renderNetwork() : this.tab === 'maintain' ? this.renderMaintain() : this.renderQuality()); },
   renderOverview() {
-    const s = SR6.stats, d = s.by_graph;
+    const s = SR6.stats, d = s.by_graph, localTriples = KG_TRIPLES.length - KG.stats.triples;
     return `<p class="p-desc">统一存储设备、网络态势和故障知识，支持实体检索、多跳路径、推理、增量提交、双人审核、版本发布和回滚。</p>
-      <section class="card"><h2>运行图谱规模</h2><div class="kpis"><div class="kpi"><div class="l">实体</div><div class="v">${fint(s.entities)}<small>个</small></div></div><div class="kpi"><div class="l">三元组</div><div class="v">${fint(s.triples)}<small>条</small></div></div><div class="kpi"><div class="l">图谱版本</div><div class="v">v${s.version}</div></div><div class="kpi"><div class="l">待审核</div><div class="v">${s.pending}<small>项</small></div></div></div></section>
-      <section class="card"><h2>三类知识域</h2>${[['device', '设备知识', d.device, '型号、设备、天线、功能、参数与安装节点'], ['network', '网络态势', d.network, '节点、链路、五项指标、四级状态与演化规则'], ['fault', '故障知识', d.fault, '现象、类型、根因、部件、步骤、方案与案例']].map(([k, n, v, note]) => `<div class="list-item" data-domain="${k}"><div class="row"><b>${n}</b><span class="sp"></span><b class="num">${fint(v)} 条</b></div><div class="small muted">${note}</div></div>`).join('')}</section>
+      <section class="card"><h2>运行图谱规模</h2><div class="kpis"><div class="kpi"><div class="l">实体</div><div class="v">${fint(s.entities)}<small>个</small></div></div><div class="kpi"><div class="l">三元组</div><div class="v">${fint(s.triples + localTriples)}<small>条</small></div><div class="d">本机新增 ${localTriples}</div></div><div class="kpi"><div class="l">图谱版本</div><div class="v">v${s.version}</div></div><div class="kpi"><div class="l">本机知识储备</div><div class="v">${KG_USER_CASES.length}<small>条</small></div></div></div></section>
+      <section class="card"><h2>三类知识域</h2>${[['device', '设备知识', d.device, '型号、设备、天线、功能、参数与安装节点'], ['network', '网络态势', d.network, '节点、链路、五项指标、四级状态与演化规则'], ['fault', '故障知识', d.fault + localTriples, '现象、类型、根因、部件、步骤、方案与案例']].map(([k, n, v, note]) => `<div class="list-item" data-domain="${k}"><div class="row"><b>${n}</b><span class="sp"></span><b class="num">${fint(v)} 条</b></div><div class="small muted">${note}</div></div>`).join('')}</section>
       <section class="card"><h2>维护闭环</h2><div class="stepper small"><div class="step done"><div class="b">1</div><div>SR5 人工确认诊断结论</div></div><div class="step done"><div class="b">2</div><div>生成待审核三元组变更</div></div><div class="step done"><div class="b">3</div><div>知识管理员审核发布新版本</div></div><div class="step done"><div class="b">4</div><div>新案例参与后续图谱推理，可按版本回滚</div></div></div></section>`;
+  },
+  renderMaintain() {
+    const stored = KG_USER_CASES.slice().reverse();
+    return `<p class="p-desc">按一条完整故障案例录入知识。保存后自动展开为图谱三元组，并立即加入本页面的故障图谱推理候选。</p>
+      ${this.formError ? `<div class="banner bad"><span class="ic">!</span><div>${esc(this.formError)}</div></div>` : ''}
+      ${this.formStatus ? `<div class="banner ok"><span class="ic">✓</span><div>${esc(this.formStatus)}</div></div>` : ''}
+      <section class="card"><h2>新增故障知识</h2><div class="kg-form">
+        <label>故障类型<select id="kgm-type"><option value="HW_FAILURE">硬件故障</option><option value="LINK_DOWN">链路中断</option><option value="SW_CONFIG">软件配置异常</option><option value="EMI">电磁干扰</option></select></label>
+        <label>适用对象<select id="kgm-object"><option value="DEVICE">设备</option><option value="NODE">节点</option><option value="LINK">链路</option></select></label>
+        <label>适用频段<select id="kgm-band"><option value="VUHF">超短波</option><option value="HF">短波</option><option value="">不限频段</option></select></label>
+        <label>故障部件<input id="kgm-component" type="text" placeholder="例如：音频处理模块"></label>
+        <label class="wide">故障现象，每行一项<textarea id="kgm-symptoms" placeholder="例如：接收音频间歇性啸叫&#10;例如：重新插接后短暂恢复"></textarea></label>
+        <label class="wide">根本原因<input id="kgm-cause" type="text" placeholder="经检查确认的原因"></label>
+        <label class="wide">诊断步骤，每行一项<textarea id="kgm-steps" placeholder="复现故障&#10;检查相关部件&#10;处置后复测"></textarea></label>
+        <label class="wide">解决方案<input id="kgm-solution" type="text" placeholder="维修或配置处置方法"></label>
+        <label>预计维修时间（分钟）<input id="kgm-repair" type="number" min="0" step="1" value="30"></label>
+        <label>录入人<input id="kgm-submitter" type="text" value="演示操作员"></label>
+        <label class="wide">知识来源<input id="kgm-source" type="text" placeholder="维修记录编号、手册章节或专家确认记录"></label>
+      </div><div class="row" style="margin-top:10px"><button class="btn primary" id="kgm-save">保存到知识储备</button><button class="btn" id="kgm-export" ${stored.length ? '' : 'disabled'}>导出 JSON</button></div>
+      <p class="note">离线 HTML 保存到当前浏览器的 localStorage，并标记为 BROWSER_LOCAL_UNVERIFIED。正式系统使用 <span class="mono">POST /api/v1/kg/fault-cases</span> 提交，知识管理员审核后写入版本化图谱。</p></section>
+      <section class="card"><h2>本机故障知识（${stored.length}）</h2><div class="scroll" style="max-height:360px">${stored.map(c => `<div class="list-item"><div class="row"><b class="mono">${esc(c.id)}</b><span class="tag">${esc(KG_TYPE[c.type] || c.type)}</span><span class="sp"></span><button class="btn sm" data-kgm-test="${esc(c.id)}">用于推理</button><button class="btn sm" data-kgm-delete="${esc(c.id)}" aria-label="删除故障知识">删除</button></div><div class="small sec">${esc((c.symptoms || []).join('、'))}</div><div class="small muted">${esc(c.cause)} · ${esc(c.source)}</div></div>`).join('') || '<div class="small muted">尚未手工添加故障知识。</div>'}</div></section>
+      <div class="banner warn"><span class="ic">!</span><div>手工录入知识必须保留来源并经过复核。浏览器本机数据用于演示，不替代后端审核发布。</div></div>`;
   },
   renderDevice() {
     const row = SR6.device_models[this.model], m = row.model;
@@ -2821,10 +2894,50 @@ const SR6Platform = {
   },
   bind(root) {
     $$('[data-sr6tab]', root).forEach(b => b.onclick = () => { this.tab = b.dataset.sr6tab; App.refresh(); });
-    $$('[data-domain]', root).forEach(b => b.onclick = () => { this.tab = b.dataset.domain === 'device' ? 'device' : b.dataset.domain === 'network' ? 'network' : 'quality'; this.domain = b.dataset.domain; App.refresh(); });
+    $$('[data-domain]', root).forEach(b => b.onclick = () => { this.tab = b.dataset.domain === 'device' ? 'device' : b.dataset.domain === 'network' ? 'network' : 'maintain'; this.domain = b.dataset.domain; App.refresh(); });
     const model = $('#sr6-model', root); if (model) model.onchange = e => { this.model = +e.target.value; App.refresh(); };
     const link = $('#sr6-link', root); if (link) link.onchange = e => { this.linkExample = +e.target.value; App.refresh(); };
     $$('[data-sr6domain]', root).forEach(b => b.onclick = () => { this.domain = b.dataset.sr6domain; App.refresh(); });
+    const save = $('#kgm-save', root); if (save) save.onclick = () => {
+      const value = id => ($(id, root)?.value || '').trim();
+      const list = id => value(id).split(/[\n;；]+/).map(x => x.trim()).filter(Boolean);
+      const type = value('#kgm-type'), object = value('#kgm-object');
+      const allowed = { HW_FAILURE: ['DEVICE', 'NODE'], LINK_DOWN: ['LINK'], SW_CONFIG: ['DEVICE', 'NODE'], EMI: ['LINK', 'NODE'] };
+      const symptoms = [...new Set(list('#kgm-symptoms'))], steps = [...new Set(list('#kgm-steps'))];
+      const required = [['故障现象', symptoms.length], ['根本原因', value('#kgm-cause')], ['诊断步骤', steps.length], ['解决方案', value('#kgm-solution')], ['知识来源', value('#kgm-source')], ['录入人', value('#kgm-submitter')]];
+      const missing = required.filter(([, v]) => !v).map(([name]) => name);
+      if (!allowed[type]?.includes(object)) this.formError = `${KG_TYPE[type]}不适用于${object === 'DEVICE' ? '设备' : object === 'NODE' ? '节点' : '链路'}对象`;
+      else if (missing.length) this.formError = `请填写：${missing.join('、')}`;
+      else if (symptoms.length > 20 || steps.length > 20) this.formError = '故障现象和诊断步骤均不能超过 20 项';
+      else {
+        const numbers = KG_USER_CASES.map(c => +(String(c.id).match(/^FC-U(\d+)$/)?.[1] || 0));
+        const id = `FC-U${String(Math.max(0, ...numbers) + 1).padStart(4, '0')}`;
+        const row = { id, type, object, band: value('#kgm-band'), component: value('#kgm-component'),
+          symptoms, cause: value('#kgm-cause'), steps, solution: value('#kgm-solution'),
+          repair: value('#kgm-repair') || '—', source: value('#kgm-source'), submitter: value('#kgm-submitter'),
+          createdAt: new Date().toISOString() };
+        try {
+          KG_USER_CASES.push(row); localStorage.setItem(KG_USER_STORAGE, JSON.stringify(KG_USER_CASES));
+          kgInstallUserCase(row);
+          for (const t of KG_TRIPLES.filter(t => t.head === id)) { if (!KG_BY_HEAD.has(id)) KG_BY_HEAD.set(id, []); if (!KG_BY_HEAD.get(id).includes(t)) KG_BY_HEAD.get(id).push(t); }
+          this.tags[1][0] = `三域 ${SR6.stats.triples + KG_TRIPLES.length - KG.stats.triples} 条关系`;
+          this.formError = ''; this.formStatus = `${id} 已保存，生成 ${KG_BY_HEAD.get(id).length} 条可溯源三元组并加入推理。`;
+          Log.local(`故障知识录入：${id}，${symptoms.length} 个现象，${steps.length} 个诊断步骤`); App.refresh();
+        } catch (err) { KG_USER_CASES = KG_USER_CASES.filter(c => c.id !== id); this.formError = `浏览器存储失败：${err.message}`; this.formStatus = ''; App.refresh(); }
+      }
+      if (this.formError) { this.formStatus = ''; App.refresh(); }
+    };
+    const exp = $('#kgm-export', root); if (exp) exp.onclick = () => download('manual_fault_cases.json', JSON.stringify({ schema: 'manual-fault-cases.v1', cases: KG_USER_CASES }, null, 2), 'application/json');
+    $$('[data-kgm-delete]', root).forEach(b => b.onclick = () => {
+      KG_USER_CASES = KG_USER_CASES.filter(c => c.id !== b.dataset.kgmDelete);
+      localStorage.setItem(KG_USER_STORAGE, JSON.stringify(KG_USER_CASES));
+      location.reload();
+    });
+    $$('[data-kgm-test]', root).forEach(b => b.onclick = () => {
+      const c = KG_CASES.find(row => row.id === b.dataset.kgmTest); if (!c) return;
+      Knowledge.selected = new Set(c.symptoms); Knowledge.object = c.object; Knowledge.band = c.band || 'ALL'; Knowledge.selectedCase = c.id;
+      App.go('knowledge');
+    });
   },
   draw(ctx) {
     const W = M.W, H = M.H; ctx.save(); ctx.fillStyle = '#0a0e11'; ctx.fillRect(0, 0, W, H);

@@ -313,18 +313,21 @@ def _do_sr4(payload, tick):
                      preset=payload.get("preset", "TERRAIN"),
                      strategy=payload.get("strategy", "MAX_RELIABILITY"),
                      constraints=payload.get("hard_constraints"), verbose=False,
-                     survivability_scope=payload.get("survivability_scope", "NETWORK"))
+                     survivability_scope=payload.get("survivability_scope", "NETWORK"),
+                     interference_rows=payload.get("interference_rows"),
+                     demand_rows=payload.get("demand_rows"), progress=tick)
     b = o["optimization"]["best"]
     summary = dict(task_id=o["task_id"], total_s=round(o["total_s"], 2),
                    within_limit=o["within_limit"], objectives=b["objectives"],
                    feasible=o["optimization"]["feasible"],
                    frequency_conflicts=len(o["frequency"]["conflicts"]),
                    check_passed=o["check"]["passed"],
-                   affected_links=o["interference"]["analysis"]["summary"]["affected_links"])
+                   affected_links=o["interference"]["analysis"]["summary"]["affected_links"],
+                   snapshot_id=payload.get("snapshot_id"))
     detail = dict(steps=[dict(stage=n, seconds=round(t, 3)) for n, t in o["steps"]],
                   optimization=o["optimization"], routes=o["routes"],
                   frequency=o["frequency"], params=o["params"], check=o["check"],
-                  interference=o["interference"], links=o["links"])
+                  interference=o["interference"], links=o["links"], nodes=o["nodes"])
     pid = _save_plan("SR4_FLOW", summary, detail)
     return dict(solution_id=pid, summary=summary,
                 steps=detail["steps"], optimization=o["optimization"],

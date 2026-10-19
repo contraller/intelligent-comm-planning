@@ -173,6 +173,54 @@ def test_reviewed_diagnosis_feedback_enters_kg_and_future_inference(client):
     assert case_id in {row["case_id"] for row in kg_branch["evidence"]["candidate_rankings"]}
 
 
+def test_manual_fault_case_is_persisted_reviewed_and_reused(client):
+    payload = {
+        "fault_type": "HW_FAILURE", "object_type": "DEVICE", "device_class": "",
+        "symptoms": ["人工新增的间歇性音频啸叫"],
+        "root_cause": "音频板连接器接触不良", "fault_component": "音频处理模块",
+        "diagnosis_steps": ["复现音频异常", "检查连接器", "重新插接并复测"],
+        "solution": "清洁并重新固定音频板连接器",
+        "source_doc": "现场维修单#TEST-001", "submitter": "operator-a",
+        "note": "测试人工案例录入",
+    }
+    submitted = client.post("/api/v1/kg/fault-cases", json=payload).json()
+    assert submitted["code"] == 0
+    case_id = submitted["data"]["case_id"]
+    change_id = submitted["data"]["change_id"]
+    assert submitted["data"]["status"] == "PENDING"
+    assert submitted["data"]["triple_count"] == 10
+    pending = client.get("/api/v1/kg/fault-cases").json()["data"]
+    assert any(row["case_id"] == case_id for row in pending["pending_items"])
+    assert client.post(f"/api/v1/kg/updates/{change_id}/review", json={
+        "approve": True, "reviewer": "knowledge-reviewer"}).json()["code"] == 0
+
+    cases = client.get("/api/v1/kg/fault-cases").json()["data"]
+    saved = next(row for row in cases["items"] if row["case_id"] == case_id)
+    assert saved["root_cause"] == payload["root_cause"]
+    assert saved["diagnosis_steps"] == payload["diagnosis_steps"]
+    assert all("MANUAL_UNVERIFIED" in source for source in saved["source_docs"])
+    kg._GRAPH = None
+    kg._STATE = None
+    reloaded = client.get("/api/v1/kg/fault-cases").json()["data"]
+    assert any(row["case_id"] == case_id for row in reloaded["items"])
+    inferred = client.post("/api/v1/kg/infer", json={
+        "symptom_names": payload["symptoms"]}).json()
+    assert inferred["code"] == 0
+    assert inferred["data"]["candidates"][0]["fault"]["name"] == case_id
+    assert inferred["data"]["provenance"] == "MIXED_UNVERIFIED"
+
+    example = service._engine().default_scenarios[0]["faults"][0]
+    observation = {key: value for key, value in example.items()
+                   if key not in {"fault_type", "symptom_ids"}}
+    observation["symptom_names"] = payload["symptoms"]
+    task = client.post("/api/v1/fault/diagnose/observations", json={
+        "scenario_name": "manual knowledge reuse", "faults": [observation]}).json()
+    diagnosis = completed(client, task["data"]["task_id"])["data"]
+    branch = next(row for row in diagnosis["results"][0]["branches"] if row["source"] == "KG")
+    assert branch["fault_type"] == "HW_FAILURE"
+    assert branch["evidence"]["case_id"] == case_id
+
+
 def test_minor_impact_for_nonmandatory_degraded_endpoint(monkeypatch):
     engine = FaultEngine()
     scenario = next(s for s in engine.default_scenarios if s["scenario_id"] == "FS-0004")

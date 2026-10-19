@@ -149,6 +149,10 @@ class FaultEngine:
             symptoms = fault.get("symptom_ids") or []
             if not isinstance(symptoms, list) or not all(isinstance(s, str) for s in symptoms):
                 raise FaultInputError("faults[%d].symptom_ids 应为字符串列表" % index)
+            symptom_names = fault.get("symptom_names") or []
+            if (not isinstance(symptom_names, list) or
+                    not all(isinstance(s, str) and s.strip() for s in symptom_names)):
+                raise FaultInputError("faults[%d].symptom_names 应为非空字符串列表" % index)
             if not isinstance(fault.get("params") or {}, dict):
                 raise FaultInputError("faults[%d].params 应为对象" % index)
             bad = set(symptoms) - self.symptoms.keys()
@@ -203,16 +207,18 @@ class FaultEngine:
     def _kg_branch(self, fault, band, graph=None):
         graph = graph if graph is not None else self.graph
         observed = set(fault.get("symptom_ids") or [])
+        observed_names = {self.symptoms[sid] for sid in observed if sid in self.symptoms}
+        observed_names.update(str(name).strip() for name in fault.get("symptom_names") or [])
         by_case = defaultdict(set)
         evidence = defaultdict(set)
-        for sid in observed:
-            eid = graph.get("Symptom", self.symptoms[sid])
+        for symptom_name in observed_names:
+            eid = graph.get("Symptom", symptom_name)
             if not eid:
                 continue
             for triple in graph.incoming(eid, "hasSymptom"):
                 cid = graph.ent(triple["head"])["name"]
                 if graph.ent(triple["head"])["type"] == "Fault":
-                    by_case[cid].add(sid)
+                    by_case[cid].add(symptom_name)
                     evidence[cid].add(triple["tid"])
         candidates = []
         for cid, matches in by_case.items():
@@ -228,7 +234,14 @@ class FaultEngine:
                 continue
             if case and band and case["device_class"] != band:
                 continue
-            overlap = len(matches) / max(len(observed), 1)
+            if not case and band:
+                constraints = [graph.ent(edge["tail"])["name"]
+                               for edge in graph.outgoing(fault_eid, "constrainedBy")]
+                case_bands = {value.split("=", 1)[1] for value in constraints
+                              if value.startswith("device_class=")}
+                if case_bands and band not in case_bands:
+                    continue
+            overlap = len(matches) / max(len(observed_names), 1)
             score = 0.45 + 0.45 * overlap
             candidates.append((score, len(matches), cid, fault_type))
         if not candidates:

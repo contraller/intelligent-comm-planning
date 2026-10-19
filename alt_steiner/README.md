@@ -74,4 +74,4 @@
 PYTHONPATH=<仓库根>/scripts python3 alt_steiner/algorithm-service/app/server.py
 ```
 
-三个 `test_*.py` 需要 `pytest`，本项目按 CLAUDE.md 不引入第三方依赖，未安装。
+三个 `test_*.py` 需要 `pytest`，本项目按 PROJECT_RULES.md 不引入第三方依赖，未安装。

@@ -1,0 +1,3195 @@
+{
+  "hashes": {
+    "docs/数据接口样例/04_联调数据/synthetic/nodes/nodes_v1.csv": "47c3d83c52aa08e16a2be219e3858434ee0ea998ddd559bdbfcbe8efba862f04",
+    "docs/数据接口样例/04_联调数据/synthetic/nodes/devices_v1.csv": "0eda65a433425050eb938cec0249b80e2a371f418b0972c9f34946c4d327c78d",
+    "docs/数据接口样例/04_联调数据/synthetic/interference/interference_sources_v1.csv": "cc9def548a39e092c79e61750a9755445e8f71bb1e567a56ee7bbe694340f0a2"
+  },
+  "stations": [
+    {
+      "id": "ND-0001",
+      "subtype": "I_FIXED",
+      "role": "FIXED_STATION",
+      "remark": ""
+    },
+    {
+      "id": "ND-0002",
+      "subtype": "I_MOBILE",
+      "role": "TASK",
+      "remark": ""
+    },
+    {
+      "id": "ND-0003",
+      "subtype": "II_FIXED",
+      "role": "FIXED_STATION",
+      "remark": ""
+    },
+    {
+      "id": "ND-0004",
+      "subtype": "II_FIXED",
+      "role": "FIXED_STATION",
+      "remark": ""
+    },
+    {
+      "id": "ND-0005",
+      "subtype": "II_FIXED",
+      "role": "FIXED_STATION",
+      "remark": ""
+    },
+    {
+      "id": "ND-0006",
+      "subtype": "II_FIXED",
+      "role": "FIXED_STATION",
+      "remark": ""
+    },
+    {
+      "id": "ND-0007",
+      "subtype": "II_MOBILE",
+      "role": "TASK",
+      "remark": ""
+    },
+    {
+      "id": "ND-0008",
+      "subtype": "II_MOBILE",
+      "role": "TASK",
+      "remark": ""
+    },
+    {
+      "id": "ND-0009",
+      "subtype": "II_NODE",
+      "role": "TASK",
+      "remark": ""
+    },
+    {
+      "id": "ND-0010",
+      "subtype": "II_NODE",
+      "role": "TASK",
+      "remark": ""
+    },
+    {
+      "id": "ND-0011",
+      "subtype": "II_MOBILE",
+      "role": "TASK",
+      "remark": ""
+    },
+    {
+      "id": "ND-0012",
+      "subtype": "II_MOBILE",
+      "role": "TASK",
+      "remark": ""
+    },
+    {
+      "id": "ND-0013",
+      "subtype": "II_NODE",
+      "role": "TASK",
+      "remark": ""
+    },
+    {
+      "id": "ND-0014",
+      "subtype": "II_NODE",
+      "role": "TASK",
+      "remark": ""
+    },
+    {
+      "id": "ND-0015",
+      "subtype": "II_MOBILE",
+      "role": "TASK",
+      "remark": ""
+    },
+    {
+      "id": "ND-0016",
+      "subtype": "II_MOBILE",
+      "role": "TASK",
+      "remark": ""
+    },
+    {
+      "id": "ND-0017",
+      "subtype": "II_NODE",
+      "role": "TASK",
+      "remark": ""
+    },
+    {
+      "id": "ND-0018",
+      "subtype": "II_NODE",
+      "role": "TASK",
+      "remark": ""
+    },
+    {
+      "id": "ND-0019",
+      "subtype": "II_MOBILE",
+      "role": "TASK",
+      "remark": ""
+    },
+    {
+      "id": "ND-0020",
+      "subtype": "II_MOBILE",
+      "role": "TASK",
+      "remark": ""
+    },
+    {
+      "id": "ND-0021",
+      "subtype": "II_NODE",
+      "role": "TASK",
+      "remark": ""
+    },
+    {
+      "id": "ND-0022",
+      "subtype": "II_NODE",
+      "role": "TASK",
+      "remark": ""
+    },
+    {
+      "id": "ND-0023",
+      "subtype": "III_MOBILE",
+      "role": "TASK",
+      "remark": ""
+    },
+    {
+      "id": "ND-0024",
+      "subtype": "III_MOBILE",
+      "role": "TASK",
+      "remark": ""
+    },
+    {
+      "id": "ND-0025",
+      "subtype": "III_MOBILE",
+      "role": "TASK",
+      "remark": ""
+    },
+    {
+      "id": "ND-0026",
+      "subtype": "III_MOBILE",
+      "role": "TASK",
+      "remark": ""
+    },
+    {
+      "id": "ND-0027",
+      "subtype": "III_MOBILE",
+      "role": "TASK",
+      "remark": ""
+    },
+    {
+      "id": "ND-0028",
+      "subtype": "III_MOBILE",
+      "role": "TASK",
+      "remark": ""
+    },
+    {
+      "id": "ND-0029",
+      "subtype": "III_MOBILE",
+      "role": "TASK",
+      "remark": ""
+    },
+    {
+      "id": "ND-0030",
+      "subtype": "III_MOBILE",
+      "role": "TASK",
+      "remark": ""
+    },
+    {
+      "id": "ND-0031",
+      "subtype": "III_MOBILE",
+      "role": "TASK",
+      "remark": ""
+    },
+    {
+      "id": "ND-0032",
+      "subtype": "III_MOBILE",
+      "role": "TASK",
+      "remark": ""
+    },
+    {
+      "id": "ND-0033",
+      "subtype": "III_MOBILE",
+      "role": "TASK",
+      "remark": ""
+    },
+    {
+      "id": "ND-0034",
+      "subtype": "III_MOBILE",
+      "role": "TASK",
+      "remark": ""
+    },
+    {
+      "id": "ND-0035",
+      "subtype": "III_MOBILE",
+      "role": "TASK",
+      "remark": ""
+    },
+    {
+      "id": "ND-0036",
+      "subtype": "III_MOBILE",
+      "role": "TASK",
+      "remark": ""
+    },
+    {
+      "id": "ND-0037",
+      "subtype": "III_MOBILE",
+      "role": "TASK",
+      "remark": ""
+    },
+    {
+      "id": "ND-0038",
+      "subtype": "III_MOBILE",
+      "role": "TASK",
+      "remark": ""
+    },
+    {
+      "id": "ND-0039",
+      "subtype": "III_MOBILE",
+      "role": "TASK",
+      "remark": ""
+    },
+    {
+      "id": "ND-0040",
+      "subtype": "III_MOBILE",
+      "role": "TASK",
+      "remark": ""
+    },
+    {
+      "id": "ND-0041",
+      "subtype": "III_MOBILE",
+      "role": "TASK",
+      "remark": ""
+    },
+    {
+      "id": "ND-0042",
+      "subtype": "III_MOBILE",
+      "role": "TASK",
+      "remark": ""
+    },
+    {
+      "id": "ND-0043",
+      "subtype": "III_MOBILE",
+      "role": "TASK",
+      "remark": ""
+    },
+    {
+      "id": "ND-0044",
+      "subtype": "III_MOBILE",
+      "role": "TASK",
+      "remark": ""
+    },
+    {
+      "id": "ND-0045",
+      "subtype": "III_MOBILE",
+      "role": "TASK",
+      "remark": ""
+    },
+    {
+      "id": "ND-0046",
+      "subtype": "III_MOBILE",
+      "role": "TASK",
+      "remark": ""
+    },
+    {
+      "id": "ND-0047",
+      "subtype": "III_MOBILE",
+      "role": "TASK",
+      "remark": ""
+    },
+    {
+      "id": "ND-0048",
+      "subtype": "III_MOBILE",
+      "role": "TASK",
+      "remark": ""
+    },
+    {
+      "id": "ND-0049",
+      "subtype": "III_MOBILE",
+      "role": "TASK",
+      "remark": ""
+    },
+    {
+      "id": "ND-0050",
+      "subtype": "III_MOBILE",
+      "role": "TASK",
+      "remark": ""
+    },
+    {
+      "id": "ND-0051",
+      "subtype": "IV_MOBILE",
+      "role": "TASK",
+      "remark": ""
+    },
+    {
+      "id": "ND-0052",
+      "subtype": "IV_MOBILE",
+      "role": "TASK",
+      "remark": ""
+    },
+    {
+      "id": "ND-0053",
+      "subtype": "IV_MOBILE",
+      "role": "TASK",
+      "remark": ""
+    },
+    {
+      "id": "ND-0054",
+      "subtype": "IV_MOBILE",
+      "role": "TASK",
+      "remark": ""
+    },
+    {
+      "id": "ND-0055",
+      "subtype": "IV_MOBILE",
+      "role": "TASK",
+      "remark": ""
+    },
+    {
+      "id": "ND-0056",
+      "subtype": "IV_MOBILE",
+      "role": "TASK",
+      "remark": ""
+    },
+    {
+      "id": "ND-0057",
+      "subtype": "IV_MOBILE",
+      "role": "TASK",
+      "remark": ""
+    },
+    {
+      "id": "ND-0058",
+      "subtype": "IV_MOBILE",
+      "role": "TASK",
+      "remark": ""
+    },
+    {
+      "id": "ND-0059",
+      "subtype": "IV_MOBILE",
+      "role": "TASK",
+      "remark": ""
+    },
+    {
+      "id": "ND-0060",
+      "subtype": "IV_MOBILE",
+      "role": "TASK",
+      "remark": ""
+    },
+    {
+      "id": "ND-0061",
+      "subtype": "IV_MOBILE",
+      "role": "TASK",
+      "remark": ""
+    },
+    {
+      "id": "ND-0062",
+      "subtype": "IV_MOBILE",
+      "role": "TASK",
+      "remark": ""
+    },
+    {
+      "id": "ND-0063",
+      "subtype": "IV_MOBILE",
+      "role": "TASK",
+      "remark": ""
+    },
+    {
+      "id": "ND-0064",
+      "subtype": "IV_MOBILE",
+      "role": "TASK",
+      "remark": ""
+    },
+    {
+      "id": "ND-0065",
+      "subtype": "IV_MOBILE",
+      "role": "TASK",
+      "remark": ""
+    },
+    {
+      "id": "ND-0066",
+      "subtype": "IV_MOBILE",
+      "role": "TASK",
+      "remark": ""
+    },
+    {
+      "id": "ND-0067",
+      "subtype": "IV_MOBILE",
+      "role": "TASK",
+      "remark": ""
+    },
+    {
+      "id": "ND-0068",
+      "subtype": "IV_MOBILE",
+      "role": "TASK",
+      "remark": ""
+    },
+    {
+      "id": "ND-0069",
+      "subtype": "IV_MOBILE",
+      "role": "TASK",
+      "remark": ""
+    },
+    {
+      "id": "ND-0070",
+      "subtype": "IV_MOBILE",
+      "role": "TASK",
+      "remark": ""
+    },
+    {
+      "id": "ND-0071",
+      "subtype": "IV_MOBILE",
+      "role": "TASK",
+      "remark": ""
+    },
+    {
+      "id": "ND-0072",
+      "subtype": "IV_MOBILE",
+      "role": "TASK",
+      "remark": ""
+    },
+    {
+      "id": "ND-0073",
+      "subtype": "IV_MOBILE",
+      "role": "TASK",
+      "remark": ""
+    },
+    {
+      "id": "ND-0074",
+      "subtype": "IV_MOBILE",
+      "role": "TASK",
+      "remark": ""
+    },
+    {
+      "id": "ND-0075",
+      "subtype": "IV_MOBILE",
+      "role": "TASK",
+      "remark": ""
+    },
+    {
+      "id": "ND-0076",
+      "subtype": "IV_MOBILE",
+      "role": "TASK",
+      "remark": ""
+    },
+    {
+      "id": "ND-0077",
+      "subtype": "IV_MOBILE",
+      "role": "TASK",
+      "remark": ""
+    },
+    {
+      "id": "ND-0078",
+      "subtype": "IV_MOBILE",
+      "role": "TASK",
+      "remark": ""
+    },
+    {
+      "id": "ND-0079",
+      "subtype": "IV_MOBILE",
+      "role": "TASK",
+      "remark": ""
+    },
+    {
+      "id": "ND-0080",
+      "subtype": "IV_MOBILE",
+      "role": "TASK",
+      "remark": ""
+    },
+    {
+      "id": "ND-0081",
+      "subtype": "IV_MOBILE",
+      "role": "TASK",
+      "remark": ""
+    },
+    {
+      "id": "ND-0082",
+      "subtype": "IV_MOBILE",
+      "role": "TASK",
+      "remark": ""
+    },
+    {
+      "id": "ND-0083",
+      "subtype": "IV_MOBILE",
+      "role": "TASK",
+      "remark": ""
+    },
+    {
+      "id": "ND-0084",
+      "subtype": "IV_MOBILE",
+      "role": "TASK",
+      "remark": ""
+    },
+    {
+      "id": "ND-0085",
+      "subtype": "IV_MOBILE",
+      "role": "TASK",
+      "remark": ""
+    },
+    {
+      "id": "ND-0086",
+      "subtype": "IV_MOBILE",
+      "role": "TASK",
+      "remark": ""
+    },
+    {
+      "id": "ND-0087",
+      "subtype": "IV_MOBILE",
+      "role": "TASK",
+      "remark": ""
+    },
+    {
+      "id": "ND-0088",
+      "subtype": "IV_MOBILE",
+      "role": "TASK",
+      "remark": ""
+    },
+    {
+      "id": "ND-0089",
+      "subtype": "IV_MOBILE",
+      "role": "TASK",
+      "remark": ""
+    },
+    {
+      "id": "ND-0090",
+      "subtype": "IV_MOBILE",
+      "role": "TASK",
+      "remark": ""
+    },
+    {
+      "id": "ND-0091",
+      "subtype": "IV_MOBILE",
+      "role": "TASK",
+      "remark": ""
+    },
+    {
+      "id": "ND-0092",
+      "subtype": "IV_MOBILE",
+      "role": "TASK",
+      "remark": ""
+    },
+    {
+      "id": "ND-0093",
+      "subtype": "IV_MOBILE",
+      "role": "TASK",
+      "remark": ""
+    },
+    {
+      "id": "ND-0094",
+      "subtype": "IV_MOBILE",
+      "role": "TASK",
+      "remark": ""
+    },
+    {
+      "id": "ND-0095",
+      "subtype": "IV_MOBILE",
+      "role": "TASK",
+      "remark": ""
+    },
+    {
+      "id": "ND-0096",
+      "subtype": "IV_MOBILE",
+      "role": "TASK",
+      "remark": ""
+    },
+    {
+      "id": "ND-0097",
+      "subtype": "IV_MOBILE",
+      "role": "TASK",
+      "remark": ""
+    },
+    {
+      "id": "ND-0098",
+      "subtype": "IV_MOBILE",
+      "role": "TASK",
+      "remark": ""
+    },
+    {
+      "id": "ND-0099",
+      "subtype": "IV_MOBILE",
+      "role": "TASK",
+      "remark": ""
+    },
+    {
+      "id": "ND-0100",
+      "subtype": "IV_MOBILE",
+      "role": "TASK",
+      "remark": ""
+    },
+    {
+      "id": "ND-0101",
+      "subtype": "IV_MOBILE",
+      "role": "TASK",
+      "remark": ""
+    },
+    {
+      "id": "ND-0102",
+      "subtype": "IV_MOBILE",
+      "role": "TASK",
+      "remark": ""
+    },
+    {
+      "id": "ND-0103",
+      "subtype": "IV_MOBILE",
+      "role": "TASK",
+      "remark": ""
+    },
+    {
+      "id": "ND-0104",
+      "subtype": "IV_MOBILE",
+      "role": "TASK",
+      "remark": ""
+    },
+    {
+      "id": "ND-0105",
+      "subtype": "IV_MOBILE",
+      "role": "TASK",
+      "remark": ""
+    },
+    {
+      "id": "ND-0106",
+      "subtype": "IV_MOBILE",
+      "role": "TASK",
+      "remark": ""
+    },
+    {
+      "id": "ND-0107",
+      "subtype": "VEHICLE_A",
+      "role": "TASK",
+      "remark": ""
+    },
+    {
+      "id": "ND-0108",
+      "subtype": "VEHICLE_A",
+      "role": "TASK",
+      "remark": ""
+    },
+    {
+      "id": "ND-0109",
+      "subtype": "VEHICLE_B",
+      "role": "TASK",
+      "remark": ""
+    },
+    {
+      "id": "ND-0110",
+      "subtype": "VEHICLE_B",
+      "role": "TASK",
+      "remark": ""
+    },
+    {
+      "id": "ND-0111",
+      "subtype": "VEHICLE_B",
+      "role": "TASK",
+      "remark": ""
+    },
+    {
+      "id": "ND-0112",
+      "subtype": "VEHICLE_B",
+      "role": "TASK",
+      "remark": ""
+    },
+    {
+      "id": "ND-0113",
+      "subtype": "VEHICLE_B",
+      "role": "TASK",
+      "remark": ""
+    },
+    {
+      "id": "ND-0114",
+      "subtype": "VEHICLE_B",
+      "role": "TASK",
+      "remark": ""
+    },
+    {
+      "id": "ND-0115",
+      "subtype": "VEHICLE_B",
+      "role": "TASK",
+      "remark": ""
+    },
+    {
+      "id": "ND-0116",
+      "subtype": "VEHICLE_B",
+      "role": "TASK",
+      "remark": ""
+    },
+    {
+      "id": "ND-0117",
+      "subtype": "VEHICLE_B",
+      "role": "TASK",
+      "remark": ""
+    },
+    {
+      "id": "ND-0118",
+      "subtype": "VEHICLE_B",
+      "role": "TASK",
+      "remark": ""
+    },
+    {
+      "id": "ND-0119",
+      "subtype": "VEHICLE_B",
+      "role": "TASK",
+      "remark": ""
+    },
+    {
+      "id": "ND-0120",
+      "subtype": "VEHICLE_B",
+      "role": "TASK",
+      "remark": ""
+    },
+    {
+      "id": "ND-0121",
+      "subtype": "MANPACK",
+      "role": "TASK",
+      "remark": ""
+    },
+    {
+      "id": "ND-0122",
+      "subtype": "MANPACK",
+      "role": "TASK",
+      "remark": ""
+    },
+    {
+      "id": "ND-0123",
+      "subtype": "MANPACK",
+      "role": "TASK",
+      "remark": ""
+    },
+    {
+      "id": "ND-0124",
+      "subtype": "MANPACK",
+      "role": "TASK",
+      "remark": ""
+    },
+    {
+      "id": "ND-0125",
+      "subtype": "MANPACK",
+      "role": "TASK",
+      "remark": ""
+    },
+    {
+      "id": "ND-0126",
+      "subtype": "MANPACK",
+      "role": "TASK",
+      "remark": ""
+    },
+    {
+      "id": "ND-0127",
+      "subtype": "MANPACK",
+      "role": "TASK",
+      "remark": ""
+    },
+    {
+      "id": "ND-0128",
+      "subtype": "MANPACK",
+      "role": "TASK",
+      "remark": ""
+    },
+    {
+      "id": "ND-0129",
+      "subtype": "MANPACK",
+      "role": "TASK",
+      "remark": ""
+    },
+    {
+      "id": "ND-0130",
+      "subtype": "MANPACK",
+      "role": "TASK",
+      "remark": ""
+    },
+    {
+      "id": "ND-0131",
+      "subtype": "MANPACK",
+      "role": "TASK",
+      "remark": ""
+    },
+    {
+      "id": "ND-0132",
+      "subtype": "MANPACK",
+      "role": "TASK",
+      "remark": ""
+    }
+  ],
+  "devices": [
+    {
+      "id": "DV-0001",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0002",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0003",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0004",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0005",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0006",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0007",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0008",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0009",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0010",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0011",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0012",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0013",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0014",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0015",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0016",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0017",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0018",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0019",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0020",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0021",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0022",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0023",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0024",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0025",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0026",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0027",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0028",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0029",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0030",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0031",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0032",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0033",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0034",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0035",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0036",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0037",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0038",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0039",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0040",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0041",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0042",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0043",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0044",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0045",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0046",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0047",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0048",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0049",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0050",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0051",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0052",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0053",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0054",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0055",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0056",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0057",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0058",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0059",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0060",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0061",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0062",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0063",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0064",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0065",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0066",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0067",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0068",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0069",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0070",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0071",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0072",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0073",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0074",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0075",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0076",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0077",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0078",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0079",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0080",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0081",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0082",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0083",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0084",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0085",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0086",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0087",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0088",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0089",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0090",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0091",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0092",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0093",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0094",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0095",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0096",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0097",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0098",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0099",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0100",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0101",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0102",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0103",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0104",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0105",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0106",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0107",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0108",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0109",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0110",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0111",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0112",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0113",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0114",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0115",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0116",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0117",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0118",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0119",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0120",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0121",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0122",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0123",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0124",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0125",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0126",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0127",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0128",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0129",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0130",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0131",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0132",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0133",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0134",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0135",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0136",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0137",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0138",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0139",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0140",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0141",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0142",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0143",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0144",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0145",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0146",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0147",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0148",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0149",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0150",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0151",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0152",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0153",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0154",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0155",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0156",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0157",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0158",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0159",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0160",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0161",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0162",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0163",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0164",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0165",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0166",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0167",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0168",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0169",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0170",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0171",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0172",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0173",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0174",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0175",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0176",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0177",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0178",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0179",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0180",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0181",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0182",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0183",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0184",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0185",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0186",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0187",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0188",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0189",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0190",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0191",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0192",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0193",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0194",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0195",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0196",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0197",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0198",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0199",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0200",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0201",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0202",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0203",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0204",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0205",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0206",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0207",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0208",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0209",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0210",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0211",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0212",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0213",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0214",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0215",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0216",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0217",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0218",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0219",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0220",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0221",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0222",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0223",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0224",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0225",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0226",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0227",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0228",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0229",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0230",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0231",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0232",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0233",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0234",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0235",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0236",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0237",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0238",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0239",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0240",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0241",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0242",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0243",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0244",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0245",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0246",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0247",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0248",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0249",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0250",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0251",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0252",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0253",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0254",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0255",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0256",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0257",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0258",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0259",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0260",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0261",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0262",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0263",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0264",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0265",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0266",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0267",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0268",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0269",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0270",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0271",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0272",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0273",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0274",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0275",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0276",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0277",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0278",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0279",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0280",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0281",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0282",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0283",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0284",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0285",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0286",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0287",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0288",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0289",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0290",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0291",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0292",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0293",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0294",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0295",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0296",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0297",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0298",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0299",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0300",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0301",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0302",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0303",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0304",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0305",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0306",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0307",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0308",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0309",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0310",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0311",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0312",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0313",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0314",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0315",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0316",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0317",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0318",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0319",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0320",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0321",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0322",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0323",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0324",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0325",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0326",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0327",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0328",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0329",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0330",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0331",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0332",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0333",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0334",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0335",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0336",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0337",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0338",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0339",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0340",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0341",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0342",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0343",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0344",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0345",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0346",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0347",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0348",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0349",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0350",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0351",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0352",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0353",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0354",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0355",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0356",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0357",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0358",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0359",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0360",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0361",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0362",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0363",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0364",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0365",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0366",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0367",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0368",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0369",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0370",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0371",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0372",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0373",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0374",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0375",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0376",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0377",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0378",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0379",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0380",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0381",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0382",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0383",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0384",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0385",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0386",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0387",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0388",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0389",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0390",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0391",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0392",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0393",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0394",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0395",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0396",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0397",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0398",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0399",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0400",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0401",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0402",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0403",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0404",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0405",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0406",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0407",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0408",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0409",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0410",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0411",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0412",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0413",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    },
+    {
+      "id": "DV-0414",
+      "tiltDeg": null,
+      "azimuthDeg": null
+    }
+  ],
+  "interferences": [
+    {
+      "id": "IF-0001",
+      "name": "干扰源01",
+      "coordinate": [
+        114.854682,
+        37.106194
+      ],
+      "elevationM": 35,
+      "antennaHeightM": 14.8,
+      "centerFreqKhz": 197093.7,
+      "bandwidthKhz": 6,
+      "txPowerDbm": 46.8,
+      "antennaGainDbi": 9.7,
+      "interferenceType": "PULSE",
+      "patternType": "OMNI",
+      "azimuthDeg": 182.4,
+      "dutyCycle": 1,
+      "active": true,
+      "origin": "SOURCE"
+    },
+    {
+      "id": "IF-0002",
+      "name": "干扰源02",
+      "coordinate": [
+        114.726771,
+        37.359079
+      ],
+      "elevationM": 37,
+      "antennaHeightM": 18.1,
+      "centerFreqKhz": 3782.6,
+      "bandwidthKhz": 200,
+      "txPowerDbm": 54,
+      "antennaGainDbi": 2,
+      "interferenceType": "PULSE",
+      "patternType": "DIRECTIONAL",
+      "azimuthDeg": 264.2,
+      "dutyCycle": 1,
+      "active": true,
+      "origin": "SOURCE"
+    },
+    {
+      "id": "IF-0003",
+      "name": "干扰源03",
+      "coordinate": [
+        114.703222,
+        37.198026
+      ],
+      "elevationM": 33,
+      "antennaHeightM": 17.1,
+      "centerFreqKhz": 465906.2,
+      "bandwidthKhz": 200,
+      "txPowerDbm": 40.1,
+      "antennaGainDbi": 1.1,
+      "interferenceType": "SWEEP",
+      "patternType": "DIRECTIONAL",
+      "azimuthDeg": 92.1,
+      "dutyCycle": 0.3,
+      "active": true,
+      "origin": "SOURCE"
+    },
+    {
+      "id": "IF-0004",
+      "name": "干扰源04",
+      "coordinate": [
+        115.272585,
+        37.453106
+      ],
+      "elevationM": 25,
+      "antennaHeightM": 19,
+      "centerFreqKhz": 6913,
+      "bandwidthKhz": 3,
+      "txPowerDbm": 37.7,
+      "antennaGainDbi": 4.7,
+      "interferenceType": "PULSE",
+      "patternType": "OMNI",
+      "azimuthDeg": 264,
+      "dutyCycle": 0.6,
+      "active": true,
+      "origin": "SOURCE"
+    },
+    {
+      "id": "IF-0005",
+      "name": "干扰源05",
+      "coordinate": [
+        114.275524,
+        37.454664
+      ],
+      "elevationM": 226,
+      "antennaHeightM": 28.3,
+      "centerFreqKhz": 319281.2,
+      "bandwidthKhz": 1000,
+      "txPowerDbm": 46.4,
+      "antennaGainDbi": 11.5,
+      "interferenceType": "PULSE",
+      "patternType": "OMNI",
+      "azimuthDeg": 110.9,
+      "dutyCycle": 0.1,
+      "active": true,
+      "origin": "SOURCE"
+    },
+    {
+      "id": "IF-0006",
+      "name": "干扰源06",
+      "coordinate": [
+        114.534782,
+        37.647775
+      ],
+      "elevationM": 60,
+      "antennaHeightM": 7.7,
+      "centerFreqKhz": 4760.9,
+      "bandwidthKhz": 200,
+      "txPowerDbm": 48.3,
+      "antennaGainDbi": 3.9,
+      "interferenceType": "NOISE",
+      "patternType": "OMNI",
+      "azimuthDeg": 163.1,
+      "dutyCycle": 0.1,
+      "active": true,
+      "origin": "SOURCE"
+    },
+    {
+      "id": "IF-0007",
+      "name": "干扰源07",
+      "coordinate": [
+        115.217059,
+        37.853849
+      ],
+      "elevationM": 35,
+      "antennaHeightM": 19.2,
+      "centerFreqKhz": 400739.6,
+      "bandwidthKhz": 3,
+      "txPowerDbm": 51.7,
+      "antennaGainDbi": 1,
+      "interferenceType": "SWEEP",
+      "patternType": "DIRECTIONAL",
+      "azimuthDeg": 315.8,
+      "dutyCycle": 0.1,
+      "active": true,
+      "origin": "SOURCE"
+    },
+    {
+      "id": "IF-0008",
+      "name": "干扰源08",
+      "coordinate": [
+        114.296308,
+        37.250929
+      ],
+      "elevationM": 245,
+      "antennaHeightM": 27,
+      "centerFreqKhz": 7695.7,
+      "bandwidthKhz": 200,
+      "txPowerDbm": 37.9,
+      "antennaGainDbi": 11.2,
+      "interferenceType": "NOISE",
+      "patternType": "OMNI",
+      "azimuthDeg": 89.9,
+      "dutyCycle": 0.6,
+      "active": true,
+      "origin": "SOURCE"
+    },
+    {
+      "id": "IF-0009",
+      "name": "干扰源09",
+      "coordinate": [
+        115.142738,
+        37.450179
+      ],
+      "elevationM": 26,
+      "antennaHeightM": 10.2,
+      "centerFreqKhz": 392593.8,
+      "bandwidthKhz": 6,
+      "txPowerDbm": 45.7,
+      "antennaGainDbi": 7.5,
+      "interferenceType": "NARROWBAND",
+      "patternType": "DIRECTIONAL",
+      "azimuthDeg": 292,
+      "dutyCycle": 0.6,
+      "active": true,
+      "origin": "SOURCE"
+    },
+    {
+      "id": "IF-0010",
+      "name": "干扰源10",
+      "coordinate": [
+        114.514991,
+        37.802108
+      ],
+      "elevationM": 67,
+      "antennaHeightM": 23.1,
+      "centerFreqKhz": 8087,
+      "bandwidthKhz": 25,
+      "txPowerDbm": 56,
+      "antennaGainDbi": 1,
+      "interferenceType": "PULSE",
+      "patternType": "OMNI",
+      "azimuthDeg": 37,
+      "dutyCycle": 0.6,
+      "active": true,
+      "origin": "SOURCE"
+    },
+    {
+      "id": "IF-0011",
+      "name": "干扰源11",
+      "coordinate": [
+        114.68644,
+        37.263467
+      ],
+      "elevationM": 37,
+      "antennaHeightM": 6,
+      "centerFreqKhz": 400739.6,
+      "bandwidthKhz": 200,
+      "txPowerDbm": 48.8,
+      "antennaGainDbi": 1.2,
+      "interferenceType": "NARROWBAND",
+      "patternType": "DIRECTIONAL",
+      "azimuthDeg": 1,
+      "dutyCycle": 1,
+      "active": true,
+      "origin": "SOURCE"
+    },
+    {
+      "id": "IF-0012",
+      "name": "干扰源12",
+      "coordinate": [
+        114.995257,
+        37.744666
+      ],
+      "elevationM": 40,
+      "antennaHeightM": 18.9,
+      "centerFreqKhz": 10826.1,
+      "bandwidthKhz": 200,
+      "txPowerDbm": 42.8,
+      "antennaGainDbi": 5,
+      "interferenceType": "NOISE",
+      "patternType": "OMNI",
+      "azimuthDeg": 12.1,
+      "dutyCycle": 0.3,
+      "active": true,
+      "origin": "SOURCE"
+    },
+    {
+      "id": "IF-0013",
+      "name": "干扰源13",
+      "coordinate": [
+        115.295823,
+        37.705177
+      ],
+      "elevationM": 30,
+      "antennaHeightM": 34,
+      "centerFreqKhz": 237822.9,
+      "bandwidthKhz": 200,
+      "txPowerDbm": 58.9,
+      "antennaGainDbi": 7.4,
+      "interferenceType": "NOISE",
+      "patternType": "OMNI",
+      "azimuthDeg": 67.6,
+      "dutyCycle": 0.3,
+      "active": false,
+      "origin": "SOURCE"
+    },
+    {
+      "id": "IF-0014",
+      "name": "干扰源14",
+      "coordinate": [
+        114.902472,
+        37.369077
+      ],
+      "elevationM": 27,
+      "antennaHeightM": 22.2,
+      "centerFreqKhz": 7500,
+      "bandwidthKhz": 200,
+      "txPowerDbm": 42.4,
+      "antennaGainDbi": 5.9,
+      "interferenceType": "PULSE",
+      "patternType": "OMNI",
+      "azimuthDeg": 149.9,
+      "dutyCycle": 0.1,
+      "active": false,
+      "origin": "SOURCE"
+    },
+    {
+      "id": "IF-0015",
+      "name": "干扰源15",
+      "coordinate": [
+        114.313106,
+        37.53587
+      ],
+      "elevationM": 152,
+      "antennaHeightM": 26.7,
+      "centerFreqKhz": 262260.4,
+      "bandwidthKhz": 6,
+      "txPowerDbm": 58.3,
+      "antennaGainDbi": 4.8,
+      "interferenceType": "NARROWBAND",
+      "patternType": "DIRECTIONAL",
+      "azimuthDeg": 170.1,
+      "dutyCycle": 0.3,
+      "active": false,
+      "origin": "SOURCE"
+    },
+    {
+      "id": "IF-0016",
+      "name": "干扰源16",
+      "coordinate": [
+        114.61953,
+        37.641771
+      ],
+      "elevationM": 49,
+      "antennaHeightM": 9.6,
+      "centerFreqKhz": 5347.8,
+      "bandwidthKhz": 25,
+      "txPowerDbm": 51.8,
+      "antennaGainDbi": 6.8,
+      "interferenceType": "PULSE",
+      "patternType": "OMNI",
+      "azimuthDeg": 154.4,
+      "dutyCycle": 0.6,
+      "active": false,
+      "origin": "SOURCE"
+    }
+  ]
+}

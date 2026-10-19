@@ -1,6 +1,6 @@
 """传播与链路预算 —— 门面层。
 
-**第 2 周已按 `CLAUDE.md` 的要求把第 1 周的占位实现换成真实 ITU-R 模型。**
+**第 2 周已按 `PROJECT_RULES.md` 的要求把第 1 周的占位实现换成真实 ITU-R 模型。**
 选型依据见 `docs/design/05_移动电台部署规划算法方案.md` 第 6.8 节：
 
     超短波点对点   ITU-R P.1812   -> prop/p1812.py
@@ -11,7 +11,7 @@
 **本文件只做接口适配，不含物理模型。** 每个模型实现到什么程度、
 哪几节没做，写在各自模块的文件头，调用前请先读。
 
-对外接口与占位实现完全一致（`CLAUDE.md` 要求「替换时调用方代码不应改动」）：
+对外接口与占位实现完全一致（`PROJECT_RULES.md` 要求「替换时调用方代码不应改动」）：
 
     fspl_db / knife_edge_loss_db / landcover_loss_db
     vuhf_path_loss / hf_ground_wave_loss / hf_nvis_loss / hf_path_loss
