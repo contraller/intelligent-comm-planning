@@ -25,6 +25,7 @@ from app.database import Base  # noqa: E402
 from app.main import app  # noqa: E402
 from app.planning_job_models import PlanningJob  # noqa: E402
 from app.planning_plan_models import PlanningCurrentPlan, PlanningPlan  # noqa: E402
+from app.fault_scenario_models import FaultScenarioVersion  # noqa: E402
 from app.task_input_models import PlanningTask, PlanningTaskRevision  # noqa: E402
 
 
@@ -35,6 +36,7 @@ def api(monkeypatch, tmp_path):
     Base.metadata.create_all(engine)
     factory = sessionmaker(bind=engine, expire_on_commit=False)
     monkeypatch.setattr(fault_plan_source, "get_session_factory", lambda: factory)
+    monkeypatch.setattr(fault, "get_session_factory", lambda: factory)
     monkeypatch.setattr(fault_plan_source.frontend_integration, "resource_revision",
                         lambda: "resource-v1")
     monkeypatch.setattr(planning_w3, "TASK_DIR", tmp_path / "tasks")
@@ -118,38 +120,43 @@ def test_confirmed_plan_diagnosis_uses_frozen_network_and_scenario(api):
     node_id, device_id, link_id = _create_plan(factory)
     example = deepcopy(fault._engine().default_scenarios[0]["faults"][0])
     example.update(object_type="DEVICE", object_id=device_id, fault_type="HW_FAILURE")
-    fault._scenarios()["FS-FORMAL"] = {"scenario_id": "FS-FORMAL",
-                                        "scenario_name": "冻结故障场景", "faults": [example]}
+    created = client.post("/api/v1/fault/scenarios", json={
+        "context": "planning", "task_id": "task-a", "plan_id": "plan-a",
+        "scenario_name": "冻结故障场景", "faults": [example]}).json()["data"]
+    sid, version_id = created["scenario_id"], created["version_id"]
 
     sources = client.get("/api/v1/fault/plan-sources", params={"task_id": "task-a"})
     assert sources.status_code == 200
     assert sources.json()["data"]["items"][0]["plan_id"] == "plan-a"
     missing_mode = client.post("/api/v1/fault/diagnose", json={
-        "task_id": "task-a", "plan_id": "plan-a", "scenario_id": "FS-FORMAL"})
+        "task_id": "task-a", "plan_id": "plan-a", "scenario_id": sid})
     assert missing_mode.json()["code"] == 1001
     missing_plan = client.post("/api/v1/fault/diagnose", json={
-        "context": "planning", "task_id": "task-a", "scenario_id": "FS-FORMAL"})
+        "context": "planning", "task_id": "task-a", "scenario_id": sid})
     assert missing_plan.status_code == 422
     assert missing_plan.json()["code"] == 1001
     submitted = client.post("/api/v1/fault/diagnose", json={
         "context": "planning", "task_id": "task-a", "plan_id": "plan-a",
-        "scenario_id": "FS-FORMAL"})
+        "scenario_id": sid, "scenario_version_id": version_id,
+        "request_id": "diagnose-a"})
     assert submitted.json()["code"] == 0
     diagnosed = _completed(client, submitted.json()["data"]["task_id"])
     assert diagnosed["code"] == 0
     assert diagnosed["data"]["network_solution_id"] == "plan-a"
+    assert diagnosed["data"]["scenario_version_id"] == version_id
     assert diagnosed["data"]["results"][0]["fault_object"]["object_id"] == device_id
 
-    fault._scenarios()["FS-FORMAL"]["faults"][0]["object_id"] = "DV-INVALID"
     with factory.begin() as session:
+        version = session.get(FaultScenarioVersion, version_id)
+        version.snapshot = {"scenario_name": "已变更", "faults": [{**example, "object_id": "DV-INVALID"}]}
         session.delete(session.get(PlanningCurrentPlan, "task-a"))
     wrong_impact = client.post("/api/v1/fault/impact", json={
         "diagnose_task_id": submitted.json()["data"]["task_id"],
-        "task_id": "task-a", "plan_id": "other-plan"})
+        "task_id": "task-a", "plan_id": "other-plan", "request_id": "impact-wrong"})
     assert wrong_impact.json()["code"] == 1001
     impact = client.post("/api/v1/fault/impact", json={
         "diagnose_task_id": submitted.json()["data"]["task_id"],
-        "task_id": "task-a", "plan_id": "plan-a"})
+        "task_id": "task-a", "plan_id": "plan-a", "request_id": "impact-a"})
     assert impact.json()["code"] == 0
     affected = _completed(client, impact.json()["data"]["task_id"])
     assert affected["code"] == 0
@@ -174,7 +181,7 @@ def test_formal_diagnosis_rejects_ineligible_plan(api, state, current, revision,
     _create_plan(factory, state=state, current=current, resource_revision=revision, raw=raw)
     response = client.post("/api/v1/fault/diagnose", json={
         "context": "planning", "task_id": "task-a", "plan_id": "plan-a",
-        "scenario_id": "FS-0001"})
+        "scenario_id": "FS-0001", "request_id": "invalid-plan"})
     assert response.json()["code"] == expected
     assert response.status_code in {404, 409}
 
@@ -184,7 +191,7 @@ def test_formal_diagnosis_rejects_cross_task_and_impact_mismatch(api):
     _create_plan(factory)
     response = client.post("/api/v1/fault/diagnose", json={
         "context": "planning", "task_id": "other-task", "plan_id": "plan-a",
-        "scenario_id": "FS-0001"})
+        "scenario_id": "FS-0001", "request_id": "cross-task"})
     assert response.status_code == 404
     assert response.json()["code"] == 2001
     assert client.get("/api/v1/fault/plan-sources", params={"task_id": "other-task"}).json()["data"]["items"] == []
@@ -200,6 +207,6 @@ def test_formal_diagnosis_rejects_broken_route_snapshot(api):
         plan.raw_snapshot = raw
     response = client.post("/api/v1/fault/diagnose", json={
         "context": "planning", "task_id": "task-a", "plan_id": "plan-a",
-        "scenario_id": "FS-0001"})
+        "scenario_id": "FS-0001", "request_id": "broken-route"})
     assert response.status_code == 409
     assert response.json()["code"] == 1203

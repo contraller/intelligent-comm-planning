@@ -8,8 +8,9 @@ from .candidate_sites import filter_candidate_sites
 from .coverage import query_coverage, read_cache, submit_coverage
 from .database import DatabaseConfigurationError, check_database_connection
 from .deployment import query_deployment, submit_deployment
-from .fault import (create_report, create_scenario, delete_scenario, export_impact,
-                    get_impact_nodes, get_scenario, get_suggestions, import_scenarios, list_scenarios,
+from .fault import (archive_scenario, create_report, create_scenario, delete_scenario, export_impact,
+                    get_analysis_view, get_impact_nodes, get_scenario, get_suggestions,
+                    import_scenarios, list_scenarios,
                     report_path, submit_diagnosis, submit_observation_diagnosis,
                     submit_diagnosis_feedback, submit_impact, update_scenario,
                     validate_scenario)
@@ -794,46 +795,79 @@ def fault_plan_sources(response: Response, task_id: str | None = None) -> dict[s
         return {"code": 5002, "message": "数据库操作失败", "data": None}
 
 
+def _fault_scenario_call(response: Response, operation) -> dict[str, Any]:
+    try:
+        return operation()
+    except FaultPlanSourceError as exc:
+        response.status_code = exc.status
+        return {"code": exc.code, "message": str(exc), "data": None}
+    except DatabaseConfigurationError:
+        response.status_code = 503
+        return {"code": 5001, "message": "DATABASE_URL 未配置", "data": None}
+    except SQLAlchemyError:
+        response.status_code = 503
+        return {"code": 5002, "message": "数据库操作失败", "data": None}
+
+
 @app.post("/api/v1/fault/scenarios/validate")
-def fault_scenario_validate(payload: dict[str, Any]) -> dict[str, Any]:
-    return validate_scenario(payload)
+def fault_scenario_validate(payload: dict[str, Any], response: Response) -> dict[str, Any]:
+    return _fault_scenario_call(response, lambda: validate_scenario(payload))
 
 
 @app.post("/api/v1/fault/scenarios/import")
-async def fault_scenario_import(request: Request) -> dict[str, Any]:
+async def fault_scenario_import(request: Request, response: Response,
+                                context: str | None = None, task_id: str | None = None,
+                                plan_id: str | None = None) -> dict[str, Any]:
     if request.headers.get("content-type", "").startswith("multipart/form-data"):
         from .fault import import_scenarios_file
         form = await request.form()
         upload = form.get("file")
         if upload is None or not hasattr(upload, "read"):
             return {"code": 1001, "message": "缺少上传文件 file", "data": None}
-        return import_scenarios_file(upload.filename, await upload.read())
-    return import_scenarios(await request.json())
+        contents = await upload.read()
+        return _fault_scenario_call(response, lambda: import_scenarios_file(
+            upload.filename, contents, context=context, task_id=task_id, plan_id=plan_id))
+    payload = await request.json()
+    return _fault_scenario_call(response, lambda: import_scenarios(payload))
 
 
 @app.get("/api/v1/fault/scenarios")
-def fault_scenario_list() -> dict[str, Any]:
-    return list_scenarios()
+def fault_scenario_list(response: Response, context: str | None = None,
+                        task_id: str | None = None,
+                        include_archived: bool = False) -> dict[str, Any]:
+    return _fault_scenario_call(response, lambda: list_scenarios(context, task_id, include_archived))
 
 
 @app.post("/api/v1/fault/scenarios")
-def fault_scenario_create(payload: dict[str, Any]) -> dict[str, Any]:
-    return create_scenario(payload)
+def fault_scenario_create(payload: dict[str, Any], response: Response) -> dict[str, Any]:
+    return _fault_scenario_call(response, lambda: create_scenario(payload))
 
 
 @app.get("/api/v1/fault/scenarios/{scenario_id}")
-def fault_scenario_get(scenario_id: str) -> dict[str, Any]:
-    return get_scenario(scenario_id)
+def fault_scenario_get(scenario_id: str, response: Response,
+                       context: str | None = None, task_id: str | None = None,
+                       version_id: str | None = None) -> dict[str, Any]:
+    return _fault_scenario_call(response, lambda: get_scenario(
+        scenario_id, context, task_id, version_id))
 
 
 @app.put("/api/v1/fault/scenarios/{scenario_id}")
-def fault_scenario_update(scenario_id: str, payload: dict[str, Any]) -> dict[str, Any]:
-    return update_scenario(scenario_id, payload)
+def fault_scenario_update(scenario_id: str, payload: dict[str, Any],
+                          response: Response) -> dict[str, Any]:
+    return _fault_scenario_call(response, lambda: update_scenario(scenario_id, payload))
+
+
+@app.post("/api/v1/fault/scenarios/{scenario_id}/archive")
+def fault_scenario_archive(scenario_id: str, payload: dict[str, Any],
+                           response: Response) -> dict[str, Any]:
+    return _fault_scenario_call(response, lambda: archive_scenario(scenario_id, payload))
 
 
 @app.delete("/api/v1/fault/scenarios/{scenario_id}")
-def fault_scenario_delete(scenario_id: str) -> dict[str, Any]:
-    return delete_scenario(scenario_id)
+def fault_scenario_delete(scenario_id: str, response: Response,
+                          context: str | None = None,
+                          task_id: str | None = None) -> dict[str, Any]:
+    return _fault_scenario_call(response, lambda: delete_scenario(scenario_id, context, task_id))
 
 
 @app.post("/api/v1/fault/diagnose")
@@ -885,6 +919,13 @@ def fault_impact_nodes(task_id: str, node_role: str | None = None,
 @app.get("/api/v1/fault/tasks/{task_id}")
 def fault_task_status(task_id: str) -> dict[str, Any]:
     return query_task(task_id)
+
+
+@app.get("/api/v1/fault/analyses/{diagnose_task_id}")
+def fault_analysis_view(diagnose_task_id: str, response: Response, task_id: str | None = None,
+                        impact_task_id: str | None = None) -> dict[str, Any]:
+    return _fault_scenario_call(response, lambda: get_analysis_view(
+        diagnose_task_id, task_id, impact_task_id))
 
 
 @app.get("/api/v1/fault/suggestions")

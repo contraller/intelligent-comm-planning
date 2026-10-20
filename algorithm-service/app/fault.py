@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import csv
+import hashlib
 import io
 import json
 import os
@@ -13,6 +14,12 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
+
+from .database import get_session_factory
+from .fault_scenario_models import FaultScenario, FaultScenarioVersion
+from .fault_submission_models import FaultTaskSubmission
 from .planning_w3 import _spawn, get_task_record, CODE_OK, CODE_TASK_NOT_FOUND
 from .fault_plan_source import FaultPlanSourceError, load_plan_source
 
@@ -25,6 +32,7 @@ from diagnosis.sr5 import ALLOWED_OBJECTS, FAULT_TYPES, FaultEngine, FaultInputE
 _ENGINE: FaultEngine | None = None
 _SCENARIOS: dict[str, dict[str, Any]] | None = None
 _SLOCK = threading.RLock()
+_SUBMISSION_LOCK = threading.RLock()
 STORE_PATH = Path(os.environ.get("SR5_STORE_PATH", ROOT / "data" / "runtime" / "fault_scenarios.json"))
 REPORT_DIR = Path(os.environ.get("SR5_REPORT_DIR", ROOT / "data" / "runtime" / "reports"))
 
@@ -67,26 +75,202 @@ def _bad(exc: FaultInputError):
     return {"code": exc.code, "message": str(exc), "data": exc.detail}
 
 
+def _submission_digest(payload):
+    raw = json.dumps(payload, ensure_ascii=False, sort_keys=True,
+                     separators=(",", ":")).encode("utf-8")
+    return hashlib.sha256(raw).hexdigest()
+
+
+def _request_key(payload):
+    request_id = payload.get("request_id")
+    if not isinstance(request_id, str) or not request_id.strip() or len(request_id) > 120:
+        raise FaultPlanSourceError(1001, "正式分析须提供长度不超过 120 的 request_id", 422)
+    if payload.get("callback_url") not in (None, ""):
+        raise FaultPlanSourceError(1001, "callback_url 尚未支持，请轮询任务", 422)
+    return request_id, _submission_digest(payload)
+
+
+def _matching_submission(session, request_id, digest, kind):
+    row = session.get(FaultTaskSubmission, request_id)
+    if row is not None and (row.request_digest != digest or row.kind != kind):
+        raise FaultPlanSourceError(1204, "同一请求编号对应不同内容", 409)
+    return row
+
+
+def _replay_submission(payload, kind):
+    request_id, digest = _request_key(payload)
+    with get_session_factory()() as session:
+        row = _matching_submission(session, request_id, digest, kind)
+    if row is None:
+        return None
+    return _ok({"task_id": row.algorithm_task_id, "estimated_sec": 5,
+                "request_id": request_id, "replayed": True})
+
+
+def _reserve_submission(payload, kind, task_id, plan_id, scenario_id,
+                        version_id, diagnose_task_id=None):
+    request_id, digest = _request_key(payload)
+    with _SUBMISSION_LOCK:
+        try:
+            with get_session_factory().begin() as session:
+                row = _matching_submission(session, request_id, digest, kind)
+                if row is not None:
+                    return row.algorithm_task_id, False
+                algorithm_task_id = "tsk-" + uuid.uuid4().hex[:12]
+                session.add(FaultTaskSubmission(
+                    request_id=request_id, request_digest=digest, kind=kind,
+                    algorithm_task_id=algorithm_task_id, task_id=task_id,
+                    plan_id=plan_id, scenario_id=scenario_id,
+                    scenario_version_id=version_id,
+                    diagnose_task_id=diagnose_task_id,
+                    submitted_at=datetime.now(timezone.utc)))
+            return algorithm_task_id, True
+        except IntegrityError:
+            with get_session_factory()() as session:
+                row = _matching_submission(session, request_id, digest, kind)
+                if row is None:
+                    raise
+                return row.algorithm_task_id, False
+
+
+def _spawn_formal(kind, payload, work, *, task_id, plan_id, scenario_id,
+                  version_id, diagnose_task_id=None):
+    algorithm_task_id, created = _reserve_submission(
+        payload, kind, task_id, plan_id, scenario_id, version_id, diagnose_task_id)
+    if created:
+        result = _spawn(kind, payload, work, task_id=algorithm_task_id)
+    else:
+        result = _ok({"task_id": algorithm_task_id, "estimated_sec": 5})
+    if result["code"] == CODE_OK:
+        result["data"].update(request_id=payload["request_id"], replayed=not created)
+    return result
+
+
+def _formal_source(payload):
+    if payload.get("context") != "planning":
+        raise FaultPlanSourceError(1001, "正式场景须显式设置 context=planning", 422)
+    return load_plan_source(payload.get("task_id"), payload.get("plan_id"))
+
+
+def _formal_scenario_mode(payload):
+    context = payload.get("context") if isinstance(payload, dict) else None
+    if context not in (None, "demo", "planning"):
+        raise FaultPlanSourceError(1001, "context 只能为 planning 或 demo", 422)
+    if context != "planning" and isinstance(payload, dict) and any(
+        payload.get(key) is not None for key in ("task_id", "plan_id")
+    ):
+        raise FaultPlanSourceError(1001, "正式场景须显式设置 context=planning", 422)
+    return context == "planning"
+
+
+def _formal_scenario_query(context, task_id):
+    if context not in (None, "demo", "planning") or (context != "planning" and task_id is not None):
+        raise FaultPlanSourceError(1001, "正式场景查询须显式设置 context=planning", 422)
+    return context == "planning"
+
+
+def _formal_snapshot(payload, source):
+    snapshot = {"scenario_name": payload.get("scenario_name"),
+                "faults": payload.get("faults")}
+    if "description" in payload:
+        snapshot["description"] = payload["description"]
+    _engine().for_network(source["network"]).validate(snapshot)
+    return deepcopy(snapshot)
+
+
+def _version_dto(scenario, version):
+    return {"scenario_id": scenario.scenario_id, "task_id": scenario.task_id,
+            "archived": scenario.archived, "version_id": version.version_id,
+            "version_no": version.version_no, "plan_id": version.plan_id,
+            "plan_revision": version.plan_revision,
+            "resource_revision": version.resource_revision,
+            "saved_at": version.saved_at.isoformat(), **deepcopy(version.snapshot)}
+
+
+def _formal_record(session, scenario_id, task_id):
+    if not isinstance(task_id, str) or not task_id:
+        raise FaultPlanSourceError(1001, "task_id 必填", 422)
+    scenario = session.get(FaultScenario, scenario_id)
+    if scenario is None or scenario.task_id != task_id:
+        raise FaultPlanSourceError(1002, "故障场景不存在或不属于该任务", 404)
+    return scenario
+
+
+def _latest_version(session, scenario_id):
+    return session.scalars(
+        select(FaultScenarioVersion).where(FaultScenarioVersion.scenario_id == scenario_id)
+        .order_by(FaultScenarioVersion.version_no.desc()).limit(1)
+    ).one()
+
+
+def _new_version(session, scenario, source, snapshot, version_no):
+    meta = source["meta"]
+    version = FaultScenarioVersion(
+        version_id="FSV-" + uuid.uuid4().hex[:16].upper(),
+        scenario_id=scenario.scenario_id, version_no=version_no,
+        plan_id=meta["plan_id"], plan_revision=meta["revision"],
+        resource_revision=meta["resource_revision"], snapshot=snapshot,
+        saved_at=datetime.now(timezone.utc))
+    session.add(version)
+    return version
+
+
 def validate_scenario(payload):
     try:
+        if _formal_scenario_mode(payload):
+            source = _formal_source(payload)
+            snapshot = _formal_snapshot(payload, source)
+            return _ok({"valid": True, "fault_count": len(snapshot["faults"]),
+                        "plan_id": source["meta"]["plan_id"]})
         return _ok(_engine().validate(payload or {}))
     except FaultInputError as exc:
         return _bad(exc)
 
 
-def list_scenarios():
+def list_scenarios(context=None, task_id=None, include_archived=False):
+    if _formal_scenario_query(context, task_id):
+        if not isinstance(task_id, str) or not task_id:
+            raise FaultPlanSourceError(1001, "task_id 必填", 422)
+        with get_session_factory()() as session:
+            scenarios = session.scalars(select(FaultScenario).where(
+                FaultScenario.task_id == task_id).order_by(FaultScenario.created_at)).all()
+            items = [_version_dto(row, _latest_version(session, row.scenario_id))
+                     for row in scenarios if include_archived or not row.archived]
+        return _ok({"total": len(items), "items": items})
     with _SLOCK:
         rows = sorted(_scenarios().values(), key=lambda s: s["scenario_id"])
         return _ok({"total": len(rows), "items": rows})
 
 
-def get_scenario(sid):
+def get_scenario(sid, context=None, task_id=None, version_id=None):
+    if _formal_scenario_query(context, task_id):
+        with get_session_factory()() as session:
+            scenario = _formal_record(session, sid, task_id)
+            version = session.get(FaultScenarioVersion, version_id) if version_id else _latest_version(session, sid)
+            if version is None or version.scenario_id != sid:
+                raise FaultPlanSourceError(1002, "场景版本不存在", 404)
+            return _ok(_version_dto(scenario, version))
     with _SLOCK:
         row = _scenarios().get(sid)
         return _ok(row) if row else {"code": 1002, "message": "故障场景不存在", "data": None}
 
 
 def create_scenario(payload):
+    if _formal_scenario_mode(payload):
+        source = _formal_source(payload)
+        try:
+            snapshot = _formal_snapshot(payload, source)
+        except FaultInputError as exc:
+            return _bad(exc)
+        now = datetime.now(timezone.utc)
+        with get_session_factory().begin() as session:
+            scenario = FaultScenario(scenario_id="FS-" + uuid.uuid4().hex[:16].upper(),
+                                     task_id=source["meta"]["task_id"], archived=False,
+                                     created_at=now, updated_at=now)
+            session.add(scenario)
+            version = _new_version(session, scenario, source, snapshot, 1)
+            data = _version_dto(scenario, version)
+        return _ok(data)
     try:
         _engine().validate(payload or {})
     except FaultInputError as exc:
@@ -100,6 +284,21 @@ def create_scenario(payload):
 
 
 def update_scenario(sid, payload):
+    if _formal_scenario_mode(payload):
+        source = _formal_source(payload)
+        try:
+            snapshot = _formal_snapshot(payload, source)
+        except FaultInputError as exc:
+            return _bad(exc)
+        with get_session_factory().begin() as session:
+            scenario = _formal_record(session, sid, source["meta"]["task_id"])
+            if scenario.archived:
+                raise FaultPlanSourceError(1203, "已归档场景不能修改，请先恢复", 409)
+            version = _new_version(session, scenario, source, snapshot,
+                                   _latest_version(session, sid).version_no + 1)
+            scenario.updated_at = version.saved_at
+            data = _version_dto(scenario, version)
+        return _ok(data)
     with _SLOCK:
         if sid not in _scenarios():
             return {"code": 1002, "message": "故障场景不存在", "data": None}
@@ -114,7 +313,22 @@ def update_scenario(sid, payload):
         return _ok(row)
 
 
-def delete_scenario(sid):
+def archive_scenario(sid, payload):
+    if not isinstance(payload.get("archived"), bool):
+        raise FaultPlanSourceError(1001, "archived 必须为布尔值", 422)
+    with get_session_factory().begin() as session:
+        scenario = _formal_record(session, sid, payload.get("task_id"))
+        scenario.archived = payload["archived"]
+        scenario.updated_at = datetime.now(timezone.utc)
+        data = _version_dto(scenario, _latest_version(session, sid))
+    return _ok(data)
+
+
+def delete_scenario(sid, context=None, task_id=None):
+    if _formal_scenario_query(context, task_id):
+        data = archive_scenario(sid, {"task_id": task_id, "archived": True})["data"]
+        return _ok({"scenario_id": sid, "archived": True,
+                    "version_id": data["version_id"]})
     with _SLOCK:
         if sid not in _scenarios():
             return {"code": 1002, "message": "故障场景不存在", "data": None}
@@ -125,6 +339,26 @@ def delete_scenario(sid):
 
 def import_scenarios(payload):
     """Accept a JSON array or CSV text; reject the entire batch on any bad row."""
+    if _formal_scenario_mode(payload):
+        source = _formal_source(payload)
+        scenarios = payload.get("scenarios")
+        if not isinstance(scenarios, list) or not scenarios:
+            return _bad(FaultInputError("scenarios 必须是非空列表"))
+        try:
+            snapshots = [_formal_snapshot(row, source) for row in scenarios]
+        except (AttributeError, FaultInputError) as exc:
+            return _bad(exc if isinstance(exc, FaultInputError) else FaultInputError("场景行必须是对象"))
+        now = datetime.now(timezone.utc)
+        with get_session_factory().begin() as session:
+            rows = []
+            for snapshot in snapshots:
+                scenario = FaultScenario(scenario_id="FS-" + uuid.uuid4().hex[:16].upper(),
+                                         task_id=source["meta"]["task_id"], archived=False,
+                                         created_at=now, updated_at=now)
+                session.add(scenario)
+                version = _new_version(session, scenario, source, snapshot, 1)
+                rows.append(_version_dto(scenario, version))
+        return _ok({"imported": len(rows), "items": rows})
     if isinstance(payload, dict) and payload.get("format") == "CSV":
         try:
             rows = list(csv.DictReader(io.StringIO(payload["content"])))
@@ -153,7 +387,7 @@ def import_scenarios(payload):
     return _ok({"imported": len(added), "scenario_ids": added})
 
 
-def import_scenarios_file(filename, contents):
+def import_scenarios_file(filename, contents, *, context=None, task_id=None, plan_id=None):
     """CSV/XLSX rows contain scenario_name and JSON-encoded faults columns."""
     suffix = Path(filename or "").suffix.lower()
     try:
@@ -172,7 +406,8 @@ def import_scenarios_file(filename, contents):
                       "faults": json.loads(row["faults"])} for row in rows]
     except (KeyError, ValueError, TypeError, UnicodeError, StopIteration) as exc:
         return _bad(FaultInputError("导入文件格式错误：%s" % exc))
-    return import_scenarios({"scenarios": scenarios})
+    return import_scenarios({"context": context, "task_id": task_id,
+                             "plan_id": plan_id, "scenarios": scenarios})
 
 
 def _diagnosis(tid):
@@ -281,13 +516,35 @@ def submit_diagnosis(payload):
     if payload.get("context") == "planning" and not payload.get("plan_id"):
         raise FaultPlanSourceError(1001, "正式诊断必须指定 plan_id", 422)
     sid = payload.get("scenario_id")
-    with _SLOCK:
-        stored = _scenarios().get(sid)
-        scenario = deepcopy(stored) if stored is not None else None
-    if scenario is None:
-        return {"code": 1002, "message": "故障场景不存在", "data": None}
     formal = payload.get("context") == "planning"
+    if formal:
+        replay = _replay_submission(payload, "FAULT_DIAGNOSE")
+        if replay is not None:
+            return replay
     source = load_plan_source(payload.get("task_id"), payload.get("plan_id")) if formal else None
+    if formal:
+        version_id = payload.get("scenario_version_id")
+        if not isinstance(version_id, str) or not version_id:
+            raise FaultPlanSourceError(1001, "正式诊断必须指定 scenario_version_id", 422)
+        with get_session_factory()() as session:
+            record = _formal_record(session, sid, source["meta"]["task_id"])
+            if record.archived:
+                raise FaultPlanSourceError(1203, "已归档场景不能提交新诊断", 409)
+            version = session.get(FaultScenarioVersion, version_id)
+            if version is None or version.scenario_id != sid:
+                raise FaultPlanSourceError(1002, "场景版本不存在或不属于该场景", 404)
+            if (version.plan_id != source["meta"]["plan_id"]
+                    or version.plan_revision != source["meta"]["revision"]
+                    or version.resource_revision != source["meta"]["resource_revision"]):
+                raise FaultPlanSourceError(1203, "场景版本绑定的规划方案已变化，请保存新版本", 409)
+            scenario = {"scenario_id": sid, **deepcopy(version.snapshot)}
+            version_no = version.version_no
+    else:
+        with _SLOCK:
+            stored = _scenarios().get(sid)
+            scenario = deepcopy(stored) if stored is not None else None
+        if scenario is None:
+            return {"code": 1002, "message": "故障场景不存在", "data": None}
     network = source["network"] if source else None
     try:
         _diagnose_live(scenario, payload, network=network)
@@ -303,10 +560,16 @@ def submit_diagnosis(payload):
             meta = source["meta"]
             out.update(context="planning", network_solution_id=meta["plan_id"],
                        network_task_id=meta["task_id"], network_revision=meta["revision"],
-                       network_resource_revision=meta["resource_revision"])
+                       network_resource_revision=meta["resource_revision"],
+                       scenario_version_id=version_id, scenario_version_no=version_no)
         else:
             out["network_solution_id"] = payload.get("network_solution_id") or "SYNTHETIC_BASELINE"
         return out
+    if formal:
+        return _spawn_formal("FAULT_DIAGNOSE", payload, work,
+                             task_id=source["meta"]["task_id"],
+                             plan_id=source["meta"]["plan_id"],
+                             scenario_id=sid, version_id=version_id)
     return _spawn("FAULT_DIAGNOSE", payload, work)
 
 
@@ -344,6 +607,11 @@ def _solution(sid):
 
 def submit_impact(payload):
     payload = payload or {}
+    if payload.get("context") == "planning" or (
+            payload.get("context") is None and payload.get("task_id") and payload.get("plan_id")):
+        replay = _replay_submission(payload, "FAULT_IMPACT")
+        if replay is not None:
+            return replay
     diagnosis = _diagnosis(payload.get("diagnose_task_id"))
     if diagnosis is None:
         return {"code": CODE_TASK_NOT_FOUND, "message": "诊断任务不存在或尚未完成", "data": None}
@@ -358,6 +626,9 @@ def submit_impact(payload):
                                   require_current=False)
         if source["meta"]["revision"] != diagnosis["network_revision"]:
             return _bad(FaultInputError("诊断来源方案版本已经变化"))
+        version_id = diagnosis.get("scenario_version_id")
+        if not version_id:
+            raise FaultPlanSourceError(1203, "原诊断缺少场景版本，请重新提交诊断", 409)
         scenario = {"scenario_id": diagnosis["scenario_id"],
                     **deepcopy(diagnosis["input_snapshot"])}
         solution = source["solution"]
@@ -371,9 +642,16 @@ def submit_impact(payload):
             out = _engine().for_network(source["network"]).impact(
                 scenario, diagnosis, solution, payload.get("consider_backup_route", True))
             out.update(context="planning", network_task_id=source["meta"]["task_id"],
-                       network_revision=source["meta"]["revision"])
+                       network_revision=source["meta"]["revision"],
+                       diagnose_task_id=payload["diagnose_task_id"],
+                       scenario_version_id=version_id)
             return out
-        return _spawn("FAULT_IMPACT", payload, work)
+        return _spawn_formal("FAULT_IMPACT", payload, work,
+                             task_id=source["meta"]["task_id"],
+                             plan_id=source["meta"]["plan_id"],
+                             scenario_id=diagnosis["scenario_id"],
+                             version_id=version_id,
+                             diagnose_task_id=payload["diagnose_task_id"])
 
     if payload.get("context") == "planning" or any(
         key in payload for key in ("task_id", "plan_id")
@@ -428,6 +706,106 @@ def get_suggestions(diagnose_task_id, impact_task_id=None):
             impact.get("network_solution_id") != diagnosis.get("network_solution_id")):
         return _bad(FaultInputError("诊断与影响分析的方案来源不一致"))
     return _ok(_engine().suggestions(diagnosis, impact))
+
+
+def _submission_by_task(session, algorithm_task_id, task_id, kind):
+    row = session.scalars(select(FaultTaskSubmission).where(
+        FaultTaskSubmission.algorithm_task_id == algorithm_task_id)).one_or_none()
+    if row is None or row.task_id != task_id or row.kind != kind:
+        raise FaultPlanSourceError(2001, "正式分析任务不存在或不属于该规划任务", 404)
+    return row
+
+
+def _analysis_state(record, phase):
+    if not record:
+        return "FAILED", 0.0, "%s运行记录不可用，请使用新 request_id 重新提交" % phase
+    status = record.get("status")
+    if status not in {"PENDING", "RUNNING", "SUCCESS", "FAILED", "CANCELLED"}:
+        return "FAILED", 0.0, "%s任务状态无效" % phase
+    return status, max(0.0, min(1.0, float(record.get("progress") or 0))), record.get("error")
+
+
+def get_analysis_view(diagnose_task_id, task_id, impact_task_id=None):
+    if not isinstance(task_id, str) or not task_id:
+        raise FaultPlanSourceError(1001, "task_id 必填", 422)
+    with get_session_factory()() as session:
+        diagnosis_receipt = _submission_by_task(session, diagnose_task_id, task_id,
+                                                "FAULT_DIAGNOSE")
+        impact_receipt = None
+        if impact_task_id is not None:
+            impact_receipt = _submission_by_task(session, impact_task_id, task_id,
+                                                 "FAULT_IMPACT")
+            if (impact_receipt.diagnose_task_id != diagnose_task_id
+                    or impact_receipt.plan_id != diagnosis_receipt.plan_id
+                    or impact_receipt.scenario_version_id != diagnosis_receipt.scenario_version_id):
+                raise FaultPlanSourceError(1204, "影响任务与诊断任务不属于同一分析", 409)
+        version = session.get(FaultScenarioVersion, diagnosis_receipt.scenario_version_id)
+        if version is None:
+            raise FaultPlanSourceError(1203, "诊断场景版本已不可用", 409)
+        scenario = {"scenario_id": diagnosis_receipt.scenario_id,
+                    "version_id": version.version_id, "version_no": version.version_no,
+                    **deepcopy(version.snapshot)}
+        source = {"task_id": task_id, "plan_id": diagnosis_receipt.plan_id,
+                  "plan_revision": version.plan_revision,
+                  "resource_revision": version.resource_revision}
+
+    diagnosis_task = get_task_record(diagnose_task_id)
+    diagnosis_state, diagnosis_progress, diagnosis_error = _analysis_state(
+        diagnosis_task, "诊断")
+    if diagnosis_task and diagnosis_task.get("kind") != "FAULT_DIAGNOSE":
+        raise FaultPlanSourceError(1203, "诊断任务类型不匹配", 409)
+    impact_task = get_task_record(impact_task_id) if impact_receipt else None
+    impact_state, impact_progress, impact_error = (
+        _analysis_state(impact_task, "影响") if impact_receipt else (None, 0.0, None))
+    if impact_task and impact_task.get("kind") != "FAULT_IMPACT":
+        raise FaultPlanSourceError(1203, "影响任务类型不匹配", 409)
+
+    diagnosis_ready = diagnosis_state == "SUCCESS"
+    impact_ready = impact_state == "SUCCESS"
+    if not diagnosis_ready:
+        state = diagnosis_state
+        progress = diagnosis_progress * 0.5
+        error = diagnosis_error
+    elif impact_receipt is None:
+        state, progress, error = "DIAGNOSIS_READY", 0.5, None
+    else:
+        state = impact_state
+        progress = 0.5 + impact_progress * 0.5
+        error = impact_error
+
+    diagnosis = deepcopy(diagnosis_task.get("result")) if diagnosis_ready else None
+    impact = deepcopy(impact_task.get("result")) if impact_ready else None
+    if diagnosis_ready and (
+            diagnosis.get("network_solution_id") != source["plan_id"]
+            or diagnosis.get("scenario_version_id") != version.version_id):
+        raise FaultPlanSourceError(1203, "诊断结果与提交回执不一致", 409)
+    if impact_ready and (
+            impact.get("diagnose_task_id") != diagnose_task_id
+            or impact.get("scenario_version_id") != version.version_id):
+        raise FaultPlanSourceError(1203, "影响结果与诊断结果不一致", 409)
+    suggestions = _engine().suggestions(diagnosis, impact) if diagnosis_ready else None
+    report_ready = diagnosis_ready and impact_ready
+    report = _report_content(diagnosis, impact, suggestions) if report_ready else None
+    if report is not None:
+        report["generated_at"] = datetime.fromtimestamp(
+            impact_task["finished_at"], timezone.utc).isoformat()
+    phases = [
+        {"name": "故障诊断", "status": diagnosis_state,
+         "progress": diagnosis_progress},
+        {"name": "影响分析", "status": impact_state or "WAITING",
+         "progress": impact_progress},
+    ]
+    return _ok({"task_id": task_id, "plan_id": source["plan_id"],
+                "diagnose_task_id": diagnose_task_id,
+                "impact_task_id": impact_task_id,
+                "request_id": diagnosis_receipt.request_id,
+                "impact_request_id": impact_receipt.request_id if impact_receipt else None,
+                "state": state, "progress": round(progress, 3), "phases": phases,
+                "diagnosis_ready": diagnosis_ready, "impact_ready": impact_ready,
+                "report_ready": report_ready, "error": error,
+                "source": source, "scenario": scenario,
+                "diagnosis": diagnosis, "impact": impact,
+                "suggestions": suggestions, "report": report})
 
 
 def _report_content(diagnosis, impact, suggestions):

@@ -247,7 +247,7 @@ curl -o plan.xlsx 'http://127.0.0.1:8000/api/v1/plans/PLAN-替换方案编号/ex
 
 `format=json` 返回标准接口包络中的完整 `ApiPlan`，供现有前端校验后在浏览器生成用户选择的文件；`format=xlsx` 直接返回服务端工作簿，包含方案概要、任务输入、通联需求、节点、设备、链路、部署、路由、频率、指标、检查项和完整 JSON 快照。版本化接口只接受 `json`、`xlsx`，方案不存在或不属于任务返回 `2001`，参数或格式错误返回 `1001`。不带 `context` 和 `task_id` 时继续使用旧算法 JSON/CSV/XLSX 导出行为。
 
-SR-5 场景及报告默认保存在 `data/runtime/`，可通过 `SR5_STORE_PATH` 和 `SR5_REPORT_DIR` 指定位置。SR-4 方案保存在 `data/runtime/plans/`（`SR4_PLAN_DIR`）；已完成的异步任务保存在 `data/runtime/tasks/`（`ALGORITHM_TASK_DIR`）；覆盖结果和覆盖任务分别保存在 `data/runtime/coverage/`（`COVERAGE_CACHE_DIR`）和 `data/runtime/coverage_tasks/`（`COVERAGE_TASK_DIR`）。运行中的任务在服务重启后不能恢复计算，须重新提交。运行目录已加入 `.gitignore`；正式部署时应配置持久卷并备份。当前持久化仅适用于单进程服务，多进程或多实例部署需另行设计共享存储。
+SR-5 演示场景及报告默认保存在 `data/runtime/`，可通过 `SR5_STORE_PATH` 和 `SR5_REPORT_DIR` 指定位置。正式规划场景及其不可变版本保存在 `DATABASE_URL` 指向的数据库中，启用前须执行 Alembic `upgrade head`。SR-4 方案保存在 `data/runtime/plans/`（`SR4_PLAN_DIR`）；已完成的异步任务保存在 `data/runtime/tasks/`（`ALGORITHM_TASK_DIR`）；覆盖结果和覆盖任务分别保存在 `data/runtime/coverage/`（`COVERAGE_CACHE_DIR`）和 `data/runtime/coverage_tasks/`（`COVERAGE_TASK_DIR`）。运行中的任务在服务重启后不能恢复计算，须重新提交。运行目录已加入 `.gitignore`；正式部署时应配置持久卷并备份。运行目录持久化仅适用于单进程服务，多进程或多实例部署需另行设计共享存储。
 
 SR-6 三类知识图谱接口位于 `/api/v1/kg/*`，包含统计、实体/设备查询、模糊检索、子图/路径查询、按症状推理、链路状态评估、变更提交/审核、版本查询与回滚。`GET /api/v1/kg/triples` 可按 `graph`、`relation`、`source`、`entity` 追溯三元组；`GET /api/v1/kg/quality` 检查悬空实体、重复关系、缺失来源、关系类型约束和故障案例知识完整性。首版图谱由构造的设备台账、拓扑、链路状态及故障案例构建；`GET /api/v1/kg/stats` 返回各域规模和 `sr4_plan_validated=false`。链路状态规则使用构造记录挖掘，不能作为真实链路诊断准确率。故障推理结果有 `source_doc`，命中数仅用于排序。
 
@@ -259,7 +259,9 @@ SR-6 审核后的图谱、待审核变更与版本快照保存在 `data/runtime/
 
 ## SR-5 联调流程
 
-正式规划方案模式先调用 `GET /api/v1/fault/plan-sources?task_id={task_id}`。只有数据库中该任务当前 `CONFIRMED`、资源版本未变化且带完整冻结拓扑的 SR4 方案可选；无可选方案时查看 `data.reason`，不退回合成基线。诊断请求示例：`{"context":"planning","task_id":"TS-0001","plan_id":"PLAN-0001","scenario_id":"FS-0001"}`，仍提交到 `POST /api/v1/fault/diagnose` 并轮询原任务查询接口。影响分析调用 `POST /api/v1/fault/impact`，传 `diagnose_task_id`、同一 `task_id` 与 `plan_id`；服务端使用诊断时的场景和原方案版本，当前方案切换不改变既有诊断。现有场景增删改校验仍依赖构造台账，暂不能对任意新规划节点完成场景录入；外包前端 HTTP 页面尚未接入本模式。
+正式规划方案模式先调用 `GET /api/v1/fault/plan-sources?task_id={task_id}`。只有数据库中该任务当前 `CONFIRMED`、资源版本未变化且带完整冻结拓扑的 SR4 方案可选；无可选方案时查看 `data.reason`，不退回合成基线。用 `context=planning`、`task_id`、`plan_id` 调用 `/api/v1/fault/scenarios/validate` 和 `/api/v1/fault/scenarios` 保存针对该方案节点、设备或链路的场景；每次修改生成新 `version_id`。诊断请求示例：`{"context":"planning","request_id":"diagnose-001","task_id":"TS-0001","plan_id":"PLAN-0001","scenario_id":"FS-0001","scenario_version_id":"FSV-0001"}`，提交到 `POST /api/v1/fault/diagnose` 并轮询任务查询接口。影响分析调用 `POST /api/v1/fault/impact`，传独立的 `request_id`、`diagnose_task_id`、同一 `task_id` 与 `plan_id`；服务端使用诊断时的场景和原方案版本，当前方案切换不改变既有诊断。正式场景可新增未见过的故障事件，但故障类型限现有四类；场景保存不会自动发布 SR6 知识。外包前端 HTTP 页面尚未接入本模式。
+
+正式诊断和影响提交都须提供各自的 `request_id`，重试同一请求返回原任务编号；复用编号提交不同内容返回 `1204`。数据库回执使用 Alembic `0009` 的 `fault_task_submissions` 表。前端应先轮询诊断成功，再提交影响分析。`GET /api/v1/fault/analyses/{diagnose_task_id}?task_id={task_id}&impact_task_id={impact_task_id}` 汇总两段状态和冻结来源；影响尚未提交时省略 `impact_task_id`。仅两段成功后 `report_ready=true` 且 `report` 非空。该统一视图仍需前端 DTO 适配与真实页面联调；进程重启后未完成的线程不能恢复，回执重放不会重复运行任务。
 
 以下步骤保留旧文件方案和合成基线的算法演示用法。若请求携带 `task_id` 或 `plan_id`，必须显式设置 `context=planning`，否则返回参数错误。
 
