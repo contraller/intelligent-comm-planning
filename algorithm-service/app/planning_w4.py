@@ -309,13 +309,27 @@ def adopt_countermeasure(payload: dict[str, Any]) -> dict[str, Any]:
 def _do_sr4(payload, tick):
     import sr4_flow
     tick(0.1, "全流程执行中")
-    o = sr4_flow.run(task_id=payload.get("task_id"),
-                     preset=payload.get("preset", "TERRAIN"),
-                     strategy=payload.get("strategy", "MAX_RELIABILITY"),
-                     constraints=payload.get("hard_constraints"), verbose=False,
-                     survivability_scope=payload.get("survivability_scope", "NETWORK"),
-                     interference_rows=payload.get("interference_rows"),
-                     demand_rows=payload.get("demand_rows"), progress=tick)
+    if payload.get("parent_snapshot") is not None:
+        # 人工调整沿用父方案节点、设备和链路，仅重算下游规划结果。
+        o = sr4_flow.run_from_parent(
+            parent_snapshot=payload["parent_snapshot"],
+            adjustment=payload["adjustment"],
+            device_refs=payload["manual_device_refs"],
+            task_id=payload.get("task_id"),
+            demand_rows=payload.get("demand_rows") or [],
+            preset=payload.get("preset", "TERRAIN"),
+            strategy=payload.get("strategy", "MAX_RELIABILITY"),
+            constraints=payload.get("hard_constraints"),
+            interference_rows=payload.get("interference_rows"), progress=tick,
+        )
+    else:
+        o = sr4_flow.run(task_id=payload.get("task_id"),
+                         preset=payload.get("preset", "TERRAIN"),
+                         strategy=payload.get("strategy", "MAX_RELIABILITY"),
+                         constraints=payload.get("hard_constraints"), verbose=False,
+                         survivability_scope=payload.get("survivability_scope", "NETWORK"),
+                         interference_rows=payload.get("interference_rows"),
+                         demand_rows=payload.get("demand_rows"), progress=tick)
     b = o["optimization"]["best"]
     summary = dict(task_id=o["task_id"], total_s=round(o["total_s"], 2),
                    within_limit=o["within_limit"], objectives=b["objectives"],
@@ -327,7 +341,9 @@ def _do_sr4(payload, tick):
     detail = dict(steps=[dict(stage=n, seconds=round(t, 3)) for n, t in o["steps"]],
                   optimization=o["optimization"], routes=o["routes"],
                   frequency=o["frequency"], params=o["params"], check=o["check"],
-                  interference=o["interference"], links=o["links"], nodes=o["nodes"])
+                  interference=o["interference"], links=o["links"], nodes=o["nodes"],
+                  devices=o.get("devices", []))
+    tick(0.99, "正在保存方案")
     pid = _save_plan("SR4_FLOW", summary, detail)
     return dict(solution_id=pid, summary=summary,
                 steps=detail["steps"], optimization=o["optimization"],

@@ -4,6 +4,7 @@ from __future__ import annotations
 import ast
 import csv
 import json
+from copy import copy
 from collections import defaultdict
 
 from datapaths import path as data_path
@@ -97,6 +98,15 @@ class FaultEngine:
                                  and isinstance(node.args[0], ast.Constant)}
             _eval_condition(rule["_tree"], {"symptom_ids": set(), "device_selftest": ""})
 
+    def for_network(self, network):
+        """保留规则与图谱，按方案快照隔离本次诊断的网络对象。"""
+        engine = copy(self)
+        engine.nodes = {row["node_id"]: row for row in network["nodes"]}
+        engine.devices = {row["device_id"]: row for row in network["devices"]}
+        engine.links = {row["link_id"]: row for row in network["links"]}
+        engine.demands = {row["demand_id"]: row for row in network["demands"]}
+        return engine
+
     def _build_graph(self):
         graph = KnowledgeGraph("synthetic_fault_cases")
         for case in self.cases.values():
@@ -165,7 +175,7 @@ class FaultEngine:
         if obj == "DEVICE":
             dev = self.devices[oid]
             node_id = dev["node_id"]
-            band = self.models.get(dev["model_id"], {}).get("device_class")
+            band = dev.get("device_class") or self.models.get(dev.get("model_id"), {}).get("device_class")
         elif obj == "LINK":
             node_id = self.links[oid]["node_a_id"]
             band = self.links[oid]["device_class"]

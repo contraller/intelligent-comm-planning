@@ -220,3 +220,30 @@ class TaskSaveRequest(InputModel):
     resource_revision: Identifier
     request_id: Identifier
     input: PlanningInput
+
+
+class TaskListQuery(InputModel):
+    context: Literal["gis", "planning"]
+    page: Annotated[int, Field(ge=1)] = 1
+    page_size: Annotated[int, Field(ge=1)] = 10
+    search: Annotated[str, Field(max_length=120)] = ""
+
+    @field_validator("page_size")
+    @classmethod
+    def valid_page_size(cls, value: int) -> int:
+        if value not in {5, 10, 20, 50}:
+            raise ValueError("page_size 只能是 5、10、20、50")
+        return value
+
+
+class TaskDetailQuery(InputModel):
+    context: Literal["gis", "planning"]
+    task_id: Identifier
+
+
+class TaskValidationRequest(InputModel):
+    context: Literal["gis", "planning"]
+    task_id: Identifier
+    expected_revision: Identifier | None
+    resource_revision: Identifier
+    input: dict[str, object]

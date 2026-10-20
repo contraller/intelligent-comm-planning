@@ -12,11 +12,12 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
-from . import frontend_integration, planning_result_adapter, planning_w3, planning_w4
+from . import (frontend_integration, planning_adjustment_service,
+               planning_result_adapter, planning_w3, planning_w4)
 from .database import get_session_factory
-from .planning_job_models import PlanningJob
+from .planning_job_models import PlanningJob, PlanningJobCancellation
 from .planning_plan_models import PlanningPlan
-from .planning_job_schemas import PlanningJobSubmitRequest
+from .planning_job_schemas import PlanningJobCancelRequest, PlanningJobSubmitRequest
 from .task_input_models import PlanningTask, PlanningTaskRevision
 
 
@@ -32,6 +33,7 @@ class PlanningJobError(ValueError):
 
 
 _SUBMIT_LOCK = threading.RLock()
+_FINAL_STATES = {"SUCCESS", "FAILED", "CANCELLED"}
 _PRESET_MAP = {
     "balanced": "TERRAIN",
     "reliable": "MISSION",
@@ -46,7 +48,7 @@ _PHASES = (
 )
 
 
-def _digest(payload: PlanningJobSubmitRequest) -> str:
+def _digest(payload: PlanningJobSubmitRequest | PlanningJobCancelRequest) -> str:
     body = payload.model_dump(mode="json", exclude_none=False)
     raw = json.dumps(body, ensure_ascii=False, sort_keys=True,
                      separators=(",", ":")).encode("utf-8")
@@ -68,7 +70,7 @@ def _phases(progress: float) -> list[dict[str, str]]:
 
 def _dto(job: PlanningJob, revision: PlanningTaskRevision) -> dict[str, Any]:
     progress = max(0.0, min(1.0, float(job.progress)))
-    return {
+    data = {
         "job_id": job.job_id,
         "task_id": job.task_id,
         "revision": revision.revision_id,
@@ -87,6 +89,9 @@ def _dto(job: PlanningJob, revision: PlanningTaskRevision) -> dict[str, Any]:
         "source_changed": revision.resource_revision != frontend_integration.resource_revision(),
         "saved_plan_id": None,
     }
+    if job.adjustment is not None:
+        data["adjustment"] = job.adjustment
+    return data
 
 
 def _validate_supported_input(input_data: dict[str, Any]) -> None:
@@ -150,6 +155,8 @@ def _algorithm_payload(payload: PlanningJobSubmitRequest,
             "min_reliability": row["minReliability"],
             "service_type": row["service"],
             "preferred_class": row.get("preferredClass") or "",
+            "source_device_id": row.get("sourceDeviceId") or "",
+            "target_device_id": row.get("targetDeviceId") or "",
         })
     constraints = input_data["constraints"]
     return {
@@ -168,15 +175,23 @@ def _algorithm_payload(payload: PlanningJobSubmitRequest,
 
 def _update_job(factory: sessionmaker[Session], job_id: str,
                 state: dict[str, Any]) -> None:
-    with factory() as session, session.begin():
-        job = session.get(PlanningJob, job_id)
-        if job is None:
+    with _SUBMIT_LOCK, factory() as session, session.begin():
+        job = session.scalar(select(PlanningJob).where(
+            PlanningJob.job_id == job_id).with_for_update())
+        if job is None or job.status in _FINAL_STATES:
             return
-        job.status = str(state.get("status", job.status))
-        job.progress = float(state.get("progress", job.progress))
-        job.stage = str(state.get("stage", job.stage))
-        job.error = state.get("error")
-        job.updated_at = datetime.now(timezone.utc)
+        _apply_runtime_state(job, state)
+
+
+def _apply_runtime_state(job: PlanningJob, state: dict[str, Any]) -> None:
+    """只让未完成作业接受运行时回调，终态不可被晚到消息改写。"""
+    if job.status in _FINAL_STATES:
+        return
+    job.status = str(state.get("status", job.status))
+    job.progress = float(state.get("progress", job.progress))
+    job.stage = str(state.get("stage", job.stage))
+    job.error = state.get("error")
+    job.updated_at = datetime.now(timezone.utc)
 
 
 def _existing_by_request(session: Session, request_id: str, digest: str
@@ -226,9 +241,22 @@ def _reserve(factory: sessionmaker[Session], payload: PlanningJobSubmitRequest,
                 "actual": current_resource,
                 "suggestions": ["刷新资源并重新保存任务"],
             })
-        if payload.parent_plan_id is not None or payload.adjustment is not None:
-            raise PlanningJobError(1001, "父方案与人工调整将在后续接口接入", 422)
+        if (payload.parent_plan_id is None) != (payload.adjustment is None):
+            raise PlanningJobError(1001, "父方案编号与人工调整必须同时提供", 422)
         algorithm_payload = _algorithm_payload(payload, revision)
+        if payload.parent_plan_id is not None and payload.adjustment is not None:
+            parent = session.get(PlanningPlan, payload.parent_plan_id)
+            try:
+                snapshot, device_refs = planning_adjustment_service.prepare_parent(
+                    parent, revision, payload.adjustment
+                )
+            except planning_adjustment_service.AdjustmentError as exc:
+                raise PlanningJobError(exc.code, str(exc), exc.status, exc.data) from exc
+            algorithm_payload["parent_snapshot"] = snapshot
+            algorithm_payload["manual_device_refs"] = device_refs
+            algorithm_payload["adjustment"] = payload.adjustment.model_dump(
+                mode="json", exclude_unset=True
+            )
         active = session.scalar(select(PlanningJob).where(
             PlanningJob.task_id == payload.task_id,
             PlanningJob.status.in_(("PENDING", "RUNNING")),
@@ -251,7 +279,8 @@ def _reserve(factory: sessionmaker[Session], payload: PlanningJobSubmitRequest,
             resource_revision=revision.resource_revision,
             context=payload.context,
             parent_plan_id=payload.parent_plan_id,
-            adjustment=payload.adjustment,
+            adjustment=(payload.adjustment.model_dump(mode="json", exclude_unset=True)
+                        if payload.adjustment is not None else None),
             status="PENDING",
             progress=0.0,
             stage="排队中",
@@ -302,13 +331,64 @@ def submit_planning_job(payload: PlanningJobSubmitRequest,
         return _dto(current, current_revision)
 
 
+def cancel_planning_job(job_id: str, payload: PlanningJobCancelRequest,
+                        factory: sessionmaker[Session] | None = None
+                        ) -> dict[str, Any]:
+    """按作业冻结版本取消计算，并保存请求编号供重试识别。"""
+    factory = factory or get_session_factory()
+    digest = hashlib.sha256(f"{job_id}:{_digest(payload)}".encode("utf-8")).hexdigest()
+    with _SUBMIT_LOCK, factory() as session, session.begin():
+        receipt = session.get(PlanningJobCancellation, payload.request_id)
+        if receipt is not None:
+            if receipt.request_digest != digest:
+                raise PlanningJobError(1204, "同一请求编号对应不同内容", 409)
+        else:
+            job = session.scalar(select(PlanningJob).where(
+                PlanningJob.job_id == job_id).with_for_update())
+            if job is None or job.task_id != payload.task_id:
+                raise PlanningJobError(2001, "规划作业不存在", 404)
+            # 跨进程竞争时，等待行锁后再次读取已提交的幂等回执。
+            receipt = session.get(PlanningJobCancellation, payload.request_id)
+            if receipt is not None:
+                if receipt.request_digest != digest:
+                    raise PlanningJobError(1204, "同一请求编号对应不同内容", 409)
+            else:
+                if job.revision_id != payload.expected_revision:
+                    raise PlanningJobError(1203, "作业输入版本不一致", 409, {
+                        "expected": payload.expected_revision,
+                        "actual": job.revision_id,
+                    })
+                if job.status not in _FINAL_STATES:
+                    runtime = planning_w3.get_task_record(job_id)
+                    if runtime.get("status") not in _FINAL_STATES:
+                        runtime = planning_w3.cancel_task(job_id)
+                    _apply_runtime_state(job, runtime)
+                session.add(PlanningJobCancellation(
+                    request_id=payload.request_id,
+                    request_digest=digest,
+                    job_id=job_id,
+                    task_id=job.task_id,
+                    revision_id=job.revision_id,
+                    outcome_status=job.status,
+                    created_at=datetime.now(timezone.utc),
+                ))
+    result = query_planning_job(job_id, payload.task_id, factory)
+    if result is None:
+        raise PlanningJobError(5001, "取消作业后无法读取作业", 500)
+    # 取消调用本身成功时始终返回 0，完成作业的约束结果仍保留在 data.outcome。
+    result["code"] = 0
+    result["request_id"] = payload.request_id
+    return result
+
+
 def query_planning_job(job_id: str, task_id: str | None,
                        factory: sessionmaker[Session] | None = None
                        ) -> dict[str, Any] | None:
     """查询版本化 SR4 作业；非数据库作业返回 ``None`` 供旧接口回退。"""
     factory = factory or get_session_factory()
-    with factory() as session, session.begin():
-        job = session.get(PlanningJob, job_id)
+    with _SUBMIT_LOCK, factory() as session, session.begin():
+        job = session.scalar(select(PlanningJob).where(
+            PlanningJob.job_id == job_id).with_for_update())
         if job is None:
             return None
         if task_id is not None and job.task_id != task_id:
@@ -319,11 +399,7 @@ def query_planning_job(job_id: str, task_id: str | None,
 
         runtime = planning_w3.get_task_record(job_id)
         if runtime:
-            job.status = str(runtime.get("status", job.status))
-            job.progress = float(runtime.get("progress", job.progress))
-            job.stage = str(runtime.get("stage", job.stage))
-            job.error = runtime.get("error")
-            job.updated_at = datetime.now(timezone.utc)
+            _apply_runtime_state(job, runtime)
         elif job.status in {"PENDING", "RUNNING"}:
             # 线程任务不能跨服务进程恢复，避免重启后永久显示“计算中”。
             job.status = "FAILED"
@@ -351,6 +427,9 @@ def query_planning_job(job_id: str, task_id: str | None,
             result, outcome = planning_result_adapter.adapt_planning_result(
                 plan, data["input"]
             )
+            if data.get("adjustment") is not None:
+                planning_adjustment_service.verify_adjusted_result(
+                    data["adjustment"], result)
         except (KeyError, TypeError, ValueError) as exc:
             raise PlanningJobError(
                 5001, "SR4 方案结果不符合前端数据契约", 500

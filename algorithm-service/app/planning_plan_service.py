@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import hashlib
+import io
 import json
 import threading
 import uuid
@@ -11,8 +12,10 @@ from typing import Any
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
+from openpyxl import Workbook
+from openpyxl.cell.cell import ILLEGAL_CHARACTERS_RE
 
-from . import frontend_integration, planning_job_service
+from . import frontend_integration, planning_adjustment_service, planning_job_service
 from .database import get_session_factory
 from .planning_job_models import PlanningJob
 from .planning_plan_models import (
@@ -20,7 +23,12 @@ from .planning_plan_models import (
     PlanningPlan,
     PlanningPlanConfirmation,
 )
-from .planning_plan_schemas import PlanningPlanConfirmRequest, PlanningPlanSaveRequest
+from .planning_plan_schemas import (
+    PlanningPlanCompareRequest,
+    PlanningPlanConfirmRequest,
+    PlanningPlanExportRequest,
+    PlanningPlanSaveRequest,
+)
 
 
 class PlanningPlanError(ValueError):
@@ -144,6 +152,7 @@ def save_planning_plan(payload: PlanningPlanSaveRequest,
             return _plan_dto(session, replay)
 
     job_data = _job_result(payload, factory)
+    raw_snapshot = planning_adjustment_service.capture_raw_snapshot(job_data["result"])
     now = datetime.now(timezone.utc)
     try:
         with _SAVE_LOCK, factory() as session, session.begin():
@@ -183,6 +192,7 @@ def save_planning_plan(payload: PlanningPlanSaveRequest,
                 state=state,
                 input_snapshot=job_data["input"],
                 result_snapshot=job_data["result"],
+                raw_snapshot=raw_snapshot,
                 outcome_snapshot=outcome,
                 source="SR4",
                 saved_at=now,
@@ -241,6 +251,121 @@ def get_planning_plan(plan_id: str, task_id: str,
         if plan is None or plan.task_id != task_id:
             raise PlanningPlanError(2001, "规划方案不存在", 404)
         return _plan_dto(session, plan)
+
+
+def compare_planning_plans(payload: PlanningPlanCompareRequest,
+                           factory: sessionmaker[Session] | None = None
+                           ) -> list[dict[str, Any]]:
+    """按请求顺序返回同一任务、同一冻结条件下的完整方案。"""
+    factory = factory or get_session_factory()
+    with factory() as session:
+        rows = session.scalars(select(PlanningPlan).where(
+            PlanningPlan.plan_id.in_(payload.solution_ids),
+            PlanningPlan.task_id == payload.task_id,
+        )).all()
+        by_id = {row.plan_id: row for row in rows}
+        missing = [plan_id for plan_id in payload.solution_ids if plan_id not in by_id]
+        if missing:
+            raise PlanningPlanError(
+                2001, "对比方案不存在或不属于当前任务", 404,
+                {"solution_ids": missing},
+            )
+
+        ordered = [by_id[plan_id] for plan_id in payload.solution_ids]
+        baseline = ordered[0]
+        incompatible = [
+            row.plan_id for row in ordered[1:]
+            if row.condition_version != baseline.condition_version
+            or row.resource_revision != baseline.resource_revision
+        ]
+        if incompatible:
+            raise PlanningPlanError(
+                1001, "方案冻结的任务条件或资源版本不同，不能直接对比", 409,
+                {"solution_ids": incompatible,
+                 "suggestions": ["请选择同一任务条件和资源版本生成的方案"]},
+            )
+
+        current_plan_id = _current_plan_id(session, payload.task_id)
+        return [_dto(row, current_plan_id) for row in ordered]
+
+
+def _excel_value(value: Any) -> str | int | float | bool | None:
+    if value is None or isinstance(value, (int, float, bool)):
+        return value
+    if not isinstance(value, str):
+        value = json.dumps(value, ensure_ascii=False, default=str)
+    return ILLEGAL_CHARACTERS_RE.sub("", value)
+
+
+def _append_records(book: Workbook, title: str,
+                    records: list[dict[str, Any]]) -> None:
+    sheet = book.create_sheet(title)
+    if not records:
+        sheet.append(["无数据"])
+        return
+    headers = list(dict.fromkeys(
+        key for record in records for key in record.keys()
+    ))
+    sheet.append(headers)
+    for record in records:
+        sheet.append([_excel_value(record.get(header)) for header in headers])
+
+
+def _plan_workbook(plan: dict[str, Any]) -> bytes:
+    """把数据库冻结方案展开为可复核的工作簿。"""
+    book = Workbook()
+    summary = book.active
+    summary.title = "方案概要"
+    summary.append(["字段", "值"])
+    for key in ("plan_id", "task_id", "job_id", "version", "name", "note",
+                "state", "current", "source_changed", "source", "saved_at",
+                "confirmed_at", "condition_version", "resource_revision"):
+        summary.append([key, _excel_value(plan.get(key))])
+
+    task_input = plan["input"]
+    summary_input = {key: value for key, value in task_input.items()
+                     if key not in {"demands", "deploymentConstraints"}}
+    _append_records(book, "任务输入", [summary_input])
+    _append_records(book, "通联需求", task_input.get("demands") or [])
+    deployment_constraints = task_input.get("deploymentConstraints")
+    _append_records(book, "部署约束", [deployment_constraints]
+                    if isinstance(deployment_constraints, dict) else [])
+
+    result = plan["result"]
+    configuration = result.get("configuration", {})
+    _append_records(book, "节点", result.get("nodes") or [])
+    _append_records(book, "设备", result.get("devices") or [])
+    _append_records(book, "链路", result.get("links") or [])
+    _append_records(book, "部署结果", configuration.get("deployment") or [])
+    _append_records(book, "设备参数", configuration.get("devices") or [])
+    _append_records(book, "路由", configuration.get("routes") or [])
+    _append_records(book, "频率", configuration.get("frequencies") or [])
+    _append_records(book, "指标", [{
+        **result.get("metrics", {}),
+        "deployment_cost": result.get("deployment_cost"),
+        "cost_unit": result.get("cost_unit"),
+    }])
+    _append_records(book, "检查项", result.get("checks") or [])
+
+    snapshot = book.create_sheet("完整快照")
+    snapshot.append(["顺序", "JSON片段"])
+    raw = json.dumps(plan, ensure_ascii=False, default=str)
+    for index, start in enumerate(range(0, len(raw), 16000), start=1):
+        snapshot.append([index, _excel_value(raw[start:start + 16000])])
+
+    output = io.BytesIO()
+    book.save(output)
+    return output.getvalue()
+
+
+def export_planning_plan(plan_id: str, payload: PlanningPlanExportRequest,
+                         factory: sessionmaker[Session] | None = None
+                         ) -> dict[str, Any] | bytes:
+    """读取数据库冻结方案并返回完整 DTO 或 XLSX。"""
+    plan = get_planning_plan(plan_id, payload.task_id, factory)
+    if payload.format == "json":
+        return plan
+    return _plan_workbook(plan)
 
 
 def _confirmation_digest(plan_id: str,

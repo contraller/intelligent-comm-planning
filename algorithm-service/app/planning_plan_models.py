@@ -38,6 +38,7 @@ class PlanningPlan(Base):
     state: Mapped[str] = mapped_column(String(16), nullable=False)
     input_snapshot: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
     result_snapshot: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
+    raw_snapshot: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
     outcome_snapshot: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
     source: Mapped[str] = mapped_column(String(40), nullable=False)
     saved_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)

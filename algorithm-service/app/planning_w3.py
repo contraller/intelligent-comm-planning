@@ -31,6 +31,11 @@ _TASKS: dict[str, dict[str, Any]] = {}
 _LOCK = threading.Lock()
 _CACHE: dict[str, Any] = {}
 TASK_DIR = Path(os.environ.get("ALGORITHM_TASK_DIR", REPO_ROOT / "data" / "runtime" / "tasks"))
+_FINAL_STATES = {"SUCCESS", "FAILED", "CANCELLED"}
+
+
+class PlanningTaskCancelled(Exception):
+    """算法在进度检查点收到取消请求。"""
 
 # 业务错误码，与接口文档 1.3 一致
 CODE_OK = 0
@@ -84,8 +89,10 @@ def _devices():
 
 def _set(tid: str, **kw) -> dict[str, Any]:
     with _LOCK:
+        if _TASKS.get(tid, {}).get("status") in _FINAL_STATES:
+            return dict(_TASKS[tid])
         _TASKS.setdefault(tid, {}).update(kw)
-        if _TASKS[tid].get("status") in ("SUCCESS", "FAILED"):
+        if _TASKS[tid].get("status") in _FINAL_STATES:
             write_json(TASK_DIR / (tid + ".json"), _TASKS[tid])
         return dict(_TASKS[tid])
 
@@ -102,6 +109,21 @@ def get_task_record(task_id: str) -> dict[str, Any]:
         return dict(task or {})
 
 
+def cancel_task(task_id: str) -> dict[str, Any]:
+    """原子标记运行时终态；线程会在下一进度检查点退出。"""
+    with _LOCK:
+        task = _TASKS.get(task_id)
+        if task is None:
+            path = TASK_DIR / (task_id + ".json")
+            task = read_json(path) if path.exists() else {"task_id": task_id}
+            _TASKS[task_id] = task
+        if task.get("status") not in _FINAL_STATES:
+            task.update(status="CANCELLED", stage="已取消", error=None,
+                        finished_at=time.time())
+            write_json(TASK_DIR / (task_id + ".json"), task)
+        return dict(task)
+
+
 def _spawn(kind: str, payload: dict[str, Any], fn, *, task_id: str | None = None,
            on_update=None) -> dict[str, Any]:
     if payload.get("callback_url") not in (None, ""):
@@ -113,22 +135,32 @@ def _spawn(kind: str, payload: dict[str, Any], fn, *, task_id: str | None = None
         state = _set(tid, **fields)
         if on_update is not None:
             on_update(state)
+        return state
 
-    publish(task_id=tid, kind=kind, status="PENDING", progress=0.0,
-            stage="排队中", submitted_at=time.time(), result=None, error=None)
+    initial = publish(task_id=tid, kind=kind, status="PENDING", progress=0.0,
+                      stage="排队中", submitted_at=time.time(), result=None, error=None)
+
+    def checkpoint(progress: float, stage: str) -> None:
+        if publish(progress=progress, stage=stage)["status"] == "CANCELLED":
+            raise PlanningTaskCancelled()
 
     def _worker():
         try:
-            publish(status="RUNNING", progress=0.05, stage="加载数据")
-            data = fn(payload, lambda p, s: publish(progress=p, stage=s))
+            if publish(status="RUNNING", progress=0.05, stage="加载数据")["status"] == "CANCELLED":
+                return
+            data = fn(payload, checkpoint)
             publish(status="SUCCESS", progress=1.0, stage="完成",
                     result=data, finished_at=time.time())
+        except PlanningTaskCancelled:
+            publish(status="CANCELLED", stage="已取消", error=None,
+                    finished_at=time.time())
         except Exception as exc:                     # noqa: BLE001
             publish(status="FAILED", progress=1.0, stage="失败",
                     error="%s: %s" % (type(exc).__name__, exc),
                     finished_at=time.time())
 
-    threading.Thread(target=_worker, daemon=True).start()
+    if initial["status"] != "CANCELLED":
+        threading.Thread(target=_worker, daemon=True).start()
     return {"code": CODE_OK, "message": "success",
             "data": {"task_id": tid, "estimated_sec": 5}}
 

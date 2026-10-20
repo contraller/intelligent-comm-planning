@@ -152,7 +152,8 @@ def _outcome(plan: dict[str, Any], checks: list[dict[str, Any]]) -> dict[str, An
             "field": str(issue.get("kind") or "plan_check"),
             "message": str(issue.get("detail") or "方案校验未通过"),
         })
-    passed = all(row["passed"] is True for row in checks)
+    passed = (all(row["passed"] is True for row in checks)
+              and not gap and bool(plan["detail"].get("check", {}).get("passed", True)))
     return {
         "code": 0 if passed else 3001,
         "message": "规划完成" if passed else "规划完成，但未满足全部硬约束",
@@ -169,7 +170,7 @@ def adapt_planning_result(plan: dict[str, Any], input_data: dict[str, Any]
     raw_links = detail.get("links") or []
     frequency_by_link = _frequency_by_link(detail)
     model_rows = planning_w4._load("device_model.csv")
-    source_devices = planning_w4._load("device.csv")
+    source_devices = detail.get("devices") or planning_w4._load("device.csv")
     models = {row["model_id"]: row for row in model_rows}
     source_by_id = {row["device_id"]: row for row in source_devices}
     source_by_key: dict[tuple[str, str], list[dict[str, str]]] = defaultdict(list)
@@ -180,8 +181,10 @@ def adapt_planning_result(plan: dict[str, Any], input_data: dict[str, Any]
     params = detail.get("params", {}).get("params") or []
     param_by_key = {
         (str(row.get("node_id") or ""), str(row.get("band") or "")): row
-        for row in params
+        for row in params if not row.get("device_id")
     }
+    param_by_device = {str(row["device_id"]): row for row in params
+                       if row.get("device_id")}
     device_meta: dict[str, dict[str, Any]] = {}
     device_for_key: dict[tuple[str, str], str] = {}
 
@@ -192,7 +195,7 @@ def adapt_planning_result(plan: dict[str, Any], input_data: dict[str, Any]
             source = next(iter(source_by_key.get(key, [])), None)
         device_id = explicit_id or (source or {}).get("device_id") or _derived_device_id(*key)
         if device_id not in device_meta:
-            param = param_by_key.get(key, {})
+            param = param_by_device.get(device_id, param_by_key.get(key, {}))
             model_id = str(param.get("model_id") or (source or {}).get("model_id")
                            or f"MODEL-{band}-UNSPECIFIED")
             model = models.get(model_id, {})
@@ -205,17 +208,25 @@ def adapt_planning_result(plan: dict[str, Any], input_data: dict[str, Any]
                 "availability": None,
                 "workFreqKhz": None,
                 "txPowerDbm": _number(param.get("tx_power_dbm")
-                                      or (source or {}).get("tx_power_dbm")),
+                                      if param.get("tx_power_dbm") is not None
+                                      else (source or {}).get("tx_power_dbm")),
                 "antennaHeightM": _number(param.get("antenna_height_m")
-                                           or (source or {}).get("antenna_height_m")),
+                                           if param.get("antenna_height_m") is not None
+                                           else (source or {}).get("antenna_height_m")),
                 "tiltDeg": _number(param.get("tilt_deg") or (source or {}).get("tilt_deg")),
                 "azimuthDeg": _number((source or {}).get("azimuth_deg")),
             }
         device_for_key.setdefault(key, device_id)
         return device_id
 
+    for row in source_devices:
+        model = models.get(row.get("model_id", ""), {})
+        band = model.get("device_class")
+        if band:
+            ensure_device(row["node_id"], band, row["device_id"])
     for row in params:
-        ensure_device(str(row.get("node_id") or ""), str(row.get("band") or ""))
+        ensure_device(str(row.get("node_id") or ""), str(row.get("band") or ""),
+                      str(row.get("device_id") or "") or None)
     for demand in input_data["demands"]:
         if demand.get("endpointMode") != "device":
             continue
@@ -266,11 +277,11 @@ def adapt_planning_result(plan: dict[str, Any], input_data: dict[str, Any]
     route_rows = _route_rows(detail, demand_ids, {row["id"] for row in links})
     configured_devices = [{
         "deviceId": row["id"], "stationId": row["stationId"],
-        "frequencyKhz": row["workFreqKhz"], "txPowerDbm": row["txPowerDbm"],
+        "frequencyKhz": row["workFreqKhz"] or 0.0,
+        "txPowerDbm": row["txPowerDbm"],
         "antennaHeightM": row["antennaHeightM"],
     } for row in device_meta.values()
-        if row["workFreqKhz"] is not None and row["txPowerDbm"] is not None
-        and row["antennaHeightM"] is not None]
+        if row["txPowerDbm"] is not None and row["antennaHeightM"] is not None]
     allocated = sorted({value for value in frequency_by_link.values() if value >= 0})
     frequencies = [] if not allocated else [{
         "id": f"ALLOC-{plan['solution_id']}",

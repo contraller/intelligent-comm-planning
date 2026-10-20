@@ -13,14 +13,23 @@ from .fault import (create_report, create_scenario, delete_scenario, export_impa
                     report_path, submit_diagnosis, submit_observation_diagnosis,
                     submit_diagnosis_feedback, submit_impact, update_scenario,
                     validate_scenario)
+from .fault_plan_source import FaultPlanSourceError, list_plan_sources
 from . import frontend_integration
 from . import kg
 from . import planning_job_service
+from . import planning_operation_service
 from . import planning_plan_service
 from . import sr4_integration
-from .planning_job_schemas import PlanningJobSubmitRequest
+from . import task_input_service
+from .planning_job_schemas import PlanningJobCancelRequest, PlanningJobSubmitRequest
 from .planning_job_service import PlanningJobError
-from .planning_plan_schemas import PlanningPlanConfirmRequest, PlanningPlanSaveRequest
+from .planning_operation_service import OperationError, OperationQuery
+from .planning_plan_schemas import (
+    PlanningPlanCompareRequest,
+    PlanningPlanConfirmRequest,
+    PlanningPlanExportRequest,
+    PlanningPlanSaveRequest,
+)
 from .planning_plan_service import PlanningPlanError
 from .planning_w3 import (query_task, submit_frequency, submit_plan_check,
                           submit_radio_params, submit_route)
@@ -29,7 +38,8 @@ from .planning_w4 import (adopt_countermeasure, compare_plans, confirm_plan,
                           submit_optimize)
 from .resource import (list_antenna_models, list_device_models,
                        list_frequency_pool, radio_param_presets)
-from .task_input_schemas import TaskSaveRequest
+from .task_input_schemas import (TaskDetailQuery, TaskListQuery, TaskSaveRequest,
+                                 TaskValidationRequest)
 from .task_input_service import TaskInputError, save_task_input
 
 try:
@@ -101,6 +111,112 @@ def save_planning_task_input(task_id: str, payload: dict[str, Any],
     except TaskInputError as exc:
         response.status_code = exc.status
         return {"code": exc.code, "message": str(exc), "data": exc.data}
+    except DatabaseConfigurationError:
+        response.status_code = 503
+        return {"code": 5001, "message": "DATABASE_URL 未配置", "data": None}
+    except SQLAlchemyError:
+        response.status_code = 503
+        return {"code": 5002, "message": "数据库操作失败", "data": None}
+
+
+@app.get("/api/v1/task-inputs")
+def list_planning_task_inputs(response: Response, context: str | None = None,
+                              page: str = "1", page_size: str = "10",
+                              search: str = "") -> dict[str, Any]:
+    """分页读取当前任务输入版本。"""
+    try:
+        query = TaskListQuery.model_validate({
+            "context": context, "page": page, "page_size": page_size,
+            "search": search,
+        })
+        data = task_input_service.list_task_inputs(query)
+        return {"code": 0, "message": "success", "data": data}
+    except ValidationError as exc:
+        response.status_code = 422
+        issues = [{"objectId": "task-inputs",
+                   "field": ".".join(map(str, issue["loc"])), "message": issue["msg"]}
+                  for issue in exc.errors()]
+        return {"code": 1001, "message": "任务列表参数校验失败", "data": issues}
+    except DatabaseConfigurationError:
+        response.status_code = 503
+        return {"code": 5001, "message": "DATABASE_URL 未配置", "data": None}
+    except SQLAlchemyError:
+        response.status_code = 503
+        return {"code": 5002, "message": "数据库操作失败", "data": None}
+
+
+@app.post("/api/v1/task-inputs/validate")
+def validate_planning_task_input(payload: dict[str, Any],
+                                 response: Response) -> dict[str, Any]:
+    """返回保存或导入前的只读校验问题，不修改任务版本。"""
+    try:
+        request = TaskValidationRequest.model_validate(payload)
+        data = task_input_service.validate_task_input(request)
+        return {"code": 0, "message": "success", "data": data}
+    except ValidationError as exc:
+        response.status_code = 422
+        issues = [{"objectId": str(payload.get("task_id") or "task"),
+                   "field": ".".join(map(str, issue["loc"])), "message": issue["msg"]}
+                  for issue in exc.errors()]
+        return {"code": 1001, "message": "任务校验参数无效", "data": issues}
+    except TaskInputError as exc:
+        response.status_code = exc.status
+        return {"code": exc.code, "message": str(exc), "data": exc.data}
+    except DatabaseConfigurationError:
+        response.status_code = 503
+        return {"code": 5001, "message": "DATABASE_URL 未配置", "data": None}
+    except SQLAlchemyError:
+        response.status_code = 503
+        return {"code": 5002, "message": "数据库操作失败", "data": None}
+
+
+@app.get("/api/v1/task-inputs/{task_id}")
+def get_planning_task_input(task_id: str, response: Response,
+                            context: str | None = None) -> dict[str, Any]:
+    """按任务编号读取数据库当前版本。"""
+    try:
+        query = TaskDetailQuery.model_validate({"task_id": task_id, "context": context})
+        data = task_input_service.get_task_input(query.task_id, query.context)
+        return {"code": 0, "message": "success", "data": data}
+    except ValidationError as exc:
+        response.status_code = 422
+        issues = [{"objectId": task_id,
+                   "field": ".".join(map(str, issue["loc"])), "message": issue["msg"]}
+                  for issue in exc.errors()]
+        return {"code": 1001, "message": "任务详情参数校验失败", "data": issues}
+    except TaskInputError as exc:
+        response.status_code = exc.status
+        return {"code": exc.code, "message": str(exc), "data": exc.data}
+    except DatabaseConfigurationError:
+        response.status_code = 503
+        return {"code": 5001, "message": "DATABASE_URL 未配置", "data": None}
+    except SQLAlchemyError:
+        response.status_code = 503
+        return {"code": 5002, "message": "数据库操作失败", "data": None}
+
+
+@app.get("/api/v1/planning-operations/{request_id}")
+def planning_operation_receipt(request_id: str, response: Response,
+                               context: str | None = None,
+                               task_id: str | None = None,
+                               kind: str | None = None) -> dict[str, Any]:
+    """供前端在写请求超时后按原请求编号核实持久化结果。"""
+    try:
+        query = OperationQuery.model_validate({
+            "request_id": request_id, "context": context,
+            "task_id": task_id, "kind": kind,
+        })
+        data = planning_operation_service.query_operation(query)
+        return {"code": 0, "message": "success", "data": data}
+    except ValidationError as exc:
+        response.status_code = 422
+        issues = [{"objectId": request_id,
+                   "field": ".".join(map(str, issue["loc"])), "message": issue["msg"]}
+                  for issue in exc.errors()]
+        return {"code": 1001, "message": "回执查询参数校验失败", "data": issues}
+    except OperationError as exc:
+        response.status_code = exc.status
+        return {"code": exc.code, "message": str(exc), "data": None}
     except DatabaseConfigurationError:
         response.status_code = 503
         return {"code": 5001, "message": "DATABASE_URL 未配置", "data": None}
@@ -208,6 +324,34 @@ def plan_task_status(job_id: str, response: Response,
     response.status_code = 404
     return {"code": 2001, "message": "规划作业不存在", "data": None,
             "request_id": None}
+
+
+@app.delete("/api/v1/tasks/{job_id}")
+def cancel_plan_task(job_id: str, payload: dict[str, Any],
+                     response: Response) -> dict[str, Any]:
+    """取消版本化 SR4 作业，返回前端可直接读取的完整作业。"""
+    try:
+        request = PlanningJobCancelRequest.model_validate(payload)
+        return planning_job_service.cancel_planning_job(job_id, request)
+    except ValidationError as exc:
+        response.status_code = 422
+        issues = [{"objectId": str(payload.get("task_id") or job_id),
+                   "field": ".".join(map(str, issue["loc"])), "message": issue["msg"]}
+                  for issue in exc.errors()]
+        return {"code": 1001, "message": "取消作业参数校验失败", "data": issues,
+                "request_id": payload.get("request_id")}
+    except PlanningJobError as exc:
+        response.status_code = exc.status
+        return {"code": exc.code, "message": str(exc), "data": exc.data,
+                "request_id": payload.get("request_id")}
+    except DatabaseConfigurationError:
+        response.status_code = 503
+        return {"code": 5001, "message": "DATABASE_URL 未配置", "data": None,
+                "request_id": payload.get("request_id")}
+    except SQLAlchemyError:
+        response.status_code = 503
+        return {"code": 5002, "message": "数据库操作失败", "data": None,
+                "request_id": payload.get("request_id")}
 
 
 # ── SR-3 资源台账（供 SR-2 前端设备配置界面） ──
@@ -534,9 +678,29 @@ def plans_get(solution_id: str, response: Response,
 
 
 @app.post("/api/v1/plans/compare")
-def plans_compare(payload: dict[str, Any]) -> dict[str, Any]:
-    """多方案横向对比。body: {solution_ids: [...]}"""
-    return compare_plans(payload)
+def plans_compare(payload: dict[str, Any], response: Response) -> dict[str, Any]:
+    """对比版本化方案；旧格式继续返回算法摘要。"""
+    if "context" not in payload and "task_id" not in payload:
+        return compare_plans(payload)
+    try:
+        request = PlanningPlanCompareRequest.model_validate(payload)
+        data = planning_plan_service.compare_planning_plans(request)
+        return {"code": 0, "message": "success", "data": data}
+    except ValidationError as exc:
+        response.status_code = 422
+        issues = [{"objectId": payload.get("task_id", ""),
+                   "field": ".".join(map(str, issue["loc"])),
+                   "message": issue["msg"]} for issue in exc.errors()]
+        return {"code": 1001, "message": "方案对比参数校验失败", "data": issues}
+    except PlanningPlanError as exc:
+        response.status_code = exc.status
+        return {"code": exc.code, "message": str(exc), "data": exc.data}
+    except DatabaseConfigurationError:
+        response.status_code = 503
+        return {"code": 5001, "message": "DATABASE_URL 未配置", "data": None}
+    except SQLAlchemyError:
+        response.status_code = 503
+        return {"code": 5002, "message": "数据库操作失败", "data": None}
 
 
 @app.post("/api/v1/plans/{solution_id}/confirm")
@@ -571,7 +735,39 @@ def plans_confirm(solution_id: str, response: Response,
 
 
 @app.get("/api/v1/plans/{solution_id}/export")
-def plans_export(solution_id: str, format: str = "json") -> Any:
+def plans_export(solution_id: str, response: Response, format: str = "json",
+                 context: str | None = None, task_id: str | None = None) -> Any:
+    if context is not None or task_id is not None:
+        try:
+            request = PlanningPlanExportRequest.model_validate({
+                "context": context, "task_id": task_id, "format": format,
+            })
+            data = planning_plan_service.export_planning_plan(solution_id, request)
+            if request.format == "xlsx":
+                return Response(
+                    content=data,
+                    media_type=("application/vnd.openxmlformats-officedocument."
+                                "spreadsheetml.sheet"),
+                    headers={"Content-Disposition":
+                             f'attachment; filename="plan-{solution_id}.xlsx"'},
+                )
+            return {"code": 0, "message": "success", "data": data}
+        except ValidationError as exc:
+            response.status_code = 422
+            issues = [{"objectId": solution_id,
+                       "field": ".".join(map(str, issue["loc"])),
+                       "message": issue["msg"]} for issue in exc.errors()]
+            return {"code": 1001, "message": "方案导出参数校验失败", "data": issues}
+        except PlanningPlanError as exc:
+            response.status_code = exc.status
+            return {"code": exc.code, "message": str(exc), "data": exc.data}
+        except DatabaseConfigurationError:
+            response.status_code = 503
+            return {"code": 5001, "message": "DATABASE_URL 未配置", "data": None}
+        except SQLAlchemyError:
+            response.status_code = 503
+            return {"code": 5002, "message": "数据库操作失败", "data": None}
+
     result = export_plan(solution_id, format)
     if result["code"] == 0 and result["data"]["format"] == "xlsx":
         return Response(content=result["data"]["content"],
@@ -581,6 +777,21 @@ def plans_export(solution_id: str, format: str = "json") -> Any:
 
 
 # SR-5 fault diagnosis. Analysis tasks share the established task state endpoint.
+
+
+@app.get("/api/v1/fault/plan-sources")
+def fault_plan_sources(response: Response, task_id: str | None = None) -> dict[str, Any]:
+    try:
+        return {"code": 0, "message": "success", "data": list_plan_sources(task_id)}
+    except FaultPlanSourceError as exc:
+        response.status_code = exc.status
+        return {"code": exc.code, "message": str(exc), "data": None}
+    except DatabaseConfigurationError:
+        response.status_code = 503
+        return {"code": 5001, "message": "DATABASE_URL 未配置", "data": None}
+    except SQLAlchemyError:
+        response.status_code = 503
+        return {"code": 5002, "message": "数据库操作失败", "data": None}
 
 
 @app.post("/api/v1/fault/scenarios/validate")
@@ -626,8 +837,18 @@ def fault_scenario_delete(scenario_id: str) -> dict[str, Any]:
 
 
 @app.post("/api/v1/fault/diagnose")
-def fault_diagnose(payload: dict[str, Any]) -> dict[str, Any]:
-    return submit_diagnosis(payload)
+def fault_diagnose(payload: dict[str, Any], response: Response) -> dict[str, Any]:
+    try:
+        return submit_diagnosis(payload)
+    except FaultPlanSourceError as exc:
+        response.status_code = exc.status
+        return {"code": exc.code, "message": str(exc), "data": None}
+    except DatabaseConfigurationError:
+        response.status_code = 503
+        return {"code": 5001, "message": "DATABASE_URL 未配置", "data": None}
+    except SQLAlchemyError:
+        response.status_code = 503
+        return {"code": 5002, "message": "数据库操作失败", "data": None}
 
 
 @app.post("/api/v1/fault/diagnose/observations")
@@ -641,8 +862,18 @@ def fault_diagnosis_feedback(task_id: str, payload: dict[str, Any]) -> dict[str,
 
 
 @app.post("/api/v1/fault/impact")
-def fault_impact(payload: dict[str, Any]) -> dict[str, Any]:
-    return submit_impact(payload)
+def fault_impact(payload: dict[str, Any], response: Response) -> dict[str, Any]:
+    try:
+        return submit_impact(payload)
+    except FaultPlanSourceError as exc:
+        response.status_code = exc.status
+        return {"code": exc.code, "message": str(exc), "data": None}
+    except DatabaseConfigurationError:
+        response.status_code = 503
+        return {"code": 5001, "message": "DATABASE_URL 未配置", "data": None}
+    except SQLAlchemyError:
+        response.status_code = 503
+        return {"code": 5002, "message": "数据库操作失败", "data": None}
 
 
 @app.get("/api/v1/fault/impact/{task_id}/nodes")

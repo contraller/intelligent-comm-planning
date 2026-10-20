@@ -39,3 +39,22 @@ class PlanningPlanConfirmRequest(InputModel):
     request_id: Identifier
     task_id: Identifier
     expected_revision: Identifier
+
+
+class PlanningPlanCompareRequest(InputModel):
+    context: Literal["planning"]
+    task_id: Identifier
+    solution_ids: Annotated[list[Identifier], Field(min_length=2, max_length=4)]
+
+    @field_validator("solution_ids")
+    @classmethod
+    def require_distinct_plans(cls, value: list[str]) -> list[str]:
+        if len(set(value)) != len(value):
+            raise ValueError("对比方案编号不能重复")
+        return value
+
+
+class PlanningPlanExportRequest(InputModel):
+    context: Literal["planning"]
+    task_id: Identifier
+    format: Literal["json", "xlsx"]

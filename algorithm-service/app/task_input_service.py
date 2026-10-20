@@ -7,13 +7,17 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any
 
-from sqlalchemy import select
+from pydantic import ValidationError
+from sqlalchemy import func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
 from .database import get_session_factory
+from . import frontend_integration
+from .planning_job_models import PlanningJob
 from .task_input_models import PlanningOperationReceipt, PlanningTask, PlanningTaskRevision
-from .task_input_schemas import TaskSaveRequest
+from .task_input_schemas import (PlanningInput, TaskListQuery, TaskSaveRequest,
+                                 TaskValidationRequest)
 
 
 class TaskInputError(Exception):
@@ -96,6 +100,124 @@ def _dto(revision: PlanningTaskRevision) -> dict[str, Any]:
         "updated_at": _timestamp(revision.created_at),
         "active_job_id": None,
     }
+
+
+def _current_dto(session: Session, revision: PlanningTaskRevision) -> dict[str, Any]:
+    data = _dto(revision)
+    job_id = session.scalar(select(PlanningJob.job_id).where(
+        PlanningJob.task_id == revision.task_id,
+        PlanningJob.context == revision.context,
+    ).order_by(PlanningJob.created_at.desc(), PlanningJob.job_id.desc()).limit(1))
+    data["active_job_id"] = job_id
+    return data
+
+
+def list_task_inputs(query: TaskListQuery,
+                     factory: sessionmaker[Session] | None = None) -> dict[str, Any]:
+    """只返回每个任务的当前版本，不回写历史快照。"""
+    factory = factory or get_session_factory()
+    base = select(PlanningTask, PlanningTaskRevision).join(
+        PlanningTaskRevision,
+        PlanningTask.current_revision_id == PlanningTaskRevision.revision_id,
+    ).where(PlanningTaskRevision.context == query.context)
+    term = query.search.strip()
+    if term:
+        escaped = term.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        pattern = f"%{escaped}%"
+        base = base.where(or_(
+            PlanningTask.task_id.ilike(pattern, escape="\\"),
+            PlanningTaskRevision.input_snapshot["name"].as_string().ilike(
+                pattern, escape="\\"),
+        ))
+    with factory() as session:
+        total = session.scalar(select(func.count()).select_from(base.subquery())) or 0
+        rows = session.execute(base.order_by(
+            PlanningTask.updated_at.desc(), PlanningTask.task_id.asc()
+        ).offset((query.page - 1) * query.page_size).limit(query.page_size)).all()
+        items = [_current_dto(session, revision) for _task, revision in rows]
+    return {"items": items, "total": total,
+            "page": query.page, "page_size": query.page_size}
+
+
+def get_task_input(task_id: str, context: str,
+                   factory: sessionmaker[Session] | None = None) -> dict[str, Any]:
+    """按任务身份读取当前输入，跨场景不暴露另一任务版本。"""
+    factory = factory or get_session_factory()
+    with factory() as session:
+        task = session.get(PlanningTask, task_id)
+        revision = (session.get(PlanningTaskRevision, task.current_revision_id)
+                    if task is not None else None)
+        if revision is None or revision.context != context:
+            raise TaskInputError(2001, "规划任务不存在", 404)
+        return _current_dto(session, revision)
+
+
+def validate_task_input(payload: TaskValidationRequest,
+                        factory: sessionmaker[Session] | None = None) -> dict[str, Any]:
+    """只读预检当前输入结构与资源引用，返回可定位的字段问题。"""
+    current_resource = frontend_integration.resource_revision()
+    if payload.resource_revision != current_resource:
+        raise TaskInputError(1205, "资源版本已变化，请刷新后重新校验", 409, {
+            "expected": payload.resource_revision, "actual": current_resource,
+        })
+    factory = factory or get_session_factory()
+    with factory() as session:
+        task = session.get(PlanningTask, payload.task_id)
+        revision = (session.get(PlanningTaskRevision, task.current_revision_id)
+                    if task is not None else None)
+        saved = (_current_dto(session, revision)
+                 if revision is not None and revision.context == payload.context else None)
+
+    issues = []
+    try:
+        data = PlanningInput.model_validate(payload.input)
+    except ValidationError as exc:
+        for error in exc.errors():
+            location = error["loc"]
+            object_id = payload.task_id
+            if len(location) > 1 and location[0] == "demands" and isinstance(location[1], int):
+                rows = payload.input.get("demands")
+                if isinstance(rows, list) and location[1] < len(rows):
+                    row = rows[location[1]]
+                    if isinstance(row, dict) and isinstance(row.get("id"), str):
+                        object_id = row["id"]
+            issues.append({"objectId": object_id,
+                           "field": ".".join(map(str, location)) or "input",
+                           "message": error["msg"]})
+        return {"valid": False, "issues": issues, "task": saved}
+
+    catalog = frontend_integration.task_reference_catalog()
+    if frontend_integration.resource_revision() != current_resource:
+        raise TaskInputError(1205, "资源在校验期间发生变化，请重试", 409)
+    node_ids = catalog["node_ids"]
+    devices = catalog["devices"]
+    for node_id in data.stationIds:
+        if node_id not in node_ids:
+            issues.append({"objectId": node_id, "field": "stationIds",
+                           "message": "参与节点不存在"})
+        elif not any(row["node_id"] == node_id for row in devices.values()):
+            issues.append({"objectId": node_id, "field": "stationIds",
+                           "message": "参与节点未配置设备"})
+    for demand in data.demands:
+        if demand.endpointMode != "device":
+            continue
+        for node_id, device_id in ((demand.sourceId, demand.sourceDeviceId),
+                                   (demand.targetId, demand.targetDeviceId)):
+            device = devices.get(device_id)
+            if device is None or device["node_id"] != node_id:
+                issues.append({"objectId": demand.id, "field": "devices",
+                               "message": "指定设备不存在或归属节点不符"})
+            elif (demand.preferredClass is not None
+                  and device["device_class"] != demand.preferredClass):
+                issues.append({"objectId": demand.id, "field": "preferredClass",
+                               "message": "指定设备与偏好频段不符"})
+    deployment = data.deploymentConstraints
+    if deployment is not None and any(
+            node_id not in node_ids for node_id in deployment.losRequiredNodeIds):
+        issues.append({"objectId": payload.task_id,
+                       "field": "deploymentConstraints.losRequiredNodeIds",
+                       "message": "通视条件引用的节点不存在"})
+    return {"valid": not issues, "issues": issues, "task": saved}
 
 
 def _replay(session: Session, request_id: str, digest: str) -> dict[str, Any] | None:

@@ -33,3 +33,17 @@ class PlanningJob(Base):
     error: Mapped[str | None] = mapped_column(String(1000), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class PlanningJobCancellation(Base):
+    __tablename__ = "planning_job_cancellations"
+
+    request_id: Mapped[str] = mapped_column(String(120), primary_key=True)
+    request_digest: Mapped[str] = mapped_column(String(64), nullable=False)
+    job_id: Mapped[str] = mapped_column(
+        String(40), ForeignKey("planning_jobs.job_id"), nullable=False, index=True
+    )
+    task_id: Mapped[str] = mapped_column(String(120), nullable=False)
+    revision_id: Mapped[str] = mapped_column(String(40), nullable=False)
+    outcome_status: Mapped[str] = mapped_column(String(16), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)

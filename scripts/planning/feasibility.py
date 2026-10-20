@@ -103,15 +103,7 @@ def stations_from_nodes(nodes, devices, models, antennas):
         slot = per_node.setdefault(d["node_id"], {})
         if band in slot:
             continue                    # 同频段多台，取第一台的射频参数即可
-        slot[band] = dict(
-            tx_dbm=float(d["tx_power_dbm"]),
-            gain=float(a["gain_dbi"]),
-            height=float(d["antenna_height_m"]),
-            sens=filler.sensitivity(m),
-            bw=filler.bandwidth(m),
-            pattern=a["pattern_type"],
-            fmin=float(m["freq_min_khz"]),
-            fmax=float(m["freq_max_khz"]))
+        slot[band] = radio_from_device(d, m, a, filler)
     out = []
     for n in nodes:
         radio = per_node.get(n["node_id"])
@@ -120,6 +112,19 @@ def stations_from_nodes(nodes, devices, models, antennas):
         out.append(Station(n["node_id"], n["lon"], n["lat"],
                            n["node_subtype"], radio))
     return out
+
+
+def radio_from_device(device, model, antenna, filler=None):
+    """按物理设备生成射频参数，供绑定链路独立计算。"""
+    filler = filler or SpecFiller([model])
+    return dict(tx_dbm=float(device["tx_power_dbm"]),
+                gain=float(antenna["gain_dbi"]),
+                height=float(device["antenna_height_m"]),
+                sens=filler.sensitivity(model),
+                bw=filler.bandwidth(model),
+                pattern=antenna["pattern_type"],
+                fmin=float(model["freq_min_khz"]),
+                fmax=float(model["freq_max_khz"]))
 
 
 def link_margin(terrain, sa, sb, band, freq_khz=None):

@@ -614,8 +614,8 @@ def compare_plans(plans):
 def _link_ranges(devices, models):
     mrng = {m["model_id"]: (float(m["freq_min_khz"]), float(m["freq_max_khz"]))
             for m in (models or [])}
-    return {d["device_id"]: mrng[d["device_model_id"]]
-            for d in (devices or []) if d.get("device_model_id") in mrng}
+    return {d["device_id"]: mrng[d["model_id"]]
+            for d in (devices or []) if d.get("model_id") in mrng}
 
 
 def _range_of(l, rng):
@@ -805,7 +805,7 @@ if __name__ == "__main__":
 
 
 def fill_ranges_by_node(tasks, links, nodes, devices, models):
-    """规划拓扑没有 device_a_id/device_b_id 时，按**节点**推可用频率范围。
+    """优先按绑定设备、缺失绑定时按节点推可用频率范围。
 
     取该节点在该频段第一台设备的型号频段范围，再对网内全部成员求交集。
     """
@@ -813,10 +813,12 @@ def fill_ranges_by_node(tasks, links, nodes, devices, models):
             for m in models}
     mband = {m["model_id"]: m["device_class"] for m in models}
     node_rng = {}
+    device_rng = {}
     for d in devices:
         r = mrng.get(d["model_id"])
         if not r:
             continue
+        device_rng[d["device_id"]] = r
         key = (d["node_id"], mband[d["model_id"]])
         node_rng.setdefault(key, r)
     by_id = {l["link_id"]: l for l in links}
@@ -826,8 +828,9 @@ def fill_ranges_by_node(tasks, links, nodes, devices, models):
             l = by_id.get(lid)
             if not l:
                 continue
-            for sid in (l["node_a_id"], l["node_b_id"]):
-                r = node_rng.get((sid, t.band))
+            for sid, did in ((l["node_a_id"], l.get("device_a_id")),
+                             (l["node_b_id"], l.get("device_b_id"))):
+                r = device_rng.get(did) if did else node_rng.get((sid, t.band))
                 if not r:
                     continue
                 lo = r[0] if lo is None else max(lo, r[0])

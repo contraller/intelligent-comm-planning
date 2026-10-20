@@ -83,6 +83,17 @@ def resource_revision() -> str:
     return f"resource-{digest.hexdigest()[:16]}"
 
 
+def task_reference_catalog() -> dict[str, Any]:
+    """为任务预检读取与资源接口相同的节点、设备及型号来源。"""
+    nodes = _rows("nodes")
+    models = {row["model_id"]: row["device_class"] for row in _rows("models")}
+    devices = {row["device_id"]: {
+        "node_id": row["node_id"],
+        "device_class": models.get(row["model_id"]),
+    } for row in _rows("devices")}
+    return {"node_ids": {row["node_id"] for row in nodes}, "devices": devices}
+
+
 def _updated_at() -> str:
     timestamp = max(path.stat().st_mtime for path in DATA_FILES.values())
     return datetime.fromtimestamp(timestamp, timezone.utc).isoformat().replace("+00:00", "Z")

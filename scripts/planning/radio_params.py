@@ -43,7 +43,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import echelon as E
-from feasibility import link_margin
+from feasibility import SpecFiller, link_margin, radio_from_device
 
 DEFAULT_FADE_MARGIN_DB = 8.0          # 缺口 A7，见文件头
 TILT_RANGE_DEG = (-10.0, 10.0)        # 接口文档 2.5 的 bounds，记录用
@@ -201,6 +201,147 @@ def capabilities_from_tables(stations, devices, models, antennas):
                 float(d["tx_power_dbm"]), h_now,
                 a.get("pattern_type", "OMNI"), m["model_id"], a["antenna_id"])
     return caps
+
+
+def capabilities_by_device(stations, devices, models, antennas):
+    """保留同站同频段的每台设备，不合并物理设备身份。"""
+    station_by_id = {station.sid: station for station in stations}
+    model_by_id = {row["model_id"]: row for row in models}
+    antenna_by_id = {row["antenna_id"]: row for row in antennas}
+    caps = {}
+    for device in devices:
+        station = station_by_id.get(device["node_id"])
+        model = model_by_id.get(device["model_id"])
+        antenna = antenna_by_id.get(device["antenna_id"])
+        if station is None or model is None or antenna is None:
+            continue
+        band = model["device_class"]
+        if band not in station.radio:
+            continue
+        current_height = float(device["antenna_height_m"])
+        low, high = PLATFORM_HEIGHT_RANGE_M.get(
+            E.SUBTYPE_MOBILITY.get(station.subtype, "VEHICLE"),
+            (current_height, current_height))
+        caps[device["device_id"]] = DeviceCapability(
+            station.sid, band, power_levels_of(model),
+            min(low, current_height), max(high, current_height),
+            float(device["tx_power_dbm"]), current_height,
+            antenna.get("pattern_type", "OMNI"), model["model_id"],
+            antenna["antenna_id"])
+    return caps
+
+
+def plan_bound_devices(stations, links, devices, models, antennas, terrain,
+                       preset="TERRAIN", fade_margin_db=None, manual_override=None):
+    """按冻结的链路设备绑定，独立规划每台物理电台。"""
+    cfg = dict(PRESETS.get(preset, {})) if preset else {}
+    required = (fade_margin_db if fade_margin_db is not None
+                else cfg.get("fade_margin_db", DEFAULT_FADE_MARGIN_DB))
+    caps = capabilities_by_device(stations, devices, models, antennas)
+    model_by_id = {row["model_id"]: row for row in models}
+    antenna_by_id = {row["antenna_id"]: row for row in antennas}
+    filler = SpecFiller(models)
+    station_by_id = {station.sid: station for station in stations}
+    device_by_id = {row["device_id"]: row for row in devices}
+    height = {did: (cap.h_max if cfg.get("height_policy") == "MAX" else cap.h_now)
+              for did, cap in caps.items()}
+    forced = {}
+    manual_keys = set()
+    errors = []
+    for row in manual_override or []:
+        did = row["device_id"]
+        cap = caps.get(did)
+        if cap is None:
+            errors.append("设备 %s 不存在或型号不完整" % did)
+            continue
+        if row.get("antenna_height_m") is not None:
+            value = float(row["antenna_height_m"])
+            if not cap.h_min - 1e-9 <= value <= cap.h_max + 1e-9:
+                errors.append("设备 %s 挂高超出 %.2f–%.2f m" %
+                              (did, cap.h_min, cap.h_max))
+            else:
+                height[did] = value
+        if row.get("tx_power_dbm") is not None:
+            value = float(row["tx_power_dbm"])
+            # 存量功率按 0.1 dBm 记录，允许与型号档位有 0.05 dBm 的舍入差。
+            if min(abs(value - level) for level in cap.levels) > 0.051:
+                errors.append("设备 %s 功率不属于型号档位 %s" % (did, cap.levels))
+            else:
+                forced[did] = value
+                manual_keys.add(did)
+
+    def endpoint(node_id, did, band):
+        device = device_by_id[did]
+        station = copy.copy(station_by_id[node_id])
+        station.radio = dict(station.radio)
+        station.radio[band] = radio_from_device(
+            device, model_by_id[device["model_id"]],
+            antenna_by_id[device["antenna_id"]], filler)
+        return station
+
+    base = []
+    for link in links:
+        if str(link.get("is_available", "true")).lower() == "false":
+            continue
+        a, b = link.get("device_a_id"), link.get("device_b_id")
+        if a not in caps or b not in caps:
+            errors.append("链路 %s 缺少有效的物理设备绑定" % link["link_id"])
+            continue
+        band = link["device_class"]
+        ca, cb = caps[a], caps[b]
+        if (ca.sid, cb.sid, ca.band, cb.band) != (
+                link["node_a_id"], link["node_b_id"], band, band):
+            errors.append("链路 %s 的绑定设备与端点或频段不一致" % link["link_id"])
+            continue
+        sa, sb = endpoint(ca.sid, a, band), endpoint(cb.sid, b, band)
+        maximum, _, _ = _margin_with(terrain, sa, sb, band, ca.tx_max, cb.tx_max,
+                                      height[a], height[b])
+        need = min(ca.tx_max, cb.tx_max) - (maximum - required)
+        base.append((link, sa, sb, a, b, need, maximum))
+    wanted = {}
+    for _link, _sa, _sb, a, b, need, _maximum in base:
+        wanted[a] = max(wanted.get(a, -1e9), need)
+        wanted[b] = max(wanted.get(b, -1e9), need)
+    tx = {did: forced.get(did, cap.snap_up(min(wanted.get(did, cap.tx_min), cap.tx_max)))
+          for did, cap in caps.items()}
+    result_links, failed = [], []
+    for link, sa, sb, a, b, _need, maximum in base:
+        margin, distance, loss = _margin_with(terrain, sa, sb, link["device_class"],
+                                               tx[a], tx[b], height[a], height[b])
+        rec = dict(link_id=link["link_id"], node_a=sa.sid, node_b=sb.sid,
+                   device_a_id=a, device_b_id=b, band=link["device_class"],
+                   distance_m=round(distance, 1), path_loss_db=round(loss, 2),
+                   tx_a_dbm=tx[a], tx_b_dbm=tx[b],
+                   height_a_m=height[a], height_b_m=height[b],
+                   margin_db=round(margin, 2), required_margin_db=required,
+                   meets=margin >= required - 1e-6,
+                   margin_at_max_power_db=round(maximum, 2))
+        result_links.append(rec)
+        if not rec["meets"]:
+            failed.append(rec)
+    active = {did for row in result_links
+              for did in (row["device_a_id"], row["device_b_id"])}
+    params = [dict(device_id=did, node_id=cap.sid, band=cap.band,
+                   model_id=cap.model_id, antenna_id=cap.antenna_id,
+                   tx_power_dbm=tx[did], tx_power_levels_dbm=cap.levels,
+                   antenna_height_m=height[did],
+                   antenna_height_range_m=[cap.h_min, cap.h_max],
+                   tilt_deg=0.0, tilt_effective=False,
+                   manual=did in manual_keys, active=did in active)
+              for did, cap in sorted(caps.items())]
+    power = sum(10 ** ((tx[did] - 30) / 10) for did in active)
+    return dict(preset=preset, preset_name=cfg.get("name"), note=cfg.get("note"),
+                fade_margin_db=required, params=params, links=result_links,
+                failed_links=failed, manual_errors=errors,
+                summary=dict(devices=len(params), devices_active=len(active),
+                             devices_idle=len(params) - len(active),
+                             links=len(result_links), failed=len(failed),
+                             total_radiated_w=round(power, 2),
+                             mean_tx_dbm=round(sum(tx.values()) / max(1, len(tx)), 2),
+                             min_margin_db=round(min((row["margin_db"] for row in result_links),
+                                                 default=float("nan")), 2),
+                             devices_at_max=sum(tx[did] >= cap.tx_max - 0.051
+                                                for did, cap in caps.items())))
 
 
 # ---------------------------------------------------------------- 优化

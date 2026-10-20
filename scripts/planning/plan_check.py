@@ -34,7 +34,8 @@ def _issue(kind, severity, detail, **kw):
 
 
 def check(freq_result=None, freq_tasks=None, param_result=None,
-          route_result=None, links=None, nodes=None, caps=None, uplinks=None):
+          route_result=None, links=None, nodes=None, caps=None, uplinks=None,
+          devices=None, models=None):
     """交叉校验。各部分都可以缺省，缺的部分跳过对应检查。
 
     uplinks：{下级台站号: 上级台站号} 的主上行关系，用于认出 Ⅲ 借道链路。
@@ -79,10 +80,12 @@ def check(freq_result=None, freq_tasks=None, param_result=None,
         checked.append("参数越界")
         if caps:
             for p in param_result.get("params", []):
-                c = caps.get((p["node_id"], p["band"]))
+                c = caps.get(p["device_id"]) if p.get("device_id") else caps.get(
+                    (p["node_id"], p["band"]))
                 if c is None:
                     continue
-                if p["tx_power_dbm"] not in c.levels:
+                tolerance = 0.051 if p.get("device_id") else 1e-9
+                if min(abs(p["tx_power_dbm"] - level) for level in c.levels) > tolerance:
                     issues.append(_issue(
                         "PARAM_OUT_OF_RANGE", "SEVERE",
                         "%s %s 功率 %.1f dBm 不在型号档位 %s 内"
@@ -107,6 +110,38 @@ def check(freq_result=None, freq_tasks=None, param_result=None,
 
     # ── 5 容量越限 + 6 频段串联 ──
     if links is not None and nodes is not None:
+        if devices is not None and models is not None:
+            checked.append("物理设备绑定")
+            model_band = {row["model_id"]: row["device_class"] for row in models}
+            by_id = {row["device_id"]: row for row in devices}
+            net_of = {}
+            from frequency import tasks_from_nets
+            for task in tasks_from_nets(links, nodes):
+                net_of.update((link_id, task.task_id) for link_id in task.members)
+            owner = {}
+            for link in links:
+                if str(link.get("is_available", "true")).lower() == "false":
+                    continue
+                for side in ("a", "b"):
+                    did = link.get("device_%s_id" % side)
+                    device = by_id.get(did)
+                    sid = link["node_%s_id" % side]
+                    band = link["device_class"]
+                    if device is None or device["node_id"] != sid or model_band.get(
+                            device["model_id"]) != band:
+                        issues.append(_issue(
+                            "DEVICE_BINDING_INVALID", "SEVERE",
+                            "%s 的 %s 端未绑定本站同频段设备" % (link["link_id"], side),
+                            link_ids=[link["link_id"]]))
+                        continue
+                    net = net_of.get(link["link_id"])
+                    key = (sid, band, did)
+                    if key in owner and owner[key] != net:
+                        issues.append(_issue(
+                            "DEVICE_BINDING_OVERBOOKED", "SEVERE",
+                            "%s 在不同网系重复占用设备 %s" % (sid, did),
+                            link_ids=[link["link_id"]]))
+                    owner[key] = net
         checked.append("容量越限")
         sub = {n["node_id"]: n.get("node_subtype", "") for n in nodes}
         deg = {}

@@ -39,6 +39,7 @@
 - FREQ_ADJUST 频率调整：在全网设备可用频段内重新选频，**要求不引入同频冲突**
   （按复用距离全网校验），可跨子频段。
 """
+import copy
 import math
 import os
 import sys
@@ -50,7 +51,7 @@ import echelon as E
 from propagation import (vuhf_path_loss, hf_path_loss, noise_floor_dbm,
                          margin_to_state, REQUIRED_SNR_DB)
 from terrain import haversine_m, BBOX
-from feasibility import representative_freq
+from feasibility import SpecFiller, radio_from_device, representative_freq
 import gridgeo
 
 # ── 口径参数（待确认）──────────────────────────────────
@@ -179,7 +180,7 @@ class VictimLink:
     """组网方案里的一条链路，两端各是一个接收机。"""
 
     __slots__ = ("link_id", "a", "b", "band", "f", "bw", "net_id",
-                 "tx", "pl", "st_a", "st_b")
+                 "tx", "pl", "st_a", "st_b", "device")
 
     def __init__(self, link_id, st_a, st_b, band, f, net_id=None):
         self.link_id = link_id
@@ -190,6 +191,7 @@ class VictimLink:
         self.bw = max(st_a.radio[band]["bw"], st_b.radio[band]["bw"])
         self.net_id = net_id
         self.tx = {self.a: st_a.radio[band]["tx_dbm"], self.b: st_b.radio[band]["tx_dbm"]}
+        self.device = {}
         self.pl = None
 
 
@@ -225,8 +227,8 @@ class Scenario:
     def end_state(self, lk, rx_sid):
         """某一端作为接收机的 (S, N, I 明细, SNR, SINR, 余量前, 余量后)。"""
         tx_sid = lk.b if rx_sid == lk.a else lk.a
-        st_rx = self.stations[rx_sid]
-        st_tx = self.stations[tx_sid]
+        st_rx = lk.st_a if rx_sid == lk.a else lk.st_b
+        st_tx = lk.st_a if tx_sid == lk.a else lk.st_b
         rr, rt = st_rx.radio[lk.band], st_tx.radio[lk.band]
         pl = self._signal_pl(lk)
         s = lk.tx[tx_sid] + rt["gain"] + rr["gain"] - pl
@@ -270,7 +272,7 @@ def grade(m_before, m_after, delta_db):
 
 
 def build_scenario(stations, topo_rows, terrain, jammer_rows, freq_of=None,
-                   net_of=None, tx_of=None, hour=12):
+                   net_of=None, tx_of=None, hour=12, device_radios=None):
     """由组网方案造分析场景。
 
     topo_rows  规划拓扑链路（link_id / node_a_id / node_b_id / device_class）
@@ -285,14 +287,24 @@ def build_scenario(stations, topo_rows, terrain, jammer_rows, freq_of=None,
         band = r["device_class"]
         if sa is None or sb is None or band not in sa.radio or band not in sb.radio:
             continue
+        if device_radios:
+            sa, sb = copy.copy(sa), copy.copy(sb)
+            sa.radio, sb.radio = dict(sa.radio), dict(sb.radio)
+            for station, did in ((sa, r.get("device_a_id")),
+                                 (sb, r.get("device_b_id"))):
+                if did in device_radios:
+                    station.radio[band] = device_radios[did]
         f = (freq_of or {}).get(r["link_id"])
         if f is None:
             f = representative_freq(sa.radio[band], sb.radio[band], band)
         if f is None:
             continue
         lk = VictimLink(r["link_id"], sa, sb, band, f, (net_of or {}).get(r["link_id"]))
+        lk.device = {lk.a: r.get("device_a_id"), lk.b: r.get("device_b_id")}
         for sid in (lk.a, lk.b):
-            if tx_of and (sid, band) in tx_of:
+            if tx_of and (r["link_id"], sid) in tx_of:
+                lk.tx[sid] = tx_of[(r["link_id"], sid)]
+            elif tx_of and (sid, band) in tx_of:
                 lk.tx[sid] = tx_of[(sid, band)]
         links.append(lk)
     return Scenario(stations, links, terrain, [Jammer(x) for x in jammer_rows], hour)
@@ -567,19 +579,24 @@ def _power_measure(sc, lk, caps, n_before):
     reasons = []
     ends = []
     for sid in (lk.a, lk.b):
-        c = (caps or {}).get((sid, lk.band))
-        mx = c.tx_max if c else sc.stations[sid].radio[lk.band]["tx_dbm"]
+        did = lk.device.get(sid)
+        c = (caps or {}).get(did) if did else (caps or {}).get((sid, lk.band))
+        station = lk.st_a if sid == lk.a else lk.st_b
+        mx = c.tx_max if c else station.radio[lk.band]["tx_dbm"]
         ends.append((sid, lk.tx[sid], mx))
     if all(new <= old + 1e-9 for _sid, old, new in ends):
         return None, ["功率优化：两端已是型号最大功率档"]
-    touched = [x for x in sc.links if x.band == lk.band and (x.a in (lk.a, lk.b)
-                                                             or x.b in (lk.a, lk.b))]
+    touched = [x for x in sc.links if x.band == lk.band and any(
+        sid in (x.a, x.b) and (not lk.device.get(sid)
+                               or x.device.get(sid) == lk.device[sid])
+        for sid in (lk.a, lk.b))]
     saved = [(x, dict(x.tx)) for x in touched]
 
     def mutate():
         for x in touched:
             for sid, _old, new in ends:
-                if sid in x.tx:
+                if sid in x.tx and (not lk.device.get(sid)
+                                    or x.device.get(sid) == lk.device[sid]):
                     x.tx[sid] = new
 
     def undo():
@@ -865,9 +882,34 @@ def scenario_from_plan(plan, jammer_rows, hour=12):
         la = expand_to_links(plan["frequency"], plan["freq_tasks"])
     freq_of = {r["link_id"]: r["freq_khz"] for r in la if r.get("freq_khz") is not None}
     net_of = {r["link_id"]: r.get("net_id") for r in la}
-    tx_of = {(p["node_id"], p["band"]): p["tx_power_dbm"] for p in plan["params"]["params"]}
+    param_rows = plan["params"]["params"]
+    tx_of = {(p["node_id"], p["band"]): p["tx_power_dbm"]
+             for p in param_rows if not p.get("device_id")}
+    device_radios = None
+    if plan.get("devices") and any(p.get("device_id") for p in param_rows):
+        models = {row["model_id"]: row for row in plan["models"]}
+        antennas = {row["antenna_id"]: row for row in plan["antennas"]}
+        filler = SpecFiller(plan["models"])
+        params = {row["device_id"]: row for row in param_rows}
+        device_radios = {}
+        for device in plan["devices"]:
+            did = device["device_id"]
+            model = models.get(device["model_id"])
+            antenna = antennas.get(device["antenna_id"])
+            if did not in params or model is None or antenna is None:
+                continue
+            radio = radio_from_device(device, model, antenna, filler)
+            radio["height"] = params[did]["antenna_height_m"]
+            radio["tx_dbm"] = params[did]["tx_power_dbm"]
+            device_radios[did] = radio
+        for link in plan["links"]:
+            for sid, did in ((link["node_a_id"], link.get("device_a_id")),
+                             (link["node_b_id"], link.get("device_b_id"))):
+                if did in params:
+                    tx_of[(link["link_id"], sid)] = params[did]["tx_power_dbm"]
     return build_scenario(plan["stations"], plan["links"], plan["terrain"], jammer_rows,
-                          freq_of=freq_of, net_of=net_of, tx_of=tx_of, hour=hour)
+                          freq_of=freq_of, net_of=net_of, tx_of=tx_of, hour=hour,
+                          device_radios=device_radios)
 
 
 def _self_test():

@@ -8,11 +8,13 @@ import os
 import sys
 import threading
 import uuid
+from copy import deepcopy
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 from .planning_w3 import _spawn, get_task_record, CODE_OK, CODE_TASK_NOT_FOUND
+from .fault_plan_source import FaultPlanSourceError, load_plan_source
 
 ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT / "scripts") not in sys.path:
@@ -268,33 +270,54 @@ def _impact(tid):
 
 def submit_diagnosis(payload):
     payload = payload or {}
+    if payload.get("context") not in (None, "planning", "demo"):
+        return _bad(FaultInputError("context 只能为 planning 或 demo"))
+    if payload.get("context") != "planning" and any(
+        key in payload for key in ("task_id", "plan_id")
+    ):
+        return _bad(FaultInputError("正式方案诊断须显式设置 context=planning"))
+    if payload.get("context") == "planning" and payload.get("network_solution_id"):
+        return _bad(FaultInputError("正式诊断应使用 plan_id，不接受旧方案编号"))
+    if payload.get("context") == "planning" and not payload.get("plan_id"):
+        raise FaultPlanSourceError(1001, "正式诊断必须指定 plan_id", 422)
     sid = payload.get("scenario_id")
     with _SLOCK:
-        scenario = _scenarios().get(sid)
+        stored = _scenarios().get(sid)
+        scenario = deepcopy(stored) if stored is not None else None
     if scenario is None:
         return {"code": 1002, "message": "故障场景不存在", "data": None}
+    formal = payload.get("context") == "planning"
+    source = load_plan_source(payload.get("task_id"), payload.get("plan_id")) if formal else None
+    network = source["network"] if source else None
     try:
-        _diagnose_live(scenario, payload)
+        _diagnose_live(scenario, payload, network=network)
     except FaultInputError as exc:
         return _bad(exc)
-    if payload.get("network_solution_id") and _solution(payload["network_solution_id"]) is None:
+    if not formal and payload.get("network_solution_id") and _solution(payload["network_solution_id"]) is None:
         return {"code": 1002, "message": "规划方案不存在", "data": None}
 
     def work(_payload, tick):
         tick(0.4, "规则与图谱推理")
-        out = _diagnose_live(scenario, payload)
-        out["network_solution_id"] = payload.get("network_solution_id") or "SYNTHETIC_BASELINE"
+        out = _diagnose_live(scenario, payload, network=network)
+        if source:
+            meta = source["meta"]
+            out.update(context="planning", network_solution_id=meta["plan_id"],
+                       network_task_id=meta["task_id"], network_revision=meta["revision"],
+                       network_resource_revision=meta["resource_revision"])
+        else:
+            out["network_solution_id"] = payload.get("network_solution_id") or "SYNTHETIC_BASELINE"
         return out
     return _spawn("FAULT_DIAGNOSE", payload, work)
 
 
-def _diagnose_live(scenario, payload, require_fault_type=True):
+def _diagnose_live(scenario, payload, require_fault_type=True, network=None):
     from . import kg
     with kg._LOCK:
         graph, _ = kg._load()
-        return _engine().diagnose(scenario, payload.get("fusion_weights"),
-                                  payload.get("confidence_threshold", 0.6), graph=graph,
-                                  require_fault_type=require_fault_type)
+        engine = _engine().for_network(network) if network is not None else _engine()
+        return engine.diagnose(scenario, payload.get("fusion_weights"),
+                               payload.get("confidence_threshold", 0.6), graph=graph,
+                               require_fault_type=require_fault_type)
 
 
 def submit_observation_diagnosis(payload):
@@ -324,6 +347,39 @@ def submit_impact(payload):
     diagnosis = _diagnosis(payload.get("diagnose_task_id"))
     if diagnosis is None:
         return {"code": CODE_TASK_NOT_FOUND, "message": "诊断任务不存在或尚未完成", "data": None}
+    formal = diagnosis.get("context") == "planning"
+    if formal:
+        if payload.get("context") not in (None, "planning"):
+            return _bad(FaultInputError("正式诊断的影响分析不能切换到演示模式"))
+        if (payload.get("task_id") != diagnosis["network_task_id"]
+                or payload.get("plan_id") != diagnosis["network_solution_id"]):
+            return _bad(FaultInputError("影响分析的任务和方案须与诊断结果一致"))
+        source = load_plan_source(payload["task_id"], payload["plan_id"],
+                                  require_current=False)
+        if source["meta"]["revision"] != diagnosis["network_revision"]:
+            return _bad(FaultInputError("诊断来源方案版本已经变化"))
+        scenario = {"scenario_id": diagnosis["scenario_id"],
+                    **deepcopy(diagnosis["input_snapshot"])}
+        solution = source["solution"]
+        try:
+            _engine().for_network(source["network"]).validate(scenario)
+        except FaultInputError as exc:
+            return _bad(exc)
+
+        def work(_payload, tick):
+            tick(0.4, "沿冻结方案的主备路由计算影响")
+            out = _engine().for_network(source["network"]).impact(
+                scenario, diagnosis, solution, payload.get("consider_backup_route", True))
+            out.update(context="planning", network_task_id=source["meta"]["task_id"],
+                       network_revision=source["meta"]["revision"])
+            return out
+        return _spawn("FAULT_IMPACT", payload, work)
+
+    if payload.get("context") == "planning" or any(
+        key in payload for key in ("task_id", "plan_id")
+    ):
+        return _bad(FaultInputError("正式影响分析须引用正式诊断任务"))
+
     sid = payload.get("network_solution_id") or diagnosis.get("network_solution_id")
     solution = None if sid == "SYNTHETIC_BASELINE" else _solution(sid)
     if sid != "SYNTHETIC_BASELINE" and solution is None:
@@ -367,12 +423,21 @@ def get_suggestions(diagnose_task_id, impact_task_id=None):
         return {"code": CODE_TASK_NOT_FOUND, "message": "影响分析任务不存在或尚未完成", "data": None}
     if impact and impact["scenario_id"] != diagnosis["scenario_id"]:
         return _bad(FaultInputError("诊断结果与影响分析结果不属于同一场景"))
+    if diagnosis.get("context") == "planning" and impact and (
+            impact.get("context") != "planning" or
+            impact.get("network_solution_id") != diagnosis.get("network_solution_id")):
+        return _bad(FaultInputError("诊断与影响分析的方案来源不一致"))
     return _ok(_engine().suggestions(diagnosis, impact))
 
 
 def _report_content(diagnosis, impact, suggestions):
+    if diagnosis.get("context") == "planning":
+        scenario = {"scenario_id": diagnosis["scenario_id"],
+                    **deepcopy(diagnosis["input_snapshot"])}
+    else:
+        scenario = _scenarios().get(diagnosis["scenario_id"])
     return {"scenario_id": diagnosis["scenario_id"], "data_source": "CONSTRUCTED",
-            "scenario": _scenarios().get(diagnosis["scenario_id"]),
+            "scenario": scenario,
             "diagnosis": diagnosis, "impact": impact, "suggestions": suggestions,
             "generated_at": datetime.now(timezone.utc).isoformat()}
 
@@ -457,6 +522,10 @@ def create_report(payload):
         return {"code": CODE_TASK_NOT_FOUND, "message": "影响分析任务不存在或尚未完成", "data": None}
     if impact and impact["scenario_id"] != diagnosis["scenario_id"]:
         return _bad(FaultInputError("诊断结果与影响分析结果不属于同一场景"))
+    if diagnosis.get("context") == "planning" and impact and (
+            impact.get("context") != "planning" or
+            impact.get("network_solution_id") != diagnosis.get("network_solution_id")):
+        return _bad(FaultInputError("诊断与影响分析的方案来源不一致"))
     fmt = (payload.get("format") or "json").lower()
     if fmt not in {"json", "docx", "pdf"}:
         return _bad(FaultInputError("报告格式仅支持 json / docx / pdf"))
