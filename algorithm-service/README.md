@@ -144,7 +144,25 @@ curl 'http://127.0.0.1:8000/api/v1/plans?context=planning&task_id=DEMO-001&page=
 curl 'http://127.0.0.1:8000/api/v1/plans/PLAN-替换方案编号?context=planning&task_id=DEMO-001'
 ```
 
-达标结果保存为 `SAVED`；未满足硬约束但有完整结果，或保存时资源版本已经变化的结果保存为 `REFERENCE`。同一 `request_id` 和相同内容幂等返回原方案，同一作业当前只允许保存一次。保存后作业查询的 `saved_plan_id` 返回方案编号。带 `task_id` 的列表和详情使用前端版本化契约；不带 `task_id` 时继续读取原算法方案文件。方案确认、对比和导出的版本化契约仍待后续接入。
+达标结果保存为 `SAVED`；未满足硬约束但有完整结果，或保存时资源版本已经变化的结果保存为 `REFERENCE`。同一 `request_id` 和相同内容幂等返回原方案，同一作业当前只允许保存一次。保存后作业查询的 `saved_plan_id` 返回方案编号。带 `task_id` 的列表和详情使用前端版本化契约；不带 `task_id` 时继续读取原算法方案文件。
+
+确认版本化方案时，请求体如下：
+
+```json
+{
+  "context": "planning",
+  "request_id": "confirm-plan-DEMO-001-001",
+  "task_id": "DEMO-001",
+  "expected_revision": "TREV-替换为方案输入版本"
+}
+```
+
+```bash
+curl -X POST 'http://127.0.0.1:8000/api/v1/plans/PLAN-替换方案编号/confirm' \
+  -H 'Content-Type: application/json' --data-binary @plan-confirm.json
+```
+
+只有来源版本未变化的 `SAVED` 方案可以首次确认。成功响应返回完整方案，状态为 `CONFIRMED`，`current=true` 且 `confirmed_at` 非空；同一任务此前的当前方案保留为历史，回读时 `current=false`。相同 `request_id` 与相同内容幂等返回；请求编号被不同内容复用返回 `1204`，输入版本不一致返回 `1203`，资源版本变化返回 `1205`，`REFERENCE` 或已不再是当前方案的历史确认版本返回 `3001`。同一路径不带请求体时仍执行旧算法文件确认逻辑。版本化对比和导出仍待后续接入。
 
 SR-5 场景及报告默认保存在 `data/runtime/`，可通过 `SR5_STORE_PATH` 和 `SR5_REPORT_DIR` 指定位置。SR-4 方案保存在 `data/runtime/plans/`（`SR4_PLAN_DIR`）；已完成的异步任务保存在 `data/runtime/tasks/`（`ALGORITHM_TASK_DIR`）；覆盖结果和覆盖任务分别保存在 `data/runtime/coverage/`（`COVERAGE_CACHE_DIR`）和 `data/runtime/coverage_tasks/`（`COVERAGE_TASK_DIR`）。运行中的任务在服务重启后不能恢复计算，须重新提交。运行目录已加入 `.gitignore`；正式部署时应配置持久卷并备份。当前持久化仅适用于单进程服务，多进程或多实例部署需另行设计共享存储。
 

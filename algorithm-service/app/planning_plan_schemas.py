@@ -32,3 +32,10 @@ class PlanningPlanSaveRequest(InputModel):
         if (self.solution_id is None) != (self.snapshot_id is None):
             raise ValueError("solution_id 与 snapshot_id 必须同时提供")
         return self
+
+
+class PlanningPlanConfirmRequest(InputModel):
+    context: Literal["planning"]
+    request_id: Identifier
+    task_id: Identifier
+    expected_revision: Identifier

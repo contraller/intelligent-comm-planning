@@ -96,6 +96,16 @@ def _save_plan(saved: dict, job: dict, request_id: str = "save-plan-1") -> dict:
     }
 
 
+def _confirm_plan(saved: dict, plan: dict,
+                  request_id: str = "confirm-plan-1") -> dict:
+    return {
+        "context": "planning",
+        "request_id": request_id,
+        "task_id": saved["task_id"],
+        "expected_revision": plan["revision"],
+    }
+
+
 def _complete_job(monkeypatch, saved: dict, *, conflict: bool = False) -> None:
     monkeypatch.setattr(planning_job_service.planning_w3, "get_task_record", lambda _: {
         "status": "SUCCESS", "progress": 1.0, "stage": "完成", "error": None,
@@ -499,3 +509,123 @@ def test_save_plan_checks_revision_owner_and_request_shape(api, monkeypatch):
     })
     assert missing.status_code == 404
     assert missing.json()["code"] == 2001
+
+
+def test_confirm_saved_plan_and_replay_request(api, monkeypatch):
+    client, _, _ = api
+    saved = _save_task(client)
+    job = client.post("/api/v1/plan/sr4-flow", json=_submit(saved)).json()["data"]
+    _complete_job(monkeypatch, saved)
+    plan = client.post("/api/v1/plans", json=_save_plan(saved, job)).json()["data"]
+    request = _confirm_plan(saved, plan)
+
+    response = client.post(f"/api/v1/plans/{plan['plan_id']}/confirm", json=request)
+    assert response.status_code == 200
+    confirmed = response.json()["data"]
+    assert confirmed["state"] == "CONFIRMED"
+    assert confirmed["current"] is True
+    assert confirmed["confirmed_at"] is not None
+
+    replay = client.post(f"/api/v1/plans/{plan['plan_id']}/confirm", json=request)
+    assert replay.status_code == 200
+    assert replay.json()["data"] == confirmed
+
+    repeated = client.post(
+        f"/api/v1/plans/{plan['plan_id']}/confirm",
+        json=_confirm_plan(saved, plan, "confirm-plan-2"),
+    )
+    assert repeated.status_code == 200
+    assert repeated.json()["data"]["confirmed_at"] == confirmed["confirmed_at"]
+
+    reused = dict(request, expected_revision="TREV-other")
+    conflict = client.post(f"/api/v1/plans/{plan['plan_id']}/confirm", json=reused)
+    assert conflict.status_code == 409
+    assert conflict.json()["code"] == 1204
+
+
+def test_confirm_rejects_reference_and_changed_resource(api, monkeypatch):
+    client, _, _ = api
+    saved = _save_task(client)
+    job = client.post("/api/v1/plan/sr4-flow", json=_submit(saved)).json()["data"]
+    _complete_job(monkeypatch, saved, conflict=True)
+    reference = client.post(
+        "/api/v1/plans", json=_save_plan(saved, job)
+    ).json()["data"]
+    response = client.post(
+        f"/api/v1/plans/{reference['plan_id']}/confirm",
+        json=_confirm_plan(saved, reference),
+    )
+    assert response.status_code == 409
+    assert response.json()["code"] == 3001
+    assert response.json()["data"]["gap"]
+
+    other_saved = _save_task(client, task_id="frontend-task-2")
+    other_job = client.post(
+        "/api/v1/plan/sr4-flow", json=_submit(other_saved, "submit-other")
+    ).json()["data"]
+    _complete_job(monkeypatch, other_saved)
+    plan = client.post(
+        "/api/v1/plans", json=_save_plan(other_saved, other_job, "save-other")
+    ).json()["data"]
+    monkeypatch.setattr(frontend_integration, "resource_revision",
+                        lambda: "resource-new-version")
+    changed = client.post(
+        f"/api/v1/plans/{plan['plan_id']}/confirm",
+        json=_confirm_plan(other_saved, plan, "confirm-other"),
+    )
+    assert changed.status_code == 409
+    assert changed.json()["code"] == 1205
+
+
+def test_confirm_checks_revision_owner_and_switches_current_plan(api, monkeypatch):
+    client, _, _ = api
+    saved = _save_task(client)
+    first_job = client.post(
+        "/api/v1/plan/sr4-flow", json=_submit(saved)
+    ).json()["data"]
+    _complete_job(monkeypatch, saved)
+    first = client.post(
+        "/api/v1/plans", json=_save_plan(saved, first_job)
+    ).json()["data"]
+
+    stale = _confirm_plan(saved, first)
+    stale["expected_revision"] = "TREV-stale"
+    response = client.post(f"/api/v1/plans/{first['plan_id']}/confirm", json=stale)
+    assert response.status_code == 409
+    assert response.json()["code"] == 1203
+
+    wrong_owner = _confirm_plan(saved, first, "confirm-wrong-owner")
+    wrong_owner["task_id"] = "another-task"
+    response = client.post(
+        f"/api/v1/plans/{first['plan_id']}/confirm", json=wrong_owner
+    )
+    assert response.status_code == 404
+    assert response.json()["code"] == 2001
+
+    client.post(
+        f"/api/v1/plans/{first['plan_id']}/confirm",
+        json=_confirm_plan(saved, first, "confirm-first"),
+    )
+    second_job = client.post(
+        "/api/v1/plan/sr4-flow", json=_submit(saved, "submit-2")
+    ).json()["data"]
+    second = client.post(
+        "/api/v1/plans", json=_save_plan(saved, second_job, "save-plan-2")
+    ).json()["data"]
+    response = client.post(
+        f"/api/v1/plans/{second['plan_id']}/confirm",
+        json=_confirm_plan(saved, second, "confirm-second"),
+    )
+    assert response.status_code == 200
+    assert response.json()["data"]["current"] is True
+
+    first_detail = client.get(f"/api/v1/plans/{first['plan_id']}", params={
+        "context": "planning", "task_id": saved["task_id"],
+    }).json()["data"]
+    second_detail = client.get(f"/api/v1/plans/{second['plan_id']}", params={
+        "context": "planning", "task_id": saved["task_id"],
+    }).json()["data"]
+    assert first_detail["state"] == "CONFIRMED"
+    assert first_detail["current"] is False
+    assert second_detail["state"] == "CONFIRMED"
+    assert second_detail["current"] is True

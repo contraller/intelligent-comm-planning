@@ -44,3 +44,39 @@ class PlanningPlan(Base):
     confirmed_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+
+
+class PlanningCurrentPlan(Base):
+    """每个任务唯一的当前确认方案指针。"""
+
+    __tablename__ = "planning_current_plans"
+    __table_args__ = (
+        UniqueConstraint("plan_id", name="uq_planning_current_plan_id"),
+    )
+
+    task_id: Mapped[str] = mapped_column(
+        String(120), ForeignKey("planning_tasks.task_id"), primary_key=True
+    )
+    plan_id: Mapped[str] = mapped_column(
+        String(40), ForeignKey("planning_plans.plan_id"), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class PlanningPlanConfirmation(Base):
+    """方案确认操作的幂等及审计记录。"""
+
+    __tablename__ = "planning_plan_confirmations"
+
+    request_id: Mapped[str] = mapped_column(String(120), primary_key=True)
+    request_digest: Mapped[str] = mapped_column(String(64), nullable=False)
+    plan_id: Mapped[str] = mapped_column(
+        String(40), ForeignKey("planning_plans.plan_id"), nullable=False
+    )
+    task_id: Mapped[str] = mapped_column(
+        String(120), ForeignKey("planning_tasks.task_id"), nullable=False, index=True
+    )
+    revision_id: Mapped[str] = mapped_column(
+        String(40), ForeignKey("planning_task_revisions.revision_id"), nullable=False
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)

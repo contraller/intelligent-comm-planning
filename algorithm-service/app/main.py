@@ -20,7 +20,7 @@ from . import planning_plan_service
 from . import sr4_integration
 from .planning_job_schemas import PlanningJobSubmitRequest
 from .planning_job_service import PlanningJobError
-from .planning_plan_schemas import PlanningPlanSaveRequest
+from .planning_plan_schemas import PlanningPlanConfirmRequest, PlanningPlanSaveRequest
 from .planning_plan_service import PlanningPlanError
 from .planning_w3 import (query_task, submit_frequency, submit_plan_check,
                           submit_radio_params, submit_route)
@@ -540,8 +540,34 @@ def plans_compare(payload: dict[str, Any]) -> dict[str, Any]:
 
 
 @app.post("/api/v1/plans/{solution_id}/confirm")
-def plans_confirm(solution_id: str) -> dict[str, Any]:
-    return confirm_plan(solution_id)
+def plans_confirm(solution_id: str, response: Response,
+                  payload: dict[str, Any] | None = None) -> dict[str, Any]:
+    if payload is None:
+        return confirm_plan(solution_id)
+    try:
+        request = PlanningPlanConfirmRequest.model_validate(payload)
+        data = planning_plan_service.confirm_planning_plan(solution_id, request)
+        return {"code": 0, "message": "方案已确认", "data": data,
+                "request_id": request.request_id}
+    except ValidationError as exc:
+        response.status_code = 422
+        issues = [{"objectId": solution_id,
+                   "field": ".".join(map(str, issue["loc"])), "message": issue["msg"]}
+                  for issue in exc.errors()]
+        return {"code": 1001, "message": "方案确认参数校验失败", "data": issues,
+                "request_id": payload.get("request_id")}
+    except PlanningPlanError as exc:
+        response.status_code = exc.status
+        return {"code": exc.code, "message": str(exc), "data": exc.data,
+                "request_id": payload.get("request_id")}
+    except DatabaseConfigurationError:
+        response.status_code = 503
+        return {"code": 5001, "message": "DATABASE_URL 未配置", "data": None,
+                "request_id": payload.get("request_id")}
+    except SQLAlchemyError:
+        response.status_code = 503
+        return {"code": 5002, "message": "数据库操作失败", "data": None,
+                "request_id": payload.get("request_id")}
 
 
 @app.get("/api/v1/plans/{solution_id}/export")

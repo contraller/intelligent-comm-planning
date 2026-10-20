@@ -15,8 +15,12 @@ from sqlalchemy.orm import Session, sessionmaker
 from . import frontend_integration, planning_job_service
 from .database import get_session_factory
 from .planning_job_models import PlanningJob
-from .planning_plan_models import PlanningPlan
-from .planning_plan_schemas import PlanningPlanSaveRequest
+from .planning_plan_models import (
+    PlanningCurrentPlan,
+    PlanningPlan,
+    PlanningPlanConfirmation,
+)
+from .planning_plan_schemas import PlanningPlanConfirmRequest, PlanningPlanSaveRequest
 
 
 class PlanningPlanError(ValueError):
@@ -31,6 +35,7 @@ class PlanningPlanError(ValueError):
 
 
 _SAVE_LOCK = threading.RLock()
+_CONFIRM_LOCK = threading.RLock()
 
 
 def _digest(payload: PlanningPlanSaveRequest) -> str:
@@ -52,7 +57,8 @@ def _source_changed(plan: PlanningPlan) -> bool:
     return plan.resource_revision != frontend_integration.resource_revision()
 
 
-def _dto(plan: PlanningPlan) -> dict[str, Any]:
+def _dto(plan: PlanningPlan, current_plan_id: str | None = None) -> dict[str, Any]:
+    source_changed = _source_changed(plan)
     data = {
         "plan_id": plan.plan_id,
         "task_id": plan.task_id,
@@ -67,8 +73,8 @@ def _dto(plan: PlanningPlan) -> dict[str, Any]:
         "input": plan.input_snapshot,
         "parent_plan_id": plan.parent_plan_id,
         "state": plan.state,
-        "source_changed": _source_changed(plan),
-        "current": False,
+        "source_changed": source_changed,
+        "current": current_plan_id == plan.plan_id and not source_changed,
         "saved_at": _timestamp(plan.saved_at),
         "confirmed_at": _timestamp(plan.confirmed_at),
         "source": plan.source,
@@ -78,6 +84,15 @@ def _dto(plan: PlanningPlan) -> dict[str, Any]:
     if plan.adjustment is not None:
         data["adjustment"] = plan.adjustment
     return data
+
+
+def _current_plan_id(session: Session, task_id: str) -> str | None:
+    pointer = session.get(PlanningCurrentPlan, task_id)
+    return pointer.plan_id if pointer is not None else None
+
+
+def _plan_dto(session: Session, plan: PlanningPlan) -> dict[str, Any]:
+    return _dto(plan, _current_plan_id(session, plan.task_id))
 
 
 def _replay(session: Session, request_id: str,
@@ -126,7 +141,7 @@ def save_planning_plan(payload: PlanningPlanSaveRequest,
     with factory() as session:
         replay = _replay(session, payload.request_id, digest)
         if replay is not None:
-            return _dto(replay)
+            return _plan_dto(session, replay)
 
     job_data = _job_result(payload, factory)
     now = datetime.now(timezone.utc)
@@ -134,7 +149,7 @@ def save_planning_plan(payload: PlanningPlanSaveRequest,
         with _SAVE_LOCK, factory() as session, session.begin():
             replay = _replay(session, payload.request_id, digest)
             if replay is not None:
-                return _dto(replay)
+                return _plan_dto(session, replay)
             existing = session.scalar(select(PlanningPlan).where(
                 PlanningPlan.job_id == payload.job_id
             ))
@@ -175,12 +190,12 @@ def save_planning_plan(payload: PlanningPlanSaveRequest,
             )
             session.add(plan)
             session.flush()
-            return _dto(plan)
+            return _plan_dto(session, plan)
     except IntegrityError:
         with factory() as session:
             replay = _replay(session, payload.request_id, digest)
             if replay is not None:
-                return _dto(replay)
+                return _plan_dto(session, replay)
             existing = session.scalar(select(PlanningPlan).where(
                 PlanningPlan.job_id == payload.job_id
             ))
@@ -208,8 +223,9 @@ def list_planning_plans(task_id: str, page: int, page_size: int,
         rows = session.scalars(select(PlanningPlan).where(*filters).order_by(
             PlanningPlan.saved_at.desc(), PlanningPlan.plan_id.desc()
         ).offset((page - 1) * page_size).limit(page_size)).all()
+        current_plan_id = _current_plan_id(session, task_id)
         return {
-            "items": [_dto(row) for row in rows],
+            "items": [_dto(row, current_plan_id) for row in rows],
             "total": total,
             "page": page,
             "page_size": page_size,
@@ -224,4 +240,103 @@ def get_planning_plan(plan_id: str, task_id: str,
         plan = session.get(PlanningPlan, plan_id)
         if plan is None or plan.task_id != task_id:
             raise PlanningPlanError(2001, "规划方案不存在", 404)
-        return _dto(plan)
+        return _plan_dto(session, plan)
+
+
+def _confirmation_digest(plan_id: str,
+                         payload: PlanningPlanConfirmRequest) -> str:
+    body = payload.model_dump(mode="json")
+    body["plan_id"] = plan_id
+    raw = json.dumps(body, ensure_ascii=False, sort_keys=True,
+                     separators=(",", ":")).encode("utf-8")
+    return hashlib.sha256(raw).hexdigest()
+
+
+def _confirmation_replay(session: Session, request_id: str,
+                         digest: str) -> PlanningPlan | None:
+    receipt = session.get(PlanningPlanConfirmation, request_id)
+    if receipt is None:
+        return None
+    if receipt.request_digest != digest:
+        raise PlanningPlanError(1204, "同一请求编号对应不同内容", 409)
+    plan = session.get(PlanningPlan, receipt.plan_id)
+    if plan is None:
+        raise PlanningPlanError(5001, "确认记录引用的方案不存在", 500)
+    return plan
+
+
+def confirm_planning_plan(plan_id: str, payload: PlanningPlanConfirmRequest,
+                          factory: sessionmaker[Session] | None = None
+                          ) -> dict[str, Any]:
+    """确认达标且来源未变化的方案，并切换任务的当前方案指针。"""
+    factory = factory or get_session_factory()
+    digest = _confirmation_digest(plan_id, payload)
+    try:
+        with _CONFIRM_LOCK, factory() as session, session.begin():
+            replay = _confirmation_replay(session, payload.request_id, digest)
+            if replay is not None:
+                return _plan_dto(session, replay)
+            plan = session.get(PlanningPlan, plan_id)
+            if plan is None or plan.task_id != payload.task_id:
+                raise PlanningPlanError(2001, "规划方案不存在", 404)
+            if plan.revision_id != payload.expected_revision:
+                raise PlanningPlanError(1203, "方案输入版本与确认请求不一致", 409, {
+                    "expected": payload.expected_revision,
+                    "actual": plan.revision_id,
+                    "suggestions": ["重新打开方案"],
+                })
+            if _source_changed(plan):
+                raise PlanningPlanError(1205, "方案资源版本已经变化，不能确认", 409, {
+                    "expected": plan.resource_revision,
+                    "actual": frontend_integration.resource_revision(),
+                    "suggestions": ["按当前资源重新运行规划"],
+                })
+            current_plan_id = _current_plan_id(session, payload.task_id)
+            if plan.state == "REFERENCE":
+                raise PlanningPlanError(3001, "参考方案未满足全部硬约束，不能确认", 409, {
+                    "plan_id": plan.plan_id,
+                    "gap": plan.outcome_snapshot.get("gap", []),
+                })
+            if plan.state == "CONFIRMED":
+                if current_plan_id != plan.plan_id:
+                    raise PlanningPlanError(3001, "历史确认方案不能重新设为当前方案", 409)
+                session.add(PlanningPlanConfirmation(
+                    request_id=payload.request_id,
+                    request_digest=digest,
+                    plan_id=plan.plan_id,
+                    task_id=plan.task_id,
+                    revision_id=plan.revision_id,
+                    created_at=datetime.now(timezone.utc),
+                ))
+                session.flush()
+                return _plan_dto(session, plan)
+            if plan.state != "SAVED":
+                raise PlanningPlanError(1001, "方案状态不允许确认", 409)
+
+            now = datetime.now(timezone.utc)
+            plan.state = "CONFIRMED"
+            plan.confirmed_at = now
+            pointer = session.get(PlanningCurrentPlan, plan.task_id)
+            if pointer is None:
+                session.add(PlanningCurrentPlan(
+                    task_id=plan.task_id, plan_id=plan.plan_id, updated_at=now
+                ))
+            else:
+                pointer.plan_id = plan.plan_id
+                pointer.updated_at = now
+            session.add(PlanningPlanConfirmation(
+                request_id=payload.request_id,
+                request_digest=digest,
+                plan_id=plan.plan_id,
+                task_id=plan.task_id,
+                revision_id=plan.revision_id,
+                created_at=now,
+            ))
+            session.flush()
+            return _plan_dto(session, plan)
+    except IntegrityError:
+        with factory() as session:
+            replay = _confirmation_replay(session, payload.request_id, digest)
+            if replay is not None:
+                return _plan_dto(session, replay)
+        raise
