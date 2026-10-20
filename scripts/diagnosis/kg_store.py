@@ -397,7 +397,8 @@ class KnowledgeGraph:
         ops: [{op: add_triple, head_type, head, relation, tail_type, tail, weight, source}
               | {op: remove_triple, triple_id}
               | {op: set_weight, triple_id, weight}
-              | {op: set_link_rule, rule_id, threshold_value, source}]
+              | {op: set_link_rule, rule_id, threshold_value, source}
+              | {op: upsert_entity, entity_type, name, attrs, source}]
         """
         errs = []
         for k, o in enumerate(ops):
@@ -444,6 +445,19 @@ class KnowledgeGraph:
                         raise ValueError
                 except (ValueError, TypeError):
                     errs.append("第 %d 项门限值无效" % k)
+            elif o.get("op") == "upsert_entity":
+                if o.get("entity_type") not in ENTITY_TYPES or not str(o.get("name", "")).strip():
+                    errs.append("第 %d 项实体类型或名称无效" % k)
+                if not str(o.get("source", "")).strip():
+                    errs.append("第 %d 项缺少实体来源 source" % k)
+                attrs = o.get("attrs", {})
+                if not isinstance(attrs, dict) or len(attrs) > 30 or any(
+                        not isinstance(key, str) or not key or len(key) > 80 or
+                        not isinstance(value, (str, int, float, bool, list, dict, type(None)))
+                        for key, value in attrs.items()):
+                    errs.append("第 %d 项实体属性格式无效" % k)
+                if isinstance(attrs, dict) and {"rule_id", "threshold", "threshold_text"} & attrs.keys():
+                    errs.append("第 %d 项链路数值门限只能通过 set_link_rule 修改" % k)
             else:
                 errs.append("第 %d 项操作 %s 不支持" % (k, o.get("op")))
         if errs:
@@ -491,6 +505,12 @@ class KnowledgeGraph:
                     attrs["threshold_text"] = _fmt(attrs["metric"], attrs["threshold"])
                     attrs["review_source"] = o["source"]
                     applied.append(o["rule_id"])
+                elif o["op"] == "upsert_entity":
+                    attrs = copy.deepcopy(o.get("attrs", {}))
+                    attrs["source_doc"] = o["source"]
+                    eid = self.add_entity(o["entity_type"], o["name"],
+                                          graph=o.get("graph", "update"), attrs=attrs)
+                    applied.append(eid)
         except Exception:
             self._restore(before)
             self.versions, self.log = versions_before, log_before

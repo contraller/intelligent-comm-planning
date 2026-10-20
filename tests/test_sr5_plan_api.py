@@ -20,7 +20,7 @@ SERVICE_ROOT = ROOT / "algorithm-service"
 if str(SERVICE_ROOT) not in sys.path:
     sys.path.insert(0, str(SERVICE_ROOT))
 
-from app import fault, fault_plan_source, kg, planning_w3  # noqa: E402
+from app import fault, fault_plan_source, kg, kg_workflow_service, planning_w3  # noqa: E402
 from app.database import Base  # noqa: E402
 from app.main import app  # noqa: E402
 from app.planning_job_models import PlanningJob  # noqa: E402
@@ -37,6 +37,7 @@ def api(monkeypatch, tmp_path):
     factory = sessionmaker(bind=engine, expire_on_commit=False)
     monkeypatch.setattr(fault_plan_source, "get_session_factory", lambda: factory)
     monkeypatch.setattr(fault, "get_session_factory", lambda: factory)
+    monkeypatch.setattr(kg_workflow_service, "get_session_factory", lambda: factory)
     monkeypatch.setattr(fault_plan_source.frontend_integration, "resource_revision",
                         lambda: "resource-v1")
     monkeypatch.setattr(planning_w3, "TASK_DIR", tmp_path / "tasks")

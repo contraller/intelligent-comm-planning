@@ -251,11 +251,11 @@ SR-5 演示场景及报告默认保存在 `data/runtime/`，可通过 `SR5_STORE
 
 SR-6 三类知识图谱接口位于 `/api/v1/kg/*`，包含统计、实体/设备查询、模糊检索、子图/路径查询、按症状推理、链路状态评估、变更提交/审核、版本查询与回滚。`GET /api/v1/kg/triples` 可按 `graph`、`relation`、`source`、`entity` 追溯三元组；`GET /api/v1/kg/quality` 检查悬空实体、重复关系、缺失来源、关系类型约束和故障案例知识完整性。首版图谱由构造的设备台账、拓扑、链路状态及故障案例构建；`GET /api/v1/kg/stats` 返回各域规模和 `sr4_plan_validated=false`。链路状态规则使用构造记录挖掘，不能作为真实链路诊断准确率。故障推理结果有 `source_doc`，命中数仅用于排序。
 
-SR-6 审核后的图谱、待审核变更与版本快照保存在 `data/runtime/sr6_graph.json`，可用 `SR6_STORE_PATH` 更改，正式部署需持久卷及备份。当前审核者仅是请求中的标识，不具备身份认证；正式环境必须由 Java 主服务或网关限制写入、审核和回滚接口。现有 SR-4 测试方案有频率冲突，不作为 SR-6 的正常运行态势基准。
+SR-6 的草稿、送审审核记录、操作回执、审计和不可变发布图谱快照保存在 `DATABASE_URL` 指向的数据库中，启用前须执行 Alembic `upgrade head`（含 `0010`）。首次访问时，若数据库尚无 SR-6 工作区，会读取 `SR6_STORE_PATH` 指定的旧 JSON 并在单个事务中导入；若旧文件不存在，则以现有构造数据建立基线。旧 JSON 不会被覆盖或删除，数据库初始化后也不会再从旧文件覆盖发布结果。审核通过只形成 `APPROVED` 变更，须再调用发布接口才能让查询、链路规则和 SR-5 图谱分支使用新知识。当前提交人、审核人和发布人仍是请求中的标识，不具备正式身份认证；正式环境必须由 Java 主服务或网关限制写入、审核、发布和回滚接口。现有 SR-4 测试方案有频率冲突，不作为 SR-6 的正常运行态势基准。
 
-`GET /api/v1/kg/audit` 可查询最近的变更日志。新增知识须先提交到 `/api/v1/kg/updates`，再由 `/api/v1/kg/updates/{change_id}/review` 审核发布；回滚通过 `/api/v1/kg/versions/{version}/rollback` 执行。
+`GET /api/v1/kg/audit` 可查询最近的变更日志。新增知识可在 `/api/v1/kg/changes` 保存草稿、送审、撤回、审核及单独发布；旧 `/api/v1/kg/updates` 入口直接送审，但审核通过后仍须调用 `/api/v1/kg/updates/{change_id}/publish`。回滚通过 `/api/v1/kg/versions/{version}/rollback` 执行。
 
-故障图谱的已审核变更会用于后续 SR-5 图谱分支诊断与处置建议，回滚后恢复旧知识。240 条构造案例的原始 CSV 有 2022 条故障关系，其中 960 条是有序诊断步骤；运行图谱另补 240 条案例关联、240 条故障类型和 240 条对象类型关系，故障域合计 2742 条。旧版已保存图谱首次加载时会迁移并生成新版本。链路状态数值门限可通过 `set_link_rule` 变更操作审核发布，字段为 `rule_id`、`threshold_value`（原始物理单位）和 `source`，重启及回滚均会同步评估器；普通三元组变更不修改数值门限。所有变更仍基于合成数据，未经过真实设备校准。
+故障图谱的已审核且已发布变更会用于后续 SR-5 图谱分支诊断与处置建议，回滚后恢复旧知识。240 条构造案例的原始 CSV 有 2022 条故障关系，其中 960 条是有序诊断步骤；运行图谱另补 240 条案例关联、240 条故障类型和 240 条对象类型关系，故障域合计 2742 条。旧版已保存图谱首次加载时会迁移并生成新版本。链路状态数值门限可通过 `set_link_rule` 变更操作审核并发布，字段为 `rule_id`、`threshold_value`（原始物理单位）和 `source`，重启及回滚均会同步评估器；普通三元组变更不修改数值门限。所有变更仍基于合成数据，未经过真实设备校准。
 
 ## SR-5 联调流程
 
@@ -272,7 +272,7 @@ SR-6 审核后的图谱、待审核变更与版本快照保存在 `data/runtime/
 4. `POST /api/v1/fault/impact` 传 `diagnose_task_id`，再查询任务结果。缺省使用仓库的合成拓扑；若诊断时指定有效的 `network_solution_id`，使用对应 SR-4 全流程方案。
    `GET /api/v1/fault/impact/{task_id}/nodes?node_role=...&region=...` 可按节点角色和区域筛选受影响节点；等级为 `SEVERE`、`MODERATE`、`MINOR`。图层仍只表示节点位置，不表示覆盖边界。
 5. `GET /api/v1/fault/suggestions?diagnose_task_id=...&impact_task_id=...` 获取建议；`POST /api/v1/fault/report` 生成 JSON、DOCX 或 PDF 报告，按返回的 `report_url` 下载。
-6. 人工研判后调用 `POST /api/v1/fault/diagnoses/{task_id}/feedback`，传 `reviewer`、`result_index`，可选修正 `confirmed_fault_type`、`root_cause`、`fault_component`、`solution`、`diagnosis_steps`。反馈只进入 SR-6 待审核队列；知识管理员通过 `/api/v1/kg/updates/{change_id}/review` 审核发布后，新案例才参与后续图谱诊断。当前 `reviewer` 尚未接统一鉴权，因此来源标记为 `UNAUTHENTICATED_REVIEW`，不能等同真实案例验证。
+6. 人工研判后调用 `POST /api/v1/fault/diagnoses/{task_id}/feedback`，传 `reviewer`、`result_index`，可选修正 `confirmed_fault_type`、`root_cause`、`fault_component`、`solution`、`diagnosis_steps`。反馈只进入 SR-6 待审核队列；知识管理员先通过 `/api/v1/kg/updates/{change_id}/review` 审核，再通过 `/api/v1/kg/updates/{change_id}/publish` 发布，新案例才参与后续图谱诊断。当前 `reviewer` 尚未接统一鉴权，因此来源标记为 `UNAUTHENTICATED_REVIEW`，不能等同真实案例验证。
 
 `POST /api/v1/fault/scenarios/import` 支持 `multipart/form-data` 上传 CSV/XLSX，也支持 JSON 批量提交。表格至少包含 `scenario_name` 和 `faults` 两列，其中 `faults` 是 JSON 数组文本。影响结果可通过 `GET /api/v1/fault/impact/{task_id}/export?format=xlsx|png` 导出。
 

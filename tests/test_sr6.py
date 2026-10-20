@@ -8,18 +8,28 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 sys.path.insert(0, str(ROOT / "algorithm-service"))
 
-from app import fault, kg
+from app import database, fault, kg, kg_models
 from app.main import app
 from app.runtime_store import read_json, write_json
+from diagnosis.sr6 import build_graph
 
 
 @pytest.fixture
 def client(tmp_path, monkeypatch):
+    database.reset_database_state_for_tests()
+    monkeypatch.setenv("DATABASE_URL", "sqlite+pysqlite:///" + str(tmp_path / "kg.sqlite"))
+    database.Base.metadata.create_all(database.get_engine())
     monkeypatch.setattr(kg, "STORE_PATH", tmp_path / "graph.json")
     monkeypatch.setattr(kg, "_GRAPH", None)
     monkeypatch.setattr(kg, "_STATE", None)
     with TestClient(app) as api:
         yield api
+    database.reset_database_state_for_tests()
+
+
+def publish(client, change_id):
+    return client.post(f"/api/v1/kg/updates/{change_id}/publish",
+                       json={"publisher": "publisher"}).json()
 
 
 def test_three_domains_and_device_query(client):
@@ -71,7 +81,9 @@ def test_review_persistence_and_rollback(client):
     assert client.get("/api/v1/kg/stats").json()["data"]["graph"]["triples"] == before
     cid = submitted["data"]["change_id"]
     assert client.post(f"/api/v1/kg/updates/{cid}/review", json={"approve": True,
-                       "reviewer": "reviewer"}).json()["data"]["version"] == 2
+                       "reviewer": "reviewer"}).json()["data"]["status"] == "APPROVED"
+    assert client.get("/api/v1/kg/stats").json()["data"]["graph"]["triples"] == before
+    assert publish(client, cid)["data"]["version"] == 2
     assert client.get("/api/v1/kg/stats").json()["data"]["graph"]["triples"] == before + 1
     kg._GRAPH = None
     kg._STATE = None
@@ -79,7 +91,7 @@ def test_review_persistence_and_rollback(client):
     rolled = client.post("/api/v1/kg/versions/1/rollback", json={"reviewer": "reviewer"}).json()
     assert rolled["data"]["version"] == 3
     assert client.get("/api/v1/kg/stats").json()["data"]["graph"]["triples"] == before
-    assert any(item["op"] == "ROLLBACK_REVIEWER" for item in
+    assert any(item["op"] == "ROLLBACK" for item in
                client.get("/api/v1/kg/audit").json()["data"]["items"])
 
 
@@ -140,6 +152,8 @@ def test_approved_fault_knowledge_reaches_diagnosis_and_rollback(client):
     cid = submitted["data"]["change_id"]
     assert client.post(f"/api/v1/kg/updates/{cid}/review", json={
         "approve": True, "reviewer": "reviewer"}).json()["code"] == 0
+    assert fault._diagnose_live(scenario, {})["results"][0]["branches"][1]["root_cause"] == before["root_cause"]
+    assert publish(client, cid)["code"] == 0
     after = fault._diagnose_live(scenario, {})["results"][0]["branches"][1]
     assert after["root_cause"] == new_cause
     assert "reviewed test step" in after["steps"]
@@ -169,6 +183,8 @@ def test_reviewed_link_threshold_updates_evaluator_and_rollback(client):
     cid = submitted["data"]["change_id"]
     assert client.post(f"/api/v1/kg/updates/{cid}/review", json={
         "approve": True, "reviewer": "reviewer"}).json()["code"] == 0
+    assert client.post(url, json=observation).json()["data"]["results"][0]["link_state"] == "EXCELLENT"
+    assert publish(client, cid)["code"] == 0
     assert client.post(url, json=observation).json()["data"]["results"][0]["link_state"] != "EXCELLENT"
     kg._GRAPH = None
     kg._STATE = None
@@ -191,11 +207,11 @@ def test_failed_batch_review_does_not_partially_apply(client):
         "approve": True, "reviewer": "reviewer"}).json()["code"] == 1001
     assert tid in graph.triples
     assert graph.version == 1
-    assert next(p for p in graph.pending if p["change_id"] == cid)["status"] == "PENDING"
+    assert next(p for p in kg._load()[0].pending if p["change_id"] == cid)["status"] == "PENDING"
 
 
 def test_old_saved_graph_migrates_diagnostic_steps(client):
-    graph, _ = kg._load()
+    graph, _ = build_graph()
     for tid, triple in list(graph.triples.items()):
         if triple["relation"] == "diagnosedBy":
             graph.remove_triple(tid)
@@ -209,4 +225,4 @@ def test_old_saved_graph_migrates_diagnostic_steps(client):
     assert migrated.version == 2
     assert migrated.stats()["by_relation"]["diagnosedBy"] == 960
     assert migrated.stats()["by_relation"]["occursOn"] == 240
-    assert read_json(kg.STORE_PATH)["schema_revision"] == 3
+    assert "schema_revision" not in read_json(kg.STORE_PATH)

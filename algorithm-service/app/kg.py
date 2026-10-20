@@ -17,10 +17,14 @@ from diagnosis.kg_store import ENTITY_TYPES, RELATIONS  # noqa: E402
 from diagnosis.sr5 import ALLOWED_OBJECTS, FAULT_TYPES  # noqa: E402
 from diagnosis.sr6 import add_diagnostic_steps, add_fault_taxonomy, build_graph  # noqa: E402
 
+from . import kg_workflow_service as workflow
+from .kg_workflow_service import KgWorkflowError
+
 STORE_PATH = Path(os.environ.get("SR6_STORE_PATH", ROOT / "data" / "runtime" / "sr6_graph.json"))
 _LOCK = threading.RLock()
 _GRAPH = None
 _STATE = None
+_GRAPH_REVISION = None
 
 
 def _sync_link_rules(graph, state):
@@ -43,44 +47,17 @@ def _bad(message, code=1001, data=None):
 
 
 def _load():
-    global _GRAPH, _STATE
-    if _GRAPH is None:
-        with _LOCK:
-            if _GRAPH is None:
-                graph, state = build_graph()
-                migrated = False
-                if STORE_PATH.exists():
-                    with STORE_PATH.open(encoding="utf-8") as handle:
-                        saved = json.load(handle)
-                    graph._restore(saved["snapshot"])
-                    graph.version = saved["version"]
-                    graph.versions = saved["versions"]
-                    graph.pending = saved["pending"]
-                    graph.log = saved["log"]
-                    revision = saved.get("schema_revision", 1)
-                    if revision < 2:
-                        add_diagnostic_steps(graph)
-                    if revision < 3:
-                        add_fault_taxonomy(graph)
-                    if revision < 3:
-                        graph.version += 1
-                        graph.freeze("Migrate ordered diagnostic steps and fault taxonomy")
-                        migrated = True
-                _sync_link_rules(graph, state)
-                _GRAPH, _STATE = graph, state
-                if migrated:
-                    _save()
+    global _GRAPH, _STATE, _GRAPH_REVISION
+    # 每次先读数据库修订号；变更后重载，避免多进程读取旧图谱。
+    revision = workflow.current_revision(STORE_PATH)
+    if _GRAPH is None or _GRAPH_REVISION != revision:
+        _GRAPH, _STATE = workflow.load_graph(STORE_PATH)
+        _GRAPH_REVISION = revision
     return _GRAPH, _STATE
 
 
 def _save():
-    graph, _ = _load()
-    data = {"schema_revision": 3, "snapshot": graph._snapshot(), "version": graph.version,
-            "versions": graph.versions, "pending": graph.pending, "log": graph.log}
-    STORE_PATH.parent.mkdir(parents=True, exist_ok=True)
-    tmp = STORE_PATH.with_suffix(".tmp")
-    tmp.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
-    tmp.replace(STORE_PATH)
+    raise RuntimeError("SR6 图谱已改由数据库持久化，不再写入旧 JSON")
 
 
 def stats():
@@ -268,7 +245,7 @@ def submit_fault_case(payload):
         case_id = str(payload.get("case_id") or "").strip().upper() or _next_manual_case_id(graph)
         if not re.fullmatch(r"[A-Z0-9][A-Z0-9_-]{2,39}", case_id):
             return _bad("case_id 仅允许 3 到 40 位大写字母、数字、下划线或连字符")
-        duplicate_pending = any(change.get("status") == "PENDING" and any(
+        duplicate_pending = any(change.get("status") in ("DRAFT", "PENDING", "APPROVED") and any(
             op.get("op") == "add_triple" and op.get("head_type") == "Fault" and
             op.get("head") == case_id for op in change.get("ops", [])) for change in graph.pending)
         if graph.get("Fault", case_id) is not None or duplicate_pending:
@@ -296,13 +273,14 @@ def submit_fault_case(payload):
         ops.extend({**common, "relation": "diagnosedBy", "tail_type": "DiagnosisStep",
                     "tail": "%02d:%s" % (index, value)}
                    for index, value in enumerate(steps, 1))
-        change_id, errors = graph.submit_update(
-            ops, submitter, note or f"人工故障案例 {case_id}")
-        if errors:
-            return _bad("故障案例变更校验未通过", data={"errors": errors})
-        _save()
+        try:
+            result = workflow.save_draft(STORE_PATH, {"ops": ops, "actor": submitter,
+                "note": note or f"人工故障案例 {case_id}"}, submit_now=True)
+        except KgWorkflowError as exc:
+            return _bad(str(exc), exc.code)
+        change_id = result["change_id"]
         return _ok({"case_id": case_id, "change_id": change_id, "status": "PENDING",
-                    "triple_count": len(ops), "version": graph.version,
+                    "triple_count": len(ops), "version": result["version"],
                     "next_step": f"POST /api/v1/kg/updates/{change_id}/review"})
 
 
@@ -381,40 +359,54 @@ def evaluate_link_state(payload):
 
 
 def submit(payload):
-    ops = payload.get("ops")
-    if not isinstance(ops, list) or not 1 <= len(ops) <= 100 or any(
-            not isinstance(op, dict) for op in ops):
-        return _bad("ops 必须是 1 到 100 项变更对象")
-    with _LOCK:
-        graph, _ = _load()
-        cid, errors = graph.submit_update(ops, payload.get("submitter", ""), payload.get("note", ""))
-        if errors:
-            return _bad("变更校验未通过", data={"errors": errors})
-        _save()
-        return _ok({"change_id": cid, "status": "PENDING", "version": graph.version})
+    try:
+        result = workflow.save_draft(STORE_PATH, {"ops": payload.get("ops"),
+            "actor": payload.get("submitter") or "legacy", "note": payload.get("note") or "增量更新",
+            "request_id": payload.get("request_id")}, submit_now=True)
+        return _ok(result)
+    except KgWorkflowError as exc:
+        return _bad(str(exc), exc.code)
 
 
 def pending():
     with _LOCK:
         graph, _ = _load()
-        return _ok({"items": graph.pending})
+        return _ok({"items": [row for row in graph.pending if row["status"] == "PENDING"]})
 
 
 def review(change_id, payload):
     if not isinstance(payload.get("approve"), bool) or not payload.get("reviewer"):
         return _bad("approve 和 reviewer 必填")
-    with _LOCK:
-        graph, _ = _load()
-        try:
-            result = graph.review(change_id, payload["approve"], payload["reviewer"])
-        except (TypeError, ValueError, KeyError) as exc:
-            return _bad(f"变更无法应用: {exc}")
-        if result is None:
+    try:
+        current = workflow.workspace(STORE_PATH)
+        row = next((item for item in current["changes"] if item["change_id"] == change_id), None)
+        if row is None:
             return _bad("待审核变更不存在", 4001)
-        if result["status"] == "APPROVED":
-            _sync_link_rules(graph, _STATE)
-        _save()
+        submission = row["submissions"][-1] if row["submissions"] else None
+        result = workflow.transition(STORE_PATH, change_id, {
+            "actor": payload["reviewer"], "revision": row["revision"],
+            "submission": submission["number"] if submission else None,
+            "approved": payload["approve"], "opinion": payload.get("opinion", ""),
+            "request_id": payload.get("request_id")}, "REVIEW")
         return _ok(result)
+    except KgWorkflowError as exc:
+        return _bad(str(exc), exc.code)
+
+
+def publish(change_id, payload):
+    if not payload.get("publisher"):
+        return _bad("publisher 必填")
+    try:
+        current = workflow.workspace(STORE_PATH)
+        row = next((item for item in current["changes"] if item["change_id"] == change_id), None)
+        if row is None:
+            return _bad("变更单不存在", 4001)
+        result = workflow.transition(STORE_PATH, change_id, {
+            "actor": payload.get("publisher") or "", "revision": row["revision"],
+            "request_id": payload.get("request_id")}, "PUBLISH")
+        return _ok(result)
+    except KgWorkflowError as exc:
+        return _bad(str(exc), exc.code)
 
 
 def versions():
@@ -434,12 +426,12 @@ def audit(limit=50):
 def rollback(version, payload):
     if not payload.get("reviewer"):
         return _bad("reviewer 必填")
-    with _LOCK:
-        graph, _ = _load()
-        result = graph.rollback(version)
-        if result is None:
-            return _bad("版本不存在", 4001)
-        _sync_link_rules(graph, _STATE)
-        graph._log("ROLLBACK_REVIEWER", "回滚操作人：%s" % payload["reviewer"])
-        _save()
+    try:
+        current = workflow.workspace(STORE_PATH)
+        result = workflow.rollback(STORE_PATH, version, {
+            "actor": payload["reviewer"], "reason": payload.get("reason") or "恢复历史版本",
+            "current_version": payload.get("current_version", current["current_version"]),
+            "request_id": payload.get("request_id")})
         return _ok(result)
+    except KgWorkflowError as exc:
+        return _bad(str(exc), exc.code)

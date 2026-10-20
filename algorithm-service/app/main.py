@@ -17,6 +17,9 @@ from .fault import (archive_scenario, create_report, create_scenario, delete_sce
 from .fault_plan_source import FaultPlanSourceError, list_plan_sources
 from . import frontend_integration
 from . import kg
+from . import kg_workflow_service
+from .kg_schemas import KgDraftRequest, KgTransitionRequest
+from .kg_workflow_service import KgWorkflowError
 from . import planning_job_service
 from . import planning_operation_service
 from . import planning_plan_service
@@ -957,87 +960,172 @@ def fault_file_download(filename: str):
 
 
 @app.get("/api/v1/kg/stats")
-def kg_stats() -> dict[str, Any]:
-    return kg.stats()
+def kg_stats(response: Response) -> dict[str, Any]:
+    return _kg_existing_call(response, kg.stats)
+
+
+def _kg_workflow_call(response: Response, operation) -> dict[str, Any]:
+    try:
+        return {"code": 0, "message": "success", "data": operation()}
+    except KgWorkflowError as exc:
+        response.status_code = exc.status
+        return {"code": exc.code, "message": str(exc), "data": None}
+    except DatabaseConfigurationError:
+        response.status_code = 503
+        return {"code": 5001, "message": "DATABASE_URL 未配置", "data": None}
+    except SQLAlchemyError:
+        response.status_code = 503
+        return {"code": 5002, "message": "数据库操作失败", "data": None}
+
+
+def _kg_existing_call(response: Response, operation) -> dict[str, Any]:
+    """旧 SR6 路径保持原包络，同时把新存储异常转换为 HTTP 错误。"""
+    try:
+        return operation()
+    except DatabaseConfigurationError:
+        response.status_code = 503
+        return {"code": 5001, "message": "DATABASE_URL 未配置", "data": None}
+    except (SQLAlchemyError, KgWorkflowError) as exc:
+        response.status_code = exc.status if isinstance(exc, KgWorkflowError) else 503
+        return {"code": exc.code if isinstance(exc, KgWorkflowError) else 5002,
+                "message": str(exc) if isinstance(exc, KgWorkflowError) else "数据库操作失败",
+                "data": None}
+
+
+@app.get("/api/v1/kg/workspace")
+def kg_workspace(response: Response) -> dict[str, Any]:
+    return _kg_workflow_call(response, lambda: kg_workflow_service.workspace(kg.STORE_PATH))
+
+
+@app.get("/api/v1/kg/versions/{version}/snapshot")
+def kg_version_snapshot(version: int, response: Response) -> dict[str, Any]:
+    return _kg_workflow_call(response, lambda: kg_workflow_service.version_snapshot(
+        kg.STORE_PATH, version))
+
+
+@app.post("/api/v1/kg/changes")
+def kg_save_draft(payload: KgDraftRequest, response: Response) -> dict[str, Any]:
+    return _kg_workflow_call(response, lambda: kg_workflow_service.save_draft(
+        kg.STORE_PATH, payload.model_dump()))
+
+
+@app.put("/api/v1/kg/changes/{change_id}")
+def kg_update_draft(change_id: str, payload: KgDraftRequest,
+                    response: Response) -> dict[str, Any]:
+    return _kg_workflow_call(response, lambda: kg_workflow_service.save_draft(
+        kg.STORE_PATH, payload.model_dump(), change_id))
+
+
+@app.post("/api/v1/kg/changes/{change_id}/submit")
+def kg_submit_change(change_id: str, payload: KgTransitionRequest,
+                     response: Response) -> dict[str, Any]:
+    return _kg_workflow_call(response, lambda: kg_workflow_service.transition(
+        kg.STORE_PATH, change_id, payload.model_dump(), "SUBMIT"))
+
+
+@app.post("/api/v1/kg/changes/{change_id}/withdraw")
+def kg_withdraw_change(change_id: str, payload: KgTransitionRequest,
+                       response: Response) -> dict[str, Any]:
+    return _kg_workflow_call(response, lambda: kg_workflow_service.transition(
+        kg.STORE_PATH, change_id, payload.model_dump(), "WITHDRAW"))
+
+
+@app.post("/api/v1/kg/changes/{change_id}/review")
+def kg_review_change(change_id: str, payload: KgTransitionRequest,
+                     response: Response) -> dict[str, Any]:
+    return _kg_workflow_call(response, lambda: kg_workflow_service.transition(
+        kg.STORE_PATH, change_id, payload.model_dump(), "REVIEW"))
+
+
+@app.post("/api/v1/kg/changes/{change_id}/publish")
+def kg_publish_change(change_id: str, payload: KgTransitionRequest,
+                      response: Response) -> dict[str, Any]:
+    return _kg_workflow_call(response, lambda: kg_workflow_service.transition(
+        kg.STORE_PATH, change_id, payload.model_dump(), "PUBLISH"))
+
+
+@app.post("/api/v1/kg/updates/{change_id}/publish")
+def kg_publish_update(change_id: str, payload: dict[str, Any], response: Response) -> dict[str, Any]:
+    return _kg_existing_call(response, lambda: kg.publish(change_id, payload))
 
 
 @app.get("/api/v1/kg/entity/{entity_id}")
-def kg_entity(entity_id: str) -> dict[str, Any]:
-    return kg.entity(entity_id)
+def kg_entity(entity_id: str, response: Response) -> dict[str, Any]:
+    return _kg_existing_call(response, lambda: kg.entity(entity_id))
 
 
 @app.get("/api/v1/kg/search")
-def kg_search(q: str, type: str | None = None, limit: int = 20) -> dict[str, Any]:
-    return kg.search(q, type, limit)
+def kg_search(q: str, response: Response, type: str | None = None, limit: int = 20) -> dict[str, Any]:
+    return _kg_existing_call(response, lambda: kg.search(q, type, limit))
 
 
 @app.get("/api/v1/kg/triples")
-def kg_triples(graph: str | None = None, relation: str | None = None,
+def kg_triples(response: Response, graph: str | None = None, relation: str | None = None,
                source: str | None = None, entity: str | None = None,
                offset: int = 0, limit: int = 100) -> dict[str, Any]:
-    return kg.triples(graph, relation, source, entity, offset, limit)
+    return _kg_existing_call(response, lambda: kg.triples(graph, relation, source, entity, offset, limit))
 
 
 @app.get("/api/v1/kg/quality")
-def kg_quality() -> dict[str, Any]:
-    return kg.quality()
+def kg_quality(response: Response) -> dict[str, Any]:
+    return _kg_existing_call(response, kg.quality)
 
 
 @app.post("/api/v1/kg/query")
-def kg_query(payload: dict[str, Any]) -> dict[str, Any]:
-    return kg.query(payload)
+def kg_query(payload: dict[str, Any], response: Response) -> dict[str, Any]:
+    return _kg_existing_call(response, lambda: kg.query(payload))
 
 
 @app.post("/api/v1/kg/infer")
-def kg_infer(payload: dict[str, Any]) -> dict[str, Any]:
-    return kg.infer(payload)
+def kg_infer(payload: dict[str, Any], response: Response) -> dict[str, Any]:
+    return _kg_existing_call(response, lambda: kg.infer(payload))
 
 
 @app.post("/api/v1/kg/fault-cases")
-def kg_submit_fault_case(payload: dict[str, Any]) -> dict[str, Any]:
-    return kg.submit_fault_case(payload)
+def kg_submit_fault_case(payload: dict[str, Any], response: Response) -> dict[str, Any]:
+    return _kg_existing_call(response, lambda: kg.submit_fault_case(payload))
 
 
 @app.get("/api/v1/kg/fault-cases")
-def kg_fault_cases(include_pending: bool = True) -> dict[str, Any]:
-    return kg.fault_cases(include_pending)
+def kg_fault_cases(response: Response, include_pending: bool = True) -> dict[str, Any]:
+    return _kg_existing_call(response, lambda: kg.fault_cases(include_pending))
 
 
 @app.get("/api/v1/kg/device/{model_id}/knowledge")
-def kg_device_knowledge(model_id: str) -> dict[str, Any]:
-    return kg.device_knowledge(model_id)
+def kg_device_knowledge(model_id: str, response: Response) -> dict[str, Any]:
+    return _kg_existing_call(response, lambda: kg.device_knowledge(model_id))
 
 
 @app.post("/api/v1/kg/link-state/evaluate")
-def kg_evaluate_link_state(payload: dict[str, Any]) -> dict[str, Any]:
-    return kg.evaluate_link_state(payload)
+def kg_evaluate_link_state(payload: dict[str, Any], response: Response) -> dict[str, Any]:
+    return _kg_existing_call(response, lambda: kg.evaluate_link_state(payload))
 
 
 @app.post("/api/v1/kg/updates")
-def kg_submit_update(payload: dict[str, Any]) -> dict[str, Any]:
-    return kg.submit(payload)
+def kg_submit_update(payload: dict[str, Any], response: Response) -> dict[str, Any]:
+    return _kg_existing_call(response, lambda: kg.submit(payload))
 
 
 @app.get("/api/v1/kg/updates")
-def kg_pending_updates() -> dict[str, Any]:
-    return kg.pending()
+def kg_pending_updates(response: Response) -> dict[str, Any]:
+    return _kg_existing_call(response, kg.pending)
 
 
 @app.post("/api/v1/kg/updates/{change_id}/review")
-def kg_review_update(change_id: str, payload: dict[str, Any]) -> dict[str, Any]:
-    return kg.review(change_id, payload)
+def kg_review_update(change_id: str, payload: dict[str, Any], response: Response) -> dict[str, Any]:
+    return _kg_existing_call(response, lambda: kg.review(change_id, payload))
 
 
 @app.get("/api/v1/kg/versions")
-def kg_versions() -> dict[str, Any]:
-    return kg.versions()
+def kg_versions(response: Response) -> dict[str, Any]:
+    return _kg_existing_call(response, kg.versions)
 
 
 @app.get("/api/v1/kg/audit")
-def kg_audit(limit: int = 50) -> dict[str, Any]:
-    return kg.audit(limit)
+def kg_audit(response: Response, limit: int = 50) -> dict[str, Any]:
+    return _kg_existing_call(response, lambda: kg.audit(limit))
 
 
 @app.post("/api/v1/kg/versions/{version}/rollback")
-def kg_rollback(version: int, payload: dict[str, Any]) -> dict[str, Any]:
-    return kg.rollback(version, payload)
+def kg_rollback(version: int, payload: dict[str, Any], response: Response) -> dict[str, Any]:
+    return _kg_existing_call(response, lambda: kg.rollback(version, payload))

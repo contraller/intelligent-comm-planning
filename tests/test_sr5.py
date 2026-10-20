@@ -13,7 +13,7 @@ sys.path.insert(0, str(ROOT / "algorithm-service"))
 
 from diagnosis.sr5 import FaultEngine, _eval_condition
 from app import fault as service
-from app import kg
+from app import database, kg, kg_models
 from app import planning_w3
 from app.main import app
 from fastapi.testclient import TestClient
@@ -21,6 +21,9 @@ from fastapi.testclient import TestClient
 
 @pytest.fixture
 def client(tmp_path, monkeypatch):
+    database.reset_database_state_for_tests()
+    monkeypatch.setenv("DATABASE_URL", "sqlite+pysqlite:///" + str(tmp_path / "kg.sqlite"))
+    database.Base.metadata.create_all(database.get_engine())
     monkeypatch.setattr(planning_w3, "TASK_DIR", tmp_path / "tasks")
     monkeypatch.setattr(service, "STORE_PATH", tmp_path / "scenarios.json")
     monkeypatch.setattr(service, "REPORT_DIR", tmp_path / "reports")
@@ -31,6 +34,7 @@ def client(tmp_path, monkeypatch):
     monkeypatch.setattr(kg, "_STATE", None)
     with TestClient(app) as api:
         yield api
+    database.reset_database_state_for_tests()
 
 
 def completed(api, task_id):
@@ -160,6 +164,10 @@ def test_reviewed_diagnosis_feedback_enters_kg_and_future_inference(client):
     assert client.post(f"/api/v1/kg/updates/{change_id}/review", json={
         "approve": True, "reviewer": "knowledge-reviewer"}).json()["code"] == 0
 
+    assert client.get("/api/v1/kg/triples", params={"entity": case_id}).json()["data"]["total"] == 0
+    assert client.post(f"/api/v1/kg/updates/{change_id}/publish", json={
+        "publisher": "knowledge-publisher"}).json()["code"] == 0
+
     rows = client.get("/api/v1/kg/triples", params={"entity": case_id}).json()["data"]
     assert rows["total"] >= 7
     assert all("UNAUTHENTICATED_REVIEW" in row["source_doc"] for row in rows["items"])
@@ -193,6 +201,8 @@ def test_manual_fault_case_is_persisted_reviewed_and_reused(client):
     assert any(row["case_id"] == case_id for row in pending["pending_items"])
     assert client.post(f"/api/v1/kg/updates/{change_id}/review", json={
         "approve": True, "reviewer": "knowledge-reviewer"}).json()["code"] == 0
+    assert client.post(f"/api/v1/kg/updates/{change_id}/publish", json={
+        "publisher": "knowledge-publisher"}).json()["code"] == 0
 
     cases = client.get("/api/v1/kg/fault-cases").json()["data"]
     saved = next(row for row in cases["items"] if row["case_id"] == case_id)
