@@ -12,7 +12,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
-from . import frontend_integration, planning_w4
+from . import frontend_integration, planning_result_adapter, planning_w3, planning_w4
 from .database import get_session_factory
 from .planning_job_models import PlanningJob
 from .planning_job_schemas import PlanningJobSubmitRequest
@@ -299,3 +299,76 @@ def submit_planning_job(payload: PlanningJobSubmitRequest,
         if current is None or current_revision is None:
             raise PlanningJobError(5001, "规划作业持久化失败", 500)
         return _dto(current, current_revision)
+
+
+def query_planning_job(job_id: str, task_id: str | None,
+                       factory: sessionmaker[Session] | None = None
+                       ) -> dict[str, Any] | None:
+    """查询版本化 SR4 作业；非数据库作业返回 ``None`` 供旧接口回退。"""
+    factory = factory or get_session_factory()
+    with factory() as session, session.begin():
+        job = session.get(PlanningJob, job_id)
+        if job is None:
+            return None
+        if task_id is not None and job.task_id != task_id:
+            raise PlanningJobError(2001, "规划作业不存在", 404)
+        revision = session.get(PlanningTaskRevision, job.revision_id)
+        if revision is None:
+            raise PlanningJobError(5001, "规划作业引用的输入版本不存在", 500)
+
+        runtime = planning_w3.get_task_record(job_id)
+        if runtime:
+            job.status = str(runtime.get("status", job.status))
+            job.progress = float(runtime.get("progress", job.progress))
+            job.stage = str(runtime.get("stage", job.stage))
+            job.error = runtime.get("error")
+            job.updated_at = datetime.now(timezone.utc)
+        elif job.status in {"PENDING", "RUNNING"}:
+            # 线程任务不能跨服务进程恢复，避免重启后永久显示“计算中”。
+            job.status = "FAILED"
+            job.progress = 1.0
+            job.stage = "运行任务已丢失"
+            job.error = "服务重启后运行中的 SR4 作业无法恢复，请重新提交"
+            job.updated_at = datetime.now(timezone.utc)
+        data = _dto(job, revision)
+        request_id = job.request_id
+        status = job.status
+
+    if status == "SUCCESS":
+        result_ref = (runtime or {}).get("result") or {}
+        solution_id = result_ref.get("solution_id")
+        if not solution_id:
+            raise PlanningJobError(5001, "SR4 作业完成但未返回方案编号", 500)
+        plan_response = planning_w4.get_plan(str(solution_id))
+        plan = plan_response.get("data") if plan_response.get("code") == 0 else None
+        if not isinstance(plan, dict):
+            raise PlanningJobError(5001, "SR4 作业对应的方案文件不存在", 500)
+        try:
+            result, outcome = planning_result_adapter.adapt_planning_result(
+                plan, data["input"]
+            )
+        except (KeyError, TypeError, ValueError) as exc:
+            raise PlanningJobError(
+                5001, "SR4 方案结果不符合前端数据契约", 500
+            ) from exc
+        data["result"] = result
+        data["outcome"] = outcome
+        return {
+            "code": outcome["code"],
+            "message": outcome["message"],
+            "data": data,
+            "request_id": request_id,
+        }
+    if status in {"PENDING", "RUNNING"}:
+        return {
+            "code": 2002,
+            "message": "计算中",
+            "data": data,
+            "request_id": request_id,
+        }
+    return {
+        "code": 0,
+        "message": "计算已取消" if status == "CANCELLED" else "计算失败",
+        "data": data,
+        "request_id": request_id,
+    }

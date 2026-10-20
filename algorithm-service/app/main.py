@@ -171,10 +171,40 @@ def plan_check_route(payload: dict[str, Any]) -> dict[str, Any]:
     return submit_plan_check(payload)
 
 
-@app.get("/api/v1/plan/tasks/{task_id}")
-def plan_task_status(task_id: str) -> dict[str, Any]:
-    """第 3 周四个接口共用的任务查询端点。"""
-    return query_task(task_id)
+@app.get("/api/v1/plan/tasks/{job_id}")
+def plan_task_status(job_id: str, response: Response,
+                     task_id: str | None = None,
+                     context: str | None = None) -> dict[str, Any]:
+    """查询版本化 SR4 作业，并兼容原有第 3 周异步任务。"""
+    if context not in {None, "planning"}:
+        response.status_code = 422
+        return {"code": 1001, "message": "context 只能是 planning",
+                "data": None, "request_id": None}
+    try:
+        result = planning_job_service.query_planning_job(job_id, task_id)
+    except PlanningJobError as exc:
+        response.status_code = exc.status
+        return {"code": exc.code, "message": str(exc), "data": exc.data,
+                "request_id": None}
+    except DatabaseConfigurationError:
+        if task_id is None:
+            return query_task(job_id)
+        response.status_code = 503
+        return {"code": 5001, "message": "DATABASE_URL 未配置", "data": None,
+                "request_id": None}
+    except SQLAlchemyError:
+        if task_id is None:
+            return query_task(job_id)
+        response.status_code = 503
+        return {"code": 5002, "message": "数据库操作失败", "data": None,
+                "request_id": None}
+    if result is not None:
+        return result
+    if task_id is None:
+        return query_task(job_id)
+    response.status_code = 404
+    return {"code": 2001, "message": "规划作业不存在", "data": None,
+            "request_id": None}
 
 
 # ── SR-3 资源台账（供 SR-2 前端设备配置界面） ──

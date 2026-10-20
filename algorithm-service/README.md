@@ -111,7 +111,15 @@ curl -X POST 'http://127.0.0.1:8000/api/v1/plan/sr4-flow' \
 
 成功返回 HTTP 202，`data` 含 `job_id`、冻结的输入及三个版本号、`PENDING/RUNNING` 状态、进度和阶段列表。相同 `request_id` 与相同内容重复提交返回原作业；请求编号复用、任务版本变化、资源版本变化或同任务已有运行作业时返回 HTTP 409。当前支持三个基础预设和任务需求、连通率、最大中继跳数及抗毁性约束；频率过滤、部署高级条件、父方案和人工调整会明确返回不支持，不会静默忽略。
 
-该接口已经启动真实 SR4 算法并把作业状态写入 `planning_jobs`。`GET /api/v1/plan/tasks/{job_id}` 仍是旧结果结构，尚未适配前端严格的版本化作业响应；完成配套查询接口前，页面自动轮询不能视为已闭环。
+该接口启动真实 SR4 算法并把作业状态写入 `planning_jobs`。前端使用提交响应中的 `job_id`、原任务编号和固定上下文查询进度：
+
+```bash
+curl 'http://127.0.0.1:8000/api/v1/plan/tasks/tsk-替换作业编号?context=planning&task_id=DEMO-001'
+```
+
+`PENDING/RUNNING` 返回 `code=2002`，`data` 仍是完整作业对象，含冻结输入、三个版本号、进度和阶段；前端继续轮询。成功结果把原始 SR4 方案转换为节点、设备、链路、主备路由、频率、电台参数、指标和四类校验项。方案未满足硬约束时返回 `code=3001`，但 `status=SUCCESS` 且保留 `result`、`outcome.gap` 和建议，前端不得把有效参考方案丢弃。SR4 全流程暂未生成覆盖栅格或等值面，查询结果中的覆盖字段为 `null`，不会用构造图层冒充计算结果。
+
+不带 `task_id` 查询参数时，端点继续返回原路由、频率、电台参数和方案校验异步任务的旧结构。数据库记录仍为运行中但内存任务在服务重启后消失时，新版查询会把作业标为 `FAILED` 并提示重新提交，避免页面永久停留在计算中。
 
 SR-5 场景及报告默认保存在 `data/runtime/`，可通过 `SR5_STORE_PATH` 和 `SR5_REPORT_DIR` 指定位置。SR-4 方案保存在 `data/runtime/plans/`（`SR4_PLAN_DIR`）；已完成的异步任务保存在 `data/runtime/tasks/`（`ALGORITHM_TASK_DIR`）；覆盖结果和覆盖任务分别保存在 `data/runtime/coverage/`（`COVERAGE_CACHE_DIR`）和 `data/runtime/coverage_tasks/`（`COVERAGE_TASK_DIR`）。运行中的任务在服务重启后不能恢复计算，须重新提交。运行目录已加入 `.gitignore`；正式部署时应配置持久卷并备份。当前持久化仅适用于单进程服务，多进程或多实例部署需另行设计共享存储。
 

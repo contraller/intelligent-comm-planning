@@ -83,6 +83,62 @@ def _submit(saved: dict, request_id: str = "submit-1") -> dict:
     }
 
 
+def _raw_plan(saved: dict, *, conflict: bool = False) -> dict:
+    station_ids = saved["input"]["stationIds"]
+    source, target = station_ids[:2]
+    demand_id = saved["input"]["demands"][0]["id"]
+    constraints = {
+        "mandatory_e2e_connectivity": {"value": 1.0, "required": 1.0, "pass": True},
+        "survivability": {"value": 0.92, "required": 0.9, "pass": True},
+        "max_relay_hops": {"value": 0, "required": 2, "pass": True},
+    }
+    conflicts = ([{"kind": "FREQ_CONFLICT", "severity": "SEVERE",
+                   "detail": "测试频率冲突", "link_ids": ["LK-TEST"]}]
+                 if conflict else [])
+    return {
+        "solution_id": "PL-TEST0001",
+        "summary": {"objectives": {"e2e_connectivity": 1.0,
+                                      "total_radiated_power_w": 20.0,
+                                      "survivability": 0.92}},
+        "detail": {
+            "nodes": [
+                {"node_id": node_id, "node_name": f"参与节点{index + 1}",
+                 "lon": 114.0 + index * 0.1, "lat": 37.0 + index * 0.1,
+                 "status": "NORMAL", "node_role": "任务节点"}
+                for index, node_id in enumerate(station_ids)
+            ],
+            "links": [{"link_id": "LK-TEST", "node_a_id": source,
+                       "node_b_id": target, "device_class": "HF",
+                       "device_a_id": "", "device_b_id": "",
+                       "link_margin_db": 15.0, "is_available": True,
+                       "link_state": "GOOD", "is_backup": False}],
+            "routes": {"routes": [{
+                "demand_id": demand_id, "reachable": True,
+                "primary": {"node_path": [source, target],
+                            "link_path": ["LK-TEST"], "total_delay_ms": 12.0},
+                "backup": None,
+            }]},
+            "frequency": {
+                "link_assignments": [{"link_id": "LK-TEST",
+                                      "member_link_ids": ["LK-TEST"],
+                                      "freq_khz": 7000.0}],
+                "conflicts": conflicts,
+            },
+            "params": {"params": [
+                {"node_id": node_id, "band": "HF", "model_id": "DM-0004",
+                 "tx_power_dbm": 40.0, "antenna_height_m": 10.0}
+                for node_id in station_ids
+            ]},
+            "optimization": {
+                "best": {"constraint_check": constraints},
+                "infeasible": ({"conflicting_constraints": ["存在频率冲突"],
+                                "suggestions": ["调整频率"]} if conflict else None),
+            },
+            "check": {"issues": conflicts},
+        },
+    }
+
+
 def test_submit_saved_task_returns_frontend_job_and_starts_real_entry(api):
     client, factory, calls = api
     saved = _save_task(client)
@@ -187,3 +243,130 @@ def test_submit_rejects_demand_id_owned_by_another_task(api):
     assert response.json()["code"] == 1001
     assert "CD-0001" in response.json()["message"]
     assert calls == []
+
+
+def test_query_versioned_job_running_and_checks_owner(api, monkeypatch):
+    client, _, _ = api
+    saved = _save_task(client)
+    job = client.post("/api/v1/plan/sr4-flow", json=_submit(saved)).json()["data"]
+    monkeypatch.setattr(planning_job_service.planning_w3, "get_task_record", lambda _: {
+        "status": "RUNNING", "progress": 0.55, "stage": "路由与频率规划",
+        "error": None, "result": None,
+    })
+    response = client.get(f"/api/v1/plan/tasks/{job['job_id']}", params={
+        "context": "planning", "task_id": saved["task_id"],
+    })
+    assert response.status_code == 200
+    body = response.json()
+    assert body["code"] == 2002
+    assert body["request_id"] == "submit-1"
+    assert body["data"]["status"] == "RUNNING"
+    assert body["data"]["progress"] == 0.55
+    assert body["data"]["input"] == saved["input"]
+
+    wrong_owner = client.get(f"/api/v1/plan/tasks/{job['job_id']}", params={
+        "context": "planning", "task_id": "another-task",
+    })
+    assert wrong_owner.status_code == 404
+    assert wrong_owner.json()["code"] == 2001
+
+
+def test_query_success_returns_frontend_result_contract(api, monkeypatch):
+    client, _, _ = api
+    saved = _save_task(client)
+    job = client.post("/api/v1/plan/sr4-flow", json=_submit(saved)).json()["data"]
+    monkeypatch.setattr(planning_job_service.planning_w3, "get_task_record", lambda _: {
+        "status": "SUCCESS", "progress": 1.0, "stage": "完成", "error": None,
+        "result": {"solution_id": "PL-TEST0001"},
+    })
+    monkeypatch.setattr(planning_job_service.planning_w4, "get_plan", lambda _: {
+        "code": 0, "message": "success", "data": _raw_plan(saved),
+    })
+    response = client.get(f"/api/v1/plan/tasks/{job['job_id']}", params={
+        "context": "planning", "task_id": saved["task_id"],
+    })
+    assert response.status_code == 200
+    body = response.json()
+    assert body["code"] == 0
+    result = body["data"]["result"]
+    assert body["data"]["status"] == "SUCCESS"
+    assert body["data"]["outcome"]["code"] == 0
+    assert {row["id"] for row in result["nodes"]} == set(saved["input"]["stationIds"])
+    assert result["configuration"]["routes"][0]["demandId"] == "DEMAND-01"
+    link = result["links"][0]
+    devices = {row["id"]: row for row in result["devices"]}
+    assert devices[link["deviceA"]]["stationId"] == link["a"]
+    assert devices[link["deviceB"]]["stationId"] == link["b"]
+    assert result["coverage"] == {"contour": None, "raster_png": None}
+
+
+def test_query_preserves_infeasible_result_and_reports_gap(api, monkeypatch):
+    client, _, _ = api
+    saved = _save_task(client)
+    job = client.post("/api/v1/plan/sr4-flow", json=_submit(saved)).json()["data"]
+    monkeypatch.setattr(planning_job_service.planning_w3, "get_task_record", lambda _: {
+        "status": "SUCCESS", "progress": 1.0, "stage": "完成", "error": None,
+        "result": {"solution_id": "PL-TEST0001"},
+    })
+    monkeypatch.setattr(planning_job_service.planning_w4, "get_plan", lambda _: {
+        "code": 0, "message": "success", "data": _raw_plan(saved, conflict=True),
+    })
+    response = client.get(f"/api/v1/plan/tasks/{job['job_id']}", params={
+        "context": "planning", "task_id": saved["task_id"],
+    })
+    body = response.json()
+    assert response.status_code == 200
+    assert body["code"] == 3001
+    assert body["data"]["status"] == "SUCCESS"
+    assert body["data"]["result"] is not None
+    assert body["data"]["outcome"]["gap"]
+    frequency = next(row for row in body["data"]["result"]["checks"]
+                     if row["id"] == "frequency")
+    assert frequency["passed"] is False
+
+
+def test_query_rejects_malformed_algorithm_result(api, monkeypatch):
+    client, _, _ = api
+    saved = _save_task(client)
+    job = client.post("/api/v1/plan/sr4-flow", json=_submit(saved)).json()["data"]
+    raw_plan = _raw_plan(saved)
+    raw_plan["detail"]["nodes"][0]["lon"] = "invalid"
+    monkeypatch.setattr(planning_job_service.planning_w3, "get_task_record", lambda _: {
+        "status": "SUCCESS", "progress": 1.0, "stage": "完成", "error": None,
+        "result": {"solution_id": "PL-TEST0001"},
+    })
+    monkeypatch.setattr(planning_job_service.planning_w4, "get_plan", lambda _: {
+        "code": 0, "message": "success", "data": raw_plan,
+    })
+    response = client.get(f"/api/v1/plan/tasks/{job['job_id']}", params={
+        "context": "planning", "task_id": saved["task_id"],
+    })
+    assert response.status_code == 500
+    assert response.json()["code"] == 5001
+    assert response.json()["message"] == "SR4 方案结果不符合前端数据契约"
+
+
+def test_query_marks_unrecoverable_job_failed_after_restart(api):
+    client, _, _ = api
+    saved = _save_task(client)
+    job = client.post("/api/v1/plan/sr4-flow", json=_submit(saved)).json()["data"]
+    response = client.get(f"/api/v1/plan/tasks/{job['job_id']}", params={
+        "context": "planning", "task_id": saved["task_id"],
+    })
+    body = response.json()
+    assert body["code"] == 0
+    assert body["data"]["status"] == "FAILED"
+    assert "无法恢复" in body["data"]["error"]
+
+
+def test_query_without_task_id_keeps_legacy_task_endpoint(api, monkeypatch):
+    client, _, _ = api
+    monkeypatch.setattr(planning_job_service, "query_planning_job", lambda *_args: None)
+    monkeypatch.setattr("app.main.query_task", lambda task_id: {
+        "code": 0, "message": "success", "data": {"task_id": task_id, "legacy": True},
+    })
+    response = client.get("/api/v1/plan/tasks/tsk-legacy00001")
+    assert response.status_code == 200
+    assert response.json()["data"] == {
+        "task_id": "tsk-legacy00001", "legacy": True,
+    }
