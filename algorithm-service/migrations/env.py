@@ -7,7 +7,7 @@ from alembic import context
 from sqlalchemy import engine_from_config, pool
 
 from app.database import Base, get_database_url
-from app import planning_job_models, task_input_models  # noqa: F401  # 注册模型供迁移比较。
+from app import planning_job_models, planning_plan_models, task_input_models  # noqa: F401  # 注册模型供迁移比较。
 
 
 config = context.config

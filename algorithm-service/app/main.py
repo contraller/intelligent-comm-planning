@@ -16,9 +16,12 @@ from .fault import (create_report, create_scenario, delete_scenario, export_impa
 from . import frontend_integration
 from . import kg
 from . import planning_job_service
+from . import planning_plan_service
 from . import sr4_integration
 from .planning_job_schemas import PlanningJobSubmitRequest
 from .planning_job_service import PlanningJobError
+from .planning_plan_schemas import PlanningPlanSaveRequest
+from .planning_plan_service import PlanningPlanError
 from .planning_w3 import (query_task, submit_frequency, submit_plan_check,
                           submit_radio_params, submit_route)
 from .planning_w4 import (adopt_countermeasure, compare_plans, confirm_plan,
@@ -453,14 +456,81 @@ def sr4_integration_run(payload: dict[str, Any]) -> dict[str, Any]:
 # ── 方案管理（接口文档 2.8） ──
 
 
+@app.post("/api/v1/plans")
+def plans_save(payload: dict[str, Any], response: Response) -> dict[str, Any]:
+    """保存版本化 SR4 作业结果，供方案列表和后续确认使用。"""
+    try:
+        request = PlanningPlanSaveRequest.model_validate(payload)
+        data = planning_plan_service.save_planning_plan(request)
+        return {"code": 0, "message": "方案版本已保存", "data": data,
+                "request_id": request.request_id}
+    except ValidationError as exc:
+        response.status_code = 422
+        issues = [{"objectId": str(payload.get("job_id") or "plan"),
+                   "field": ".".join(map(str, issue["loc"])), "message": issue["msg"]}
+                  for issue in exc.errors()]
+        return {"code": 1001, "message": "方案保存参数校验失败", "data": issues,
+                "request_id": payload.get("request_id")}
+    except PlanningPlanError as exc:
+        response.status_code = exc.status
+        return {"code": exc.code, "message": str(exc), "data": exc.data,
+                "request_id": payload.get("request_id")}
+    except DatabaseConfigurationError:
+        response.status_code = 503
+        return {"code": 5001, "message": "DATABASE_URL 未配置", "data": None,
+                "request_id": payload.get("request_id")}
+    except SQLAlchemyError:
+        response.status_code = 503
+        return {"code": 5002, "message": "数据库操作失败", "data": None,
+                "request_id": payload.get("request_id")}
+
+
 @app.get("/api/v1/plans")
-def plans_list() -> dict[str, Any]:
-    return list_plans()
+def plans_list(response: Response, task_id: str | None = None,
+               context: str | None = None, page: int = 1, page_size: int = 10,
+               search: str | None = None) -> dict[str, Any]:
+    if task_id is None:
+        return list_plans()
+    if context != "planning":
+        response.status_code = 422
+        return {"code": 1001, "message": "context 只能是 planning", "data": None}
+    try:
+        data = planning_plan_service.list_planning_plans(
+            task_id, page, page_size, search
+        )
+        return {"code": 0, "message": "success", "data": data}
+    except PlanningPlanError as exc:
+        response.status_code = exc.status
+        return {"code": exc.code, "message": str(exc), "data": exc.data}
+    except DatabaseConfigurationError:
+        response.status_code = 503
+        return {"code": 5001, "message": "DATABASE_URL 未配置", "data": None}
+    except SQLAlchemyError:
+        response.status_code = 503
+        return {"code": 5002, "message": "数据库操作失败", "data": None}
 
 
 @app.get("/api/v1/plans/{solution_id}")
-def plans_get(solution_id: str) -> dict[str, Any]:
-    return get_plan(solution_id)
+def plans_get(solution_id: str, response: Response,
+              task_id: str | None = None,
+              context: str | None = None) -> dict[str, Any]:
+    if task_id is None:
+        return get_plan(solution_id)
+    if context != "planning":
+        response.status_code = 422
+        return {"code": 1001, "message": "context 只能是 planning", "data": None}
+    try:
+        data = planning_plan_service.get_planning_plan(solution_id, task_id)
+        return {"code": 0, "message": "success", "data": data}
+    except PlanningPlanError as exc:
+        response.status_code = exc.status
+        return {"code": exc.code, "message": str(exc), "data": exc.data}
+    except DatabaseConfigurationError:
+        response.status_code = 503
+        return {"code": 5001, "message": "DATABASE_URL 未配置", "data": None}
+    except SQLAlchemyError:
+        response.status_code = 503
+        return {"code": 5002, "message": "数据库操作失败", "data": None}
 
 
 @app.post("/api/v1/plans/compare")

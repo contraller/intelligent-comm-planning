@@ -121,6 +121,31 @@ curl 'http://127.0.0.1:8000/api/v1/plan/tasks/tsk-替换作业编号?context=pla
 
 不带 `task_id` 查询参数时，端点继续返回原路由、频率、电台参数和方案校验异步任务的旧结构。数据库记录仍为运行中但内存任务在服务重启后消失时，新版查询会把作业标为 `FAILED` 并提示重新提交，避免页面永久停留在计算中。
 
+### 保存并读取方案版本
+
+作业成功后可把完整结果保存到数据库。`expected_revision` 使用作业查询返回的 `revision`：
+
+```json
+{
+  "context": "planning",
+  "request_id": "save-plan-DEMO-001-001",
+  "task_id": "DEMO-001",
+  "expected_revision": "TREV-替换为作业结果",
+  "job_id": "tsk-替换为作业编号",
+  "name": "太行山区规划方案 V1",
+  "note": "初次计算结果"
+}
+```
+
+```bash
+curl -X POST 'http://127.0.0.1:8000/api/v1/plans' \
+  -H 'Content-Type: application/json' --data-binary @plan-save.json
+curl 'http://127.0.0.1:8000/api/v1/plans?context=planning&task_id=DEMO-001&page=1&page_size=10'
+curl 'http://127.0.0.1:8000/api/v1/plans/PLAN-替换方案编号?context=planning&task_id=DEMO-001'
+```
+
+达标结果保存为 `SAVED`；未满足硬约束但有完整结果，或保存时资源版本已经变化的结果保存为 `REFERENCE`。同一 `request_id` 和相同内容幂等返回原方案，同一作业当前只允许保存一次。保存后作业查询的 `saved_plan_id` 返回方案编号。带 `task_id` 的列表和详情使用前端版本化契约；不带 `task_id` 时继续读取原算法方案文件。方案确认、对比和导出的版本化契约仍待后续接入。
+
 SR-5 场景及报告默认保存在 `data/runtime/`，可通过 `SR5_STORE_PATH` 和 `SR5_REPORT_DIR` 指定位置。SR-4 方案保存在 `data/runtime/plans/`（`SR4_PLAN_DIR`）；已完成的异步任务保存在 `data/runtime/tasks/`（`ALGORITHM_TASK_DIR`）；覆盖结果和覆盖任务分别保存在 `data/runtime/coverage/`（`COVERAGE_CACHE_DIR`）和 `data/runtime/coverage_tasks/`（`COVERAGE_TASK_DIR`）。运行中的任务在服务重启后不能恢复计算，须重新提交。运行目录已加入 `.gitignore`；正式部署时应配置持久卷并备份。当前持久化仅适用于单进程服务，多进程或多实例部署需另行设计共享存储。
 
 SR-6 三类知识图谱接口位于 `/api/v1/kg/*`，包含统计、实体/设备查询、模糊检索、子图/路径查询、按症状推理、链路状态评估、变更提交/审核、版本查询与回滚。`GET /api/v1/kg/triples` 可按 `graph`、`relation`、`source`、`entity` 追溯三元组；`GET /api/v1/kg/quality` 检查悬空实体、重复关系、缺失来源、关系类型约束和故障案例知识完整性。首版图谱由构造的设备台账、拓扑、链路状态及故障案例构建；`GET /api/v1/kg/stats` 返回各域规模和 `sr4_plan_validated=false`。链路状态规则使用构造记录挖掘，不能作为真实链路诊断准确率。故障推理结果有 `source_doc`，命中数仅用于排序。

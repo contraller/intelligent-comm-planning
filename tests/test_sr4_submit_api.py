@@ -17,7 +17,7 @@ if str(SERVICE_ROOT) not in sys.path:
     sys.path.insert(0, str(SERVICE_ROOT))
 
 from app import frontend_integration, planning_job_models  # noqa: E402
-from app import planning_job_service, task_input_service  # noqa: E402
+from app import planning_job_service, planning_plan_service, task_input_service  # noqa: E402
 from app.database import Base  # noqa: E402
 from app.main import app  # noqa: E402
 
@@ -34,6 +34,7 @@ def api(monkeypatch):
     factory = sessionmaker(bind=engine, expire_on_commit=False)
     monkeypatch.setattr(task_input_service, "get_session_factory", lambda: factory)
     monkeypatch.setattr(planning_job_service, "get_session_factory", lambda: factory)
+    monkeypatch.setattr(planning_plan_service, "get_session_factory", lambda: factory)
     calls = []
 
     def fake_submit(payload, *, job_id, on_update):
@@ -81,6 +82,28 @@ def _submit(saved: dict, request_id: str = "submit-1") -> dict:
         "resource_revision": saved["resource_revision"],
         "parent_plan_id": None,
     }
+
+
+def _save_plan(saved: dict, job: dict, request_id: str = "save-plan-1") -> dict:
+    return {
+        "context": "planning",
+        "request_id": request_id,
+        "task_id": saved["task_id"],
+        "expected_revision": saved["revision"],
+        "job_id": job["job_id"],
+        "name": "太行山区规划方案 V1",
+        "note": "接口测试方案",
+    }
+
+
+def _complete_job(monkeypatch, saved: dict, *, conflict: bool = False) -> None:
+    monkeypatch.setattr(planning_job_service.planning_w3, "get_task_record", lambda _: {
+        "status": "SUCCESS", "progress": 1.0, "stage": "完成", "error": None,
+        "result": {"solution_id": "PL-TEST0001"},
+    })
+    monkeypatch.setattr(planning_job_service.planning_w4, "get_plan", lambda _: {
+        "code": 0, "message": "success", "data": _raw_plan(saved, conflict=conflict),
+    })
 
 
 def _raw_plan(saved: dict, *, conflict: bool = False) -> dict:
@@ -370,3 +393,109 @@ def test_query_without_task_id_keeps_legacy_task_endpoint(api, monkeypatch):
     assert response.json()["data"] == {
         "task_id": "tsk-legacy00001", "legacy": True,
     }
+
+
+def test_save_list_and_get_versioned_plan(api, monkeypatch):
+    client, _, _ = api
+    saved = _save_task(client)
+    job = client.post("/api/v1/plan/sr4-flow", json=_submit(saved)).json()["data"]
+    _complete_job(monkeypatch, saved)
+
+    response = client.post("/api/v1/plans", json=_save_plan(saved, job))
+    assert response.status_code == 200
+    body = response.json()
+    assert body["code"] == 0
+    plan = body["data"]
+    assert plan["task_id"] == saved["task_id"]
+    assert plan["job_id"] == job["job_id"]
+    assert plan["revision"] == saved["revision"]
+    assert plan["version"] == "V1"
+    assert plan["state"] == "SAVED"
+    assert plan["result"]["snapshot_id"] == "SNP-PL-TEST0001"
+    assert plan["outcome"]["code"] == 0
+    assert plan["current"] is False
+
+    job_response = client.get(f"/api/v1/plan/tasks/{job['job_id']}", params={
+        "context": "planning", "task_id": saved["task_id"],
+    }).json()
+    assert job_response["data"]["saved_plan_id"] == plan["plan_id"]
+
+    listing = client.get("/api/v1/plans", params={
+        "context": "planning", "task_id": saved["task_id"],
+        "page": 1, "page_size": 10, "search": "太行山区",
+    })
+    assert listing.status_code == 200
+    assert listing.json()["data"] == {
+        "items": [plan], "total": 1, "page": 1, "page_size": 10,
+    }
+    detail = client.get(f"/api/v1/plans/{plan['plan_id']}", params={
+        "context": "planning", "task_id": saved["task_id"],
+    })
+    assert detail.status_code == 200
+    assert detail.json()["data"] == plan
+
+
+def test_save_infeasible_plan_as_reference(api, monkeypatch):
+    client, _, _ = api
+    saved = _save_task(client)
+    job = client.post("/api/v1/plan/sr4-flow", json=_submit(saved)).json()["data"]
+    _complete_job(monkeypatch, saved, conflict=True)
+    response = client.post("/api/v1/plans", json=_save_plan(saved, job))
+    assert response.status_code == 200
+    assert response.json()["data"]["state"] == "REFERENCE"
+    assert response.json()["data"]["outcome"]["code"] == 3001
+
+
+def test_save_plan_is_idempotent_and_rejects_duplicate_job(api, monkeypatch):
+    client, _, _ = api
+    saved = _save_task(client)
+    job = client.post("/api/v1/plan/sr4-flow", json=_submit(saved)).json()["data"]
+    _complete_job(monkeypatch, saved)
+    request = _save_plan(saved, job)
+    first = client.post("/api/v1/plans", json=request)
+    replay = client.post("/api/v1/plans", json=request)
+    assert replay.status_code == 200
+    assert replay.json()["data"]["plan_id"] == first.json()["data"]["plan_id"]
+
+    reused = dict(request, note="不同内容")
+    conflict = client.post("/api/v1/plans", json=reused)
+    assert conflict.status_code == 409
+    assert conflict.json()["code"] == 1204
+
+    duplicate = client.post(
+        "/api/v1/plans", json=_save_plan(saved, job, "save-plan-2")
+    )
+    assert duplicate.status_code == 409
+    assert duplicate.json()["code"] == 1204
+    assert duplicate.json()["data"]["plan_id"] == first.json()["data"]["plan_id"]
+
+
+def test_save_plan_checks_revision_owner_and_request_shape(api, monkeypatch):
+    client, _, _ = api
+    saved = _save_task(client)
+    job = client.post("/api/v1/plan/sr4-flow", json=_submit(saved)).json()["data"]
+    _complete_job(monkeypatch, saved)
+
+    stale = _save_plan(saved, job)
+    stale["expected_revision"] = "TREV-stale"
+    response = client.post("/api/v1/plans", json=stale)
+    assert response.status_code == 409
+    assert response.json()["code"] == 1203
+
+    wrong_owner = _save_plan(saved, job, "save-wrong-owner")
+    wrong_owner["task_id"] = "another-task"
+    response = client.post("/api/v1/plans", json=wrong_owner)
+    assert response.status_code == 404
+    assert response.json()["code"] == 2001
+
+    incomplete_solution = _save_plan(saved, job, "save-solution")
+    incomplete_solution["solution_id"] = "SOLUTION-1"
+    response = client.post("/api/v1/plans", json=incomplete_solution)
+    assert response.status_code == 422
+    assert response.json()["code"] == 1001
+
+    missing = client.get("/api/v1/plans/PLAN-missing", params={
+        "context": "planning", "task_id": saved["task_id"],
+    })
+    assert missing.status_code == 404
+    assert missing.json()["code"] == 2001

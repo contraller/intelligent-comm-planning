@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from . import frontend_integration, planning_result_adapter, planning_w3, planning_w4
 from .database import get_session_factory
 from .planning_job_models import PlanningJob
+from .planning_plan_models import PlanningPlan
 from .planning_job_schemas import PlanningJobSubmitRequest
 from .task_input_models import PlanningTask, PlanningTaskRevision
 
@@ -331,6 +332,9 @@ def query_planning_job(job_id: str, task_id: str | None,
             job.error = "服务重启后运行中的 SR4 作业无法恢复，请重新提交"
             job.updated_at = datetime.now(timezone.utc)
         data = _dto(job, revision)
+        data["saved_plan_id"] = session.scalar(select(PlanningPlan.plan_id).where(
+            PlanningPlan.job_id == job_id
+        ))
         request_id = job.request_id
         status = job.status
 
