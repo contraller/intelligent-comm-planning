@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { createPlanningHttp } from '../src/services/planning-http';
+import { createAuthHttp } from '../src/services/auth-http';
+import { createTaskHttp } from '../src/services/task-http';
 import { readPlanningResult, readApiPlan, readPlanningJob, readPlanningCatalog } from '../src/services/planning-api-validation';
 import { httpFixture, response, jobDto, planDto, resultDto, presetDto, frequencyDto } from './fixtures/planning-api';
 import type { PlanningResultDetails } from '../src/types/planning-result-details';
@@ -13,6 +15,85 @@ const detailsDto = (): PlanningResultDetails => ({ schemaVersion: 1, assetVersio
   frequencyConflicts: [{ id: 'C1', type: 'SERVICE_DEFINED', linkIds: ['L1'], frequencyKhz: null, distanceM: 0, requiredDistanceM: null, severity: null }],
   frequencyGap: { requiredChannels: 353, availableChannels: 48, shortage: 0 }, conflictFree: true, unreachableDemandIds: [],
 });
+
+// 显式指定本地服务时才写入联调库，常规测试仍只使用隔离夹具。
+const liveBaseUrl = process.env.SR4_LIVE_BASE_URL;
+if (liveBaseUrl) {
+  it('真实 HTTP 完成任务、规划、方案管理与确认分流', async () => {
+    const origin = new URL(liveBaseUrl).origin;
+    if (!['127.0.0.1', 'localhost'].includes(new URL(origin).hostname)) {
+      throw new Error('SR4 真实联调只允许本地服务');
+    }
+    const auth = createAuthHttp({
+      baseUrl: () => '/api/v1',
+      origin: () => origin,
+      fetcher: (input, init) => fetch(new URL(String(input), origin), init),
+    });
+    try {
+      expect(await auth.getSession()).not.toBeNull();
+      const taskId = `sr4-live-${crypto.randomUUID()}`;
+      const taskApi = createTaskHttp(auth.authenticatedRequest);
+      const planningApi = createPlanningHttp(auth.authenticatedRequest, () => '/api/v1');
+      const context = await auth.authenticatedRequest<{ revision: string }>('/resource/context?context=planning');
+      const catalog = await planningApi.loadPlanningCatalog({ context: 'planning' });
+      const saved = await taskApi.saveTaskInput({
+        context: 'planning', taskId, requestId: `${taskId}-save`, revision: null,
+        resourceRevision: context.revision, input: catalog.presets[0].defaults,
+      });
+      const submission = {
+        context: 'planning' as const, taskId, revision: saved.revision,
+        inputVersion: saved.inputVersion, conditionVersion: saved.conditionVersion,
+        resourceRevision: saved.resourceRevision, parentPlanId: null,
+      };
+      const finish = async (jobId: string) => {
+        for (let attempt = 0; attempt < 120; attempt++) {
+          const job = await planningApi.getPlanningTask({ context: 'planning', taskId, jobId });
+          if (job.state === 'SUCCESS' || job.state === 'FAILED' || job.state === 'CANCELLED') return job;
+          await new Promise(resolve => setTimeout(resolve, 2000));
+        }
+        throw new Error(`SR4 作业 ${jobId} 超过四分钟未结束`);
+      };
+      const first = await planningApi.submitPlanningTask({ ...submission, requestId: `${taskId}-submit-a` });
+      const firstResult = await finish(first.id);
+      expect(firstResult.state).toBe('SUCCESS');
+      expect(firstResult.result?.links.length).toBeGreaterThan(0);
+      const firstPlan = await planningApi.savePlanningPlan({
+        context: 'planning', taskId, revision: saved.revision, jobId: first.id,
+        requestId: `${taskId}-plan-a`, name: 'SR4 Live A', note: 'Local HTTP contract test',
+      });
+      const detail = await planningApi.getPlanningPlan({ context: 'planning', taskId, planId: firstPlan.id });
+      expect(detail.result.snapshotId).toBe(firstResult.result?.snapshotId);
+      const exported = await planningApi.exportPlanningPlan({ context: 'planning', taskId, planId: firstPlan.id, format: 'json' });
+      expect(exported.bytes.length).toBeGreaterThan(0);
+      if (firstPlan.state === 'REFERENCE') {
+        await expect(planningApi.confirmPlanningPlan({
+          context: 'planning', taskId, planId: firstPlan.id,
+          revision: firstPlan.revision, requestId: `${taskId}-confirm`,
+        })).rejects.toMatchObject({ code: 3001 });
+      } else {
+        const confirmed = await planningApi.confirmPlanningPlan({
+          context: 'planning', taskId, planId: firstPlan.id,
+          revision: firstPlan.revision, requestId: `${taskId}-confirm`,
+        });
+        expect(confirmed.state).toBe('CONFIRMED');
+      }
+      const second = await planningApi.submitPlanningTask({ ...submission, requestId: `${taskId}-submit-b` });
+      const secondResult = await finish(second.id);
+      expect(secondResult.state).toBe('SUCCESS');
+      const secondPlan = await planningApi.savePlanningPlan({
+        context: 'planning', taskId, revision: saved.revision, jobId: second.id,
+        requestId: `${taskId}-plan-b`, name: 'SR4 Live B', note: 'Local HTTP contract test',
+      });
+      const plans = await planningApi.queryPlanningPlans({ context: 'planning', taskId, page: 1, pageSize: 10 });
+      expect(plans.items.map(plan => plan.id)).toContain(firstPlan.id);
+      expect(plans.items.map(plan => plan.id)).toContain(secondPlan.id);
+      const compared = await planningApi.comparePlanningPlans({ context: 'planning', taskId, planIds: [secondPlan.id, firstPlan.id] });
+      expect(compared.map(plan => plan.id)).toEqual([secondPlan.id, firstPlan.id]);
+    } finally {
+      auth.releaseSessionBinding();
+    }
+  }, 600000);
+}
 const options={context:'planning' as const,taskId:'T1'};
 describe('网络规划 HTTP 契约',()=>{
   // HTTP扩展只接受本次响应内容，统计与明细条数不要求相等。

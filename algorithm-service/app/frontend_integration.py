@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import csv
 import hashlib
+import json
 import os
 from collections import Counter
 from datetime import datetime, timezone
@@ -167,6 +168,17 @@ def _interference_item(row: dict[str, str]) -> dict[str, Any]:
 
 def resource_context() -> dict[str, Any]:
     nodes, devices, models = _rows("nodes"), _rows("devices"), _rows("models")
+    # 地形版本独立于资源表版本，供前端核对已打包的 DEM 底图。
+    try:
+        terrain_meta = json.loads((REPO_ROOT / "data/raw/dem/dem_current.json").read_text(
+            encoding="utf-8"))
+        terrain = {
+            "source_sha256": terrain_meta["source_sha256"],
+            "bbox": terrain_meta["bbox"],
+            "source": terrain_meta["source"],
+        }
+    except (OSError, ValueError, KeyError, TypeError):
+        terrain = None
     classes = Counter(next(model["device_class"] for model in models
                            if model["model_id"] == device["model_id"])
                       for device in devices)
@@ -176,6 +188,7 @@ def resource_context() -> dict[str, Any]:
         "bounds": _bounds(nodes),
         "updated_at": _updated_at(),
         "source": "项目现有节点、设备及频率资源数据",
+        "terrain": terrain,
         "stats": {
             "nodes": len(nodes),
             "devices": len(devices),

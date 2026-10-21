@@ -19,7 +19,8 @@ export interface ResourceReadStats {
   hf: number; vuhf: number; alerts: number | null; unknownAlerts: number | null;
   active: number | null; offShelf: number | null; unknownAvailability: number | null;
 }
-export interface ResourceReadWorkspace { revision: string; bounds: Bounds; updatedAt: string; source: string; stats: ResourceReadStats }
+export interface ResourceTerrain { sourceSha256: string; bounds: Bounds; source: string }
+export interface ResourceReadWorkspace { revision: string; bounds: Bounds; updatedAt: string; source: string; stats: ResourceReadStats; terrain?: ResourceTerrain | null }
 export interface ReadOptions { context: ResourceReadContext; signal?: AbortSignal }
 export interface VersionedRead extends ReadOptions { revision: string }
 export interface ResourceReadFilter {

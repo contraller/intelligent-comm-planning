@@ -47,6 +47,7 @@
           resource-read
           :resource-frame="planning.step === 1 ? resources.frame : null"
           :resource-bounds="bounds"
+          :terrain-basemap="terrainBasemap"
           :planning-overlay="overlay"
           :show-coverage="showCoverage"
           :coverage-display="coverageDisplay"
@@ -64,6 +65,8 @@
           v-else
           class="empty-inline"
           >任务引用或结果加载后显示地图。</p
+        ><div v-if="terrainMessage" class="terrain-notice" role="status"
+          >{{ terrainMessage }}</div
         ><div
           v-if="planning.step === 1 && focused"
           class="map-selection"
@@ -213,6 +216,7 @@ import { safeReturnPath } from '../config/permissions';
 import type { Bounds, ReadNode, ResourceMapCluster, ResourcePage } from '../types/resource-read';
 import type { PlanningMapOverlay } from '../maps/planning-api-layers';
 import type { CoverageDisplay } from '../types/coverage';
+import { loadTerrainBasemap, type TerrainBasemap } from '../services/terrain-basemap';
 import TaskApiPanel from '../components/TaskApiPanel.vue';
 import PlanningApiProgressPanel from '../components/PlanningApiProgressPanel.vue';
 import PlanningApiFeedback from '../components/PlanningApiFeedback.vue';
@@ -238,6 +242,10 @@ const focusedLink = ref('');
 const nodeHighlights = ref<string[]>([]);
 const linkHighlights = ref<string[]>([]);
 const showCoverage = ref(false);
+const terrainBasemap = ref<TerrainBasemap | null>(null);
+const terrainMessage = ref('');
+let terrainTicket = 0;
+let resourceInitDone = false;
 // 显示偏好只在本页面实例保留，不参与规划输入、保存或接口请求。
 const coverageDisplay = ref<CoverageDisplay>('auto');
 const cluster = ref<ResourceMapCluster | null>(null);
@@ -291,6 +299,18 @@ watch([resultOwner, resultActive, () => auth.generation], clearResultFocus, { fl
 // 内部同步定位参数不再次恢复作业，避免覆盖刚进入的调整草稿。
 // 存活标志、恢复/同步标志及请求票据共同阻止迟到的路由操作回写。
 let active = false;
+watch(() => resources.workspace?.terrain, (source) => {
+  if (!active && resourceInitDone) return;
+  const ticket = ++terrainTicket;
+  terrainBasemap.value = null;
+  terrainMessage.value = source ? '' : resourceInitDone ? '后端未提供当前 DEM 版本，地形底图未显示。' : '';
+  if (!source) return;
+  void loadTerrainBasemap(source).then((value) => {
+    if (ticket === terrainTicket) terrainBasemap.value = value;
+  }).catch((reason: unknown) => {
+    if (ticket === terrainTicket) terrainMessage.value = reason instanceof Error ? reason.message : '地形底图加载失败。';
+  });
+}, { immediate: true });
 let restoring = false;
 let syncing = false;
 let routeTicket = 0;
@@ -438,6 +458,8 @@ onMounted(async () => {
   active = true;
   await resources.activate('planning');
   if (!active) return;
+  resourceInitDone = true;
+  if (!resources.workspace?.terrain) terrainMessage.value = '后端未提供当前 DEM 版本，地形底图未显示。';
   await task.initialize('planning');
   if (active) await restoreRoute();
 });
@@ -461,6 +483,7 @@ watch(
 );
 onBeforeUnmount(() => {
   active = false;
+  terrainTicket++;
   routeTicket++;
   clearTimeout(viewportTimer);
   resources.stop();
@@ -511,6 +534,16 @@ onBeforeUnmount(() => {
   border: 1px solid var(--line);
   border-radius: 6px;
   overflow: hidden;
+}
+.terrain-notice {
+  position: absolute;
+  z-index: 5;
+  right: 12px;
+  bottom: 38px;
+  max-width: min(320px, calc(100% - 24px));
+  padding: 8px;
+  color: #f0b972;
+  background: #302721;
 }
 .result-column {
   display: flex;

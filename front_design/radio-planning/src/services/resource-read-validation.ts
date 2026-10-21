@@ -74,7 +74,14 @@ export function decodeWorkspace(value: unknown): ResourceReadWorkspace {
   if (stats.hf + stats.vuhf !== stats.devices || Object.values(stats).some(n => n !== null && n < 0)) fail('stats');
   if ([stats.active, stats.offShelf, stats.unknownAvailability].every(n => n !== null) && stats.active! + stats.offShelf! + stats.unknownAvailability! !== stats.devices) fail('availability stats');
   if (stats.alerts !== null && stats.alerts > stats.devices || stats.unknownAlerts !== null && stats.unknownAlerts > stats.devices || stats.alerts !== null && stats.unknownAlerts !== null && stats.alerts + stats.unknownAlerts > stats.devices) fail('alert stats');
-  return { revision: requireRevision(v.revision), bounds: readBounds(v.bounds), updatedAt, source: readText(v.source, 'source'), stats };
+  const terrainRow = v.terrain == null ? null : readRecord(v.terrain, 'terrain');
+  const terrain = terrainRow ? {
+    sourceSha256: readText(terrainRow.source_sha256, 'terrain.source_sha256'),
+    bounds: readBounds(terrainRow.bbox),
+    source: readText(terrainRow.source, 'terrain.source'),
+  } : null;
+  if (terrain && !/^[0-9a-f]{64}$/.test(terrain.sourceSha256)) fail('terrain.source_sha256');
+  return { revision: requireRevision(v.revision), bounds: readBounds(v.bounds), updatedAt, source: readText(v.source, 'source'), stats, terrain };
 }
 export function decodeObject(kind: ResourceObjectKind, value: unknown): ReadObject {
   const v = readRecord(value), id = readText(v[kind === 'node' ? 'node_id' : kind === 'device' ? 'device_id' : 'interference_id'], 'id');

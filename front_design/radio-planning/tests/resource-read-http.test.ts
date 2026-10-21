@@ -30,6 +30,15 @@ describe('资源 HTTP 传输和 DTO', () => {
     const dto = workspace(); dto.stats.devices = 2;
     await expect(service(dto).api.loadResourceReadContext({ context: 'gis' })).rejects.toMatchObject({ code: 'INVALID_RESOURCE_RESPONSE' });
   });
+  it('资源上下文保留当前 DEM 版本，拒绝无效地形范围和哈希', async () => {
+    const terrain = { source_sha256: 'a'.repeat(64), bbox: [113, 36, 115, 38], source: '当前 DEM' };
+    const result = await service({ ...workspace(), terrain }).api.loadResourceReadContext({ context: 'planning' });
+    expect(result.terrain).toEqual({ sourceSha256: terrain.source_sha256, bounds: terrain.bbox, source: terrain.source });
+    for (const invalid of [{ ...terrain, source_sha256: 'old' }, { ...terrain, bbox: [115, 36, 113, 38] }]) {
+      await expect(service({ ...workspace(), terrain: invalid }).api.loadResourceReadContext({ context: 'planning' }))
+        .rejects.toMatchObject({ code: 'INVALID_RESOURCE_RESPONSE' });
+    }
+  });
   it('节点多值在边界拆分，根节点必须明确提供父级字段', async () => {
     const result = await service(page([node()])).api.queryResourceNodes({ ...query, context: 'gis', parentId: null });
     expect(result.items[0].classes).toEqual(['HF','VUHF']); expect(result.items[0].parentIds).toEqual([]);

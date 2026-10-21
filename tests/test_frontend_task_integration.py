@@ -1,6 +1,7 @@
 """首个前端任务保存闭环的接口契约测试。"""
 from __future__ import annotations
 
+import json
 import sys
 from pathlib import Path
 
@@ -61,6 +62,13 @@ def test_frontend_initialization_contract(api):
     workspace = context.json()["data"]
     assert workspace["stats"]["nodes"] >= 50
     assert workspace["stats"]["devices"] >= 100
+    active_dem = json.loads((ROOT / "data/raw/dem/dem_current.json").read_text(
+        encoding="utf-8"))
+    assert workspace["terrain"] == {
+        "source_sha256": active_dem["source_sha256"],
+        "bbox": active_dem["bbox"],
+        "source": active_dem["source"],
+    }
 
     presets = client.get(
         "/api/v1/resource/param-presets", params={"context": "planning"}
@@ -101,6 +109,15 @@ def test_frontend_initialization_contract(api):
         )
         assert detail.status_code == 200
         assert detail.json()["data"]["item"]["node_id"] == node_id
+
+
+def test_missing_dem_only_disables_terrain(api, monkeypatch, tmp_path):
+    client, _ = api
+    monkeypatch.setattr(frontend_integration, "REPO_ROOT", tmp_path)
+    response = client.get("/api/v1/resource/context", params={"context": "planning"})
+    assert response.status_code == 200
+    assert response.json()["data"]["terrain"] is None
+    assert response.json()["data"]["stats"]["nodes"] >= 50
 
 
 def test_click_save_task_contract_persists_revision(api):

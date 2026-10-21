@@ -40,7 +40,7 @@ vi.mock('primevue/dialog',async()=>{const {h}=await import('vue');return{default
 vi.mock('primevue/drawer',async()=>{const {h}=await import('vue');return{default:{props:['visible'],setup:(p:any,{slots}:any)=>()=>p.visible?h('aside',{},[slots.default?.(),slots.footer?.()]):null}};});
 vi.mock('primevue/column',()=>({default:{render:()=>null}}));
 vi.mock('primevue/datatable',async()=>{const {h}=await import('vue');return{default:{inheritAttrs:false,props:['value','selection'],emits:['update:selection'],setup:(p:any,{emit}:any)=>()=>h('table-stub',{rows:p.value,selection:p.selection,select:(row:unknown)=>emit('update:selection',row)})}};});
-vi.mock('../src/components/MapCanvas.vue',async()=>{const {h}=await import('vue');return{default:{props:['planningOverlay','showCoverage','coverageDisplay','selectedId','selectedLinkId','highlightStationIds','highlightLinkIds'],emits:['viewport','selectCluster','selectResource','select'],setup:(p:any,{emit,expose}:any)=>{expose({locateResource:()=>{},expandResource:()=>{}});return()=>h('map-stub',{overlay:p.planningOverlay,showCoverage:p.showCoverage,coverageDisplay:p.coverageDisplay,selectedId:p.selectedId,selectedLinkId:p.selectedLinkId,highlightStationIds:p.highlightStationIds,highlightLinkIds:p.highlightLinkIds,onTestSelect:(id:string)=>emit('select',id),onTestViewport:(bbox:any,zoom:number)=>emit('viewport',bbox,zoom)});}}};});
+vi.mock('../src/components/MapCanvas.vue',async()=>{const {h}=await import('vue');return{default:{props:['planningOverlay','terrainBasemap','showCoverage','coverageDisplay','selectedId','selectedLinkId','highlightStationIds','highlightLinkIds'],emits:['viewport','selectCluster','selectResource','select'],setup:(p:any,{emit,expose}:any)=>{expose({locateResource:()=>{},expandResource:()=>{}});return()=>h('map-stub',{overlay:p.planningOverlay,terrainBasemap:p.terrainBasemap,showCoverage:p.showCoverage,coverageDisplay:p.coverageDisplay,selectedId:p.selectedId,selectedLinkId:p.selectedLinkId,highlightStationIds:p.highlightStationIds,highlightLinkIds:p.highlightLinkIds,onTestSelect:(id:string)=>emit('select',id),onTestViewport:(bbox:any,zoom:number)=>emit('viewport',bbox,zoom)});}}};});
 const components = [[AppShell,'layouts/AppShell'],[PlanningPage,'views/PlanningApiView'],[GisPage,'views/ResourceMapView'],[TaskPanel,'components/TaskApiPanel'],[TaskForm,'components/TaskApiForm'],[TaskLibrary,'components/TaskApiLibraryDrawer'],[TaskImport,'components/TaskApiImportDrawer'],[DemandEditor,'components/TaskDemandEditor'],[ProgressPanel,'components/PlanningApiProgressPanel'],[FeedbackPanel,'components/PlanningApiFeedback'],[ResultPanel,'components/PlanningApiResultPanel'],[VersionsPanel,'components/PlanningApiVersionsPanel'],[PlanExport,'components/PlanExportDrawer'],[AppTable,'components/AppTable'],[AppDrawer,'components/AppDrawer'],[DecisionDialog,'components/DecisionDialog'],[ReadStatus,'components/ResourceReadStatus'],[ReadDetail,'components/ResourceReadDetail'],[ReadTree,'components/ResourceReadTree']] as const;
 for(const [component,file] of components){
   const filename=`src/${file}.vue`,descriptor=parse(readFileSync(filename,'utf8'),{filename}).descriptor;
@@ -69,7 +69,8 @@ beforeEach(()=>{
     const u=new URL(String(url),'http://local'),path=u.pathname,p=u.searchParams,body=init.body?JSON.parse(String(init.body)):{};
     if(path.endsWith('/auth/session'))return response({session_id:'S1',account_id:'U1',username:'planner',display_name:'规划员',role_id:'R1',role_name:'规划员',permissions,identity_revision:'a1',session_generation:'e1'});
     if(path.endsWith('/auth/csrf'))return response({csrf_token:'csrf',session_id:'S1'});
-    if(path.endsWith('/resource/context'))return response({revision:'r1',bounds:[113,36,116,39],updated_at:'2026-10-05T00:00:00Z',source:'测试接口',stats:{nodes:2,devices:2,models:1,interferences:0,hf:2,vuhf:0}});
+    if(path.endsWith('/resource/context'))return response({revision:'r1',bounds:[113,36,116,39],updated_at:'2026-10-05T00:00:00Z',source:'测试接口',terrain:{source_sha256:'a'.repeat(64),bbox:[113,36,115,38],source:'当前 DEM'},stats:{nodes:2,devices:2,models:1,interferences:0,hf:2,vuhf:0}});
+    if(path.endsWith('/maps/sr4-terrain.json'))return new Response(JSON.stringify({projection:'EPSG:4326',extent:[113,36,115,38],source:'当前 DEM',source_sha256:'a'.repeat(64),image_sha256:'b'.repeat(64)}),{status:200});
     if(path.endsWith('/resource/param-presets'))return response(presetDto());if(path.endsWith('/resource/frequency-pool'))return response(frequencyDto());
     if(path.endsWith('/resource/map'))return response({revision:'r1',bbox:p.get('bbox')!.split(',').map(Number),zoom:Number(p.get('zoom')),points:[],clusters:[],total_nodes:0,total_interferences:0});
     if(path.endsWith('/resource/nodes'))return response({revision:'r1',items:['N1','N2'].map(nodeDto),page:Number(p.get('page')),page_size:Number(p.get('page_size')),total:2});
@@ -100,6 +101,24 @@ function resultDetailsDto() { return { schemaVersion: 1 as const, assetVersion: 
   frequencyAssignments: [{ id: 'A1', linkId: 'L1', resourceGroupId: 'F1', freqId: null, frequencyKhz: 3000, bandwidthKhz: 25, reuseGroup: 0 }],
   frequencyConflicts: [], frequencyGap: { requiredChannels: 353, availableChannels: 48, shortage: 0 }, conflictFree: true, unreachableDemandIds: [] }; }
 describe('网络规划与 GIS HTTP 页面组合',()=>{
+  it('规划地图使用与后端 DEM 同版本的地形', async () => {
+    const {root}=await mount();
+    await vi.waitFor(()=>expect(find(root,n=>n.tag==='map-stub')?.props.terrainBasemap?.extent).toEqual([113,36,115,38]));
+    expect(find(root,n=>n.tag==='map-stub')?.props.terrainBasemap?.url).toContain('sr4-terrain.png');
+    expect(find(root,n=>n.tag==='map-stub')?.props.overlay.nodes).toHaveLength(2);
+  });
+  it('错版地形不显示，任务节点保留并给出版本提示', async () => {
+    serverTask.active_job_id='J1';serverJob=jobDto();
+    const original=fetcher.getMockImplementation()!;
+    fetcher.mockImplementation((url,init)=>String(url).endsWith('/maps/sr4-terrain.json')
+      ? Promise.resolve(new Response(JSON.stringify({projection:'EPSG:4326',extent:[113,36,115,38],source:'旧 DEM',source_sha256:'c'.repeat(64),image_sha256:'b'.repeat(64)}),{status:200}))
+      : original(url,init));
+    const {root}=await mount();
+    await vi.waitFor(()=>expect(text(root)).toContain('地形底图与后端当前 DEM 版本不一致'));
+    await vi.waitFor(()=>expect(find(root,n=>n.tag==='map-stub')?.props.overlay.links?.length).toBeGreaterThan(0));
+    expect(find(root,n=>n.tag==='map-stub')?.props.terrainBasemap).toBeNull();
+    expect(find(root,n=>n.tag==='map-stub')?.props.overlay.nodes).toHaveLength(2);
+  });
   it('HTTP 明细直接展示，频率池和分配行互斥且不额外请求业务数据',async()=>{
     serverTask.active_job_id='J1';serverJob=jobDto();Object.assign(serverJob.result,{result_details:resultDetailsDto()});
     const {root,planning}=await mount();await vi.waitFor(()=>expect(planning.result?.resultDetails?.assetVersion).toBe('http-detail-v1'));

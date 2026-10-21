@@ -53,7 +53,7 @@
     </div>
     <div class="map-caption"
       ><span class="map-dot" /> WGS84
-      <span>{{ resourceRead ? '本地道路底图' : '本地演示地图' }}</span></div
+      <span>{{ resourceRead ? terrainBasemap ? 'DEM 地形与本地道路' : '本地道路底图' : '本地演示地图' }}</span></div
     >
     <div
       v-if="planningCandidates?.visible && planningCandidates.points.some((row) => row.coordinate)"
@@ -87,6 +87,9 @@
       v-if="roadError"
       class="map-error"
       >本地道路加载失败；节点仍可浏览，请检查 maps 资源。</div
+    >
+    <div v-if="terrainRenderError" class="map-error terrain-render-error" role="status"
+      >DEM 地形图像加载失败；站点和链路仍可浏览。</div
     >
     <div
       v-if="mockCoverage && coverageShown && ['loading', 'error'].includes(mockCoverageState)"
@@ -310,6 +313,8 @@ import { interferenceImpactLayers, interferenceRegionColors } from '../maps/inte
 import Map from 'ol/Map';
 import View from 'ol/View';
 import Feature from 'ol/Feature';
+import ImageLayer from 'ol/layer/Image';
+import ImageStatic from 'ol/source/ImageStatic';
 import { defaults, ScaleLine } from 'ol/control';
 import { boundingExtent } from 'ol/extent';
 import { resourceReadLayer, resourceViewport } from '../maps/resource-read-layers';
@@ -343,6 +348,7 @@ import { diagnosisFaultLayer, diagnosisRegionLayer } from '../maps/diagnosis-lay
 import { diagnosisFaultTypes } from '../services/diagnosis-display';
 import { interferenceLayer, resourcePickLayer } from '../maps/resource-layers';
 import type { PlanningDemand } from '../types/planning';
+import type { TerrainBasemap } from '../services/terrain-basemap';
 import {
   roadLayer,
   nodeLayer,
@@ -358,6 +364,7 @@ const props = withDefaults(
     stations: Station[];
     resourceRead?: boolean;
     planningOverlay?: PlanningMapOverlay | null;
+    terrainBasemap?: TerrainBasemap | null;
     planningCandidates?: CandidateMapFrame;
     deploymentConstraints?: DeploymentConstraintFrame | null;
     coverageDisplay?: CoverageDisplay;
@@ -413,6 +420,7 @@ const props = withDefaults(
     resourceRead: false,
     resourceFrame: null,
     planningOverlay: null,
+    terrainBasemap: null,
     planningContext: 'planning',
     coverageDisplay: 'auto',
     mockCoverageDisplay: 'auto',
@@ -563,6 +571,9 @@ const deviceLayers = createDeviceCoverageLayers((id, state) =>
   emit('deviceCoverageState', id, state),
 );
 const roadError = ref(false);
+const terrainRenderError = ref(false);
+let terrainLayer: ImageLayer<ImageStatic> | null = null;
+let terrainKey: TerrainBasemap | null = null;
 // HTTP 图片取得后仍需等待地图解码；失败时保留同一图层供轮廓回退。
 const rasterRenderState = ref<CoverageImageState>('idle');
 const rasterRenderError = computed(() => rasterRenderState.value === 'error');
@@ -681,7 +692,23 @@ function paint() {
     impactObjectCounts.value = { nodes: 0, links: 0 };
     updateLinkDisplay();
     roads.setVisible(props.showRoads);
-    const layers: import('ol/layer/Base').default[] = [roads];
+    if (props.terrainBasemap !== terrainKey) {
+      terrainKey = props.terrainBasemap ?? null;
+      terrainRenderError.value = false;
+      terrainLayer = terrainKey ? new ImageLayer({ source: new ImageStatic({
+        url: terrainKey.url, imageExtent: terrainKey.extent, projection: 'EPSG:4326',
+      }) }) : null;
+      const source = terrainLayer?.getSource();
+      source?.on('imageloaderror', () => {
+        if (terrainLayer?.getSource() === source) terrainRenderError.value = true;
+      });
+      source?.on('imageloadend', () => {
+        if (terrainLayer?.getSource() === source) terrainRenderError.value = false;
+      });
+    }
+    const layers: import('ol/layer/Base').default[] = [
+      ...(terrainLayer ? [terrainLayer] : []), roads,
+    ];
     if (props.planningOverlay?.coverage && props.showCoverage) {
       const url = coverageImage.url.value;
       if (
@@ -1192,6 +1219,7 @@ onMounted(() => {
 watch(
   () => [
     props.resourceRead,
+    props.terrainBasemap,
     props.resourceFrame,
     props.resourceSelectedKind,
     props.planningOverlay,
@@ -1301,6 +1329,7 @@ onBeforeUnmount(() => {
   observer?.disconnect();
   mockCoverageLayers?.dispose();
   renderedCoverage = null;
+  terrainLayer = null;
   deviceLayers.dispose();
   devicePoints.dispose();
   planningCandidatePoints.dispose();
@@ -1529,6 +1558,9 @@ onBeforeUnmount(() => {
   color: #f0b972;
   background: #302721;
   padding: 8px;
+}
+.terrain-render-error {
+  top: 100px;
 }
 /* 候选图例独立标注语义，避免与设备运行状态图例混用。 */
 .candidate-map-legend {
