@@ -48,6 +48,7 @@
           :resource-frame="planning.step === 1 ? resources.frame : null"
           :resource-bounds="bounds"
           :terrain-basemap="terrainBasemap"
+          :show-roads="!terrainBasemap"
           :planning-overlay="overlay"
           :show-coverage="showCoverage"
           :coverage-display="coverageDisplay"

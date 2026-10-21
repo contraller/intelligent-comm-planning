@@ -40,7 +40,7 @@ vi.mock('primevue/dialog',async()=>{const {h}=await import('vue');return{default
 vi.mock('primevue/drawer',async()=>{const {h}=await import('vue');return{default:{props:['visible'],setup:(p:any,{slots}:any)=>()=>p.visible?h('aside',{},[slots.default?.(),slots.footer?.()]):null}};});
 vi.mock('primevue/column',()=>({default:{render:()=>null}}));
 vi.mock('primevue/datatable',async()=>{const {h}=await import('vue');return{default:{inheritAttrs:false,props:['value','selection'],emits:['update:selection'],setup:(p:any,{emit}:any)=>()=>h('table-stub',{rows:p.value,selection:p.selection,select:(row:unknown)=>emit('update:selection',row)})}};});
-vi.mock('../src/components/MapCanvas.vue',async()=>{const {h}=await import('vue');return{default:{props:['planningOverlay','terrainBasemap','showCoverage','coverageDisplay','selectedId','selectedLinkId','highlightStationIds','highlightLinkIds'],emits:['viewport','selectCluster','selectResource','select'],setup:(p:any,{emit,expose}:any)=>{expose({locateResource:()=>{},expandResource:()=>{}});return()=>h('map-stub',{overlay:p.planningOverlay,terrainBasemap:p.terrainBasemap,showCoverage:p.showCoverage,coverageDisplay:p.coverageDisplay,selectedId:p.selectedId,selectedLinkId:p.selectedLinkId,highlightStationIds:p.highlightStationIds,highlightLinkIds:p.highlightLinkIds,onTestSelect:(id:string)=>emit('select',id),onTestViewport:(bbox:any,zoom:number)=>emit('viewport',bbox,zoom)});}}};});
+vi.mock('../src/components/MapCanvas.vue',async()=>{const {h}=await import('vue');return{default:{props:['planningOverlay','terrainBasemap','showRoads','showCoverage','coverageDisplay','selectedId','selectedLinkId','highlightStationIds','highlightLinkIds'],emits:['viewport','selectCluster','selectResource','select'],setup:(p:any,{emit,expose}:any)=>{expose({locateResource:()=>{},expandResource:()=>{}});return()=>h('map-stub',{overlay:p.planningOverlay,terrainBasemap:p.terrainBasemap,showRoads:p.showRoads,showCoverage:p.showCoverage,coverageDisplay:p.coverageDisplay,selectedId:p.selectedId,selectedLinkId:p.selectedLinkId,highlightStationIds:p.highlightStationIds,highlightLinkIds:p.highlightLinkIds,onTestSelect:(id:string)=>emit('select',id),onTestViewport:(bbox:any,zoom:number)=>emit('viewport',bbox,zoom)});}}};});
 const components = [[AppShell,'layouts/AppShell'],[PlanningPage,'views/PlanningApiView'],[GisPage,'views/ResourceMapView'],[TaskPanel,'components/TaskApiPanel'],[TaskForm,'components/TaskApiForm'],[TaskLibrary,'components/TaskApiLibraryDrawer'],[TaskImport,'components/TaskApiImportDrawer'],[DemandEditor,'components/TaskDemandEditor'],[ProgressPanel,'components/PlanningApiProgressPanel'],[FeedbackPanel,'components/PlanningApiFeedback'],[ResultPanel,'components/PlanningApiResultPanel'],[VersionsPanel,'components/PlanningApiVersionsPanel'],[PlanExport,'components/PlanExportDrawer'],[AppTable,'components/AppTable'],[AppDrawer,'components/AppDrawer'],[DecisionDialog,'components/DecisionDialog'],[ReadStatus,'components/ResourceReadStatus'],[ReadDetail,'components/ResourceReadDetail'],[ReadTree,'components/ResourceReadTree']] as const;
 for(const [component,file] of components){
   const filename=`src/${file}.vue`,descriptor=parse(readFileSync(filename,'utf8'),{filename}).descriptor;
@@ -105,6 +105,7 @@ describe('网络规划与 GIS HTTP 页面组合',()=>{
     const {root}=await mount();
     await vi.waitFor(()=>expect(find(root,n=>n.tag==='map-stub')?.props.terrainBasemap?.extent).toEqual([113,36,115,38]));
     expect(find(root,n=>n.tag==='map-stub')?.props.terrainBasemap?.url).toContain('sr4-terrain.png');
+    expect(find(root,n=>n.tag==='map-stub')?.props.showRoads).toBe(false);
     expect(find(root,n=>n.tag==='map-stub')?.props.overlay.nodes).toHaveLength(2);
   });
   it('错版地形不显示，任务节点保留并给出版本提示', async () => {
@@ -117,6 +118,7 @@ describe('网络规划与 GIS HTTP 页面组合',()=>{
     await vi.waitFor(()=>expect(text(root)).toContain('地形底图与后端当前 DEM 版本不一致'));
     await vi.waitFor(()=>expect(find(root,n=>n.tag==='map-stub')?.props.overlay.links?.length).toBeGreaterThan(0));
     expect(find(root,n=>n.tag==='map-stub')?.props.terrainBasemap).toBeNull();
+    expect(find(root,n=>n.tag==='map-stub')?.props.showRoads).toBe(true);
     expect(find(root,n=>n.tag==='map-stub')?.props.overlay.nodes).toHaveLength(2);
   });
   it('HTTP 明细直接展示，频率池和分配行互斥且不额外请求业务数据',async()=>{

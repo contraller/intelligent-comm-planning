@@ -53,7 +53,7 @@
     </div>
     <div class="map-caption"
       ><span class="map-dot" /> WGS84
-      <span>{{ resourceRead ? terrainBasemap ? 'DEM 地形与本地道路' : '本地道路底图' : '本地演示地图' }}</span></div
+      <span>{{ mapCaption }}</span></div
     >
     <div
       v-if="planningCandidates?.visible && planningCandidates.points.some((row) => row.coordinate)"
@@ -84,7 +84,7 @@
       >太 行 山 地 区<span>TAIHANG REGION · DEMO</span></div
     >
     <div
-      v-if="roadError"
+      v-if="roadError && (showRoads || terrainRenderError)"
       class="map-error"
       >本地道路加载失败；节点仍可浏览，请检查 maps 资源。</div
     >
@@ -452,6 +452,12 @@ const props = withDefaults(
     collapsibleLegend: false,
   },
 );
+const mapCaption = computed(() => {
+  if (!props.resourceRead) return '本地演示地图';
+  if (props.terrainBasemap && !terrainRenderError.value)
+    return props.showRoads ? 'DEM 地形与本地道路' : 'DEM 地形';
+  return props.showRoads || terrainRenderError.value ? '本地道路底图' : '资源地图';
+});
 const emit = defineEmits<{
   selectPlanningCandidate: [selection: CandidateSelection];
   gisPick: [result: GisPickResult];
@@ -691,7 +697,6 @@ function paint() {
     renderedImpactLinks = undefined;
     impactObjectCounts.value = { nodes: 0, links: 0 };
     updateLinkDisplay();
-    roads.setVisible(props.showRoads);
     if (props.terrainBasemap !== terrainKey) {
       terrainKey = props.terrainBasemap ?? null;
       terrainRenderError.value = false;
@@ -700,12 +705,20 @@ function paint() {
       }) }) : null;
       const source = terrainLayer?.getSource();
       source?.on('imageloaderror', () => {
-        if (terrainLayer?.getSource() === source) terrainRenderError.value = true;
+        if (terrainLayer?.getSource() === source) {
+          terrainRenderError.value = true;
+          // 地形图片不可用时恢复道路底图，保留可定位的地图背景。
+          roads.setVisible(true);
+        }
       });
       source?.on('imageloadend', () => {
-        if (terrainLayer?.getSource() === source) terrainRenderError.value = false;
+        if (terrainLayer?.getSource() === source) {
+          terrainRenderError.value = false;
+          roads.setVisible(props.showRoads);
+        }
       });
     }
+    roads.setVisible(props.showRoads || terrainRenderError.value);
     const layers: import('ol/layer/Base').default[] = [
       ...(terrainLayer ? [terrainLayer] : []), roads,
     ];
