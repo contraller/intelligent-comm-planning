@@ -48,9 +48,13 @@ from .task_input_service import TaskInputError, save_task_input
 
 try:
     from fastapi import FastAPI, HTTPException, Request, Response
-    from fastapi.responses import FileResponse
+    from fastapi.exception_handlers import (http_exception_handler,
+                                            request_validation_exception_handler)
+    from fastapi.exceptions import RequestValidationError
+    from fastapi.responses import FileResponse, JSONResponse
     from pydantic import ValidationError
     from sqlalchemy.exc import SQLAlchemyError
+    from starlette.exceptions import HTTPException as StarletteHTTPException
 except ImportError as exc:  # pragma: no cover - exercised only without runtime deps
     raise RuntimeError(
         "FastAPI is not installed. Run: pip install -r algorithm-service/requirements.txt"
@@ -58,6 +62,29 @@ except ImportError as exc:  # pragma: no cover - exercised only without runtime 
 
 
 app = FastAPI(title="短波/超短波智能规划算法服务", version="0.1.0")
+
+
+@app.exception_handler(StarletteHTTPException)
+async def api_http_exception(request: Request, exc: StarletteHTTPException) -> Response:
+    if not request.url.path.startswith("/api/v1/"):
+        return await http_exception_handler(request, exc)
+    # 框架错误沿用业务包络，保留原有 HTTP 状态。
+    code = {401: 1101, 403: 1101, 404: 1002, 409: 1203}.get(
+        exc.status_code, 5001 if exc.status_code >= 500 else 1001)
+    if exc.status_code == 409 and str(exc.detail).startswith("资源版本已变化"):
+        code = 1205
+    return JSONResponse(status_code=exc.status_code, headers=exc.headers, content={
+        "code": code, "message": str(exc.detail), "data": None})
+
+
+@app.exception_handler(RequestValidationError)
+async def api_request_validation(request: Request, exc: RequestValidationError) -> Response:
+    if not request.url.path.startswith("/api/v1/"):
+        return await request_validation_exception_handler(request, exc)
+    issues = [{"field": ".".join(map(str, issue["loc"])), "message": issue["msg"]}
+              for issue in exc.errors()]
+    return JSONResponse(status_code=422, content={
+        "code": 1001, "message": "请求参数校验失败", "data": issues})
 
 
 @app.get("/health")
@@ -382,7 +409,8 @@ def frontend_resource_map(revision: str, bbox: str, zoom: float,
         return frontend_integration.resource_map(
             revision, bounds, zoom, show_nodes, show_interferences)
     except ValueError as exc:
-        raise HTTPException(status_code=409, detail=str(exc)) from exc
+        status = 409 if str(exc).startswith("资源版本已变化") else 422
+        raise HTTPException(status_code=status, detail=str(exc)) from exc
 
 
 @app.get("/api/v1/resource/nodes")
@@ -685,6 +713,11 @@ def plans_get(solution_id: str, response: Response,
 def plans_compare(payload: dict[str, Any], response: Response) -> dict[str, Any]:
     """对比版本化方案；旧格式继续返回算法摘要。"""
     if "context" not in payload and "task_id" not in payload:
+        ids = payload.get("solution_ids")
+        if not isinstance(ids, list) or not ids or any(
+                not isinstance(item, str) or not item.strip() for item in ids):
+            response.status_code = 422
+            return {"code": 1001, "message": "solution_ids 须为非空方案编号列表", "data": None}
         return compare_plans(payload)
     try:
         request = PlanningPlanCompareRequest.model_validate(payload)

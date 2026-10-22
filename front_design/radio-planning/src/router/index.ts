@@ -36,7 +36,7 @@ export const router = createRouter({
         }] : []),
         {
           path: 'diagnosis',
-          component: () => import('../views/DiagnosisView.vue'),
+          component: env.mode === 'http' ? () => import('../views/DiagnosisApiView.vue') : () => import('../views/DiagnosisView.vue'),
           meta: { title: '故障诊断' },
         },
         {

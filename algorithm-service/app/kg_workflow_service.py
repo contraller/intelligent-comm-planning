@@ -95,7 +95,7 @@ def _current_graph(session: Session, state: KgWorkspace):
     version = session.get(KgVersion, state.current_version)
     graph._restore(version.snapshot)
     graph.version = version.version
-    graph.versions = [{**_as_version(row), "snapshot": row.snapshot} for row in
+    graph.versions = [{**_as_version(row), "stats": row.stats, "snapshot": row.snapshot} for row in
                       session.scalars(select(KgVersion).order_by(KgVersion.version))]
     changes = session.scalars(select(KgChange).order_by(KgChange.created_at)).all()
     submissions = session.scalars(select(KgSubmission).order_by(KgSubmission.id)).all()

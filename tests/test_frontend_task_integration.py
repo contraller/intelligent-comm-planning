@@ -120,6 +120,48 @@ def test_missing_dem_only_disables_terrain(api, monkeypatch, tmp_path):
     assert response.json()["data"]["stats"]["nodes"] >= 50
 
 
+def test_resource_errors_use_api_envelope(api, monkeypatch):
+    client, _ = api
+    invalid_context = client.get("/api/v1/resource/context", params={"context": "wrong"})
+    assert invalid_context.status_code == 422
+    assert invalid_context.json() == {
+        "code": 1001, "message": "invalid resource context", "data": None}
+
+    revision = client.get("/api/v1/resource/context").json()["data"]["revision"]
+    query = {"revision": revision, "bbox": "wrong", "zoom": 8}
+    invalid_bbox = client.get("/api/v1/resource/map", params=query)
+    assert invalid_bbox.status_code == 422
+    assert invalid_bbox.json()["code"] == 1001
+    malformed_bbox = client.get("/api/v1/resource/map", params={
+        **query, "bbox": "115,38,114,37"})
+    assert malformed_bbox.status_code == 422
+    assert malformed_bbox.json()["code"] == 1001
+
+    stale = client.get("/api/v1/resource/map", params={
+        **query, "revision": "old", "bbox": "114,37,115,38"})
+    assert stale.status_code == 409
+    assert stale.json()["code"] == 1205
+
+    missing_query = client.get("/api/v1/resource/map")
+    assert missing_query.status_code == 422
+    assert missing_query.json()["code"] == 1001
+    assert missing_query.json()["data"]
+
+    missing_node = client.get("/api/v1/resource/nodes/absent", params={"revision": revision})
+    assert missing_node.status_code == 404
+    assert missing_node.json()["code"] == 1002
+
+    monkeypatch.delenv("SR4_INTEGRATION_DEMO", raising=False)
+    disabled = client.get("/api/v1/integration/sr4/catalog")
+    assert disabled.status_code == 403
+    assert disabled.json()["code"] == 1101
+
+    wrong_method = client.post("/api/v1/resource/context")
+    assert wrong_method.status_code == 405
+    assert wrong_method.json()["code"] == 1001
+    assert client.get("/nonexistent").json() == {"detail": "Not Found"}
+
+
 def test_click_save_task_contract_persists_revision(api):
     client, factory = api
     workspace = client.get(

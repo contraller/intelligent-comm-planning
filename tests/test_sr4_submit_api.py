@@ -856,6 +856,16 @@ def test_compare_rejects_different_frozen_conditions_and_keeps_legacy(
     assert legacy.json()["code"] == 2001
 
 
+def test_legacy_compare_rejects_empty_or_invalid_selection(api):
+    client, _, _ = api
+    for payload in ({}, {"solution_ids": []}, {"solution_ids": None},
+                    {"solution_ids": [""]}, {"solution_ids": "PL-1"}):
+        response = client.post("/api/v1/plans/compare", json=payload)
+        assert response.status_code == 422
+        assert response.json()["code"] == 1001
+        assert "solution_ids" in response.json()["message"]
+
+
 def test_export_versioned_plan_as_json_and_xlsx(api, monkeypatch):
     client, _, _ = api
     saved = _save_task(client)

@@ -40,6 +40,9 @@ def _draft(client, request_id="save-1"):
 
 def test_four_steps_only_publish_changes_current_graph(client):
     before = client.get("/api/v1/kg/stats").json()["data"]["graph"]["triples"]
+    versions = client.get("/api/v1/kg/versions")
+    assert versions.status_code == 200
+    assert versions.json()["data"]["items"][0]["triples"] == before
     saved = _draft(client)
     assert saved.status_code == 200
     change_id = saved.json()["data"]["change_id"]
@@ -67,6 +70,9 @@ def test_four_steps_only_publish_changes_current_graph(client):
     assert client.get("/api/v1/kg/stats").json()["data"]["graph"]["triples"] == before + 1
     assert client.get("/api/v1/kg/versions/1/snapshot").json()["data"]["version"] == 1
     assert client.get("/api/v1/kg/versions/2/snapshot").json()["data"]["version"] == 2
+    versions = client.get("/api/v1/kg/versions").json()["data"]["items"]
+    assert [item["version"] for item in versions] == [1, 2]
+    assert versions[-1]["triples"] == before + 1
     assert client.get("/api/v1/kg/workspace").json()["data"]["current_version"] == 2
     kg._GRAPH = None
     kg._STATE = None
@@ -117,6 +123,16 @@ def test_rollback_creates_new_version_without_mutating_old_snapshot(client):
     assert rolled.json()["data"]["version"] == 3
     assert client.get("/api/v1/kg/versions/3/snapshot").json()["data"]["snapshot"] == before
     assert client.get("/api/v1/kg/versions/2/snapshot").json()["data"]["version"] == 2
+    assert [item["version"] for item in client.get(
+        "/api/v1/kg/versions").json()["data"]["items"]] == [1, 2, 3]
+
+
+def test_invalid_draft_body_uses_api_error_envelope(client):
+    response = client.post("/api/v1/kg/changes", json={})
+    assert response.status_code == 422
+    assert response.json()["code"] == 1001
+    assert response.json()["data"]
+    assert "detail" not in response.json()
 
 
 def test_invalid_legacy_file_does_not_initialize_database(client):

@@ -4,11 +4,14 @@ import { createAuthHttp } from './auth-http';
 import { createResourceReadHttp } from './resource-read-http';
 import { createTaskHttp } from './task-http';
 import { createPlanningHttp } from './planning-http';
+import { createFaultHttp } from './fault-http';
 
 // 保留既有导出路径；认证、传输与页面会话分别维护，不在入口堆叠实现。
 export { createHttpClient } from './http-client';
 const authentication = createAuthHttp({ baseUrl: () => env.apiBaseUrl });
 export const releaseHttpSessionBinding = () => authentication.releaseSessionBinding();
+// 正式 SR5 使用独立的两段任务契约；旧演示工作区接口不伪装为正式服务。
+export const faultHttp = createFaultHttp(authentication.authenticatedRequest);
 
 export const httpService: PreviewService = {
   // 正式配置协议未确认；占位不发真实控制请求，不回落教学成功。
