@@ -84,6 +84,14 @@ class Problem:
         for child, (parent, band) in sol.parent_of.items():
             self.base.append((child, parent, band))
         self.ports_base = dict(sol.ports)
+        from deployment import LAYER_PLAN, UPLINK_BAND
+        for i in sol.unconnected:
+            if i in sol.parent_of:
+                continue
+            band = UPLINK_BAND.get(fm.stations[i].subtype)
+            if band and self.ports_base.get((i, band), 0) > 0:
+                # P1 为尚未接入的下级预留了上行端口，优化阶段要实际使用它。
+                self.ports_base[(i, band)] -= 1
         # 两个 Ⅰ 之间的同行链路（见 plan_pipeline.root_links）
         from plan_pipeline import root_links
         for a, b, band in root_links(fm, sol):
@@ -154,12 +162,24 @@ class Problem:
         # 第一版只有 (2)，抗毁性卡在 0.8958；三档加大搜索力度都收敛到同一个值、
         # 同一处最坏单点，一度像是结构上限。逐项核对端口后发现候选池里其实有
         # 30 个位置能跨过这座桥，只是 (2) 的排序把它们排在了后面。
+        mandatory_orphans = {self.idx[sid] for d in demands
+                             if str(d.get("is_mandatory", "")).lower() == "true"
+                             for sid in (d["src_node_id"], d["dst_node_id"])
+                             if sid in self.idx and self.idx[sid] not in sol.connected}
+        self.mandatory_orphans = mandatory_orphans
+
         def legal_links(i):
             out = []
             st = fm.stations[i]
             for band in st.radio:
                 for j in fm.neighbors(i, band):
-                    if j not in sol.connected or fm.stations[j].is_candidate:
+                    if (j not in sol.active or fm.stations[j].is_candidate
+                            or (j not in sol.connected and j not in sol.unconnected)):
+                        continue
+                    if j not in sol.connected and not any(
+                            fm.stations[j].subtype in child_types
+                            and st.subtype in parent_types and band == layer_band
+                            for child_types, parent_types, layer_band, _ in LAYER_PLAN):
                         continue
                     m = fm.margin_of(i, j, band)
                     if m is not None:
@@ -169,7 +189,7 @@ class Problem:
             if heads and st_of(i) == E.PEER_SUBTYPE:
                 out = [(m, j, b) for m, j, b in out
                        if st_of(j) != E.PEER_SUBTYPE or maybe_groups.get(j, frozenset()) & heads]
-            out.sort(reverse=True)
+            out.sort(key=lambda row: (row[1] in sol.connected, row[0]), reverse=True)
             return out
 
         def port_free(i, band, ports):
@@ -192,13 +212,28 @@ class Problem:
         def add(i, why):
             if site_of(i) in used_sites or len(picked) >= candidate_relays:
                 return False
-            if not links_of(i):
+            if not any(j in sol.connected and port_free(j, band, self.ports_base)
+                       for _m, j, band in links_of(i)):
                 return False
             used_sites.add(site_of(i))
             picked.append(dict(idx=i, links=links_of(i), why=why))
             return True
 
-        # (1) 瓶颈导向
+        # (1) 必要通联孤点：候选中继须同时接到孤点和已连通的上级。
+        for orphan in sorted(mandatory_orphans):
+            ranked = []
+            for i in cand_idx:
+                reaches = [(m, band) for m, j, band in links_of(i)
+                           if j == orphan and port_free(orphan, band, self.ports_base)]
+                anchors = [(m, band) for m, j, band in links_of(i)
+                           if j in sol.connected and port_free(j, band, self.ports_base)]
+                if reaches and anchors:
+                    ranked.append((min(max(m for m, _b in reaches),
+                                       max(m for m, _b in anchors)), i))
+            for _margin, i in sorted(ranked, reverse=True)[:2]:
+                add(i, "MANDATORY:%s" % self.sid[orphan])
+
+        # (2) 瓶颈导向
         base_adj = {}
         for eid, (a, b, band) in enumerate(self.base):
             base_adj.setdefault(a, []).append((b, eid))
@@ -226,6 +261,32 @@ class Problem:
         crit = [t for t in crit if t[0] > allow]
         self.critical_bridges = [(c, self.sid[v]) for c, v, _s in crit]
         self.bridge_cut_allowed = allow
+        for _cut, _v, sub in crit[:8]:
+            crossing = []
+            for a in sorted(sub):
+                if a not in sol.connected:
+                    continue
+                for band in sorted(fm.stations[a].radio):
+                    if not port_free(a, band, self.ports_base):
+                        continue
+                    for b in fm.neighbors(a, band):
+                        if b in sub or b not in sol.connected or not port_free(b, band, self.ports_base):
+                            continue
+                        if E.is_peer_pair(st_of(a), st_of(b)) and not E.peer_link_allowed(
+                                a, b, maybe_groups, self.uplink):
+                            continue
+                        key = (min(a, b), max(a, b), band)
+                        if key in existing or key in seen:
+                            continue
+                        margin = fm.margin_of(a, b, band)
+                        if margin is not None:
+                            crossing.append((margin, a, b, band))
+            # 仅补足原先按余量截断而漏掉的跨桥链路，控制搜索维度。
+            for _margin, a, b, band in sorted(crossing, reverse=True)[:2]:
+                key = (min(a, b), max(a, b), band)
+                if key not in seen:
+                    seen.add(key)
+                    self.backups.append((a, b, band))
         per_bridge = 2
         for cut, v, sub in crit:
             if len(picked) >= candidate_relays * 3 // 4:
@@ -246,7 +307,7 @@ class Problem:
                 if k >= per_bridge:
                     break
 
-        # (2) 覆盖导向补足
+        # (3) 覆盖导向补足
         rest = sorted(cand_idx, key=lambda i: (-len(links_of(i)), self.sid[i]))
         for i in rest:
             if len(picked) >= candidate_relays:
@@ -335,12 +396,25 @@ def decode(pb, genome):
             continue
         i = rc["idx"]
         got, heads, peers = 0, False, []
-        for m, j, band in rc["links"]:
+        connected, orphan_links = [], []
+        for _m, j, band in rc["links"]:
             if E.is_peer_pair(st_of(i), st_of(j)):
                 peers.append((i, j, band))
-            elif put(i, j, band):
+            elif j in pb.sol.connected:
+                connected.append((i, j, band))
+            else:
+                orphan_links.append((i, j, band))
+        connected.sort(key=lambda edge: st_of(edge[1]) in E.PEER_GROUP_HEADS,
+                       reverse=True)
+        anchor = None
+        for edge in connected:
+            if put(*edge):
+                anchor = edge
                 got += 1
-                heads = heads or st_of(j) in E.PEER_GROUP_HEADS
+                heads = st_of(edge[1]) in E.PEER_GROUP_HEADS
+                if heads:
+                    uplink[i] = edge[1]
+                break
         if peers and not heads:              # 借道：取余量最好且端口有余的一个 Ⅲ
             for t, (_i, j, band) in enumerate(peers):
                 if put(i, j, band):
@@ -349,6 +423,14 @@ def decode(pb, genome):
                     del peers[t]
                     break
         if got:
+            orphan_links.sort(key=lambda edge: edge[1] in pb.mandatory_orphans,
+                              reverse=True)
+            for edge in orphan_links:
+                if put(*edge):
+                    got += 1
+            for edge in connected:
+                if edge != anchor and put(*edge):
+                    got += 1
             relays.append(i)
             peer_todo.extend(peers)
     # 再放备份链路，按余量从高到低，放不下的丢弃
@@ -717,7 +799,21 @@ def optimize(pb, constraints=None, pop_size=40, generations=40, pareto_size=10,
         uniq = uniq[:pareto_size]
     uniq.sort(key=lambda e: (e["_v"], -e["mandatory_connectivity"], -e["connectivity"],
                              -e["survivability"], e["total_power_w"]))
-    return dict(feasible=bool(feasible), solutions=uniq, population=pop,
+    candidates, topologies = [], set()
+    for e in sorted(archive, key=lambda row: (row["_v"],
+                                             -row["mandatory_connectivity"],
+                                             -row["survivability"],
+                                             -row["connectivity"], row["total_power_w"])):
+        signature = (tuple(sorted((min(a, b), max(a, b), band)
+                                  for a, b, band in e["links"])), e["m_req"])
+        if signature in topologies:
+            continue
+        topologies.add(signature)
+        candidates.append(e)
+        if len(candidates) >= 6:
+            break
+    return dict(feasible=bool(feasible), solutions=uniq, candidates=candidates,
+                population=pop,
                 evaluations=evals, constraints=cons,
                 tradeoff=tradeoff_front(archive, cons, pareto_size),
                 infeasible=None if feasible else explain_infeasible(pop, cons))

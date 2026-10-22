@@ -74,6 +74,88 @@ def uplinks_by_sid(fm, sol):
     return {fm.stations[c].sid: fm.stations[p].sid for c, (p, _b) in sol.parent_of.items()}
 
 
+def alternative_parent_solutions(fm, sol, max_variants=2, important_nodes=()):
+    """在现有站址和端口内，生成少量合法的替代上级拓扑。"""
+    from copy import copy
+    from deployment import LAYER_PLAN
+    import echelon as E
+
+    if max_variants <= 0:
+        return []
+    important = set(important_nodes)
+    children_per_net = {}
+    for _child, (parent, band) in sol.parent_of.items():
+        key = (parent, band)
+        children_per_net[key] = children_per_net.get(key, 0) + 1
+    swaps = []
+    for child, (old_parent, band) in sorted(sol.parent_of.items()):
+        subtype = fm.stations[child].subtype
+        parent_types = {parent_subtype for child_types, parent_subtypes, layer_band, _ in LAYER_PLAN
+                        if subtype in child_types and band == layer_band
+                        for parent_subtype in parent_subtypes}
+        if not parent_types:
+            continue
+        for new_parent in fm.neighbors(child, band):
+            if (new_parent == old_parent or new_parent not in sol.connected
+                    or fm.stations[new_parent].subtype not in parent_types
+                    or sol.ports.get((new_parent, band), 0)
+                    >= E.capacity(fm.stations[new_parent].subtype, band)):
+                continue
+            margin = fm.margin_of(child, new_parent, band)
+            if margin is None:
+                continue
+            old_count = children_per_net[(old_parent, band)]
+            new_count = children_per_net.get((new_parent, band), 0)
+            # 把仅有一个下级的网并入已有网，可能减少频率着色对象。
+            priority = (int(old_count == 1 and new_count > 0),
+                        int(band == E.VUHF), int(child in important),
+                        int(old_count == 1), margin)
+            swaps.append((priority, child, old_parent, new_parent, band))
+    swaps.sort(key=lambda row: (row[0], -row[1], -row[3]), reverse=True)
+
+    variants, changed_children = [], set()
+    for _priority, child, old_parent, new_parent, band in swaps:
+        if child in changed_children:
+            continue
+        variant = copy(sol)
+        variant.parent_of = dict(sol.parent_of)
+        variant.parent_of[child] = (new_parent, band)
+        variant.ports = dict(sol.ports)
+        variant.ports[(old_parent, band)] -= 1
+        variant.ports[(new_parent, band)] = variant.ports.get((new_parent, band), 0) + 1
+        variants.append(variant)
+        changed_children.add(child)
+        if len(variants) >= min(max_variants, 2):
+            break
+    signatures = {tuple(sorted(variant.parent_of.items())) for variant in variants}
+    for limit in (4, 8):
+        if len(variants) >= max_variants:
+            break
+        variant = copy(sol)
+        variant.parent_of = dict(sol.parent_of)
+        variant.ports = dict(sol.ports)
+        counts = dict(children_per_net)
+        moved = set()
+        for _priority, child, old_parent, new_parent, band in swaps:
+            if (len(moved) >= limit or child in moved
+                    or counts[(old_parent, band)] != 1
+                    or counts.get((new_parent, band), 0) == 0
+                    or variant.ports.get((new_parent, band), 0)
+                    >= E.capacity(fm.stations[new_parent].subtype, band)):
+                continue
+            variant.parent_of[child] = (new_parent, band)
+            variant.ports[(old_parent, band)] -= 1
+            variant.ports[(new_parent, band)] = variant.ports.get((new_parent, band), 0) + 1
+            counts[(old_parent, band)] -= 1
+            counts[(new_parent, band)] = counts.get((new_parent, band), 0) + 1
+            moved.add(child)
+        signature = tuple(sorted(variant.parent_of.items()))
+        if len(moved) >= 2 and signature not in signatures:
+            signatures.add(signature)
+            variants.append(variant)
+    return variants
+
+
 def topology_from_deployment(stations, terrain, nodes=None, devices=None,
                              models=None, candidate_rows=None, verbose=False):
     """第 3 周的输入 = 第 2 周部署规划的**完整输出**，不是 link.csv 全集。

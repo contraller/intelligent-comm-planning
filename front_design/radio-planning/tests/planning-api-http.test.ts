@@ -16,6 +16,15 @@ const detailsDto = (): PlanningResultDetails => ({ schemaVersion: 1, assetVersio
   frequencyGap: { requiredChannels: 353, availableChannels: 48, shortage: 0 }, conflictFree: true, unreachableDemandIds: [],
 });
 
+it('HTTP规划目录读取构造测试频点及来源备注', () => {
+  const row = { freq_id: 'FQ-0095', device_class: 'HF', center_freq_khz: 3293.5,
+    bandwidth_khz: 3, channel_no: null, is_available: true, occupied_by: null,
+    reuse_min_distance_m: 60000, adjacent_guard_khz: 3, note: '构造测试扩容-待甲方确认' };
+  const catalog = readPlanningCatalog(presetDto(), { ...frequencyDto(), frequency_resources: [row] });
+  expect(catalog.frequencyResources?.[0]).toMatchObject({ freqId: 'FQ-0095', centerFreqKhz: 3293.5,
+    isAvailable: true, note: '构造测试扩容-待甲方确认' });
+});
+
 // 显式指定本地服务时才写入联调库，常规测试仍只使用隔离夹具。
 const liveBaseUrl = process.env.SR4_LIVE_BASE_URL;
 if (liveBaseUrl) {

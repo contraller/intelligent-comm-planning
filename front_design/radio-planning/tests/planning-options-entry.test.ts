@@ -68,6 +68,15 @@ const inputEvent=async(el:HostNode,value:string)=>{(el.props.onInput as (e:unkno
 beforeAll(async()=>{for(const [component,path] of [[PlanningOptionsEditor,'PlanningOptionsEditor'],[PlanningOptionsSummary,'PlanningOptionsSummary'],[PlanningTaskForm,'PlanningTaskForm'],[TaskApiForm,'TaskApiForm']] as const)await clientTemplate(component,'src/components/'+path+'.vue');});
 afterEach(()=>{apps.splice(0).forEach(app=>app.unmount());sessions.splice(0).forEach(s=>{s.task.clearForSession();usePlanningStore().clearForSession();disposePinia(s.pinia);});vi.restoreAllMocks();});
 describe('真实频率部署输入控件',()=>{
+  it('新增的构造频点在资源清单中明确标识来源',async()=>{
+    const value=ref(structuredClone(optionsPlanningPresets[0].input));
+    const frequencyResources=[...planningFrequencyResources,{freqId:'FQ-0095',deviceClass:'HF' as const,
+      centerFreqKhz:3293.5,bandwidthKhz:3,channelNo:null,isAvailable:true,occupiedBy:null,
+      reuseMinDistanceM:60000,adjacentGuardKhz:3,note:'构造测试扩容-待甲方确认'}];
+    const root=mount(PlanningOptionsEditor,()=>({modelValue:value.value,owner:'synthetic',frequencyResources}));
+    expect(textOf(root)).toContain('1 个构造测试扩容频点，非甲方确认的正式资源');
+    expect(textOf(root)).toContain('FQ-0095');
+  });
   // 从真实勾选和输入事件验证排除项，不用直接构造合法 DTO 绕过空范围问题。
   it.each(['HF','VUHF'] as const)('%s 仅填排除频点可提交，半填和非法范围仍被拦截',async(kind)=>{
     const value=ref<PlanningInput>({...structuredClone(optionsPlanningPresets[0].input),frequencyConstraints:null}),pending=ref(false);

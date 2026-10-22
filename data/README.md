@@ -62,6 +62,7 @@
 - `synthetic/nodes/candidate_sites_v1.csv`：候选部署点，用于第 2 周部署位置筛选。
 - `synthetic/tasks/task_links_v1.csv`：任务通联需求。
 - `synthetic/frequency/frequency_resources_v1.csv`：可用频率资源。
+  其中 `FQ-0095` 至 `FQ-0105` 为 2026-10-22 按当前演示拓扑缺口新增的 11 个构造测试频点（HF 4 个、VUHF 7 个），生成规则见 `scripts/gen_test_data.py`。这些频点仅用于算法与前后端联调，未获得甲方正式频率清单确认，不得作为实际可用频率或验收配额引用。
 - `synthetic/topology/topology_links_v1.csv`：网络拓扑链路。
 - `synthetic/topology/routes_v1.json`：主用/备用路由样例，用于路由规划接口设计。
 - `synthetic/topology/frequency_conflicts_v1.csv`：频率冲突约束，用于频率分配图约束。

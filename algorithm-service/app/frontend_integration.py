@@ -323,7 +323,8 @@ def resource_dictionary(kind: str, ids: str | None, revision: str) -> dict[str, 
 
 
 def planning_frequency_catalog() -> dict[str, Any]:
-    rows = [row for row in _rows("frequencies") if _boolean(row.get("is_available"))]
+    resources = _rows("frequencies")
+    rows = [row for row in resources if _boolean(row.get("is_available"))]
     groups: dict[str, list[float]] = {}
     for row in rows:
         groups.setdefault(row["device_class"], []).append(float(row["center_freq_khz"]))
@@ -333,7 +334,21 @@ def planning_frequency_catalog() -> dict[str, Any]:
         "min_khz": min(values),
         "max_khz": max(values),
     } for device_class, values in sorted(groups.items())]
-    return _envelope({"revision": f"catalog-{resource_revision()}", "items": items})
+    # 规划页同时展示禁用频点和构造扩容来源，不把测试资源冒充正式获批资源。
+    frequency_resources = [{
+        "freq_id": row["freq_id"],
+        "device_class": row["device_class"],
+        "center_freq_khz": _number(row.get("center_freq_khz")),
+        "bandwidth_khz": _number(row.get("bandwidth_khz")),
+        "channel_no": int(row["channel_no"]) if row.get("channel_no") else None,
+        "is_available": _boolean(row.get("is_available")),
+        "occupied_by": row.get("occupied_by") or None,
+        "reuse_min_distance_m": _number(row.get("reuse_min_distance_m")),
+        "adjacent_guard_khz": _number(row.get("adjacent_guard_khz")),
+        "note": row.get("note") or None,
+    } for row in resources]
+    return _envelope({"revision": f"catalog-{resource_revision()}", "items": items,
+                      "frequency_resources": frequency_resources})
 
 
 def planning_preset_catalog() -> dict[str, Any]:
@@ -351,7 +366,7 @@ def planning_preset_catalog() -> dict[str, Any]:
         items.append({
             "id": preset_id,
             "label": label,
-            "description": "使用项目现有节点和可用短波频率资源",
+            "description": "使用项目节点与构造测试频率资源",
             "defaults": {
                 "name": f"{label}任务",
                 "description": "前端与算法服务首个任务保存联调",

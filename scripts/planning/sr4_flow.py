@@ -30,19 +30,14 @@ import radio_params as RP
 import plan_check
 import multi_objective as MO
 import interference as IF
-from plan_pipeline import topology_from_deployment, _representative_device
+from plan_pipeline import (topology_from_deployment, alternative_parent_solutions,
+                           _representative_device)
 
 TIME_LIMIT_S = 300.0
 SURVIVABILITY_SCOPES = ("NETWORK", "TASK")
 
-# 假设扩容（待办 #17）：**不是**可用资源，只回答「按缺口补齐后方案能否无冲突」。
-# 第 4 周频率分配报出的缺口（精确最大团）：短波是整个可用频段 3.2–11.8 MHz
-# 41 个频点对 43 个两两互扰的网，缺 2 个、位置不限；超短波是 466–507 MHz 段
-# 6 个频点对 12 个网，缺 6 个。这里恰好补这么多：短波两个取低端相邻频点的正中
-# （3195.7/3391.3、3391.3/3587.0），超短波六个均匀插在该段现有六个频点之间。
-# 能否真的增配须合作方确认，确认前**不得写进频率资源表**，只能经本开关临时叠加。
-WHATIF_EXTRA_CHANNELS = [(E.HF, 3293.5), (E.HF, 3489.1)] + [
-    (E.VUHF, round(465906.2 + k * (506635.4 - 465906.2) / 7.0, 1)) for k in range(1, 7)]
+# 历史临时扩容已进入带来源标记的构造资源池；保留显式传参的假设试验入口。
+WHATIF_EXTRA_CHANNELS = ()
 
 
 def whatif_rows(channels=WHATIF_EXTRA_CHANNELS):
@@ -226,6 +221,69 @@ def _fixed_topology_metrics(links, demands, routes, params, constraints):
         "total_radiated_power_dbm": round(10 * math.log10(max(power_w, 1e-9) * 1000), 2),
     }
     return objectives, checks, len(edges)
+
+
+def _check_candidate(pb, solution, stations, nodes, devices, models, antennas,
+                     terrain, demands, opt_demands, strategy, preset, pool_rows,
+                     metrics_rows, constraints):
+    """用实际设备、频点和链路余量复核优化器给出的拓扑。"""
+    fm = pb.fm
+    links, nodes2, devices2 = rows_from_solution(pb, solution, nodes, devices, models)
+    st2 = stations + [fm.stations[i] for i in solution["relays"]]
+    graph = routing.graph_from_links(links, metrics_rows)[0]
+    routes = routing.plan_routes(graph, demands, default_strategy=strategy)
+    binding_errors = bind_links_to_devices(
+        links, nodes2, devices2, models, demands=demands, routes=routes)
+    ftasks = FQ.tasks_from_nets(links, nodes2, devices2, models)
+    FQ.fill_ranges_by_node(ftasks, links, nodes2, devices2, models)
+    freq = FQ.assign(ftasks, FQ.FreqPool(pool_rows))
+    freq["link_assignments"] = FQ.expand_to_links(freq, ftasks)
+    caps = RP.capabilities_by_device(st2, devices2, models, antennas)
+    params = RP.plan_bound_devices(st2, links, devices2, models, antennas,
+                                   terrain, preset=preset,
+                                   fade_margin_db=solution["m_req"])
+    binding_errors.extend(params["manual_errors"])
+    margins = {row["link_id"]: row["margin_db"] for row in params["links"]}
+    for link in links:
+        if link["link_id"] in margins:
+            link["link_margin_db"] = margins[link["link_id"]]
+    fixed_paths = [dict(demand_id=row["demand_id"],
+                        node_path=route["primary"]["node_path"])
+                   for row in demands for route in routes["routes"]
+                   if route["demand_id"] == row["demand_id"] and route.get("reachable")
+                   and (row.get("source_device_id") or row.get("target_device_id"))]
+    graph = routing.graph_from_links(links, metrics_rows)[0]
+    routes = routing.plan_routes(graph, demands, default_strategy=strategy,
+                                 manual_paths=fixed_paths)
+    binding_errors.extend(endpoint_binding_errors(links, demands, routes))
+    chk = plan_check.check(freq_result=freq, freq_tasks=ftasks, param_result=params,
+                           route_result=routes, links=links, nodes=nodes2, caps=caps,
+                           devices=devices2, models=models,
+                           uplinks={fm.stations[c].sid: fm.stations[p].sid
+                                    for c, p in solution["uplinks"].items()})
+    objectives, checks, usable = _fixed_topology_metrics(
+        links, opt_demands, routes, params, constraints)
+    score = _candidate_score(objectives, checks, chk, binding_errors, constraints)
+    return dict(score=score, stations=st2, links=links, nodes=nodes2, devices=devices2,
+                graph=graph, routes=routes, binding_errors=binding_errors,
+                ftasks=ftasks, frequency=freq, caps=caps, params=params, check=chk,
+                objectives=objectives, constraint_check=checks, usable_count=usable)
+
+
+def _candidate_score(objectives, checks, check_result, binding_errors, constraints):
+    """完整校验优先；无可行解时按硬约束缺口和冲突数排序。"""
+    feasible = (all(row["pass"] for row in checks.values())
+                and check_result["passed"] and not binding_errors)
+    return (int(not feasible),
+            max(0.0, constraints["mandatory_e2e_connectivity"]
+                - checks["mandatory_e2e_connectivity"]["value"]),
+            max(0.0, constraints["survivability_threshold"]
+                - checks["survivability"]["value"]),
+            max(0, checks["max_relay_hops"]["value"]
+                - constraints["max_relay_hops"]),
+            check_result["summary"]["severe"] + len(binding_errors),
+            check_result["summary"]["moderate"],
+            -objectives["e2e_connectivity"], objectives["total_radiated_power_w"])
 
 
 def run_from_parent(parent_snapshot, adjustment, device_refs, task_id, demand_rows,
@@ -444,48 +502,64 @@ def run(task_id=None, preset="TERRAIN", strategy="MAX_RELIABILITY",
     pb = MO.Problem(fm, sol, opt_demands, caps1,
                     survivability_threshold=cons["survivability_threshold"])
     opt = MO.optimize(pb, constraints=cons, pop_size=pop_size, generations=generations)
-    best = opt["solutions"][0]
     steps.append(("4 多目标优化（评估 %d 次）" % opt["evaluations"], time.time() - t0))
     if progress:
         progress(0.70, "多目标优化完成")
 
-    # ── 5 闭环：在优化后的拓扑上重做路由、频率、功率 ──
+    # ── 5 闭环：实际频率与设备校验优先于优化器的近似排序 ──
     t0 = time.time()
-    links, nodes2, devices2 = rows_from_solution(pb, best, nodes1, devices1, models)
-    st2 = st1 + [fm.stations[i] for i in best["relays"]]
-    g = routing.graph_from_links(links, metrics_rows)[0]
-    routes = routing.plan_routes(g, demands, default_strategy=strategy)
-    binding_errors = bind_links_to_devices(
-        links, nodes2, devices2, models, demands=demands, routes=routes)
-    ftasks = FQ.tasks_from_nets(links, nodes2, devices2, models)
-    FQ.fill_ranges_by_node(ftasks, links, nodes2, devices2, models)
-    freq = FQ.assign(ftasks, FQ.FreqPool(pool_rows))
-    freq["link_assignments"] = FQ.expand_to_links(freq, ftasks)
-    caps2 = RP.capabilities_by_device(st2, devices2, models, antennas)
-    params = RP.plan_bound_devices(st2, links, devices2, models, antennas,
-                                   terrain, preset=preset,
-                                   fade_margin_db=best["m_req"])
-    binding_errors.extend(params["manual_errors"])
-    margins = {row["link_id"]: row["margin_db"] for row in params["links"]}
-    for link in links:
-        if link["link_id"] in margins:
-            link["link_margin_db"] = margins[link["link_id"]]
-    # 设备端点需求保持首次求出的物理端点，其他需求按实际余量重新选路。
-    fixed_paths = [dict(demand_id=row["demand_id"],
-                        node_path=route["primary"]["node_path"])
-                   for row in demands for route in routes["routes"]
-                   if route["demand_id"] == row["demand_id"] and route.get("reachable")
-                   and (row.get("source_device_id") or row.get("target_device_id"))]
-    g = routing.graph_from_links(links, metrics_rows)[0]
-    routes = routing.plan_routes(g, demands, default_strategy=strategy,
-                                 manual_paths=fixed_paths)
-    binding_errors.extend(endpoint_binding_errors(links, demands, routes))
-    chk = plan_check.check(freq_result=freq, freq_tasks=ftasks, param_result=params,
-                           route_result=routes, links=links, nodes=nodes2, caps=caps2,
-                           devices=devices2, models=models,
-                           uplinks={fm.stations[c].sid: fm.stations[p].sid
-                                    for c, p in best["uplinks"].items()})
-    steps.append(("5 优化后重做路由/频率/功率/校验", time.time() - t0))
+    selected = None
+    seen_topologies = set()
+    checked = 0
+
+    def consider(problem, optimization, limit):
+        nonlocal selected, pb, opt, checked
+        candidates = [optimization["solutions"][0]] + optimization.get("candidates", [])
+        for solution in candidates[:limit]:
+            if selected is not None and time.time() - T > TIME_LIMIT_S - 55:
+                break
+            signature = (tuple(sorted((min(a, b), max(a, b), band)
+                                      for a, b, band in solution["links"])), solution["m_req"])
+            if signature in seen_topologies:
+                continue
+            seen_topologies.add(signature)
+            result = _check_candidate(
+                problem, solution, st1, nodes1, devices1, models, antennas,
+                terrain, demands, opt_demands, strategy, preset, pool_rows,
+                metrics_rows, cons)
+            checked += 1
+            if selected is None or result["score"] < selected["score"]:
+                selected = dict(result, solution=solution)
+                pb, opt = problem, optimization
+            if result["score"][0] == 0:
+                return True
+        return False
+
+    found = consider(pb, opt, 6)
+    if not found and time.time() - T < TIME_LIMIT_S - 120:
+        important = {fm.stations[i].sid for demand in opt_demands
+                     for i in (pb.idx.get(demand["src_node_id"]),
+                               pb.idx.get(demand["dst_node_id"])) if i is not None
+                     and str(demand.get("is_mandatory", "false")).lower() == "true"}
+        for alt in alternative_parent_solutions(
+                fm, sol, max_variants=4, important_nodes=important):
+            if time.time() - T > TIME_LIMIT_S - 90:
+                break
+            alt_pb = MO.Problem(fm, alt, opt_demands, caps1,
+                                survivability_threshold=cons["survivability_threshold"])
+            alt_opt = MO.optimize(alt_pb, constraints=cons,
+                                  pop_size=max(12, min(pop_size // 2, 20)),
+                                  generations=max(8, min(generations // 2, 16)))
+            if consider(alt_pb, alt_opt, 3):
+                break
+
+    best = selected["solution"]
+    links, nodes2, devices2 = selected["links"], selected["nodes"], selected["devices"]
+    st2, g, routes = selected["stations"], selected["graph"], selected["routes"]
+    binding_errors = selected["binding_errors"]
+    ftasks, freq, caps2 = selected["ftasks"], selected["frequency"], selected["caps"]
+    params, chk = selected["params"], selected["check"]
+    steps.append(("5 候选拓扑闭环校验（%d 套）" % checked, time.time() - t0))
     if progress:
         progress(0.85, "路由、频率与方案校验完成")
 
@@ -504,8 +578,9 @@ def run(task_id=None, preset="TERRAIN", strategy="MAX_RELIABILITY",
         progress(0.95, "干扰分析完成，正在保存方案")
 
     total = time.time() - T
-    objectives, constraint_check, usable_count = _fixed_topology_metrics(
-        links, opt_demands, routes, params, cons)
+    objectives = selected["objectives"]
+    constraint_check = selected["constraint_check"]
+    usable_count = selected["usable_count"]
     described = MO.describe(pb, best, opt["constraints"], rank=1)
     described["objectives"] = objectives
     described["constraint_check"] = constraint_check

@@ -81,6 +81,13 @@ def test_frontend_initialization_contract(api):
     frequency_ids = {item["id"] for item in frequencies["items"]}
     assert all(item["defaults"]["frequencyId"] in frequency_ids
                for item in presets["items"])
+    expanded = [row for row in frequencies["frequency_resources"]
+                if row["note"] == "构造测试扩容-待甲方确认"]
+    assert len(expanded) == 11
+    assert sum(row["device_class"] == "HF" for row in expanded) == 4
+    assert sum(row["device_class"] == "VUHF" for row in expanded) == 7
+    assert all(row["is_available"] and row["channel_no"] is None
+               and row["center_freq_khz"] > 0 for row in expanded)
 
     query = {
         "context": "planning",

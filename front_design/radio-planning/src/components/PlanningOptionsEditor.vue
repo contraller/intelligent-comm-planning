@@ -35,6 +35,8 @@
             v-on="{ input: inputAction(controls.excludes, kind) }" /></label
       ></template>
     </fieldset>
+    <p v-if="testFrequencyCount" class="notice warn"
+      >当前包含 {{ testFrequencyCount }} 个构造测试扩容频点，非甲方确认的正式资源。</p>
     <details
       ><summary>查看频点资源与选择排除项</summary
       ><label
@@ -182,6 +184,9 @@ const pool = computed(
         .toLowerCase()
         .includes(search.value.toLowerCase()),
     ) ?? [],
+);
+const testFrequencyCount = computed(() =>
+  props.frequencyResources?.filter(row => row.note?.includes('构造测试扩容')).length ?? 0,
 );
 const unknown = computed(
   () =>

@@ -524,6 +524,22 @@ def gen_freq_pool(models=None):
                          is_available="true" if i % 13 else "false", occupied_by="",
                          reuse_min_distance_m=25000, adjacent_guard_khz=25,
                          note="" if i % 13 else "禁用-邻区占用"))
+    # 补足演示拓扑的频点缺口；这些构造频点未经甲方确认，不代表正式可用资源。
+    test_expansion = {
+        "HF": (3293.5, 3489.1, 3684.8, 3880.4),
+        "VUHF": (467943.1, 469979.2, 478125.0, 486270.9,
+                 494416.7, 502562.5, 510708.3),
+    }
+    for band, frequencies in test_expansion.items():
+        for center in frequencies:
+            n += 1
+            rows.append(dict(freq_id=sid("FQ", n), device_class=band,
+                             center_freq_khz=center,
+                             bandwidth_khz=3 if band == "HF" else 25,
+                             channel_no="", is_available="true", occupied_by="",
+                             reuse_min_distance_m=60000 if band == "HF" else 25000,
+                             adjacent_guard_khz=3 if band == "HF" else 25,
+                             note="构造测试扩容-待甲方确认"))
     return rows
 
 
