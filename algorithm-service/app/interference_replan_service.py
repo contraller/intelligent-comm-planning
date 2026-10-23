@@ -78,6 +78,11 @@ class FrozenPlanningReplanner:
         from .planning_job_service import stop_frozen_planning_jobs
         return stop_frozen_planning_jobs(self.factory, runtime_root=self.runtime_root, timeout=timeout)
 
+    def recover_interrupted(self, *, exclusive_runtime=False) -> list[str]:
+        from .planning_job_service import recover_interrupted_interference_jobs
+        return recover_interrupted_interference_jobs(self.factory, runtime_root=self.runtime_root,
+            exclusive_runtime=exclusive_runtime)
+
 
 class InterferenceReplanService:
     def __init__(self, workbench, bridge=None):

@@ -38,6 +38,8 @@ class PlanningJobError(ValueError):
 
 
 _SUBMIT_LOCK = threading.RLock()
+# 本进程已派发但尚未确认终态的子作业，禁止被启动恢复入口接管。
+_INTERFERENCE_DISPATCHES: set[str] = set()
 _FINAL_STATES = {"SUCCESS", "FAILED", "CANCELLED"}
 _PRESET_MAP = {
     "balanced": "TERRAIN",
@@ -440,6 +442,7 @@ def _update_interference_job(factory, job_id, state):
         if job is None:
             return
         if job.status in _FINAL_STATES:
+            _INTERFERENCE_DISPATCHES.discard(job_id)
             if state.get("status") == job.status:
                 for receipt in session.scalars(select(PlanningJobCancellation).where(
                         PlanningJobCancellation.job_id == job_id,
@@ -456,6 +459,8 @@ def _update_interference_job(factory, job_id, state):
                     PlanningJobCancellation.outcome_status == "CANCEL_REQUESTED")):
                 receipt.outcome_status = state["status"]
         _apply_runtime_state(job, state)
+        if job.status in _FINAL_STATES:
+            _INTERFERENCE_DISPATCHES.discard(job_id)
 
 
 def submit_interference_replan(request: dict[str, Any], factory=None, *, runtime_root=None) -> str:
@@ -538,6 +543,8 @@ def submit_interference_replan(request: dict[str, Any], factory=None, *, runtime
             adoption.adoption_version += 1
             adoption.updated_at = datetime.now(timezone.utc)
         job_id = job.job_id
+        if algorithm_payload is not None:
+            _INTERFERENCE_DISPATCHES.add(job_id)
     if algorithm_payload is not None:
         try:
             response = planning_w4.submit_sr4(algorithm_payload, job_id=job_id,
@@ -548,6 +555,35 @@ def submit_interference_replan(request: dict[str, Any], factory=None, *, runtime
             _update_interference_job(factory, job_id, {"status": "FAILED", "progress": 1,
                 "stage": "冻结重算启动失败", "error": str(exc)})
     return job_id
+
+
+def recover_interrupted_interference_jobs(factory=None, *, runtime_root=None,
+                                         exclusive_runtime=False) -> list[str]:
+    """仅供独占启动、派发前调用；调用方须已确认旧服务进程退出。
+
+    任务JSON中的取消标志不是算法检查点确认。未持久化终态的旧作业
+    统一记为中断失败，保留原文件和稳定请求号，不重派、不伪称已取消。
+    """
+    if exclusive_runtime is not True:
+        raise PlanningJobError(1001, "启动恢复必须显式确认独占算法运行目录", 422)
+    factory = factory or get_session_factory()
+    validate_interference_runtime(factory, runtime_root)
+    with _SUBMIT_LOCK, factory() as session, session.begin():
+        session.connection().exec_driver_sql("BEGIN IMMEDIATE")
+        jobs = [job for job in session.scalars(select(PlanningJob).where(
+            PlanningJob.status.in_(("PENDING", "RUNNING"))).order_by(PlanningJob.job_id))
+            if (job.adjustment or {}).get("interference_origin")]
+        if any(job.job_id in _INTERFERENCE_DISPATCHES for job in jobs):
+            raise PlanningJobError(2002, "本进程已有活动干扰子作业，不能执行启动恢复", 409)
+        for job in jobs:
+            _apply_runtime_state(job, {"status": "FAILED", "progress": 1,
+                "stage": "服务中断，结果未接受",
+                "error": "旧进程未持久化算法终态确认；不重派，不将取消请求视为检查点确认"})
+            for receipt in session.scalars(select(PlanningJobCancellation).where(
+                    PlanningJobCancellation.job_id == job.job_id,
+                    PlanningJobCancellation.outcome_status == "CANCEL_REQUESTED")):
+                receipt.outcome_status = "FAILED"
+        return [job.job_id for job in jobs]
 
 
 def request_interference_cancellation(job_id, payload, factory=None, *, actor_id=None, runtime_root=None):

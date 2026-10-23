@@ -1,4 +1,4 @@
-"""采纳桥测试桩只模拟共享规划落库；不代表完整SR4重算已通过。"""
+"""分别验证显式测试桩与真实小样本桥，不代表完整SR4或页面验收。"""
 from copy import deepcopy
 from datetime import timedelta
 
@@ -187,6 +187,100 @@ def test_cancellation_waits_for_worker_checkpoint_not_runtime_request(wb, monkey
     with wb[0][1]() as session:
         assert session.scalar(select(PlanningJobCancellation)).outcome_status == "CANCELLED"
     assert jobs.stop_frozen_planning_jobs(wb[0][1], timeout=0) is True
+
+
+@pytest.mark.parametrize("runtime_status", [None, "PENDING", "RUNNING", "CANCELLED", "SUCCESS"])
+def test_startup_recovery_preserves_unacknowledged_cancellation_as_failure(wb, monkeypatch, runtime_status):
+    """构造崩溃后遗留状态，不模拟杀进程，也不删除已有任务/方案证据。"""
+    from app import planning_job_service as jobs
+    from app.interference_replan_service import FrozenPlanningReplanner
+    from app.planning_job_models import PlanningJobCancellation
+    factory = wb[0][1]
+    with factory.begin() as session:
+        parent = session.get(PlanningPlan, "P1")
+        for job_id, status, interference in (("INTERRUPTED", "RUNNING", True),
+                ("ACKNOWLEDGED", "CANCELLED", True), ("MANUAL", "RUNNING", False)):
+            session.add(PlanningJob(job_id=job_id, request_id="UNIT-RECOVER-" + job_id,
+                request_digest="e" * 64, task_id="T1", revision_id=parent.revision_id,
+                condition_version=parent.condition_version, resource_revision=parent.resource_revision,
+                context="planning", parent_plan_id="P1", adjustment={"interference_origin": {
+                    "adoption_id": "UNIT-INTERRUPTED", "actor_id": "UNIT"}} if interference else {},
+                status=status, progress=.25, stage="构造中断证据，非真实杀进程",
+                created_at=now(), updated_at=now()))
+        session.flush()
+        session.add(PlanningJobCancellation(request_id="UNIT-RECOVER-CANCEL", request_digest="f" * 64,
+            job_id="INTERRUPTED", task_id="T1", revision_id=parent.revision_id,
+            outcome_status="CANCEL_REQUESTED", created_at=now()))
+    runtime = {"status": runtime_status, "progress": 1, "stage": "构造磁盘记录"} if runtime_status else None
+    monkeypatch.setattr(jobs.planning_w3, "get_task_record", lambda _: deepcopy(runtime))
+    def must_not_dispatch_or_cancel(*args, **kwargs):
+        raise AssertionError("启动恢复不得重派或把取消请求当作检查点")
+    monkeypatch.setattr(jobs.planning_w4, "submit_sr4", must_not_dispatch_or_cancel)
+    monkeypatch.setattr(jobs.planning_w3, "cancel_task", must_not_dispatch_or_cancel)
+    bridge = FrozenPlanningReplanner(factory)
+    with pytest.raises(jobs.PlanningJobError) as rejected:
+        bridge.recover_interrupted()
+    assert rejected.value.code == 1001
+    assert bridge.recover_interrupted(exclusive_runtime=True) == ["INTERRUPTED"]
+    assert bridge.recover_interrupted(exclusive_runtime=True) == []
+    assert jobs.query_planning_job("INTERRUPTED", "T1", factory)["data"]["status"] == "FAILED"
+    jobs._update_interference_job(factory, "INTERRUPTED", {"status": "CANCELLED", "progress": 1})
+    with factory() as session:
+        assert session.get(PlanningJob, "INTERRUPTED").status == "FAILED"
+        assert session.get(PlanningJobCancellation, "UNIT-RECOVER-CANCEL").outcome_status == "FAILED"
+        assert session.get(PlanningJob, "ACKNOWLEDGED").status == "CANCELLED"
+        assert session.get(PlanningJob, "MANUAL").status == "RUNNING"
+        assert session.get(PlanningCurrentPlan, "T1").plan_id == "P1"
+        assert session.get(PlanningPlan, "P1").raw_snapshot == wb[0][4]
+
+
+def test_recovered_child_reaches_failed_adoption_history_without_redispatch(wb, monkeypatch):
+    from sqlalchemy import func, select
+    from app import planning_job_service as jobs
+    from app.interference_replan_service import FrozenPlanningReplanner
+    from app.planning_job_schemas import PlanningJobCancelRequest
+    class PendingBridge(BridgeStub):
+        def submit(self, request):
+            self.submissions += 1
+            with self.factory.begin() as session:
+                parent = session.get(PlanningPlan, "P1")
+                session.add(PlanningJob(job_id="UNIT-LOST-CHILD", request_id=request["planning_request_id"],
+                    request_digest="e" * 64, task_id="T1", revision_id=parent.revision_id,
+                    condition_version=parent.condition_version, resource_revision=parent.resource_revision,
+                    context="planning", parent_plan_id="P1", adjustment={"interference_origin": request["interference_origin"]},
+                    status="RUNNING", progress=.25, stage="构造进程中断状态，非真实SR4",
+                    created_at=now(), updated_at=now()))
+            return "UNIT-LOST-CHILD"
+        def poll(self, request):
+            return {"state": "RUNNING", "progress": 25, "plan_id": None, "error": None}
+    pending = PendingBridge(wb[0][1])
+    payload = ready(wb, pending)
+    receipt = data(adoption(wb, payload))
+    wb[1].run_once()
+    path = BASE + "/adoptions/" + receipt["object_id"]
+    current = data(wb[0][0].get(path, params={"task_id": "T1"}))
+    assert current["state"] == "RUNNING" and pending.submissions == 1
+    data(wb[0][0].post(path + "/cancel", json={"request_id": "UNIT-LOST-ADOPTION-CANCEL",
+        "task_id": "T1", "expected_adoption_version": current["adoption_version"]}, headers=headers(wb[0][0])))
+    monkeypatch.setattr(jobs.planning_w3, "get_task_record", lambda _: {"status": "CANCELLED", "progress": 1})
+    monkeypatch.setattr(jobs.planning_w3, "cancel_task", lambda _: None)
+    with wb[0][1]() as session:
+        revision = session.get(PlanningJob, "UNIT-LOST-CHILD").revision_id
+    jobs.request_interference_cancellation("UNIT-LOST-CHILD", PlanningJobCancelRequest(context="planning",
+        request_id="UNIT-LOST-CANCEL", task_id="T1", expected_revision=revision), wb[0][1])
+    bridge = FrozenPlanningReplanner(wb[0][1])
+    assert bridge.recover_interrupted(exclusive_runtime=True) == ["UNIT-LOST-CHILD"]
+    wb[1].replanner.bridge = bridge
+    assert wb[1].run_once()
+    final = data(wb[0][0].get(path, params={"task_id": "T1"}))
+    assert final["state"] == "FAILED" and final["result_plan_id"] is None
+    assert "未持久化" in final["error"] and pending.submissions == 1
+    assert data(adoption(wb, payload)) == receipt
+    with wb[0][1]() as session:
+        assert session.scalar(select(func.count()).select_from(PlanningJob).where(
+            PlanningJob.request_id == receipt["planning_request_id"])) == 1
+        assert session.get(PlanningCurrentPlan, "T1").plan_id == "P1"
+        assert session.get(PlanningPlan, "P1").raw_snapshot == wb[0][4]
 
 
 def _native_dispatch_case(scene_api, frozen_sample, monkeypatch, kind, *, progress_observer=None,
@@ -426,6 +520,9 @@ def test_native_child_cooperative_cancel_waits_and_joins_worker(scene_api, froze
             assert jobs.planning_w3.get_task_record(request["planning_job_id"])["status"] == "CANCELLED"
             assert jobs.query_planning_job(request["planning_job_id"], "T1", factory)["data"]["status"] == "RUNNING"
             assert jobs.stop_frozen_planning_jobs(factory, timeout=0) is False
+            with pytest.raises(jobs.PlanningJobError) as rejected:
+                jobs.recover_interrupted_interference_jobs(factory, exclusive_runtime=True)
+            assert rejected.value.code == 2002
         finally:
             release.set()
     try:
