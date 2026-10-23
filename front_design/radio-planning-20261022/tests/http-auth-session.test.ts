@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createPinia, disposePinia, setActivePinia } from 'pinia';
 import { createRenderer, h, nextTick, ssrContextKey, type App, type Component, type Slots } from 'vue';
 import { clientTemplate } from './helpers/vue-client';
@@ -36,6 +36,29 @@ let pinia: ReturnType<typeof createPinia>;
 let state: { identity: ReturnType<typeof dto> | null };
 let fetcher: ReturnType<typeof vi.fn<typeof fetch>>;
 const apps: App[] = [];
+let preloadedResources: Component;
+function memoryBrowser() {
+  vi.stubGlobal('window', { addEventListener: vi.fn(), removeEventListener: vi.fn() });
+  // 内存宿主仍是Node；动态导入的图表不能把它当作完整浏览器DOM。
+  vi.stubGlobal('navigator', { userAgent: 'Node.js auth-session-test' });
+  vi.stubGlobal('document', { title: '' });
+  vi.stubGlobal('Document', class {});
+  vi.stubGlobal('ShadowRoot', class {});
+}
+beforeAll(async () => {
+  memoryBrowser();
+  try {
+    let started = performance.now();
+    console.info('[auth-preload] real-shell start');
+    await import('../src/layouts/AppShell.vue');
+    console.info(`[auth-preload] real-shell end ${Math.round(performance.now() - started)}ms`);
+    started = performance.now();
+    console.info('[auth-preload] real-resources start');
+    preloadedResources = (await import('../src/views/ResourcesView.vue')).default;
+    console.info(`[auth-preload] real-resources end ${Math.round(performance.now() - started)}ms`);
+  } finally { vi.unstubAllGlobals(); }
+// 分离真实SFC及依赖的冷编译预算，不替换组件，也不扩大守卫行为预算。
+}, 120_000);
 beforeEach(() => {
   releasePageSessionBinding(); pinia = createPinia(); setActivePinia(pinia);
   state = { identity: dto() };
@@ -51,13 +74,8 @@ beforeEach(() => {
     throw new Error('非认证请求不应发到服务器');
   });
   vi.stubGlobal('fetch', fetcher);
-  vi.stubGlobal('window', { addEventListener: vi.fn(), removeEventListener: vi.fn() });
-  // 内存宿主仍是Node；动态导入的图表不能把它当作完整浏览器DOM。
-  vi.stubGlobal('navigator', { userAgent: 'Node.js auth-session-test' });
-  vi.stubGlobal('document', { title: '' });
   // 为 v-model 提供宿主类型判定；实际 DOM 和焦点行为仍由浏览器验证。
-  vi.stubGlobal('Document', class {});
-  vi.stubGlobal('ShadowRoot', class {});
+  memoryBrowser();
 });
 afterEach(() => {
   for (const app of apps.splice(0)) app.unmount();
@@ -180,13 +198,22 @@ describe('HTTP 共享会话与实际状态层', () => {
     expect(auth.identity?.id).toBe('beta'); expect(auth.error).toBe('');
   });
   it('实际路由守卫阻止换号后的自动跳转，即使没有脏表单', async () => {
-    const auth = useAuthStore(); await auth.check(); await applicationRouter.push('/resources');
+    const stage = async (name: string, run: () => Promise<unknown>) => {
+      const started = performance.now();
+      console.info(`[auth-route] ${name} start`);
+      try { return await run(); }
+      finally { console.info(`[auth-route] ${name} end ${Math.round(performance.now() - started)}ms`); }
+    };
+    const auth = useAuthStore(); await stage('session-check', () => auth.check());
+    await stage('initial-resources-navigation', () => applicationRouter.push('/resources'));
+    expect(applicationRouter.currentRoute.value.matched.at(-1)?.components?.default).toBe(preloadedResources);
     auth.currentPath = '/resources'; expect(auth.hasUnsaved()).toBe(false);
-    state.identity = dto('beta'); await applicationRouter.push('/login');
+    state.identity = dto('beta'); await stage('replacement-login-navigation', () => applicationRouter.push('/login'));
     expect(applicationRouter.currentRoute.value.path).toBe('/resources'); expect(auth.sessionReplaced).toBe(true);
-    await auth.discardRestricted(); await applicationRouter.push('/resources');
+    await stage('explicit-discard', () => auth.discardRestricted());
+    await stage('resources-reentry', () => applicationRouter.push('/resources'));
     expect(auth.identity?.id).toBe('beta'); expect(auth.error).toBe('');
-  // 真实资源视图首次动态加载含地图/图表模块，F盘冷缓存允许有限加载余量。
+  // 冷编译已独立有界预加载；这里仅计实际导航、换号冻结与明确丢弃行为。
   }, 30_000);
 });
 
