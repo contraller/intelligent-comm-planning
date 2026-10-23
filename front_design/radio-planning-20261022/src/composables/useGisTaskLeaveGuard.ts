@@ -1,4 +1,3 @@
-import { useInterferenceStore } from '../stores/interference';
 import { useDeviceConfigurationStore } from '../stores/device-configuration';
 import { onMounted,onBeforeUnmount } from 'vue';
 import { onBeforeRouteLeave, useRouter, type RouteLocationNormalized } from 'vue-router';
@@ -14,7 +13,7 @@ interface GisLeaveOptions {
 }
 // 沿用文件名；页面必须明确提供资源模式与独立故障场景的离开保护。
 export function useGisTaskLeaveGuard(options: GisLeaveOptions){
-  const gis=useGisWorkspaceStore(),auth=useAuthStore(),interference=useInterferenceStore();
+  const gis=useGisWorkspaceStore(),auth=useAuthStore();
   const configuration=useDeviceConfigurationStore();
   const router=useRouter(),editor=useResourceEditStore();
   let leaving=false;
@@ -34,8 +33,8 @@ export function useGisTaskLeaveGuard(options: GisLeaveOptions){
     }
   });
   function unload(e:BeforeUnloadEvent){if(hasPending()||options.fault.active()&&options.fault.busy()||(gis.busy||configuration.busy)){e.preventDefault();e.returnValue='';}}
-  // 两种来源启动同一控制器；各区域独立保留读取错误。
-  onMounted(()=>{gis.start();interference.start();window.addEventListener('beforeunload',unload);});
+  // 干扰轮询仅由显式工作区持有，通用GIS入口不额外启动第二个控制器。
+  onMounted(()=>{gis.start();window.addEventListener('beforeunload',unload);});
   onBeforeRouteLeave(async(to)=>{if(auth.bypassLeave)return true;await auth.check();if(auth.blocked)return false;if(options.fault.active()&&options.fault.isReturnTarget(to))return true;leaving=await leave(true);return leaving;});
-  onBeforeUnmount(()=>{release();releaseNavigation();gis.stop();interference.stop();window.removeEventListener('beforeunload',unload);});
+  onBeforeUnmount(()=>{release();releaseNavigation();gis.stop();window.removeEventListener('beforeunload',unload);});
 }

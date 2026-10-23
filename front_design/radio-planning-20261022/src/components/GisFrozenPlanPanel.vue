@@ -63,7 +63,7 @@
                 class="btn small"
                 type="button"
                 :disabled="model.opening"
-                @click="model.openPlan(row)"
+            @click="openPlan(row)"
                 >打开冻结网络</button
               ></td
             >
@@ -110,11 +110,11 @@
         ><span v-if="model.network.identity.source_changed">历史来源已变化</span
         ><button
           class="btn small"
-          @click="model.closeNetwork"
+          @click="closeNetwork"
           >关闭网络</button
         ></div
       >
-      <div class="frozen-layout">
+      <div v-show="!analysisMap" class="frozen-layout">
         <div class="frozen-map">
           <MapCanvas
             :stations="[]"
@@ -227,6 +227,11 @@
           >
         </aside>
       </div>
+      <GisPlanOperations v-if="operations" ref="operationPanel" :key="model.network.identity.plan_id + ':' + model.network.identity.snapshot_id"
+        :network="model.network" :services="operations" :current-resource-revision="currentResourceRevision" :session-generation="sessionGeneration" :plan-version="model.planVersion"
+        :terrain-basemap="basemap" :initial-tab="initialTab" :selected-link-id="model.selectedLinkId"
+        @analysis-map="analysisMap = $event" @select-link="model.selectLink" @select-node="model.selectNode"
+        @open-plan="emit('openPlan', $event)" @open-job="emit('openJob', $event)" />
     </template>
   </section>
 </template>
@@ -234,6 +239,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue';
 import MapCanvas from './MapCanvas.vue';
+import GisPlanOperations from './GisPlanOperations.vue';
 import {
   createGisFrozenPlanWorkspace,
   type GisFrozenPlanServices,
@@ -241,7 +247,12 @@ import {
 import { useTerrainBasemap } from '../composables/useTerrainBasemap';
 import type { ApiPlan } from '../types/planning-api';
 import type { CoverageDisplay } from '../types/coverage';
-const props = defineProps<{ services: GisFrozenPlanServices; sessionGeneration: number }>();
+import type { GisPlanOperationServices } from '../types/gis-plan';
+import type { PlanningPlanSummary } from '../types/planning-api';
+const props = defineProps<{ services: GisFrozenPlanServices; sessionGeneration: number; operations?: GisPlanOperationServices; currentResourceRevision?: string; initialTab?: 'devices' | 'interference' }>();
+const emit = defineEmits<{ openPlan: [value: { taskId: string; planId: string }]; openJob: [value: { taskId: string; jobId: string }] }>();
+const analysisMap = ref(false);
+const operationPanel = ref<InstanceType<typeof GisPlanOperations>>();
 const model = reactive(createGisFrozenPlanWorkspace(props.services));
 const searchText = ref(''),
   state = ref<ApiPlan['state'] | ''>(''),
@@ -273,6 +284,11 @@ function search() {
   page.value = 1;
   return load();
 }
+async function requestLeave() { return operationPanel.value ? operationPanel.value.requestLeave() : true; }
+async function openPlan(row: PlanningPlanSummary) { if (await requestLeave()) await model.openPlan(row); }
+async function closeNetwork() { if (await requestLeave()) model.closeNetwork(); }
+async function openIdentity(input: { taskId: string; planId: string }) { return await requestLeave() && await model.openIdentity(input); }
+watch(() => model.network?.identity.snapshot_id, () => { analysisMap.value = false; });
 function changePage(delta: number) {
   page.value += delta;
   return load();
@@ -289,7 +305,7 @@ watch(
   { immediate: true },
 );
 onBeforeUnmount(model.stop);
-defineExpose({ stop: model.stop });
+defineExpose({ stop: model.stop, requestLeave, openIdentity });
 </script>
 
 <style scoped>

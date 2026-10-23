@@ -95,7 +95,9 @@
         </template>
       </div>
     </div>
-    <GisFrozenPlanPanel v-if="frozenView" :services="frozenServices" :session-generation="auth.generation" />
+    <GisFrozenPlanPanel v-if="frozenView" ref="frozenPanel" :services="frozenServices" :operations="frozenOperationServices"
+      :initial-tab="frozenInitialTab" :current-resource-revision="workspace.read.workspace?.revision" :session-generation="auth.generation"
+      @open-plan="openAnalysisResult" @open-job="openAnalysisJob" />
     <template v-if="!frozenView">
     <div class="maintenance-toolbar toolbar">
       <!-- 资源恢复属于低频维护操作，沿用壳层权限与确认流程。 -->
@@ -487,7 +489,7 @@
               : resourceSelection.interference($event)
           "
           :onSelectCandidateLink="candidateActions.select"
-          :analysis-available="analysis.readable"
+          :analysis-available="canInterferenceRead"
           @analyze="configurationAction(openInterferenceAnalysis)"
         />
         <GisTaskPanel
@@ -680,13 +682,6 @@
             }}</div
           >
           <div
-            v-if="snapshotMode && !fault.active.value"
-            class="snapshot-label"
-            >分析冻结网络 · {{ analysis.selected?.run.network.version }} ·
-            {{ analysis.effectiveAfter ? '措施后预评估' : '措施前影响' }} ·
-            {{ analysis.selected?.source.state === 'CURRENT' ? '当前来源' : '历史 / 待核实' }}</div
-          >
-          <div
             v-if="monitorMode && !fault.active.value"
             class="snapshot-label"
             >监控冻结网络 · {{ monitor.network?.version }} ·
@@ -822,7 +817,7 @@
             :diagnosis-regions="mapLayerInputs.diagnosisRegions"
             :diagnosis-paths="diagnosisMode ? (diagnosis.impact.value.paths ?? []) : []"
             @select-fault="mapSelection.fault"
-            :interference-impact="snapshotMode ? analysis.filteredImpact : null"
+            :interference-impact="null"
             :candidate-workset="mapLayerInputs.candidateWorkset"
             :candidate-stations="
               editing ? editor.resources.stations : (gis.scene?.map.stations ?? [])
@@ -854,7 +849,7 @@
           />
         </div>
         <!-- 监控抽屉独立维护图表与播放，页面只传递地图上下文。 -->
-        <SituationMonitoringDrawer v-if="!fault.active.value" />
+        <SituationMonitoringDrawer v-if="!httpMode && !fault.active.value" />
       </div>
       <aside
         v-if="rightOpen"
@@ -1034,19 +1029,7 @@
               :onClick="analysisReturn.open"
               >返回规划方案</button
             >
-            <InterferenceAnalysisPanel
-              :measure-targets="measureNavigation.list.value"
-              :target-notice="measureNavigation.notice.value"
-              :source="analysisDetailSource"
-              :source-editable="!snapshotMode && editing && editor.canEdit && !editor.busy"
-              :selected-node-id="analysisNode"
-              :selected-link-id="analysisLink"
-              @edit-source="(id) => configurationAction(() => editor.openForm('interference', id))"
-              @select-node="focusAnalysisNode"
-              @select-link="focusAnalysisLink"
-              @select-source="selectInterference"
-              @analyze-source="analyzeSource"
-            />
+            <button class="btn" :disabled="!canInterferenceRead" @click="openInterferenceAnalysis">打开方案干扰工作区</button>
           </template>
           <LinkDetailPanel
             v-else-if="!snapshotMode && selectedResourceLink && linkDetails"
@@ -1148,11 +1131,6 @@
       @apply="fault.actions.value.apply"
       @dirty="fault.actions.value.dirty"
     />
-    <template v-if="analysis.readable"
-      ><InterferenceHistoryDrawer /><InterferenceMeasureDrawer
-        :target-entry="measureNavigation.drawer.value"
-        @open-plan="openAdoptedPlan"
-    /></template>
     <InterferenceSourceDrawer
       v-model:visible="interferenceOpen"
       :source="selectedInterference"
@@ -1201,6 +1179,9 @@
     :request="scene.decision"
     @answer="scene.answer"
   />
+  <DeviceConfigurationDrawer v-if="httpMode && httpConfiguration" ref="httpConfigurationPanel" visible view-context="gis"
+    :device-id="httpConfiguration.deviceId" :resource-revision="httpConfiguration.revision" :services="collaborationHttp.deviceConfigurations"
+    :editable="httpConfiguration.editable && !configurationBlocked && !auth.blocked" disabled-reason="系统受理不代表真实设备下发；当前台账值不会自动修改。" @close="httpConfiguration = null" />
 </template>
 <script setup lang="ts">
 import GisValidationPanel from '../components/GisValidationPanel.vue';
@@ -1215,12 +1196,6 @@ import { useGisDiagnosisEditing } from '../composables/useGisDiagnosisEditing';
 import SituationMonitoringDrawer from '../components/SituationMonitoringDrawer.vue';
 import MonitoringObjectPanel from '../components/MonitoringObjectPanel.vue';
 import { useSituationMonitoring } from '../composables/useSituationMonitoring';
-import { useInterferenceStore } from '../stores/interference';
-import { useInterferenceTargetNavigation } from '../composables/useInterferenceTargetNavigation';
-import { configuredStations, planStations } from '../services/planning-snapshot';
-import InterferenceAnalysisPanel from '../components/InterferenceAnalysisPanel.vue';
-import InterferenceHistoryDrawer from '../components/InterferenceHistoryDrawer.vue';
-import InterferenceMeasureDrawer from '../components/InterferenceMeasureDrawer.vue';
 import { useAuthStore } from '../stores/auth';
 // 当前权限变化时仅禁用操作，保留表单输入。
 const auth = useAuthStore();
@@ -1233,6 +1208,7 @@ const resourceReset = inject<{
 import DevicePortsEditDrawer from '../components/DevicePortsEditDrawer.vue';
 import { useRoute, useRouter, onBeforeRouteUpdate, onBeforeRouteLeave } from 'vue-router';
 import { useDeviceConfigurationStore } from '../stores/device-configuration';
+import DeviceConfigurationDrawer from '../components/DeviceConfigurationDrawer.vue';
 import { useResourceEditStore } from '../stores/resource-edit';
 import { useGisTaskLeaveGuard } from '../composables/useGisTaskLeaveGuard';
 import { useGisWorkspaceStore } from '../stores/gis-workspace';
@@ -1295,16 +1271,21 @@ const data = computed(() =>
 );
 const editor = useResourceEditStore();
 const frozenView = ref(false), httpMode = env.mode === 'http';
-const frozenServices = { plans: collaborationHttp.gisPlans, queryPlans: previewService.querySavedPlanningPlans };
+const frozenInitialTab = ref<'devices' | 'interference'>('devices');
+const frozenPanel = ref<InstanceType<typeof GisFrozenPlanPanel>>();
+const frozenServices = { plans: collaborationHttp.gisPlans, queryPlans: previewService.querySavedPlanningPlans, getPlan: previewService.getPlanningPlan };
+const frozenOperationServices = { deviceStatuses: collaborationHttp.deviceStatuses, deviceConfigurations: collaborationHttp.deviceConfigurations, observations: collaborationHttp.observations,
+  interferenceWorkbench: collaborationHttp.interferenceWorkbench, interferenceScenes: collaborationHttp.interferenceScenes };
 // 公共权限目录由总集成接线；GIS入口不借用宽泛的资源编辑权限。
 const workspaceEditable = computed(() => !auth.blocked && !!auth.identity?.permissions.some(permission => String(permission) === 'resources.workspace.edit'));
 async function toggleFrozenPlans() {
-  if (frozenView.value) { frozenView.value = false; return; }
+  if (frozenView.value) { if (await frozenPanel.value?.requestLeave()) frozenView.value = false; return; }
   if (!httpMode || !auth.can('planning.view') || fault.active.value) return;
   if (!(await configurationAction(() => gis.leave()))) return;
-  editor.clearSession(); frozenView.value = true;
+  editor.clearSession(); frozenInitialTab.value = 'devices'; frozenView.value = true;
 }
 watch(() => auth.generation, () => { frozenView.value = false; });
+onBeforeRouteLeave(async () => !frozenView.value || !frozenPanel.value || await frozenPanel.value.requestLeave());
 const route = useRoute(),
   router = useRouter();
 const analysisRoutePresent = computed(
@@ -1312,95 +1293,59 @@ const analysisRoutePresent = computed(
 );
 const scene = useDiagnosisStore(),
   fault = useGisDiagnosisEditing();
-const analysis = useInterferenceStore(),
-  rightTab = ref('对象详情');
+const rightTab = ref('对象详情');
+const canInterferenceRead = computed(() => !auth.blocked && auth.can('situation.view') && auth.can('planning.view'));
 const analysisNode = ref(''),
   analysisLink = ref(''),
   analysisSource = ref('');
 // 显式进入分析时退出其他快照；没有记录就显示资源底图和分析输入，不提交分析。
-function openInterferenceAnalysis() {
+async function openInterferenceAnalysis() {
   if (fault.active.value) return false;
-  if (!analysis.readable) return false;
-  gis.mapMode = analysis.selected ? 'analysis' : 'resource';
-  rightTab.value = '干扰分析';
-  rightOpen.value = true;
+  if (!canInterferenceRead.value) return false;
+  if (frozenView.value) {
+    if (!frozenPanel.value || !await frozenPanel.value.requestLeave()) return false;
+    frozenInitialTab.value = 'interference'; return true;
+  }
+  if (!canInterferenceRead.value || !(await configurationAction(() => gis.leave()))) return false;
+  editor.clearSession(); frozenInitialTab.value = 'interference'; frozenView.value = true;
   return true;
 }
-async function analyzeSource(id: string) {
-  if (fault.active.value || !analysis.executable || analysis.running) return;
-  await configurationAction(async () => {
-    if (!(await gis.prepareAnalysis())) return false;
-    const session = auth.generation;
-    await analysis.load();
-    if (
-      session !== auth.generation ||
-      !analysis.executable ||
-      !analysis.sources.sources.some((source) => source.id === id && source.active)
-    )
-      return false;
-    // 明确点击才替换本次分析输入，历史结果继续保留自己的来源身份。
-    analysis.interferenceIds = [id];
-    rightTab.value = '干扰分析';
-    rightOpen.value = true;
-    gis.mapMode = 'resource';
-    return true;
-  });
+async function openAnalysisResult(value: { taskId: string; planId: string }) {
+  if (!await frozenPanel.value?.requestLeave()) return;
+  await router.push({ path: '/planning', query: { taskId: value.taskId, planId: value.planId } });
 }
-const snapshotMode = computed(
-  () => analysis.readable && gis.mapMode === 'analysis' && !!analysis.selected,
-);
-// 措施后网络及其输入来自同一服务快照，不能混用原方案坐标。
-const afterResult = computed(() =>
-  analysis.effectiveAfter ? analysis.selectedMeasurePreview?.result : null,
-);
+async function openAnalysisJob(value: { taskId: string; jobId: string }) {
+  if (!await frozenPanel.value?.requestLeave()) return;
+  await router.push({ path: '/planning', query: { taskId: value.taskId, jobId: value.jobId } });
+}
+async function analyzeSource(id: string) {
+  if (!id || !auth.can('planning.execute')) return;
+  await openInterferenceAnalysis();
+}
+const snapshotMode = computed(() => frozenView.value);
 // 资源图与资源树共用筛选结果；监控和分析仍使用各自完整的冻结网络。
 const mapStations = computed(() =>
   diagnosisMode.value
     ? (diagnosis.display.value?.stations ?? [])
     : monitorMode.value && monitorMap.value
       ? monitorMap.value.stations
-      : !snapshotMode.value
-        ? taskViewing.value
-          ? []
-          : stations.value
-        : afterResult.value
-          ? configuredStations(
-              afterResult.value.inputSnapshot.stations,
-              afterResult.value.configuration,
-            )
-          : planStations(analysis.selected!.run.network),
+      : taskViewing.value ? [] : stations.value,
 );
 const mapLinks = computed(() =>
   diagnosisMode.value
     ? (diagnosis.display.value?.links ?? [])
     : monitorMode.value && monitorMap.value
       ? monitorMap.value.links
-      : snapshotMode.value
-        ? (afterResult.value?.links ?? analysis.selected!.run.network.links)
-        : taskViewing.value
+      : taskViewing.value
           ? []
           : resourceTree.value.links,
 );
 const mapSources = computed(() =>
   diagnosisMode.value || monitorMode.value || taskViewing.value
     ? []
-    : snapshotMode.value
-      ? analysis.selected!.run.sources
-      : interferences.value,
+    : interferences.value,
 );
-const analysisDetailSource = computed(() =>
-  snapshotMode.value
-    ? mapSources.value.find((row) => row.id === analysisSource.value)
-    : selectedInterference.value,
-);
-async function openAdoptedPlan(id: string) {
-  if (!(await gis.leave())) return;
-  const taskId = analysis.adoptedTaskId || analysis.selected?.run.network.taskId;
-  if (taskId && auth.can('planning.view')) {
-    analysis.measureOpen = false;
-    await router.push({ path: '/planning', query: { taskId, planId: id } });
-  }
-}
+const analysisDetailSource = computed(() => selectedInterference.value);
 function focusAnalysisNode(id: string) {
   gis.mapMode = 'analysis';
   analysisNode.value = id;
@@ -1428,14 +1373,6 @@ function selectMapSource(id: string) {
   rightTab.value = '干扰分析';
   rightOpen.value = true;
 }
-watch(
-  () => analysis.analysisId,
-  () => {
-    analysisNode.value = '';
-    analysisLink.value = '';
-    analysisSource.value = '';
-  },
-);
 const gis = useGisWorkspaceStore(),
   planning = usePlanningStore(),
   selectedDemand = ref(''),
@@ -1464,6 +1401,8 @@ const resources = computed<import('../types/gis-workspace').GisResourceIndex>(()
 );
 const editing = computed(() => editor.context === 'gis');
 const configuration = useDeviceConfigurationStore();
+const httpConfiguration = ref<{ deviceId: string; revision: string; editable: boolean } | null>(null);
+const httpConfigurationPanel = ref<InstanceType<typeof DeviceConfigurationDrawer>>();
 const configurationBlocked = computed(
   () =>
     gis.mapMode !== 'resource' ||
@@ -1476,7 +1415,7 @@ const configurationBlocked = computed(
 const configurationEntry = computed(() =>
   gis.mapMode === 'resource'
     ? {
-        editable: editing.value && auth.can('resources.edit'),
+        editable: httpMode ? !auth.blocked && !!auth.identity?.permissions.some(value => String(value) === 'resources.device.edit') : editing.value && auth.can('resources.edit'),
         disabled: configurationBlocked.value || auth.blocked,
         reason: configurationBlocked.value
           ? '请先完成或关闭资源表单、导入及未保存草稿'
@@ -1519,7 +1458,7 @@ async function prepareConfiguration() {
   const session = auth.generation,
     mode = gis.mapMode;
   return (
-    (await configuration.leave(true)) &&
+    (httpMode ? !httpConfigurationPanel.value || await httpConfigurationPanel.value.requestLeave() : await configuration.leave(true)) &&
     session === auth.generation &&
     mode === gis.mapMode &&
     !auth.blocked
@@ -1527,7 +1466,7 @@ async function prepareConfiguration() {
 }
 async function configurationAction(action: () => unknown | Promise<unknown>) {
   if (fault.active.value) return false;
-  const active = configuration.visible,
+  const active = httpMode ? !!httpConfiguration.value : configuration.visible,
     session = auth.generation;
   if (active && !(await prepareConfiguration())) return false;
   if (
@@ -1539,7 +1478,10 @@ async function configurationAction(action: () => unknown | Promise<unknown>) {
     return false;
   const value = await action();
   if (value === false) return false;
-  if (active && session === auth.generation) configuration.clearForSession();
+  if (active && session === auth.generation) {
+    if (httpMode) httpConfiguration.value = null;
+    else configuration.clearForSession();
+  }
   return true;
 }
 async function openConfiguration(id: string, history = false) {
@@ -1551,6 +1493,13 @@ async function openConfiguration(id: string, history = false) {
     id !== selectedDeviceId.value
   )
     return;
+  if (httpMode) {
+    if (httpConfigurationPanel.value && !await httpConfigurationPanel.value.requestLeave()) return;
+    const revision = workspace.read.workspace?.revision;
+    if (!revision) { focusError.value = '当前资源版本尚未读取，不能发起设备配置。'; return; }
+    httpConfiguration.value = { deviceId: id, revision, editable: !history && configurationEntry.value.editable };
+    return;
+  }
   if (await configuration.open('gis', id, !history && configurationEntry.value.editable)) {
     configuration.setEligibility(
       'gis',
@@ -1560,6 +1509,9 @@ async function openConfiguration(id: string, history = false) {
     if (history) configuration.tab = 'history';
   }
 }
+const releaseHttpConfiguration = auth.registerLeave(async () => !httpConfigurationPanel.value || await httpConfigurationPanel.value.requestLeave(), () => !!httpConfiguration.value);
+watch(() => auth.generation, () => { httpConfiguration.value = null; });
+onBeforeUnmount(releaseHttpConfiguration);
 onBeforeRouteUpdate(async (to) => {
   if (
     (to.query.analysisTaskId !== undefined || to.query.analysisPlanId !== undefined) &&
@@ -1579,7 +1531,7 @@ onBeforeRouteUpdate(async (to) => {
       async () => (await editor.closeForm()) && (await editor.closeImport()),
     );
   }
-  if (!configuration.visible) return true;
+  if (!(httpMode ? httpConfiguration.value : configuration.visible)) return true;
   return configurationAction(() => true);
 });
 const oldResultsHidden = computed(
@@ -1937,7 +1889,7 @@ const {
     if (monitor.selectedDeviceId || monitor.selectedStationId || monitor.selectedLinkId)
       rightOpen.value = true;
   },
-  () => auth.can('situation.view'),
+  () => !httpMode && auth.can('situation.view'),
   () => fault.active.value,
 );
 let previousMonitorOpen: boolean | null = null;
@@ -1967,12 +1919,6 @@ const visibleSource = computed(() => {
   if (diagnosisMode.value) return `诊断 ${diagnosis.display.value?.record.id ?? '结果未提供'}`;
   if (monitorMode.value)
     return `监控网络 · ${monitor.network?.kind === 'DEMO' ? '参考网络' : (monitor.network?.taskId ?? '来源未提供')}`;
-  if (snapshotMode.value) {
-    const run = analysis.selected?.run;
-    return afterResult.value
-      ? `措施预览 ${analysis.selectedMeasurePreview?.measureId || '标识未提供'} · 来源方案 ${run?.network.id || '未提供'}`
-      : `干扰分析 ${run?.analysisId || '未提供'} · 网络 ${run?.network.snapshotId || '标识未提供'}`;
-  }
   if (taskViewing.value)
     return task.selected
       ? `任务 ${task.selected.name} · ${task.selected.version} · 已保存资源`
@@ -2201,21 +2147,6 @@ const links = ref(true);
 const topologyOpacity = ref(1);
 const candidates = ref(false);
 // 定位保护资源与设备配置现场，任务草稿独立保留。
-const measureNavigation = useInterferenceTargetNavigation({
-  blockedReason: () =>
-    configuration.visible
-      ? '请先完成或关闭设备配置'
-      : editor.picking
-        ? '请先完成地图取点'
-        : gis.dirty || editor.form || editor.importOpen
-          ? '请先完成或关闭表单、导入及未保存输入'
-          : editor.busy || gis.busy || planning.loading
-            ? '请先等待当前操作完成'
-            : '',
-  show: (kind, id) => (kind === 'node' ? focusAnalysisNode(id) : focusAnalysisLink(id)),
-  locate: () => mapRef.value?.locate(),
-  hidden: () => !links.value || topologyOpacity.value === 0,
-});
 // 请求生命周期由目录组合函数管理，显示意图序号仍属于页面交互。
 let coverageRequest = 0;
 const {
@@ -2259,9 +2190,7 @@ const deviceCoverage = useDeviceCoverage(
 const mapRegions = computed(() =>
   diagnosisMode.value || monitorMode.value || taskViewing.value
     ? []
-    : snapshotMode.value
-      ? (afterResult.value?.regions ?? analysis.selected!.run.network.regions)
-      : (data.value?.situation.regions ?? []),
+    : (data.value?.situation.regions ?? []),
 );
 const resultLayers = useGisResultLayers(
   () => ({
@@ -2281,9 +2210,8 @@ const resultLayers = useGisResultLayers(
     regions: mapRegions.value,
     deviceMode: deviceCoverage.state.mode !== 'network',
     deviceCoverageAvailable: deviceCoverage.overlays.value.length > 0,
-    interferenceAvailable: !!analysis.impact?.regions.length,
-    interferenceFilteredOut:
-      !!analysis.impact?.regions.length && !analysis.filteredImpact?.regions.length,
+    interferenceAvailable: false,
+    interferenceFilteredOut: false,
   }),
   () => auth.generation,
 );
@@ -2528,7 +2456,6 @@ watch(
     () => data.value?.resourceMeta.revision,
     () => editor.context,
     () => monitor.network?.key,
-    () => analysis.analysisId,
     () => diagnosis.contextKey.value,
   ],
   () => {
@@ -2577,7 +2504,7 @@ const topologyReason = computed(() => {
     if (!monitor.networkReadable) return '需要网络监控查看权限';
     if (!monitorMode.value || !monitorMap.value) return '暂无可用监控网络';
   } else if (gis.mapMode === 'analysis') {
-    if (!analysis.readable) return '需要干扰分析查看权限';
+    if (!canInterferenceRead.value) return '需要干扰分析查看权限';
     if (!snapshotMode.value) return '暂无可用分析冻结网络';
   } else if (oldResultsHidden.value) return '资源已修改，旧规划链路已暂停';
   if (!drawableTopologyIds.value.size)
@@ -2600,9 +2527,6 @@ watch(
     () => auth.blocked,
     () => auth.can('planning.view'),
     () => auth.can('diagnosis.view'),
-    () => analysis.measureId,
-    () => analysis.after,
-    () => analysis.effectiveAfter,
     () => topologyAvailable.value,
   ],
   () => {
@@ -3348,12 +3272,11 @@ onBeforeRouteLeave(
   (to) => analysisReturnNavigation?.path !== to.fullPath || analysisReturnNavigation.current(),
 );
 watch(
-  () => [workspace.ready.value, route.fullPath, auth.generation, analysis.readable, auth.blocked],
+  () => [workspace.ready.value, route.fullPath, auth.generation, canInterferenceRead.value, auth.blocked],
   async (_value, _previous, onCleanup) => {
     let current = true;
     onCleanup(() => {
       current = false;
-      analysis.cancelEntry();
     });
     analysisOrigin.value = null;
     if (!analysisRoutePresent.value) return;
@@ -3365,12 +3288,12 @@ watch(
       route.fullPath === path &&
       owner === auth.generation &&
       !auth.blocked &&
-      analysis.readable;
+      canInterferenceRead.value;
     if (!safeReturnPath(path)) {
       focusError.value = '干扰分析入口参数无效，当前现场已保留';
       return;
     }
-    if (!analysis.readable || auth.blocked) {
+    if (!canInterferenceRead.value || auth.blocked) {
       focusError.value = '当前角色没有干扰分析查看权限';
       return;
     }
@@ -3379,30 +3302,30 @@ watch(
       planId = String(route.query.analysisPlanId);
     const accepted = await configurationAction(async () => {
       if (!valid() || !(await gis.prepareAnalysis()) || !valid()) return false;
-      if (!(await analysis.enterPlan(taskId, planId, valid)) || !valid()) return false;
+      if (!valid()) return false;
       sideTab.value = '资源树';
       taskPreview.value = false;
       analysisNode.value = '';
       analysisLink.value = '';
       analysisSource.value = '';
-      openInterferenceAnalysis();
+      if (!(await openInterferenceAnalysis()) || !valid()) return false;
+      await nextTick();
+      if (!valid() || !await frozenPanel.value?.openIdentity({ taskId, planId }) || !valid()) return false;
       analysisOrigin.value = { taskId, planId, owner, path };
       focusError.value = '';
       return true;
     });
     if (!accepted && valid())
-      focusError.value = analysis.error || '尚未进入目标方案的干扰分析，当前现场已保留';
+      focusError.value = '尚未进入目标方案的干扰分析，当前现场已保留';
   },
   { immediate: true },
 );
 onBeforeUnmount(() => {
   analysisRouteAlive = false;
-  analysis.cancelEntry();
 });
 // 冻结诊断网络只使用自己的地形身份；普通资源视图才读取当前资源 DEM。
 const terrainNetwork = computed(() => fault.active.value ? fault.network.value
-  : diagnosisMode.value ? diagnosis.display.value?.record.network
-  : snapshotMode.value ? analysis.selected?.run.network : null);
+  : diagnosisMode.value ? diagnosis.display.value?.record.network : null);
 const { basemap: terrainBasemap, message: terrainMessage } = useTerrainBasemap(
   () => fault.active.value || diagnosisMode.value || snapshotMode.value ? terrainNetwork.value?.terrain
     : monitorMode.value ? null : workspace.read.workspace?.terrain,

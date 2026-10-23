@@ -21,6 +21,32 @@ function fixture() {
 }
 function deferred<T>() { let resolve!: (value: T) => void, reject!: (reason: Error) => void; const promise = new Promise<T>((a, b) => { resolve = a; reject = b; }); return { promise, resolve, reject }; }
 describe('冻结GIS页面工作区', () => {
+  it('深链先读取真实方案版本，再打开同一任务方案', async () => {
+    const { services } = fixture(); services.getPlan = vi.fn(async input => ({ id: input.planId, taskId: input.taskId, version: 'V7' }));
+    const model = createGisFrozenPlanWorkspace(services);
+    expect(await model.openIdentity({ taskId: 'T1', planId: 'P1' })).toBe(true);
+    expect(services.getPlan).toHaveBeenCalledWith(expect.objectContaining({ context: 'gis', taskId: 'T1', planId: 'P1', signal: expect.any(AbortSignal) }));
+    expect(model.planVersion.value).toBe('V7'); expect(model.network.value?.identity.plan_id).toBe('P1');
+  });
+  it('深链身份或版本错误不打开另一个网络，不伪造版本', async () => {
+    const { services } = fixture(); services.getPlan = vi.fn(async () => ({ id: 'OTHER', taskId: 'T1', version: 'V1' }));
+    const model = createGisFrozenPlanWorkspace(services);
+    expect(await model.openIdentity({ taskId: 'T1', planId: 'P1' })).toBe(false);
+    expect(services.plans.getNetwork).not.toHaveBeenCalled(); expect(model.error.value).toContain('不符'); expect(model.planVersion.value).toBe('');
+  });
+  it('关闭或切换后隔离深链元信息的晚响应', async () => {
+    const { services } = fixture(), pending = deferred<{ id: string; taskId: string; version: string }>();
+    services.getPlan = vi.fn(() => pending.promise); const model = createGisFrozenPlanWorkspace(services);
+    const done = model.openIdentity({ taskId: 'T1', planId: 'P1' }); await model.openPlan({ id: 'P2', taskId: 'T1', version: 'V2' });
+    pending.resolve({ id: 'P1', taskId: 'T1', version: 'V1' }); expect(await done).toBe(false);
+    expect(model.network.value?.identity.plan_id).toBe('P2'); expect(model.planVersion.value).toBe('V2');
+  });
+  it('深链缺服务或服务失败有明确反馈，不补默认方案', async () => {
+    const { services, model } = fixture(); expect(await model.openIdentity({ taskId: 'T1', planId: 'P1' })).toBe(false);
+    expect(model.error.value).toContain('尚未接入'); services.getPlan = vi.fn(async () => { throw new Error('方案已归档或无权限'); });
+    expect(await model.openIdentity({ taskId: 'T1', planId: 'P1' })).toBe(false); expect(model.error.value).toBe('方案已归档或无权限');
+    expect(model.network.value).toBeNull(); expect(model.opening.value).toBe(false);
+  });
   it('目录只在显式调用时读取，不自动选择网络', async () => {
     const { model, services } = fixture(); expect(services.queryPlans).not.toHaveBeenCalled();
     await model.queryPlans({ pageNum: 2, pageSize: 10, search: '历史' });

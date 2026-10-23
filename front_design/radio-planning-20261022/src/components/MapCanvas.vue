@@ -103,6 +103,10 @@
       }}</span></div
     >
     <div
+      v-if="interferenceGeometryNotice"
+      class="map-error" role="alert"
+      >{{ interferenceGeometryNotice }}</div>
+    <div
       v-if="showRoads && roadState === 'error'"
       class="map-error"
       >本地道路瓦片加载失败；节点仍可浏览，请检查 maps 资源。</div
@@ -180,7 +184,11 @@
         :class="legendOpen ? 'pi-angle-down' : 'pi-angle-up'"
     /></button>
     <div
-      v-if="frozenNetwork"
+      v-if="interferenceProjection"
+      class="map-legend"
+      ><span>干扰影响 · 模型预测</span><span>{{ interferenceProjection.phase === 'PREVIEW' ? '措施预览' : '措施前' }}</span><span>黄色：冻结干扰源</span><span>灰色：未提供受扰等级</span></div>
+    <div
+      v-else-if="frozenNetwork"
       class="map-legend"
       ><span>冻结方案 · 算法预测</span><span><b class="normal" />冻结状态正常</span><span><b class="offline" />灰色：状态／告警未提供或离线</span><span>虚线：备用链路</span></div
     >
@@ -433,6 +441,8 @@ import { resourceReadLayer, resourceViewport } from '../maps/resource-read-layer
 import { Style, Circle as CircleStyle } from 'ol/style';
 import { planningApiLayer, type PlanningMapOverlay } from '../maps/planning-api-layers';
 import { gisPlanLayer } from '../maps/gis-plan-layers';
+import { interferenceWorkbenchLayer, workbenchCoordinates, workbenchMapKey } from '../maps/interference-workbench-layers';
+import type { MapProjection } from '../types/interference-workbench';
 import type { GisNetwork } from '../types/gis-plan';
 import { coverageLayers, type CoverageImageState } from '../maps/coverage-layers';
 import {
@@ -494,6 +504,7 @@ const props = withDefaults(
     hoverPreview?: GisHoverContext;
     planningOverlay?: PlanningMapOverlay | null;
     frozenNetwork?: GisNetwork | null;
+    interferenceProjection?: MapProjection | null;
     planningCandidates?: CandidateMapFrame;
     deploymentConstraints?: DeploymentConstraintFrame | null;
     coverageDisplay?: CoverageDisplay;
@@ -552,6 +563,7 @@ const props = withDefaults(
     resourceFrame: null,
     planningOverlay: null,
     frozenNetwork: null,
+    interferenceProjection: null,
     planningContext: 'planning',
     coverageDisplay: 'auto',
     mockCoverageDisplay: 'auto',
@@ -607,6 +619,14 @@ const emit = defineEmits<{
   selectFault: [type: FaultInput['objectType'], id: string];
 }>();
 const host = ref<HTMLDivElement>();
+const interferenceGeometryNotice = ref('');
+const readClicks = new WeakMap<object, string>();
+let readPress = '';
+function readOwner() {
+  if (props.interferenceProjection) return workbenchMapKey(props.interferenceProjection);
+  const source = props.frozenNetwork?.identity;
+  return source ? `${source.task_id}:${source.plan_id}:${source.snapshot_id}` : '';
+}
 const legendOpen = ref(false);
 // 普通 GIS 传入设备实例，站点参考点继续使用独立图层。
 const devicePoints = createGisDeviceLayer();
@@ -1042,7 +1062,13 @@ function paint() {
       if (coverage.raster) layers.push(coverage.raster);
       layers.push(coverage.vector);
     }
-    if (props.frozenNetwork) layers.push(gisPlanLayer(props.frozenNetwork, { node: props.selectedId, link: props.selectedLinkId, demand: props.selectedDemandId }));
+    interferenceGeometryNotice.value = '';
+    if (props.interferenceProjection) {
+      const layer = interferenceWorkbenchLayer(props.interferenceProjection, props.selectedId, props.selectedLinkId, props.selectedInterferenceId);
+      interferenceGeometryNotice.value = layer.get('geometryNotice') ?? '';
+      layers.push(layer);
+    }
+    else if (props.frozenNetwork) layers.push(gisPlanLayer(props.frozenNetwork, { node: props.selectedId, link: props.selectedLinkId, demand: props.selectedDemandId }));
     else layers.push(resourceReadLayer(props.resourceFrame, props.selectedId, props.resourceSelectedKind));
     if (props.planningOverlay)
       layers.push(
@@ -1298,6 +1324,11 @@ function fitDeviceCoverage(snapshotId: string) {
     );
 }
 function fit() {
+  if (map && props.interferenceProjection) {
+    const points = workbenchCoordinates(props.interferenceProjection);
+    if (points.length) map.getView().fit(boundingExtent(points.map(projectCoordinate)), { padding: [65, 65, 60, 65], maxZoom: 11 });
+    return;
+  }
   if (map && props.frozenNetwork?.nodes.length) {
     map.getView().fit(boundingExtent(props.frozenNetwork.nodes.map(node => projectCoordinate(node.coordinate))), { padding: [65, 65, 60, 65], maxZoom: 11 });
     return;
@@ -1436,7 +1467,10 @@ onMounted(() => {
     });
   }
   // singleclick 延迟期间可能换方案；按原始点击携带的代次核对。
+  map.on('pointerdown', () => { readPress = readOwner(); });
   map.on('click', (event) => {
+    if (event.originalEvent && readPress) readClicks.set(event.originalEvent, readPress);
+    readPress = '';
     clearHoverPreview();
     if (props.gisPick) {
       if (event.originalEvent)
@@ -1472,7 +1506,16 @@ onMounted(() => {
     }
     map?.forEachFeatureAtPixel(event.pixel, (feature) => {
       const frozenKind = feature.get('kind');
+      if (typeof frozenKind === 'string' && frozenKind.startsWith('workbench-')) {
+        if (!event.originalEvent || readClicks.get(event.originalEvent) !== readOwner() || feature.get('owner') !== readOwner()) return true;
+        const id = feature.get('objectId');
+        if (frozenKind === 'workbench-node') emit('selectFrozenNode', id);
+        if (frozenKind === 'workbench-link') emit('selectFrozenLink', id);
+        if (frozenKind === 'workbench-source') emit('selectInterference', id);
+        return frozenKind === 'workbench-area' ? undefined : true;
+      }
       if (typeof frozenKind === 'string' && frozenKind.startsWith('frozen-plan-')) {
+        if (!event.originalEvent || readClicks.get(event.originalEvent) !== readOwner()) return true;
         if (feature.get('snapshot') !== props.frozenNetwork?.identity.snapshot_id) return true;
         const id = feature.get('objectId');
         if (frozenKind === 'frozen-plan-node') emit('selectFrozenNode', id);
@@ -1592,6 +1635,7 @@ watch(
     props.resourceSelectedKind,
     props.planningOverlay,
     props.frozenNetwork,
+    props.interferenceProjection,
     coverageImage.url.value,
     props.mockCoverage,
     props.deviceCoverageActive,
@@ -1664,6 +1708,7 @@ watch(() => props.mockCoverageDisplay, updateMockCoverage);
 watch(() => props.deviceCoverageDisplay, updateDeviceCoverage);
 watch(() => props.selectedId, locate);
 watch(() => props.frozenNetwork?.identity.snapshot_id, () => { if (props.frozenNetwork) fit(); });
+watch(() => props.interferenceProjection ? workbenchMapKey(props.interferenceProjection) : '', () => { if (props.interferenceProjection) fit(); });
 watch(
   () => props.planningOverlay?.snapshotId,
   () => {

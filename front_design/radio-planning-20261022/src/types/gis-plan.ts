@@ -102,3 +102,10 @@ export interface GisPlanServices {
   getPaths(query: GisPathsQuery, network: GisNetwork, signal?: AbortSignal): Promise<GisPaths>;
   getSurface(query: GisPlanQuery & { snapshotId: string }, network: GisNetwork, signal?: AbortSignal): Promise<GisPlanSurface>;
 }
+export interface GisPlanOperationServices {
+  deviceStatuses: import('../services/device-status-http').DeviceStatusClient;
+  deviceConfigurations: ReturnType<typeof import('../services/device-configuration-http').createDeviceConfigurationHttp>;
+  observations: import('./observation').ObservationServices;
+  interferenceWorkbench: import('./interference-workbench').InterferenceWorkbenchServices;
+  interferenceScenes: import('./interference-scene').InterferenceSceneServices;
+}

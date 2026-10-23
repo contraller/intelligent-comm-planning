@@ -5,6 +5,8 @@ import type { GisFrozenPlanServices } from '../src/stores/gis-frozen-plan';
 import type { GisNetwork } from '../src/types/gis-plan';
 import { clientTemplate, node, renderer, find, textOf, type HostNode } from './helpers/vue-client';
 vi.mock('../src/components/MapCanvas.vue', () => ({ default: defineComponent({ name: 'MapCanvas', props: ['frozenNetwork'], setup(props) { return () => h('frozen-map-probe', { snapshot: props.frozenNetwork?.identity.snapshot_id }); } }) }));
+// 子组业务组件须在总集成验证；本文件只执行目录/网络宿主，避免把组件桩当真实联调。
+vi.mock('../src/components/GisPlanOperations.vue', () => ({ default: defineComponent({ setup() { return () => h('operations-probe'); } }) }));
 await clientTemplate(GisFrozenPlanPanel, 'src/components/GisFrozenPlanPanel.vue', 'gis-frozen-plan-render.ts');
 let app: App<HostNode> | undefined;
 afterEach(() => { app?.unmount(); app = undefined; });

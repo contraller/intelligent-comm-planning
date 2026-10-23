@@ -443,6 +443,8 @@ import AppDrawer from '../components/AppDrawer.vue';
 import PlanningHistoryDrawer from '../components/PlanningHistoryDrawer.vue';
 import type { PlanningJobSummary, PlanningPlanSummary } from '../types/planning-api';
 import { previewService } from '../services';
+import { collaborationHttp } from '../services/http';
+import { verifyPlanningInterferenceEntry } from '../services/planning-interference-entry';
 
 const task = useTaskInputStore();
 const planning = usePlanningApiStore();
@@ -549,28 +551,7 @@ const analysisEntry = computed(() => {
       analysisEntryBusy.value = true;
       analysisEntryError.value = '';
       try {
-        const context = await previewService.loadInterferenceContext({ signal });
-        if (!current()) return;
-        const entry = context.sources.plans.find(
-          (row) => row.plan.id === target.id && row.plan.taskId === target.taskId,
-        );
-        if (context.sources.error) throw new Error(context.sources.error);
-        if (!entry) throw new Error('所选方案已不存在，请重新选择');
-        if (!entry.eligible) throw new Error(entry.reason || '所选方案当前不可分析');
-        const runs = await Promise.all(
-          context.activeIds.map((analysisId) =>
-            previewService.getInterferenceDetail({ analysisId, signal }),
-          ),
-        );
-        if (!current()) return;
-        if (
-          runs.some(
-            (row) =>
-              ['PENDING', 'RUNNING'].includes(row.state) &&
-              (row.run.network.id !== target.id || row.run.network.taskId !== target.taskId),
-          )
-        )
-          throw new Error('其他方案的干扰分析正在运行，请待其结束后再进入');
+        if (!await verifyPlanningInterferenceEntry(collaborationHttp.interferenceWorkbench, { taskId: target.taskId, planId: target.id, planVersion: target.version }, signal) || !current()) return;
         const path = router.resolve({
           path: '/situation',
           query: { analysisTaskId: target.taskId, analysisPlanId: target.id },
