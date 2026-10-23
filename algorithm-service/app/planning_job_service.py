@@ -104,27 +104,68 @@ def _digest(payload: PlanningJobSubmitRequest | PlanningJobCancelRequest) -> str
     return hashlib.sha256(raw).hexdigest()
 
 
-def _owner_digest(body_digest: str, *, operation: str,
-                  actor_id: str | None, local_owner: bool) -> str:
+def _local_context(*, actor_id, local_owner, audit_context):
     if type(local_owner) is not bool:
         raise PlanningJobError(5001, "规划幂等主体范围接线无效", 503)
-    if not local_owner:
-        return body_digest
-    if type(actor_id) is not str or not actor_id.strip():
-        raise PlanningJobError(5001, "LOCAL规划幂等缺少可信账号接线", 503)
-    # helper由P05独立交付；LOCAL接线失败不能回退未绑定摘要。
+    if audit_context is None:
+        if local_owner:
+            raise PlanningJobError(5001, "LOCAL规划缺少真实业务上下文接线", 503)
+        return None
     try:
-        from .local_operation_digest import bind_local_operation_digest
-        return bind_local_operation_digest(body_digest, operation=operation, account_id=actor_id)
-    except (ImportError, TypeError, ValueError) as exc:
-        raise PlanningJobError(5001, "LOCAL规划幂等主体摘要接线失败", 503) from exc
+        from .local_business_context import LocalBusinessContext
+    except ImportError as exc:
+        raise PlanningJobError(5001, "LOCAL规划业务上下文尚未集成", 503) from exc
+    if type(audit_context) is not LocalBusinessContext:
+        raise PlanningJobError(5001, "LOCAL规划业务上下文与账号接线不一致", 503)
+    try:
+        account_id = audit_context.actor.account_id
+    except AttributeError as exc:
+        raise PlanningJobError(5001, "LOCAL规划业务上下文不完整", 503) from exc
+    if actor_id is not None and actor_id != account_id:
+        raise PlanningJobError(5001, "LOCAL规划业务上下文与账号接线不一致", 503)
+    return audit_context
 
 
-def _cancel_digest(job_id: str, payload: PlanningJobCancelRequest, *,
-                   actor_id: str | None, local_owner: bool) -> str:
+def _context_call(function, *args, **kwargs):
+    from .system_management_schemas import SystemManagementError
+    try:
+        return function(*args, **kwargs)
+    except SystemManagementError as exc:
+        raise PlanningJobError(exc.code, str(exc), exc.status, exc.data) from exc
+
+
+def _owner_digest(body_digest: str, *, operation: str, audit_context=None) -> str:
+    if audit_context is None:
+        return body_digest
+    return _context_call(audit_context.digest, body_digest, operation=operation)
+
+
+def _cancel_digest(job_id: str, payload: PlanningJobCancelRequest, *, audit_context=None) -> str:
     body_digest = hashlib.sha256(f"{job_id}:{_digest(payload)}".encode("utf-8")).hexdigest()
-    return _owner_digest(body_digest, operation="planning.cancel",
-        actor_id=actor_id, local_owner=local_owner)
+    return _owner_digest(body_digest, operation="planning.cancel", audit_context=audit_context)
+
+
+def _prepare_context(audit_context, session):
+    if audit_context is not None:
+        return _context_call(audit_context.prepare, session, "planning.execute")
+    return None
+
+
+def _require_owner(audit_context, session, operation, request_id, object_id):
+    if audit_context is not None:
+        _context_call(audit_context.require_owner, session, operation=operation,
+            request_id=request_id, object_id=object_id)
+
+
+def _append_owner(audit_context, session, prepared, operation, request_id, job):
+    if audit_context is not None:
+        unchanged = operation == "planning.cancel" and job.status in _FINAL_STATES
+        _context_call(audit_context.append_owner, session, prepared, operation=operation,
+            request_id=request_id, object_id=job.job_id,
+            changed=not unchanged, summary="作业已处于终态，取消回执已保存" if unchanged else None,
+            changes={"context": "planning", "task_id": job.task_id,
+                     "revision_id": job.revision_id, "input_version": job.revision_id,
+                     "resource_revision": job.resource_revision, "job_status": job.status})
 
 
 def _phases(progress: float) -> list[dict[str, str]]:
@@ -283,9 +324,22 @@ def _update_job(factory: sessionmaker[Session], job_id: str,
     with _SUBMIT_LOCK, factory() as session, session.begin():
         job = session.scalar(select(PlanningJob).where(
             PlanningJob.job_id == job_id).with_for_update())
-        if job is None or job.status in _FINAL_STATES:
+        if job is None:
+            return
+        if job.status in _FINAL_STATES:
+            if state.get("status") == job.status:
+                _finish_cancellations(session, job)
             return
         _apply_runtime_state(job, state)
+        _finish_cancellations(session, job)
+
+
+def _finish_cancellations(session, job):
+    if job.status in _FINAL_STATES:
+        for receipt in session.scalars(select(PlanningJobCancellation).where(
+                PlanningJobCancellation.job_id == job.job_id,
+                PlanningJobCancellation.outcome_status == "CANCEL_REQUESTED")):
+            receipt.outcome_status = job.status
 
 
 def _apply_runtime_state(job: PlanningJob, state: dict[str, Any]) -> None:
@@ -314,14 +368,16 @@ def _existing_by_request(session: Session, request_id: str, digest: str
 
 
 def _reserve(factory: sessionmaker[Session], payload: PlanningJobSubmitRequest,
-             digest: str) -> tuple[
+             digest: str, *, audit_context=None) -> tuple[
                  PlanningJob, PlanningTaskRevision, bool, dict[str, Any] | None
              ]:
     with _SUBMIT_LOCK, factory() as session, session.begin():
         if session.get_bind().dialect.name == "sqlite":
             session.connection().exec_driver_sql("BEGIN IMMEDIATE")
+        prepared = _prepare_context(audit_context, session)
         replay = _existing_by_request(session, payload.request_id, digest)
         if replay is not None:
+            _require_owner(audit_context, session, "planning.submit", payload.request_id, replay[0].job_id)
             return replay[0], replay[1], False, None
         task = session.get(PlanningTask, payload.task_id)
         if task is None:
@@ -397,24 +453,28 @@ def _reserve(factory: sessionmaker[Session], payload: PlanningJobSubmitRequest,
         )
         session.add(job)
         session.flush()
+        _append_owner(audit_context, session, prepared, "planning.submit", payload.request_id, job)
         return job, revision, True, algorithm_payload
 
 
 def submit_planning_job(payload: PlanningJobSubmitRequest,
                         factory: sessionmaker[Session] | None = None, *,
-                        actor_id: str | None = None, local_owner: bool = False) -> dict[str, Any]:
+                        actor_id: str | None = None, local_owner: bool = False,
+                        audit_context=None) -> dict[str, Any]:
+    context = _local_context(actor_id=actor_id, local_owner=local_owner, audit_context=audit_context)
     if payload.adjustment is not None and payload.adjustment.interference_origin is not None:
         raise PlanningJobError(1001, "干扰绑定仅允许已受理工作台的服务端专用入口", 422)
-    digest = _owner_digest(_digest(payload), operation="planning.submit",
-        actor_id=actor_id, local_owner=local_owner)
+    digest = _owner_digest(_digest(payload), operation="planning.submit", audit_context=context)
     factory = factory or get_session_factory()
     try:
-        job, revision, created, algorithm_payload = _reserve(factory, payload, digest)
+        job, revision, created, algorithm_payload = _reserve(factory, payload, digest, audit_context=context)
     except IntegrityError:
-        with factory() as session:
+        with factory() as session, session.begin():
+            _prepare_context(context, session)
             replay = _existing_by_request(session, payload.request_id, digest)
             if replay is None:
                 raise
+            _require_owner(context, session, "planning.submit", payload.request_id, replay[0].job_id)
             return _dto(replay[0], replay[1])
     if not created:
         return _dto(job, revision)
@@ -612,19 +672,20 @@ def recover_interrupted_interference_jobs(factory=None, *, runtime_root=None,
 
 
 def request_interference_cancellation(job_id, payload, factory=None, *, actor_id=None,
-                                      runtime_root=None, local_owner=False):
+                                      runtime_root=None, local_owner=False, audit_context=None):
+    context = _local_context(actor_id=actor_id, local_owner=local_owner, audit_context=audit_context)
     raw = {"job_id": job_id, "body": payload.model_dump(), "actor_id": actor_id}
     from .interference_analysis_engine import digest
-    if local_owner is True:
-        request_digest = _cancel_digest(job_id, payload, actor_id=actor_id, local_owner=local_owner)
+    if context is not None:
+        request_digest = _cancel_digest(job_id, payload, audit_context=context)
     else:
         # 内部采纳/shutdown保留既有origin actor摘要，与公共LOCAL请求域分离。
-        request_digest = _owner_digest(digest(raw), operation="planning.cancel",
-            actor_id=actor_id, local_owner=local_owner)
+        request_digest = digest(raw)
     factory = factory or get_session_factory()
     validate_interference_runtime(factory, runtime_root)
     with _SUBMIT_LOCK, factory() as session, session.begin():
         session.connection().exec_driver_sql("BEGIN IMMEDIATE")
+        prepared = _prepare_context(context, session)
         job = session.get(PlanningJob, job_id)
         if job is None or job.task_id != payload.task_id:
             raise PlanningJobError(2001, "规划作业不存在", 404)
@@ -633,11 +694,15 @@ def request_interference_cancellation(job_id, payload, factory=None, *, actor_id
         receipt = session.get(PlanningJobCancellation, payload.request_id)
         if receipt is not None and receipt.request_digest != request_digest:
             raise PlanningJobError(1204, "取消请求编号对应其他内容", 409)
-        if receipt is None:
+        if receipt is not None:
+            _require_owner(context, session, "planning.cancel", payload.request_id, receipt.job_id)
+        else:
             session.add(PlanningJobCancellation(request_id=payload.request_id, request_digest=request_digest,
                 job_id=job_id, task_id=job.task_id, revision_id=job.revision_id,
                 outcome_status=job.status if job.status in _FINAL_STATES else "CANCEL_REQUESTED",
                 created_at=datetime.now(timezone.utc)))
+            session.flush()
+            _append_owner(context, session, prepared, "planning.cancel", payload.request_id, job)
         cancel_runtime = job.status not in _FINAL_STATES
         if cancel_runtime:
             job.stage = "取消已请求，等待算法检查点"
@@ -672,25 +737,33 @@ def stop_frozen_planning_jobs(factory=None, *, runtime_root=None, timeout=5.0) -
 
 def cancel_planning_job(job_id: str, payload: PlanningJobCancelRequest,
                         factory: sessionmaker[Session] | None = None, *,
-                        actor_id: str | None = None, local_owner: bool = False
+                        actor_id: str | None = None, local_owner: bool = False, audit_context=None
                         ) -> dict[str, Any]:
     """按作业冻结版本取消计算，并保存请求编号供重试识别。"""
-    digest = _cancel_digest(job_id, payload, actor_id=actor_id, local_owner=local_owner)
+    context = _local_context(actor_id=actor_id, local_owner=local_owner, audit_context=audit_context)
+    digest = _cancel_digest(job_id, payload, audit_context=context)
     factory = factory or get_session_factory()
-    with factory() as session:
+    with factory() as session, session.begin():
+        _prepare_context(context, session)
         source_job = session.get(PlanningJob, job_id)
         interference_job = source_job is not None and bool((source_job.adjustment or {}).get("interference_origin"))
     if interference_job:
         request_interference_cancellation(job_id, payload, factory,
-            actor_id=actor_id if local_owner else None, local_owner=local_owner)
+            actor_id=context.actor.account_id if context is not None else None,
+            local_owner=context is not None, audit_context=context)
         result = query_planning_job(job_id, payload.task_id, factory)
         result.update(code=0, request_id=payload.request_id)
         return result
+    cancel_after_commit = False
     with _SUBMIT_LOCK, factory() as session, session.begin():
+        if session.get_bind().dialect.name == "sqlite":
+            session.connection().exec_driver_sql("BEGIN IMMEDIATE")
+        prepared = _prepare_context(context, session)
         receipt = session.get(PlanningJobCancellation, payload.request_id)
         if receipt is not None:
             if receipt.request_digest != digest:
                 raise PlanningJobError(1204, "同一请求编号对应不同内容", 409)
+            _require_owner(context, session, "planning.cancel", payload.request_id, receipt.job_id)
         else:
             job = session.scalar(select(PlanningJob).where(
                 PlanningJob.job_id == job_id).with_for_update())
@@ -701,6 +774,7 @@ def cancel_planning_job(job_id: str, payload: PlanningJobCancelRequest,
             if receipt is not None:
                 if receipt.request_digest != digest:
                     raise PlanningJobError(1204, "同一请求编号对应不同内容", 409)
+                _require_owner(context, session, "planning.cancel", payload.request_id, receipt.job_id)
             else:
                 if job.revision_id != payload.expected_revision:
                     raise PlanningJobError(1203, "作业输入版本不一致", 409, {
@@ -709,18 +783,32 @@ def cancel_planning_job(job_id: str, payload: PlanningJobCancelRequest,
                     })
                 if job.status not in _FINAL_STATES:
                     runtime = planning_w3.get_task_record(job_id)
-                    if runtime.get("status") not in _FINAL_STATES:
-                        runtime = planning_w3.cancel_task(job_id)
-                    _apply_runtime_state(job, runtime)
-                session.add(PlanningJobCancellation(
+                    if context is None:
+                        if runtime.get("status") not in _FINAL_STATES:
+                            runtime = planning_w3.cancel_task(job_id)
+                        _apply_runtime_state(job, runtime)
+                    elif (runtime or {}).get("status") in ("SUCCESS", "FAILED"):
+                        _apply_runtime_state(job, runtime)
+                    else:
+                        job.stage = "取消已受理，等待算法检查点"
+                receipt = PlanningJobCancellation(
                     request_id=payload.request_id,
                     request_digest=digest,
                     job_id=job_id,
                     task_id=job.task_id,
                     revision_id=job.revision_id,
-                    outcome_status=job.status,
+                    outcome_status="CANCEL_REQUESTED" if context is not None and job.status not in _FINAL_STATES else job.status,
                     created_at=datetime.now(timezone.utc),
-                ))
+                )
+                session.add(receipt)
+                session.flush()
+                _append_owner(context, session, prepared, "planning.cancel", payload.request_id, job)
+        cancel_after_commit = context is not None and receipt.outcome_status == "CANCEL_REQUESTED"
+    if cancel_after_commit:
+        try:
+            planning_w3.cancel_task(job_id)
+        except Exception as exc:
+            raise PlanningJobError(5001, "取消已受理，运行时请求待重试", 503) from exc
     result = query_planning_job(job_id, payload.task_id, factory)
     if result is None:
         raise PlanningJobError(5001, "取消作业后无法读取作业", 500)
@@ -748,7 +836,7 @@ def query_planning_job(job_id: str, task_id: str | None,
 
         runtime = planning_w3.get_task_record(job_id)
         if runtime:
-            waiting_checkpoint = bool((job.adjustment or {}).get("interference_origin")) and session.scalar(
+            waiting_checkpoint = session.scalar(
                 select(PlanningJobCancellation.request_id).where(PlanningJobCancellation.job_id == job_id,
                     PlanningJobCancellation.outcome_status == "CANCEL_REQUESTED")) is not None
             if not (waiting_checkpoint and runtime.get("status") == "CANCELLED"):
@@ -760,6 +848,7 @@ def query_planning_job(job_id: str, task_id: str | None,
             job.stage = "运行任务已丢失"
             job.error = "服务重启后运行中的 SR4 作业无法恢复，请重新提交"
             job.updated_at = datetime.now(timezone.utc)
+        _finish_cancellations(session, job)
         data = _dto(job, revision)
         data["saved_plan_id"] = session.scalar(select(PlanningPlan.plan_id).where(
             PlanningPlan.job_id == job_id

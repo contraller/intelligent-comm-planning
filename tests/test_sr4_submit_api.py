@@ -7,6 +7,7 @@ import threading
 from copy import deepcopy
 from io import BytesIO
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from fastapi.testclient import TestClient
@@ -1132,10 +1133,26 @@ def test_sr4_checks_cancellation_before_saving_plan(monkeypatch):
     assert stages[-1] == (0.99, "正在保存方案")
 
 
+class _LocalJobIdentity(SimpleNamespace):
+    def __repr__(self):
+        return "<isolated LOCAL job identity>"
+
+
 @pytest.fixture
 def local_owner_api(monkeypatch, tmp_path):
     """R10仅验证数据库/受理语义，算法运行记录为显式桩，不启动线程。"""
+    import secrets
+    from fastapi import FastAPI
+    from starlette.requests import Request
     from app import database, resource_dataset_service
+    from app.local_business_context import create_local_business_context
+    from app.local_identity_router import create_local_identity_router
+    from app.local_identity_schemas import LocalIdentitySettings
+    from app.local_identity_service import LocalIdentityAdapter, LocalIdentityService, SESSION_COOKIE
+    from app.local_password_service import hash_password
+    from app.system_management_models import LocalAccount, LocalCredential, LocalRole
+    from app.system_management_schemas import ADMIN_PERMISSIONS
+    from app.system_management_service import SystemManagementService
     assert tmp_path.resolve().is_relative_to((ROOT / "data/runtime/tmp").resolve())
     path = tmp_path / "local-owner.sqlite"
     assert not path.exists(), "每轮使用新GUID基目录，不重建已有库"
@@ -1148,38 +1165,99 @@ def local_owner_api(monkeypatch, tmp_path):
     monkeypatch.setenv("FRONTEND_INTEGRATION_DEMO", "1")
     monkeypatch.setenv("RESOURCE_DATASET_MODE", "database")
     resource_dataset_service.initialize(factory)
+    clock = [1_800_000_000]
+    permissions = ADMIN_PERMISSIONS | {"planning.view", "planning.execute", "planning.save", "planning.confirm"}
+    registry = [{"code": code, "name": code, "group": code.split(".")[0],
+        "requires": [] if code.endswith(".view") else [code.split(".")[0] + ".view"]} for code in sorted(permissions)]
+    system = SystemManagementService(session_factory=factory, permission_registry=registry,
+        request_key=secrets.token_bytes(32), clock=lambda: clock[0])
+    passwords = {"ACCOUNT-A": secrets.token_urlsafe(24), "ACCOUNT-B": secrets.token_urlsafe(24)}
+    account_a = system.initialize(username="owner-a", password=passwords["ACCOUNT-A"], name="构造主体A", department="隔离测试")
+    with factory.begin() as session:
+        account = session.get(LocalAccount, account_a)
+        role = session.get(LocalRole, account.role_id)
+        role.permissions = sorted(permissions)
+        session.add(LocalAccount(id="ACCOUNT-B", username="owner-b", name="构造主体B", department="隔离测试",
+            role_id=role.id, enabled=True, identity_revision=1))
+        session.flush()
+        session.add(LocalCredential(account_id="ACCOUNT-B", password_hash=hash_password(passwords["ACCOUNT-B"]),
+            must_change_password=False, revision=1, changed_at=clock[0]))
+    origin = "http://127.0.0.13:8113"
+    identity = LocalIdentityService(system_service=system, settings=LocalIdentitySettings(
+        allowed_origins=frozenset((origin,)), allow_insecure_loopback=True))
+    identity_app = FastAPI()
+    identity_app.include_router(create_local_identity_router(service=identity))
+    adapter = LocalIdentityAdapter(service=identity)
+    identity_app.state.local_identity_adapter = adapter
+    identity_app.state.auth_mode = "LOCAL_PASSWORD"
+    clients = []
+    env = _LocalJobIdentity(clock=clock, system=system, identity=identity, factory=factory,
+        account_ids={"ACCOUNT-A": account_a, "ACCOUNT-B": "ACCOUNT-B"}, contexts={}, auto_checkpoint=True)
+    def make_context(alias="ACCOUNT-A"):
+        client = TestClient(identity_app, base_url=origin)
+        clients.append(client)
+        challenge = client.get("/api/v1/auth/csrf").json()["data"]
+        response = client.post("/api/v1/auth/login", json={"username": "owner-a" if alias == "ACCOUNT-A" else "owner-b",
+            "password": passwords[alias]}, headers={"Origin": origin, "X-CSRF-Token": challenge["csrf_token"], "X-Session-Id": ""})
+        assert response.status_code == 200, response.text
+        challenge = client.get("/api/v1/auth/csrf").json()["data"]
+        request = Request({"type": "http", "method": "POST", "scheme": "http", "server": ("127.0.0.13", 8113),
+            "path": "/unit-job", "query_string": b"", "client": ("testclient", 50000), "app": identity_app,
+            "headers": [(b"host", b"127.0.0.13:8113"), (b"origin", origin.encode()),
+                (b"cookie", (SESSION_COOKIE + "=" + client.cookies.get(SESSION_COOKIE)).encode()),
+                (b"x-session-id", challenge["session_id"].encode()), (b"x-csrf-token", challenge["csrf_token"].encode())]})
+        context = create_local_business_context(request, adapter=adapter)
+        env.contexts[alias] = context
+        return context
+    env.make_context = make_context
+    make_context("ACCOUNT-A")
+    make_context("ACCOUNT-B")
     runtime_root = ROOT / "data/runtime/r2"
     monkeypatch.setattr(planning_job_service.planning_w3, "TASK_DIR", runtime_root / "owner-tests/tasks")
     monkeypatch.setattr(planning_job_service.planning_w4, "PLAN_DIR", runtime_root / "owner-tests/plans")
-    submitted, cancelled, records = [], [], {}
+    submitted, cancelled, records, callbacks = [], [], {}, {}
     def fake_submit(payload, *, job_id, on_update):
         submitted.append(job_id)
+        callbacks[job_id] = on_update
         records[job_id] = {"status": "PENDING", "progress": 0, "stage": "显式R10测试桩"}
         on_update(deepcopy(records[job_id]))
         return {"code": 0, "data": {"task_id": job_id}}
     def fake_cancel(job_id):
         cancelled.append(job_id)
         records[job_id].update(status="CANCELLED", progress=1, stage="桩取消请求，不是CPU确认")
+        if env.auto_checkpoint:
+            callbacks[job_id]({**records[job_id], "stage": "显式模拟worker取消检查点，非原生CPU证据"})
         return deepcopy(records[job_id])
     monkeypatch.setattr(planning_job_service.planning_w4, "submit_sr4", fake_submit)
     monkeypatch.setattr(planning_job_service.planning_w3, "get_task_record", lambda job_id: deepcopy(records.get(job_id)))
     monkeypatch.setattr(planning_job_service.planning_w3, "cancel_task", fake_cancel)
     try:
-        yield TestClient(app), factory, submitted, cancelled
+        yield TestClient(app), factory, submitted, cancelled, env
     finally:
+        for client in clients:
+            client.close()
         engine.dispose()
+
+
+_AUTO_CONTEXT = object()
+
+
+def _local_job_kwargs(env, actor_id, local_owner, audit_context):
+    context = env.contexts.get(actor_id) if local_owner is True and audit_context is _AUTO_CONTEXT else audit_context
+    return {"actor_id": env.account_ids.get(actor_id, actor_id), "local_owner": local_owner,
+        "audit_context": None if context is _AUTO_CONTEXT else context}
 
 
 def _local_owner_case(local_owner_api, kind):
     import hashlib
     from app.planning_job_schemas import PlanningJobCancelRequest, PlanningJobSubmitRequest
-    client, factory, _, _ = local_owner_api
+    client, factory, _, _, env = local_owner_api
     saved = _save_task(client)
     submission = PlanningJobSubmitRequest.model_validate(_submit(saved, "R10-SUBMIT"))
     if kind == "submit":
-        def invoke(*, actor_id=None, local_owner=False, factory_override=None):
+        def invoke(*, actor_id=None, local_owner=False, factory_override=None, audit_context=_AUTO_CONTEXT):
             return planning_job_service.submit_planning_job(submission, factory_override or factory,
-                actor_id=actor_id, local_owner=local_owner)
+                **_local_job_kwargs(env, actor_id, local_owner, audit_context))
         return invoke, planning_job_models.PlanningJob, planning_job_service._digest(submission), "planning.submit"
     job = planning_job_service.submit_planning_job(submission, factory)
     payload = PlanningJobCancelRequest.model_validate(_cancel(saved, "R10-CANCEL"))
@@ -1187,9 +1265,9 @@ def _local_owner_case(local_owner_api, kind):
         with factory.begin() as session:
             session.get(planning_job_models.PlanningJob, job["job_id"]).adjustment = {
                 "interference_origin": {"adoption_id": "UNIT-OWNER", "actor_id": "ORIGIN-OWNER"}}
-    def invoke(*, actor_id=None, local_owner=False, factory_override=None):
+    def invoke(*, actor_id=None, local_owner=False, factory_override=None, audit_context=_AUTO_CONTEXT):
         return planning_job_service.cancel_planning_job(job["job_id"], payload, factory_override or factory,
-            actor_id=actor_id, local_owner=local_owner)
+            **_local_job_kwargs(env, actor_id, local_owner, audit_context))
     digest = hashlib.sha256(f"{job['job_id']}:{planning_job_service._digest(payload)}".encode("utf-8")).hexdigest()
     return invoke, planning_job_models.PlanningJobCancellation, digest, "planning.cancel"
 
@@ -1198,7 +1276,7 @@ def _local_owner_case(local_owner_api, kind):
 def test_local_owner_same_account_replays_and_other_account_conflicts(local_owner_api, kind):
     from app.local_operation_digest import bind_local_operation_digest
     invoke, model, body_digest, operation = _local_owner_case(local_owner_api, kind)
-    _, factory, submitted, cancelled = local_owner_api
+    _, factory, submitted, cancelled, env = local_owner_api
     first = invoke(actor_id="ACCOUNT-A", local_owner=True)
     assert invoke(actor_id="ACCOUNT-A", local_owner=True) == first
     side_effects = (len(submitted), len(cancelled))
@@ -1210,14 +1288,14 @@ def test_local_owner_same_account_replays_and_other_account_conflicts(local_owne
         rows = session.scalars(select(model)).all()
         assert len(rows) == 1
         assert rows[0].request_digest == bind_local_operation_digest(
-            body_digest, operation=operation, account_id="ACCOUNT-A")
+            body_digest, operation=operation, account_id=env.account_ids["ACCOUNT-A"])
     assert len(submitted) == 1
 
 
 @pytest.mark.parametrize("kind", ["submit", "cancel", "child_cancel"])
 def test_local_owner_never_replays_legacy_unbound_receipt(local_owner_api, kind):
     invoke, model, _, _ = _local_owner_case(local_owner_api, kind)
-    _, factory, submitted, cancelled = local_owner_api
+    _, factory, submitted, cancelled, _ = local_owner_api
     invoke()
     with factory() as session:
         legacy = session.scalar(select(model)).request_digest
@@ -1234,7 +1312,7 @@ def test_local_owner_never_replays_legacy_unbound_receipt(local_owner_api, kind)
 def test_local_owner_off_keeps_legacy_digest_and_ignores_public_actor(local_owner_api, kind):
     from app.interference_analysis_engine import digest
     invoke, model, body_digest, _ = _local_owner_case(local_owner_api, kind)
-    _, factory, _, _ = local_owner_api
+    _, factory, _, _, _ = local_owner_api
     first = invoke()
     assert invoke(actor_id="IGNORED-OFF-ACCOUNT", local_owner=False) == first
     with factory() as session:
@@ -1254,7 +1332,7 @@ def test_local_owner_off_keeps_legacy_digest_and_ignores_public_actor(local_owne
 @pytest.mark.parametrize("actor_id", [None, "", "   "])
 def test_local_owner_missing_actor_fails_closed_before_database(local_owner_api, kind, actor_id):
     invoke, model, _, _ = _local_owner_case(local_owner_api, kind)
-    _, factory, submitted, cancelled = local_owner_api
+    _, factory, submitted, cancelled, _ = local_owner_api
     def forbidden_factory():
         pytest.fail("LOCAL缺可信actor必须在访问数据库前503")
     side_effects = (len(submitted), len(cancelled))
@@ -1271,9 +1349,9 @@ def test_local_owner_missing_actor_fails_closed_before_database(local_owner_api,
 def test_local_owner_submit_integrity_race_rechecks_same_owner_digest(local_owner_api, monkeypatch, bound_actor, replay_actor):
     from sqlalchemy.exc import IntegrityError
     invoke, model, _, _ = _local_owner_case(local_owner_api, "submit")
-    _, factory, submitted, _ = local_owner_api
+    _, factory, submitted, _, _ = local_owner_api
     first = invoke(actor_id=bound_actor, local_owner=bound_actor is not None)
-    def race(*args):
+    def race(*args, **kwargs):
         raise IntegrityError("显式模拟唯一号竞争回读", {}, RuntimeError("UNIT-RACE"))
     monkeypatch.setattr(planning_job_service, "_reserve", race)
     if replay_actor == bound_actor:
@@ -1290,7 +1368,7 @@ def test_local_owner_submit_integrity_race_rechecks_same_owner_digest(local_owne
 @pytest.mark.parametrize("replay_actor", ["ACCOUNT-A", "ACCOUNT-B"])
 def test_local_owner_cancel_second_receipt_read_rechecks_owner(local_owner_api, monkeypatch, replay_actor):
     invoke, model, _, _ = _local_owner_case(local_owner_api, "cancel")
-    _, factory, _, cancelled = local_owner_api
+    _, factory, _, cancelled, _ = local_owner_api
     first = invoke(actor_id="ACCOUNT-A", local_owner=True)
     real_get = factory.class_.get
     reads = []
@@ -1314,7 +1392,8 @@ def test_local_owner_internal_adoption_and_shutdown_keep_origin_digest(local_own
     from app.interference_analysis_engine import digest
     from app.planning_job_schemas import PlanningJobCancelRequest
     _, model, _, _ = _local_owner_case(local_owner_api, "child_cancel")
-    _, factory, _, _ = local_owner_api
+    _, factory, _, _, env = local_owner_api
+    env.auto_checkpoint = False
     with factory() as session:
         job = session.scalar(select(planning_job_models.PlanningJob))
     monkeypatch.setenv("AUTH_MODE", "LOCAL_PASSWORD")
@@ -1338,3 +1417,211 @@ def test_local_owner_invalid_scope_flag_is_wiring_failure(local_owner_api):
     with pytest.raises(planning_job_service.PlanningJobError) as rejected:
         invoke(actor_id="ACCOUNT-A", local_owner="false")
     assert (rejected.value.code, rejected.value.status) == (5001, 503)
+
+
+@pytest.mark.parametrize("kind", ["submit", "cancel", "child_cancel"])
+@pytest.mark.parametrize("replay", [False, True])
+@pytest.mark.parametrize("failure,code", [("revoked", 1102), ("expired", 1102), ("first_password", 1104), ("permission", 1104)])
+def test_local_owner_proof_rechecks_session_before_new_and_replayed_business(local_owner_api, kind, replay, failure, code):
+    from app.local_identity_models import LocalIdentitySession
+    from app.system_management_models import LocalAccount, LocalCredential, LocalRole, SystemAuditEvent
+    invoke, model, _, operation = _local_owner_case(local_owner_api, kind)
+    _, factory, submitted, cancelled, env = local_owner_api
+    if replay:
+        invoke(actor_id="ACCOUNT-A", local_owner=True)
+    with factory.begin() as session:
+        if failure in ("revoked", "expired"):
+            row = session.scalar(select(LocalIdentitySession).where(
+                LocalIdentitySession.session_id == env.contexts["ACCOUNT-A"].actor.session_id))
+            if failure == "revoked":
+                row.revoked = True
+            else:
+                row.expires_at = env.clock[0]
+        elif failure == "first_password":
+            session.get(LocalCredential, env.account_ids["ACCOUNT-A"]).must_change_password = True
+        else:
+            account = session.get(LocalAccount, env.account_ids["ACCOUNT-A"])
+            role = session.get(LocalRole, account.role_id)
+            role.permissions = [permission for permission in role.permissions if permission != "planning.execute"]
+    effects = (len(submitted), len(cancelled))
+    with pytest.raises(planning_job_service.PlanningJobError) as rejected:
+        invoke(actor_id="ACCOUNT-A", local_owner=True)
+    assert rejected.value.code == code
+    assert (len(submitted), len(cancelled)) == effects
+    with factory() as session:
+        assert session.scalar(select(func.count()).select_from(model)) == int(replay)
+        assert session.scalar(select(func.count()).select_from(SystemAuditEvent).where(
+            SystemAuditEvent.action == operation)) == int(replay)
+
+
+@pytest.mark.parametrize("kind", ["submit", "cancel", "child_cancel"])
+@pytest.mark.parametrize("proof_state", ["missing", "wrong_object", "duplicate", "archived"])
+def test_local_owner_proof_requires_unique_exact_history_even_after_archive(local_owner_api, kind, proof_state):
+    from app.system_audit_service import actor_snapshot, append_system_audit
+    from app.system_management_models import SystemAuditArchive, SystemAuditEvent
+    invoke, model, body_digest, operation = _local_owner_case(local_owner_api, kind)
+    _, factory, submitted, cancelled, env = local_owner_api
+    context = env.contexts["ACCOUNT-A"]
+    if proof_state in ("missing", "wrong_object"):
+        invoke()
+        with factory.begin() as session:
+            row = session.scalar(select(model))
+            # 显式构造旧189阶段“摘要已绑定但无同事务证明”的临时库材料。
+            row.request_digest = context.digest(body_digest, operation=operation)
+            if proof_state == "wrong_object":
+                append_system_audit(session, None, now=env.clock[0], module="planning", action=operation,
+                    request_id=row.request_id, object_id="UNIT-WRONG-OBJECT", snapshot=actor_snapshot(session, context.actor),
+                    changes={"ownerProofVersion": "local-owner-v1"})
+    else:
+        first = invoke(actor_id="ACCOUNT-A", local_owner=True)
+        with factory.begin() as session:
+            row = session.scalar(select(SystemAuditEvent).where(SystemAuditEvent.action == operation))
+            if proof_state == "duplicate":
+                append_system_audit(session, None, now=env.clock[0], module="planning", action=operation,
+                    request_id=row.request_id, object_id=row.object_id, snapshot=deepcopy(row.actor), changes=deepcopy(row.changes))
+            else:
+                session.add(SystemAuditArchive(id="UNIT-JOB-ARCHIVE", through_sequence=row.sequence,
+                    actor_id=context.actor.account_id, reason="构造视图归档，不删除历史", time=env.clock[0]))
+    effects = (len(submitted), len(cancelled))
+    if proof_state == "archived":
+        assert invoke(actor_id="ACCOUNT-A", local_owner=True) == first
+    else:
+        with pytest.raises(planning_job_service.PlanningJobError) as rejected:
+            invoke(actor_id="ACCOUNT-A", local_owner=True)
+        assert (rejected.value.code, rejected.value.status) == ((5002, 503) if proof_state == "duplicate" else (1104, 403))
+    assert (len(submitted), len(cancelled)) == effects
+
+
+@pytest.mark.parametrize("kind", ["submit", "cancel", "child_cancel"])
+def test_local_owner_proof_sink_failure_rolls_back_before_runtime_effect(local_owner_api, monkeypatch, kind):
+    from sqlalchemy import event
+    from sqlalchemy.exc import OperationalError
+    from app.system_management_models import SystemAuditEvent
+    invoke, model, _, operation = _local_owner_case(local_owner_api, kind)
+    _, factory, submitted, cancelled, _ = local_owner_api
+    effects = (len(submitted), len(cancelled))
+    with factory() as session:
+        engine = session.get_bind()
+    def fail_audit_insert(connection, cursor, statement, parameters, context, executemany):
+        if statement.lstrip().upper().startswith("INSERT INTO SYSTEM_AUDIT_EVENTS"):
+            raise OperationalError("UNIT-AUDIT-INSERT-FAILURE", {}, RuntimeError("显式审计故障注入"))
+    event.listen(engine, "before_cursor_execute", fail_audit_insert)
+    try:
+        with pytest.raises(OperationalError):
+            invoke(actor_id="ACCOUNT-A", local_owner=True)
+    finally:
+        event.remove(engine, "before_cursor_execute", fail_audit_insert)
+    assert (len(submitted), len(cancelled)) == effects
+    with factory() as session:
+        assert session.scalar(select(func.count()).select_from(model)) == 0
+        assert session.scalar(select(func.count()).select_from(SystemAuditEvent).where(
+            SystemAuditEvent.action == operation)) == 0
+
+
+@pytest.mark.parametrize("kind", ["submit", "cancel", "child_cancel"])
+@pytest.mark.parametrize("wrong_context", ["missing", "other_actor"])
+def test_local_owner_proof_requires_context_not_only_account_digest(local_owner_api, kind, wrong_context):
+    invoke, _, _, _ = _local_owner_case(local_owner_api, kind)
+    _, _, submitted, cancelled, env = local_owner_api
+    context = None if wrong_context == "missing" else env.contexts["ACCOUNT-B"]
+    effects = (len(submitted), len(cancelled))
+    with pytest.raises(planning_job_service.PlanningJobError) as rejected:
+        invoke(actor_id="ACCOUNT-A", local_owner=True, audit_context=context)
+    assert (rejected.value.code, rejected.value.status) == (5001, 503)
+    assert (len(submitted), len(cancelled)) == effects
+
+
+@pytest.mark.parametrize("kind", ["cancel", "child_cancel"])
+def test_local_owner_proof_cancel_receipt_waits_for_actual_callback(local_owner_api, kind):
+    invoke, model, _, _ = _local_owner_case(local_owner_api, kind)
+    _, factory, _, cancelled, env = local_owner_api
+    env.auto_checkpoint = False
+    response = invoke(actor_id="ACCOUNT-A", local_owner=True)
+    assert response["data"]["status"] == "PENDING" and len(cancelled) == 1
+    with factory() as session:
+        receipt = session.scalar(select(model))
+        assert receipt.outcome_status == "CANCEL_REQUESTED"
+        job_id = receipt.job_id
+    planning_job_service._update_job(factory, job_id, {"status": "CANCELLED", "progress": 1, "stage": "显式测试桩检查点"})
+    assert invoke(actor_id="ACCOUNT-A", local_owner=True)["data"]["status"] == "CANCELLED"
+    assert len(cancelled) == 1
+
+
+def test_local_owner_proof_integrity_fallback_revalidates_revoked_session(local_owner_api, monkeypatch):
+    from sqlalchemy.exc import IntegrityError
+    from app.local_identity_models import LocalIdentitySession
+    invoke, _, _, _ = _local_owner_case(local_owner_api, "submit")
+    _, factory, submitted, _, env = local_owner_api
+    invoke(actor_id="ACCOUNT-A", local_owner=True)
+    def race(*args, **kwargs):
+        with factory.begin() as session:
+            row = session.scalar(select(LocalIdentitySession).where(
+                LocalIdentitySession.session_id == env.contexts["ACCOUNT-A"].actor.session_id))
+            row.revoked = True
+        raise IntegrityError("UNIT-RACE-AFTER-REVOKE", {}, RuntimeError("显式竞争注入"))
+    monkeypatch.setattr(planning_job_service, "_reserve", race)
+    with pytest.raises(planning_job_service.PlanningJobError) as rejected:
+        invoke(actor_id="ACCOUNT-A", local_owner=True)
+    assert rejected.value.code == 1102 and len(submitted) == 1
+
+
+def test_local_owner_proof_same_account_new_login_can_replay(local_owner_api):
+    invoke, _, _, _ = _local_owner_case(local_owner_api, "submit")
+    _, _, submitted, _, env = local_owner_api
+    first = invoke(actor_id="ACCOUNT-A", local_owner=True)
+    previous = env.contexts["ACCOUNT-A"]
+    current = env.make_context("ACCOUNT-A")
+    assert current.actor.session_id != previous.actor.session_id
+    assert invoke(actor_id="ACCOUNT-A", local_owner=True) == first and len(submitted) == 1
+
+
+@pytest.mark.parametrize("kind", ["submit", "cancel", "child_cancel"])
+def test_local_owner_proof_context_alone_cannot_silently_downgrade_to_off(local_owner_api, kind):
+    invoke, model, body_digest, operation = _local_owner_case(local_owner_api, kind)
+    _, factory, _, _, env = local_owner_api
+    context = env.contexts["ACCOUNT-A"]
+    first = invoke(audit_context=context)
+    assert invoke(audit_context=context) == first
+    with factory() as session:
+        row = session.scalar(select(model))
+        assert row.request_digest == context.digest(body_digest, operation=operation)
+
+
+@pytest.mark.parametrize("kind", ["submit", "cancel", "child_cancel"])
+def test_local_owner_proof_real_acceptance_is_queryable_by_original_account(local_owner_api, kind):
+    from app.local_identity_models import LocalIdentitySession
+    from app.planning_operation_service import OperationQuery, query_operation
+    from app.system_management_models import SystemAuditEvent
+    from app.system_management_schemas import SystemManagementError
+    invoke, model, _, operation = _local_owner_case(local_owner_api, kind)
+    _, factory, submitted, cancelled, env = local_owner_api
+    invoke(actor_id="ACCOUNT-A", local_owner=True)
+    with factory() as session:
+        receipt = session.scalar(select(model))
+        query = OperationQuery(context="planning", task_id=receipt.task_id,
+            kind="submit" if kind == "submit" else "cancel", request_id=receipt.request_id)
+        job = session.get(planning_job_models.PlanningJob, receipt.job_id)
+        job_id, revision_id = job.job_id, job.revision_id
+        proof = session.scalar(select(SystemAuditEvent).where(SystemAuditEvent.action == operation))
+        assert {key: proof.changes[key] for key in ("context", "task_id", "revision_id")} == {
+            "context": "planning", "task_id": query.task_id, "revision_id": revision_id}
+        assert proof.changes["ownerProofVersion"] == "local-owner-v1"
+    effects = (len(submitted), len(cancelled))
+    expected = query_operation(query, factory, audit_context=env.contexts["ACCOUNT-A"])
+    assert expected["state"] == "SUCCEEDED" and expected["entity_id"] == job_id
+    # 真实重登可以查询原受理；查询不得另写证明或重新派发/取消作业。
+    context = env.make_context("ACCOUNT-A")
+    assert query_operation(query, factory, audit_context=context) == expected
+    with pytest.raises(SystemManagementError) as foreign:
+        query_operation(query, factory, audit_context=env.contexts["ACCOUNT-B"])
+    assert (foreign.value.code, foreign.value.status) == (1104, 403)
+    with factory.begin() as session:
+        session.scalar(select(LocalIdentitySession).where(
+            LocalIdentitySession.session_id == context.actor.session_id)).revoked = True
+    with pytest.raises(SystemManagementError) as revoked:
+        query_operation(query, factory, audit_context=context)
+    assert (revoked.value.code, revoked.value.status) == (1102, 401)
+    with factory() as session:
+        assert session.scalar(select(func.count()).select_from(SystemAuditEvent).where(
+            SystemAuditEvent.action == operation)) == 1
+    assert (len(submitted), len(cancelled)) == effects
