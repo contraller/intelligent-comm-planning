@@ -67,11 +67,22 @@ export const useFrequencyResourceStore = defineStore('frequency-resource', () =>
       editor.value = null; editorDirty.value = false;
       query.value = { page: 1, pageSize: 10 }; historyQuery.value = { context: 'ledger', page: 1, pageSize: 10 };
     }
+    if (!changed && session.value && (session.value.canDisable && !next.session.canDisable
+      || session.value.canMaintain && !next.session.canMaintain)) {
+      // 撤销写权限只失效只读预检，已提交的原请求仍须保留核实。
+      controllers.get('preview')?.abort(); controllers.delete('preview'); loading.value.preview = false;
+      preview.value = null; changesPreview.value = null; changeDraft.value = null;
+      if (decisionKind === 'disable' || decisionKind === 'changes') closeDecision();
+    }
     session.value = { ...next.session };
     if (!next.session.canDisable) { if (!next.session.canMaintain) selectedIds.value = []; preview.value = null; if (decisionKind === 'disable') closeDecision(); }
     if (!next.session.canMaintain) { editor.value = null; editorDirty.value = false; changesPreview.value = null; changeDraft.value = null;
       if (decisionKind === 'changes' || decisionKind === 'closeEditor') closeDecision(); }
-    if (!next.session.readable) { stopReading(); page.value = null; history.value = null; operation.value = null; receipt.value = null; }
+    if (!next.session.readable) {
+      stopReading(); page.value = null; history.value = null; operation.value = null; receipt.value = null;
+      detail.value = null; editor.value = null; editorDirty.value = false; selectedIds.value = []; error.value = '';
+      notice.value = pending.value ? '查看权限已撤销，原请求结果仍待核实；未撤销服务端事务。' : '';
+    }
   }
   function failure(reason: unknown) {
     error.value = message(reason);

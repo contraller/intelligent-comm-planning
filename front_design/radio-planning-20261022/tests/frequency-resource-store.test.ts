@@ -204,6 +204,79 @@ describe('M3 维护状态和待核实保护', () => {
     f.services.getFrequencyOperation.mockResolvedValue({ operation: 'FREQUENCY_CHANGES', requestId: 'fixed-request', createdAt: '2026-10-23T00:00:00Z', receipt: saved() } as never);
     await f.store.inspectOperation('fixed-request'); expect(f.store.phase).toBe('RESOLVED'); expect(f.store.pending).toBeNull();
   });
+  it.each(['ADD', 'PATCH', 'ENABLE'] as const)('%s保存后重新读取当前版本与服务器筛选，不倒退到原回执版本', async kind => {
+    const f = await maintenanceFixture(), id = kind === 'ADD' ? 'FQ-M3' : 'FQ-0001';
+    const before = kind === 'ADD' ? null : item(id, kind !== 'ENABLE');
+    const after = { ...item(id, kind !== 'ADD'), centerFreqKhz: kind === 'PATCH' ? 4000 : 3000 };
+    const action: FrequencyAction = kind === 'ADD' ? actions()[0]! : kind === 'PATCH'
+      ? { kind, freqId: id, fields: { centerFreqKhz: 4000 } } : { kind, freqId: id };
+    const filters = { search: 'FQ', deviceClass: 'HF' as const, availability: kind === 'PATCH' ? 'AVAILABLE' as const : 'DISABLED' as const,
+      minKhz: 2500, maxKhz: 5000 };
+    f.services.queryFrequencyResources.mockImplementation(async request => {
+      const items = request.revision === base ? before ? [before] : [] : kind === 'ENABLE' ? [] : [after];
+      return { ...page(request), total: items.length, items };
+    });
+    await f.store.applyFilters(filters);
+    if (kind !== 'ENABLE') f.store.openEditor(kind, before ?? undefined);
+    f.services.validateFrequencyChanges.mockResolvedValue({ ...checked(), selectedIds: [id], wouldChange: [id],
+      items: [{ kind, freqId: id, before, after }] });
+    f.services.commitFrequencyChanges.mockResolvedValue({ ...saved(), selectedIds: [id], updated: [id], affectedIds: [id], items: [after] });
+    await f.store.prepareChanges([action]); f.options.loadContext.mockResolvedValue({ revision: later });
+    await f.store.answer('save');
+    expect(f.services.commitFrequencyChanges).toHaveBeenCalledWith({ context: 'ledger', baseRevision: base, requestId: 'fixed-request', changes: [action] });
+    expect(f.options.loadContext).toHaveBeenCalledTimes(2);
+    expect(f.services.queryFrequencyResources.mock.lastCall?.[0]).toEqual({ context: 'ledger', revision: later, page: 1, pageSize: 10, ...filters });
+    expect(f.store.page).toMatchObject({ revision: later, total: kind === 'ENABLE' ? 0 : 1, items: kind === 'ENABLE' ? [] : [after] });
+    expect(f.store.receipt?.revision).toBe(next); expect(f.store.revision).toBe(later); expect(f.store.phase).toBe('RESOLVED');
+    expect(f.store.pending).toBeNull(); expect(f.store.editor).toBeNull(); expect(f.store.selectedIds).toEqual([]);
+    expect(f.options.onResourceChanged).toHaveBeenCalledWith({ previousRevision: base, revision: next, readRevision: next, requestId: 'fixed-request', changed: true });
+  });
+  it.each(['disable', 'maintain'] as const)('%s权限收窄时取消在途只读预检，晚响应不能恢复确认', async permission => {
+    const f = await maintenanceFixture(), validation = deferred<FrequencyDisableValidation | FrequencyChangesValidation>();
+    let pending: Promise<void>;
+    if (permission === 'disable') {
+      f.store.select('FQ-0001', true); f.services.validateFrequencyDisable.mockReturnValueOnce(validation.promise);
+      pending = f.store.prepareDisable();
+    } else {
+      f.store.openEditor('ADD'); f.services.validateFrequencyChanges.mockReturnValueOnce(validation.promise);
+      pending = f.store.prepareChanges(actions());
+    }
+    const service = permission === 'disable' ? f.services.validateFrequencyDisable : f.services.validateFrequencyChanges;
+    const signal = service.mock.lastCall?.[1] as AbortSignal;
+    f.store.configure({ ...f.options, session: { ...f.options.session,
+      canDisable: permission !== 'disable', canMaintain: permission !== 'maintain' } });
+    validation.resolve(permission === 'disable' ? preview() : checked()); await pending;
+    expect(signal.aborted).toBe(true); expect(f.store.loading.preview).toBeFalsy();
+    expect(f.store.preview).toBeNull(); expect(f.store.changesPreview).toBeNull(); expect(f.store.decision).toBeNull();
+    await f.store.answer('save'); expect(f.services.commitFrequencyChanges).not.toHaveBeenCalled(); expect(f.services.disableFrequencyResources).not.toHaveBeenCalled();
+  });
+  it('查看权限撤销清除详情、维护草稿和既有回执，不能只隐藏列表', async () => {
+    const f = await maintenanceFixture(); await f.store.inspectOperation('historical-request');
+    f.store.detail = f.store.page!.items[0]!; f.store.openEditor('PATCH', f.store.detail); f.store.editorDirty = true;
+    f.store.receipt = saved();
+    f.store.configure({ ...f.options, session: { ...f.options.session, readable: false } });
+    expect(f.store.detail).toBeNull(); expect(f.store.editor).toBeNull(); expect(f.store.editorDirty).toBe(false);
+    expect(f.store.page).toBeNull(); expect(f.store.history).toBeNull(); expect(f.store.operation).toBeNull(); expect(f.store.receipt).toBeNull();
+    expect(f.store.selectedIds).toEqual([]); expect(f.store.canMaintain).toBe(false);
+  });
+  it('查看权限撤销保留未知原请求，拒绝迟到回执，恢复只读后仍可核实并刷新', async () => {
+    const f = await maintenanceFixture(); f.services.commitFrequencyChanges.mockRejectedValueOnce(new ApiError('超时', 'REQUEST_TIMEOUT'));
+    await f.store.prepareChanges(actions()); await f.store.answer('save');
+    const original = structuredClone(f.store.pending), late = deferred<{ operation: string; requestId: string; createdAt: string; receipt: FrequencyChangeReceipt }>();
+    f.services.getFrequencyOperation.mockReturnValueOnce(late.promise);
+    const inspecting = f.store.inspectOperation('fixed-request');
+    f.store.configure({ ...f.options, session: { ...f.options.session, readable: false, canMaintain: false } });
+    late.resolve({ operation: 'FREQUENCY_CHANGES', requestId: 'fixed-request', createdAt: '2026-10-23T00:00:00Z', receipt: saved() }); await inspecting;
+    expect(f.store.phase).toBe('RESULT_UNKNOWN'); expect(f.store.pending).toEqual(original);
+    expect(f.store.receipt).toBeNull(); expect(f.store.operation).toBeNull(); expect(f.options.onResourceChanged).not.toHaveBeenCalled();
+    f.store.configure({ ...f.options, session: { ...f.options.session, canMaintain: false } });
+    await f.store.retryPending(); expect(f.services.commitFrequencyChanges).toHaveBeenCalledOnce();
+    f.options.loadContext.mockResolvedValue({ revision: later });
+    f.services.getFrequencyOperation.mockResolvedValue({ operation: 'FREQUENCY_CHANGES', requestId: 'fixed-request', createdAt: '2026-10-23T00:00:00Z', receipt: saved() });
+    await f.store.inspectOperation('fixed-request');
+    expect(f.store.pending).toBeNull(); expect(f.store.phase).toBe('RESOLVED'); expect(f.store.revision).toBe(later); expect(f.store.receipt?.revision).toBe(next);
+    expect(f.services.commitFrequencyChanges).toHaveBeenCalledOnce();
+  });
   it('1205保留草稿，可明确放弃后刷新，不锁死关闭', async () => {
     const f = await maintenanceFixture(); f.store.openEditor('ADD'); f.store.editorDirty = true;
     f.services.validateFrequencyChanges.mockRejectedValueOnce(new ApiError('版本变化', 1205, null, undefined, 409));
