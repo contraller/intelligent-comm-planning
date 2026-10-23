@@ -278,8 +278,18 @@
       :can-import="auth.can('situation.observation.import') && !auth.blocked"
       :session-generation="sessionGeneration"
       :initial-selection="observationSelection"
+      @select-status-ref="viewObservationStatus"
+      @select-dataset="closeObservationReference"
       @dirty-change="monitoringDirty = $event"
       @busy-change="monitoringBusy = $event"
+    />
+    <ObservationStatusReferenceDrawer
+      v-model:visible="observationReferenceVisible"
+      :target="observationReferenceTarget"
+      :services="observationReferenceServices"
+      :can-view="auth.can('resources.view') && auth.can('situation.view') && !auth.blocked"
+      :session-generation="sessionGeneration"
+      :current-resource-revision="read.workspace?.revision"
     />
     <SpectrumObservationImportDialog
       ref="observationImport"
@@ -501,6 +511,8 @@ import DeviceInfoPanel from '../components/DeviceInfoPanel.vue';
 import SpectrumConfigPanel from '../components/SpectrumConfigPanel.vue';
 import FrequencyResourcePanel from '../components/FrequencyResourcePanel.vue';
 import SpectrumMonitoringPanel from '../components/SpectrumMonitoringPanel.vue';
+import ObservationStatusReferenceDrawer from '../components/ObservationStatusReferenceDrawer.vue';
+import { captureObservationStatusReference, type ObservationStatusReferenceTarget } from '../services/observation-status-reference';
 import SpectrumObservationImportDialog from '../components/SpectrumObservationImportDialog.vue';
 const auth = useAuthStore(),
   router = useRouter(),
@@ -554,6 +566,22 @@ const configurationHistoryOpen = ref(false), configurationHistoryBusy = ref(fals
 let historySerial = 0, historyControl: AbortController | null = null, sourceSerial = 0, sourceControl: AbortController | null = null;
 const observationImportOpen = ref(false), observationSource = ref<ObservationSource | null>(null),
   observationSelection = ref<{ datasetId: string; datasetRevision: string }>();
+const observationReferenceVisible = ref(false), observationReferenceTarget = ref<ObservationStatusReferenceTarget | null>(null);
+const observationReferenceServices = { observations: collaborationHttp.observations, deviceStatuses: collaborationHttp.deviceStatuses };
+let observationReferenceSerial = 0;
+function closeObservationReference() {
+  observationReferenceSerial++; observationReferenceVisible.value = false; observationReferenceTarget.value = null;
+}
+// 历史引用独立只读核验，不改当前台账状态、资源版本或所选状态快照。
+async function viewObservationStatus(value: ObservationStatusReferenceTarget) {
+  const session = sessionGeneration.value, token = ++observationReferenceSerial;
+  if (!auth.can('resources.view') || !auth.can('situation.view') || auth.blocked) return;
+  try {
+    const target = captureObservationStatusReference(value);
+    if (!(await leaveGuard.leave(true)) || session !== sessionGeneration.value || token !== observationReferenceSerial || tab.value !== '频谱观测') return;
+    observationReferenceTarget.value = target; observationReferenceVisible.value = true;
+  } catch (reason) { if (token === observationReferenceSerial) hostMessage.value = reason instanceof Error ? reason.message : '冻结状态引用无效'; }
+}
 async function loadFrequencyContext(signal?: AbortSignal) {
   return httpService.loadResourceReadContext({ context: 'ledger', signal });
 }
@@ -1004,6 +1032,7 @@ async function switchTab(value: string) {
   const session = auth.generation;
   if (!(await leaveGuard.leave(true)) || session !== auth.generation || auth.blocked)
     return;
+  closeObservationReference();
   editor.clearForSession();
   closeConfigurationHistory();
   spectrumPanel.value?.stop();
@@ -1042,6 +1071,7 @@ function observationImported(value: ObservationImportReceipt) {
   hostMessage.value = '观测集已持久化，可在频谱观测页查看历史帧。';
 }
 watch(sessionGeneration, () => {
+  closeObservationReference();
   closeConfigurationHistory(); sourceSerial++; sourceControl?.abort(); sourceControl = null; sourceBusy.value = false;
   configurationOpen.value = false; observationImportOpen.value = false; observationSource.value = null;
   observationSelection.value = undefined; statusSnapshot.value = null; hostMessage.value = '';
