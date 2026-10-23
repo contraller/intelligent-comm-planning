@@ -15,6 +15,7 @@
         </div>
       </details>
     </fieldset>
+    <p v-if="uploading" role="status">读取文件中</p>
     <p v-if="store.state.error" class="error" role="alert">{{ store.state.error }}</p>
     <p v-if="store.state.notice" role="status">{{ store.state.notice }}</p>
     <dl v-if="store.state.file" class="summary">
@@ -38,7 +39,7 @@
     </div>
     <dl v-if="store.state.receipt" class="summary"><dt>持久化回执</dt><dd>{{ store.state.receipt.requestId }}</dd><dt>观测版本</dt><dd>{{ store.state.receipt.datasetRevision }}</dd><dt>导入时间</dt><dd>{{ store.state.receipt.importedAt }}</dd></dl>
     <template #footer><div class="actions">
-      <button class="btn" :disabled="locked" @click="close()">{{ store.state.receipt ? '关闭' : '取消' }}</button>
+      <button class="btn" :disabled="store.state.busy || !!store.state.pending" @click="close()">{{ store.state.receipt ? '关闭' : '取消' }}</button>
       <button class="btn" :disabled="!canImport || locked || !store.state.file || !!store.state.receipt" @click="store.preview()">预检</button>
       <button class="btn primary" :disabled="!canImport || locked || !store.state.preview || !!store.state.receipt" @click="store.submit()">确认导入</button>
     </div></template>
@@ -57,19 +58,29 @@ const props = defineProps<{ visible: boolean; services: ObservationServices; res
 const emit = defineEmits<{ 'update:visible': [value: boolean]; 'dirty-change': [value: boolean]; 'busy-change': [value: boolean]; committed: [value: ObservationImportReceipt] }>();
 const store = createObservationImportStore(props.services, () => props.canImport, value => emit('committed', value));
 const presetId = ref(spectrumObservationPresets[0].id), datasetId = ref(''), resourceInput = ref(props.resourceRevision), note = ref('仓库既有频谱观测预设，显式构造导入，非实测');
-const locked = computed(() => store.state.busy || !!store.state.pending), decision = ref<DecisionRequest | null>(null);
+const uploading = ref(false);
+const locked = computed(() => uploading.value || store.state.busy || !!store.state.pending), decision = ref<DecisionRequest | null>(null);
 const linkStatus = ref(false), fileSource = ref<'uploaded' | 'preset' | null>(null);
 let resolve: ((value: Decision) => void) | undefined, uploadSerial = 0;
 function answer(value: Decision) { decision.value = null; resolve?.(value); resolve = undefined; }
 async function upload(event: Event) {
-  const file = (event.target as HTMLInputElement).files?.[0], serial = ++uploadSerial;
-  if (!file || locked.value) return;
-  if (file.size > 2 * 1024 * 1024) { store.state.error = '文件超过2MiB，未读取或截断'; return; }
-  try { const text = await file.text(); if (serial !== uploadSerial || !props.visible) return; fileSource.value = 'uploaded'; store.choose(JSON.parse(text.replace(/^\uFEFF/, ''))); }
-  catch { if (serial === uploadSerial) store.state.error = 'JSON文件编码或结构无效'; }
+  if (!props.canImport || store.state.busy || store.state.pending) return;
+  const input = event.target as HTMLInputElement, file = input.files?.[0], serial = ++uploadSerial;
+  if (!store.beginFileSelection()) return;
+  fileSource.value = 'uploaded'; uploading.value = false; input.value = '';
+  if (!file) return;
+  uploading.value = true;
+  try {
+    if (file.size > 2 * 1024 * 1024) throw new Error('文件超过2MiB，未读取或截断');
+    const text = await file.text(); if (serial !== uploadSerial || !props.visible) return;
+    store.choose(JSON.parse(text.replace(/^\uFEFF/, '')));
+  }
+  catch (reason) { if (serial === uploadSerial) store.state.error = reason instanceof Error ? reason.message : 'JSON文件编码或结构无效'; }
+  finally { if (serial === uploadSerial) uploading.value = false; }
 }
 function choosePreset() {
-  if (locked.value) return;
+  if (store.state.busy || store.state.pending) return;
+  uploadSerial++; uploading.value = false;
   fileSource.value = 'preset';
   if (linkStatus.value && !props.deviceStatusRef) { store.choose(null); store.state.error = '未选择完整冻结状态引用'; return; }
   const preset = spectrumObservationPresets.find(row => row.id === presetId.value)!;
@@ -85,15 +96,19 @@ function choosePreset() {
           powerDbm: bin.powerDbm, abnormal: bin.abnormal, reason: bin.reason, unknownReasons: [] })) })) } });
 }
 async function requestLeave() {
+  if (uploading.value) { uploadSerial++; uploading.value = false; }
   if (locked.value || decision.value) return false;
   if (!store.dirty) return true;
   const answer = await new Promise<Decision>(done => { resolve = done; decision.value = { title: '未提交的导入', message: '放弃当前文件和预检结果？数据库历史不受影响。', discardLabel: '放弃输入', cancelLabel: '继续导入' }; });
   return answer === 'discard';
 }
 async function close() { if (await requestLeave()) { clearForSession(); emit('update:visible', false); } }
-function clearForSession() { uploadSerial++; answer('cancel'); store.clearForSession(); fileSource.value = null; linkStatus.value = false; }
+function clearForSession() { uploadSerial++; uploading.value = false; answer('cancel'); store.clearForSession(); fileSource.value = null; linkStatus.value = false; }
 watch(() => [props.sessionGeneration, props.canImport], () => { clearForSession(); });
-watch(() => props.visible, visible => { if (visible && !store.state.file) resourceInput.value = props.resourceRevision; });
+watch(() => props.visible, visible => {
+  if (!visible) { uploadSerial++; uploading.value = false; }
+  else if (!store.state.file) resourceInput.value = props.resourceRevision;
+});
 // 只重新生成显式选择的预设；上传原文永不被宿主R/Ref覆盖。
 watch(() => [linkStatus.value, JSON.stringify(props.deviceStatusRef), resourceInput.value, datasetId.value, note.value, presetId.value], () => {
   if (fileSource.value === 'preset' && !store.state.pending) { store.invalidatePreview(); choosePreset(); }

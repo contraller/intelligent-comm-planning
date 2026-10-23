@@ -1,7 +1,7 @@
 import type { AuthenticatedRequest } from './auth-http';
 import type { ObservationPage } from '../types/observation';
 import type { SpectrumOfflineCheck, SpectrumSourceServices, SpectrumSourceVersion, SpectrumSourceRow } from '../types/spectrum-source';
-import { assertSpectrumSourceDraft, assertSpectrumSourceQuery, decodeSourceOperation, decodeSourcePage, decodeSourceReceipt, decodeSourceVersion, sourceRecord } from './spectrum-source-validation';
+import { assertSpectrumSourceQuery, decodeSourceOperation, decodeSourcePage, decodeSourceReceipt, decodeSourceVersion, decodeSpectrumSourceConfigFile } from './spectrum-source-validation';
 import { ApiError } from './types';
 
 export function createSpectrumSourceHttp(request: AuthenticatedRequest): SpectrumSourceServices {
@@ -66,11 +66,11 @@ export function createSpectrumSourceHttp(request: AuthenticatedRequest): Spectru
       assertSpectrumSourceQuery(input, ['sourceId', 'configRevision'], ['sourceId', 'configRevision']);
       const query = Object.freeze({ ...input });
       const blob = await request<Blob>(`/spectrum/sources/${encodeURIComponent(query.sourceId)}/export?config_revision=${encodeURIComponent(query.configRevision)}`, { method: 'GET', signal: query.signal }, 'blob');
-      let value: Record<string, unknown>;
-      try { value = sourceRecord(JSON.parse(await blob.text()), ['schemaVersion', 'fileKind', 'dataOrigin', 'sourceId', 'configRevision', 'draft']); }
+      if (!(blob instanceof Blob) || blob.size > 2 * 1024 * 1024) throw new ApiError('来源导出文件无效或超过2MiB', 'INVALID_SPECTRUM_SOURCE_RESPONSE');
+      let value;
+      try { value = decodeSpectrumSourceConfigFile(JSON.parse(await blob.text())); }
       catch { throw new ApiError('来源导出文件无效', 'INVALID_SPECTRUM_SOURCE_RESPONSE'); }
       if (value.schemaVersion !== 1 || value.fileKind !== 'SPECTRUM_SOURCE_CONFIG' || value.dataOrigin !== 'SYNTHETIC_INTEGRATION' || value.sourceId !== query.sourceId || value.configRevision !== query.configRevision) throw new ApiError('来源导出身份不一致', 'INVALID_SPECTRUM_SOURCE_RESPONSE');
-      assertSpectrumSourceDraft(value.draft);
       return blob;
     },
   };

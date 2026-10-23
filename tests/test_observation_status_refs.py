@@ -7,7 +7,7 @@ from pydantic import ValidationError
 from sqlalchemy import event, inspect, text
 from sqlalchemy.exc import IntegrityError
 
-from test_observation_api import database, public_api, portable, imported, counts, post, get
+from test_observation_api import database, public_api, portable, imported, counts, post, get, switch_current_for_history
 from app import observation_service as service, observation_status_ref_service as refs
 from app.observation_models import ObservationDataset, ObservationImportOperation
 from app.observation_schemas import ObservationImportCommand, ObservationDeviceStatusRefInput, parse_import_file
@@ -126,6 +126,23 @@ def command_for(db, ref, request_id="v2-import", dataset_id="obs-A"):
     file["dataset"]["datasetId"] = dataset_id
     preview = service.preview_import(file, factory=db["factory"])
     return {"file": file, "requestId": request_id, "previewHash": preview["previewHash"], "datasetContentHash": preview["datasetContentHash"]}
+
+
+def test_real_p06_historical_noop_keeps_ref_and_resource_after_current_switch(linked):
+    db, ref, _ = linked
+    command = command_for(db, ref)
+    first = service.import_file(command, actor_id="actor", factory=db["factory"])
+    switch_current_for_history(db)
+    assert service.preview_import(command["file"], factory=db["factory"])["previewHash"] == command["previewHash"]
+    repeat = service.import_file({**command, "requestId": "historical-ref-noop"}, actor_id="actor", factory=db["factory"])
+    assert repeat["receipt"]["changed"] is False and repeat["deviceStatusRef"] == first["deviceStatusRef"]
+    assert repeat["receipt"]["resourceRevision"] == db["revision"]
+    changed = deepcopy(command["file"])
+    changed["deviceStatusRef"]["deviceIds"] = changed["deviceStatusRef"]["deviceIds"][:1]
+    with pytest.raises(service.ObservationError) as error:
+        service.preview_import(changed, factory=db["factory"])
+    assert error.value.code == 1206
+    assert counts(db) == (1, 3, 2)
 
 
 def test_real_p06_atomic_binding_hashes_export_replay_and_no_rebind(linked):

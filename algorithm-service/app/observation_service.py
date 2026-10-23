@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from . import frontend_integration, resource_dataset_service as resources
 from .observation_models import ObservationDataset, ObservationFrame, ObservationImportOperation
+from .resource_dataset_models import ResourceDatasetVersion
 from .observation_schemas import (
     MAX_BINS, MAX_FRAMES, ORIGIN, DatasetSummary, ImportedFrame,
     ObservationImportReceipt, ObservationImportRequest, StoredFrame, ObservationImportFile,
@@ -128,6 +129,33 @@ def import_synthetic_dataset(
     return _import_dataset(request, actor_id=actor_id, factory=factory)
 
 
+def _existing_dataset(session, request, dataset_hash, status_ref=None, actor_id=None):
+    row = session.get(ObservationDataset, request.datasetId)
+    if row is None:
+        return None
+    _dataset(session, row.dataset_id, row.dataset_revision)
+    if (row.content_hash != dataset_hash or row.resource_revision != request.resourceRevision
+            or actor_id is not None and row.actor_id != actor_id):
+        raise ObservationError("观测集编号已被其他内容或身份使用", 1206, 409)
+    # noop仍验证历史正文和资源；不以CURRENT替换原来源，也不信任仅存的hash列。
+    stored = {"schemaVersion": 1, "dataOrigin": ORIGIN, "datasetId": row.dataset_id,
+        "provenanceNote": row.provenance_note, "resourceRevision": row.resource_revision,
+        "deviceStatusSnapshotId": None, "source": row.source_snapshot, "frames": []}
+    for item in session.scalars(select(ObservationFrame).where(ObservationFrame.dataset_id == row.dataset_id)
+            .order_by(ObservationFrame.frame_index)):
+        value = _frame(item, row)
+        stored["frames"].append({key: value[key] for key in ImportedFrame.model_fields})
+    if content_hash(stored) != dataset_hash:
+        raise ObservationError("历史观测正文摘要不符，禁止返回noop回执")
+    try:
+        resources._decode(session.get(ResourceDatasetVersion, row.resource_revision))
+    except resources.ResourceDatasetError as exc:
+        raise ObservationError("历史观测的冻结资源缺失或损坏") from exc
+    from . import observation_status_ref_service as refs
+    refs.assert_binding(session, row, status_ref)
+    return row
+
+
 def _import_dataset(request, *, actor_id, factory, status_ref=None):
     from . import observation_status_ref_service as refs
     _require_synthetic_mode()
@@ -146,18 +174,13 @@ def _import_dataset(request, *, actor_id, factory, status_ref=None):
             with factory.begin() as session:
                 receipt = _receipt(session, request.requestId, digest, actor_id)
                 if receipt is not None:
-                    stored, _ = _dataset(session, receipt.datasetId, receipt.datasetRevision)
-                    refs.assert_binding(session, stored, status_ref)
+                    stored = _existing_dataset(session, request, dataset_hash, status_ref, actor_id)
+                    if stored is None or stored.dataset_revision != receipt.datasetRevision:
+                        raise ObservationError("历史回执对应观测集缺失或版本不符")
                     return receipt
-                row = session.get(ObservationDataset, request.datasetId)
+                row = _existing_dataset(session, request, dataset_hash, status_ref, actor_id)
                 changed = row is None
-                if row is not None:
-                    _summary(row)
-                    if row.content_hash != dataset_hash or row.actor_id != actor_id:
-                        raise ObservationError("观测集编号已被其他内容或身份使用", 1206, 409)
-                    _dataset(session, row.dataset_id, row.dataset_revision)
-                    refs.assert_binding(session, row, status_ref)
-                else:
+                if row is None:
                     snapshot = resources.current(factory=factory)
                     if snapshot["revision"] != request.resourceRevision:
                         raise ObservationError("资源版本已变化，未导入观测", 1205, 409)
@@ -265,10 +288,14 @@ def preview_import(file: ObservationImportFile, *, factory):
     file = parse_import_file(file)
     payload = file.to_request("preview-only").model_dump(mode="json", exclude={"requestId"})
     _assert_file_size(file.model_dump(mode="json"))
-    snapshot = resources.current(factory=factory)
-    if file.dataset.resourceRevision != snapshot["revision"]:
-        raise ObservationError("预检时资源来源已变化，请保留输入并刷新来源", 1205, 409)
+    dataset_hash = content_hash(payload)
     with factory() as session:
+        status_ref = file.deviceStatusRef if file.schemaVersion == 2 else None
+        existing = _existing_dataset(session, file.to_request("preview-only"), dataset_hash, status_ref)
+        if existing is None:
+            snapshot = resources.current(factory=factory)
+            if file.dataset.resourceRevision != snapshot["revision"]:
+                raise ObservationError("预检时资源来源已变化，请保留输入并刷新来源", 1205, 409)
         binding = _source_binding(session, file.dataset.source)
         if file.schemaVersion == 2:
             from . import observation_status_ref_service as refs

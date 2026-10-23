@@ -10,7 +10,9 @@
         <button class="btn" :disabled="s.loading || locked" title="搜索" aria-label="搜索"><i class="pi pi-search" /></button>
         <button class="btn" type="button" :disabled="s.loading || locked" title="刷新" aria-label="刷新" @click="store.load()"><i class="pi pi-refresh" /></button>
         <button class="btn primary" type="button" :disabled="!canEdit || locked" @click="open()"><i class="pi pi-plus" /> 新增来源</button>
+        <label class="config-file">配置 JSON<input type="file" accept=".json,application/json" :disabled="!canEdit || locked" @change="readConfiguration" /></label>
       </form>
+      <p v-if="configReading || s.fileLoading" role="status">读取配置文件来源中</p>
       <p v-if="s.loading" role="status">读取中</p>
       <p v-if="s.error" class="error" role="alert">{{ s.error }}</p>
       <p v-if="s.notice" role="status">{{ s.notice }}</p>
@@ -65,6 +67,7 @@
         <div v-if="s.checkTotal" class="toolbar"><button class="btn" :disabled="s.checkPage <= 1" @click="store.checks(s.checkPage - 1)">上一页</button><span>{{ s.checkPage }} · {{ s.checkTotal }} 项</span><button class="btn" :disabled="s.checkPage * 10 >= s.checkTotal" @click="store.checks(s.checkPage + 1)">下一页</button></div>
         <dl v-if="historical" class="history"><dt>历史版本</dt><dd>{{ historical.configRevision }}</dd><template v-for="(value, key) in historical.draft" :key="key"><dt>{{ key }}</dt><dd>{{ value ?? '未知' }}</dd></template></dl>
       </template>
+      <p v-if="s.importedFrom" class="revision">文件声明版本：{{ s.importedFrom.configRevision }}</p>
       <template #footer><button class="btn" :disabled="locked" @click="close()">关闭</button></template>
     </AppDrawer>
     <DecisionDialog :request="decision" @answer="answer" />
@@ -75,14 +78,16 @@ import { computed, onBeforeUnmount, ref, watch } from 'vue';
 import AppDrawer from './AppDrawer.vue';
 import DecisionDialog from './DecisionDialog.vue';
 import { createSpectrumSourcesStore } from '../stores/spectrum-sources';
+import { decodeSpectrumSourceConfigFile } from '../services/spectrum-source-validation';
 import type { SpectrumSourceServices, SpectrumSourceVersion } from '../types/spectrum-source';
 import type { Decision, DecisionRequest } from '../types/resource-edit';
 const props = defineProps<{ services: SpectrumSourceServices; canView: boolean; canEdit: boolean; sessionGeneration: string }>();
 const emit = defineEmits<{ 'dirty-change': [value: boolean]; 'busy-change': [value: boolean]; saved: [value: { sourceId: string; configRevision: string }]; 'select-source': [value: { sourceId: string; configRevision: string }] }>();
 const store = createSpectrumSourcesStore(props.services, () => props), s = store.state;
-const locked = computed(() => s.busy || !!s.pending);
+const configReading = ref(false);
+const locked = computed(() => s.busy || !!s.pending || s.fileLoading || configReading.value);
 const historical = ref<SpectrumSourceVersion | null>(null), decision = ref<DecisionRequest | null>(null);
-let resolve: ((value: Decision) => void) | undefined;
+let resolve: ((value: Decision) => void) | undefined, configFileSerial = 0;
 function answer(value: Decision) { decision.value = null; resolve?.(value); resolve = undefined; }
 const numericFields = [{ key: 'intervalSeconds', label: '声明周期 / s' }, { key: 'minKhz', label: '下限 / kHz' }, { key: 'maxKhz', label: '上限 / kHz' }] as const;
 function numeric(event: Event) { const raw = (event.target as HTMLInputElement).value; return raw === '' ? null : Number(raw); }
@@ -96,6 +101,23 @@ async function requestLeave() {
 }
 async function open(row?: SpectrumSourceVersion) { if (await requestLeave()) { historical.value = null; store.edit(row); } }
 async function close() { if (await requestLeave()) store.discard(); }
+async function readConfiguration(event: Event) {
+  if (!props.canView || !props.canEdit || locked.value) return;
+  const input = event.target as HTMLInputElement, file = input.files?.[0]; input.value = '';
+  if (!file) return;
+  const serial = ++configFileSerial, generation = props.sessionGeneration;
+  const current = () => serial === configFileSerial && generation === props.sessionGeneration && props.canView && props.canEdit;
+  configReading.value = true; s.error = '';
+  try {
+    if (file.size > 2 * 1024 * 1024) throw new Error('配置JSON超过2MiB，未读取或截断');
+    const text = await file.text(); if (!current()) return;
+    const parsed = decodeSpectrumSourceConfigFile(JSON.parse(text.replace(/^\uFEFF/, '')));
+    configReading.value = false;
+    if (!await requestLeave() || !current()) return;
+    historical.value = null; await store.fillConfig(parsed);
+  } catch (reason) { if (current()) s.error = reason instanceof Error ? reason.message : '配置文件无效'; }
+  finally { if (serial === configFileSerial) configReading.value = false; }
+}
 async function download(row: SpectrumSourceVersion) {
   const generation = props.sessionGeneration;
   try { const blob = await props.services.exportSource({ sourceId: row.sourceId, configRevision: row.configRevision });
@@ -103,14 +125,16 @@ async function download(row: SpectrumSourceVersion) {
     const url = URL.createObjectURL(blob), anchor = document.createElement('a'); anchor.href = url; anchor.download = 'spectrum-source-' + row.configRevision + '.json'; anchor.click(); setTimeout(() => URL.revokeObjectURL(url), 1000);
   } catch (reason) { if (generation === props.sessionGeneration) s.error = reason instanceof Error ? reason.message : '导出失败'; }
 }
-function clearForSession() { answer('cancel'); historical.value = null; store.clearForSession(); }
+function stop() { configFileSerial++; configReading.value = false; store.stop(); }
+function clearForSession() { stop(); answer('cancel'); historical.value = null; store.clearForSession(); }
 watch(() => [props.sessionGeneration, props.canView, props.canEdit], () => { clearForSession(); if (props.canView) void store.load(1); }, { immediate: true });
 watch(() => store.dirty, value => emit('dirty-change', value), { immediate: true });
 watch(locked, value => emit('busy-change', value), { immediate: true });
 watch(() => s.receipt?.requestId, () => { if (s.receipt?.operationType === 'SOURCE_SAVE') emit('saved', { sourceId: s.receipt.sourceId, configRevision: s.receipt.configRevision }); });
-onBeforeUnmount(() => { answer('cancel'); store.clearForSession(); });
-defineExpose({ requestLeave, stop: store.stop, clearForSession });
+onBeforeUnmount(clearForSession);
+defineExpose({ requestLeave, stop, clearForSession });
 </script>
 <style scoped>
 .source-panel{padding:16px;min-width:0}.source-panel h3{font-size:16px;margin:0 0 8px}.toolbar{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:10px 0}.toolbar input{max-width:260px}.table-scroll{overflow:auto}table{width:100%;border-collapse:collapse;font-size:12px}th,td{text-align:left;border-bottom:1px solid var(--line);padding:10px;vertical-align:top;overflow-wrap:anywhere}td{max-width:260px}small{display:block;color:var(--muted);font-size:11px;margin-top:5px;overflow-wrap:anywhere}.muted{color:var(--muted);font-size:12px}.error{color:#eeb0aa}.fields,fieldset{display:grid;gap:12px}fieldset{border:0;padding:0;min-width:0}.fields label{display:grid;gap:6px}.fields .toggle{display:flex;align-items:center}.toggle input{width:auto}.pending{border-left:3px solid #cfb568;padding:8px;overflow-wrap:anywhere}.revision,.history{font-size:12px;overflow-wrap:anywhere}.history dd{margin:0 0 8px}.version{white-space:normal;text-align:left;overflow-wrap:anywhere}ul{padding-left:18px;font-size:12px;overflow-wrap:anywhere}.pager{justify-content:flex-end}@media(max-width:700px){.source-panel{padding:10px}th,td{padding:8px}.toolbar input{max-width:100%}}
+.config-file{display:flex;align-items:center;gap:8px;font-size:12px}.config-file input{max-width:220px}
 </style>

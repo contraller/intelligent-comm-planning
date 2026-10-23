@@ -93,9 +93,13 @@ export function createObservationImportStore(services: ObservationServices, canI
     epoch++; reader?.abort(); state.busy = false; state.preview = null; previewInput = '';
   }
   function choose(value: unknown) {
-    if (state.busy || state.pending) return;
-    reader?.abort(); epoch++; state.preview = null; previewInput = ''; state.receipt = null; state.notice = ''; state.error = ''; state.file = null;
+    if (!beginFileSelection()) return;
     try { state.file = copy(decodeObservationImportFile(value)); } catch (reason) { state.error = message(reason); }
+  }
+  function beginFileSelection() {
+    if (state.busy || state.pending) return false;
+    reader?.abort(); epoch++; state.preview = null; previewInput = ''; state.receipt = null; state.notice = ''; state.error = ''; state.file = null;
+    return true;
   }
   async function preview() {
     if (!state.file || state.busy || state.pending || !canImport()) return;
@@ -140,5 +144,5 @@ export function createObservationImportStore(services: ObservationServices, canI
   }
   function clearForSession() { epoch++; reader?.abort(); state.file = null; state.preview = null; state.pending = null;
     state.receipt = null; state.busy = false; state.error = ''; state.notice = ''; previewInput = ''; }
-  return reactive({ state, dirty, choose, preview, invalidatePreview, submit, retry: () => send(), verify: () => send(true), clearForSession });
+  return reactive({ state, dirty, choose, beginFileSelection, preview, invalidatePreview, submit, retry: () => send(), verify: () => send(true), clearForSession });
 }

@@ -286,6 +286,74 @@ def test_idempotency_conflict_and_resource_change(database, monkeypatch):
     assert get(db, "/datasets/obs-A/frames/0", first.datasetRevision).status_code == 200
 
 
+def switch_current_for_history(db):
+    with db["factory"].begin() as session:
+        pointer = session.get(ResourceDatasetCurrent, resources.SCOPE)
+        row = session.get(ResourceDatasetVersion, pointer.revision)
+        revision = "resource-" + "d" * 16
+        session.add(ResourceDatasetVersion(revision=revision, content_hash=row.content_hash,
+            source=row.source, data_origin=row.data_origin, snapshot=deepcopy(row.snapshot), created_at=row.created_at))
+        session.flush()
+        pointer.revision = revision
+    return revision
+
+
+def test_historical_file_new_request_noop_preserves_original_resource(public_api, monkeypatch):
+    db = public_api
+    file = portable(db)
+    preview = service.preview_import(file, factory=db["factory"])
+    command = {"requestId": "history-first", "previewHash": preview["previewHash"], "file": file}
+    first = service.import_file(command, actor_id="historical-actor", factory=db["factory"])
+    switch_current_for_history(db)
+    monkeypatch.setattr(resources, "current", lambda **_: pytest.fail("历史noop不得依赖CURRENT"))
+    before = counts(db)
+    assert service.preview_import(file, factory=db["factory"])["previewHash"] == preview["previewHash"]
+    repeat = service.import_file({**command, "requestId": "history-second"}, actor_id="historical-actor", factory=db["factory"])
+    assert repeat["receipt"]["changed"] is False
+    assert repeat["receipt"]["resourceRevision"] == db["revision"] == first["receipt"]["resourceRevision"]
+    assert counts(db) == (before[0], before[1], before[2] + 1)
+    with pytest.raises(service.ObservationError) as actor:
+        service.import_file({**command, "requestId": "other-actor"}, actor_id="other-actor", factory=db["factory"])
+    assert actor.value.code == 1206
+
+
+@pytest.mark.parametrize("change", ["resource", "body"])
+def test_historical_noop_cannot_replace_original_resource_or_body(public_api, change):
+    db = public_api
+    imported(db)
+    file = portable(db)
+    if change == "resource": file["dataset"]["resourceRevision"] = switch_current_for_history(db)
+    else: file["dataset"]["provenanceNote"] = "不同的显式构造资料"
+    with pytest.raises(service.ObservationError) as error:
+        service.preview_import(file, factory=db["factory"])
+    assert error.value.code == 1206
+    assert counts(db) == (1, 3, 1)
+
+
+@pytest.mark.parametrize("kind", ["resource", "frame"])
+def test_historical_noop_rejects_corrupt_frozen_payload(public_api, kind):
+    db = public_api
+    imported(db)
+    def corrupt_loaded_frame(row, _):
+        row.frame_payload = {}
+
+    if kind == "resource":
+        # 仅破坏本轮新建测试库的资源正文，不触及任何运行库。
+        with db["engine"].begin() as connection:
+            connection.execute(text("UPDATE resource_dataset_versions SET snapshot=:snapshot WHERE revision=:revision"),
+                {"snapshot": "{}", "revision": db["revision"]})
+    else:
+        # 帧表触发器保持原样；仅向真实ORM解码路径注入受控载荷损坏。
+        event.listen(ObservationFrame, "load", corrupt_loaded_frame)
+    try:
+        with pytest.raises(service.ObservationError) as error:
+            service.preview_import(portable(db), factory=db["factory"])
+    finally:
+        if kind == "frame": event.remove(ObservationFrame, "load", corrupt_loaded_frame)
+    assert error.value.code == 5002 and error.value.status == 503
+    assert counts(db) == (1, 3, 1)
+
+
 def test_resource_switch_after_read_keeps_explicit_historical_identity(database, monkeypatch):
     db = database
     original_current = resources.current

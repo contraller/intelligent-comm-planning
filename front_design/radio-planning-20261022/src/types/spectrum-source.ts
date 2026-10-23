@@ -10,6 +10,10 @@ export interface SpectrumSourceVersion {
   schemaVersion: 1; dataOrigin: 'SYNTHETIC_INTEGRATION'; sourceId: string;
   configRevision: string; contentHash: string; draft: SpectrumSourceDraft; createdAt: string; actorId: string;
 }
+export interface SpectrumSourceConfigFile {
+  schemaVersion: 1; fileKind: 'SPECTRUM_SOURCE_CONFIG'; dataOrigin: 'SYNTHETIC_INTEGRATION';
+  sourceId: string; configRevision: string; draft: SpectrumSourceDraft;
+}
 export interface SpectrumOfflineCheck {
   checkId: string; sourceId: string; configRevision: string; checkedAt: string;
   validation: 'VALID' | 'INCOMPLETE'; connection: 'NOT_ATTEMPTED'; validationMode: 'OFFLINE_ONLY';

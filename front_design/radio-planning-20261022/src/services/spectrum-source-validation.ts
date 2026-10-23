@@ -1,4 +1,4 @@
-import type { SpectrumOfflineCheck, SpectrumSourceDraft, SpectrumSourceOperation, SpectrumSourceReceipt, SpectrumSourceRow, SpectrumSourceVersion } from '../types/spectrum-source';
+import type { SpectrumOfflineCheck, SpectrumSourceConfigFile, SpectrumSourceDraft, SpectrumSourceOperation, SpectrumSourceReceipt, SpectrumSourceRow, SpectrumSourceVersion } from '../types/spectrum-source';
 import { ApiError } from './types';
 
 export const spectrumSourceId = (value: unknown): value is string => typeof value === 'string' && /^[A-Za-z0-9_.:-]{1,120}$/.test(value);
@@ -37,6 +37,18 @@ function draftValid(value: unknown): value is SpectrumSourceDraft {
 }
 export function assertSpectrumSourceDraft(value: unknown): asserts value is SpectrumSourceDraft {
   if (!draftValid(value)) throw new ApiError('频谱来源声明不完整或格式无效', 'INVALID_SPECTRUM_SOURCE_QUERY');
+}
+export function spectrumSourceDraftFingerprint(value: unknown): string {
+  assertSpectrumSourceDraft(value);
+  return JSON.stringify(draftKeys.map(key => [key, value[key as keyof SpectrumSourceDraft]]));
+}
+export function decodeSpectrumSourceConfigFile(value: unknown): SpectrumSourceConfigFile {
+  const data = sourceRecord(value, ['schemaVersion', 'fileKind', 'dataOrigin', 'sourceId', 'configRevision', 'draft']);
+  check(data.schemaVersion === 1 && data.fileKind === 'SPECTRUM_SOURCE_CONFIG' && data.dataOrigin === 'SYNTHETIC_INTEGRATION');
+  check(spectrumSourceId(data.sourceId) && spectrumSourceRevision(data.configRevision));
+  assertSpectrumSourceDraft(data.draft);
+  check(new TextEncoder().encode(JSON.stringify(value)).byteLength <= 2 * 1024 * 1024);
+  return value as SpectrumSourceConfigFile;
 }
 export function assertSpectrumSourceQuery(input: unknown, allowed: string[], required: string[] = []) {
   const invalid = () => { throw new ApiError('频谱来源查询无效', 'INVALID_SPECTRUM_SOURCE_QUERY'); };
