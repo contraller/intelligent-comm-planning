@@ -385,12 +385,13 @@ def planning_frequency_catalog() -> dict[str, Any]:
         "freq_id": row["freq_id"],
         "device_class": row["device_class"],
         "center_freq_khz": _number(row.get("center_freq_khz")),
-        "bandwidth_khz": _number(row.get("bandwidth_khz")),
-        "channel_no": int(row["channel_no"]) if row.get("channel_no") else None,
+        # 人工频点可未提供带宽/保护参数；缺值不能投影为零带宽。
+        "bandwidth_khz": _optional_number(row.get("bandwidth_khz")),
+        "channel_no": int(row["channel_no"]) if str(row.get("channel_no") or "").strip() else None,
         "is_available": _boolean(row.get("is_available")),
         "occupied_by": row.get("occupied_by") or None,
-        "reuse_min_distance_m": _number(row.get("reuse_min_distance_m")),
-        "adjacent_guard_khz": _number(row.get("adjacent_guard_khz")),
+        "reuse_min_distance_m": _optional_number(row.get("reuse_min_distance_m")),
+        "adjacent_guard_khz": _optional_number(row.get("adjacent_guard_khz")),
         "note": row.get("note") or None,
     } for row in resources]
     return _envelope({"revision": f"catalog-{resource_revision()}", "items": items,

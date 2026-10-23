@@ -194,6 +194,32 @@ const dispatchService: PreviewService = {
   querySystemParameters: (...args) => selectedService().querySystemParameters(...args),
   saveSystemParameter: (...args) => selectedService().saveSystemParameter(...args),
   queryOperationLogs: (...args) => selectedService().queryOperationLogs(...args),
+  // 正式身份扩展也必须经过统一授权；未接入的数据模式明确拒绝，不回退 Mock。
+  getSystemOperation: (...args) => {
+    const action = selectedService().getSystemOperation;
+    if (!action) throw new ApiError('当前数据模式不支持系统操作回执', 'UNSUPPORTED_SYSTEM_ACTION');
+    return action(...args);
+  },
+  changeOwnPassword: (...args) => {
+    const action = selectedService().changeOwnPassword;
+    if (!action) throw new ApiError('当前数据模式不支持本人密码维护', 'UNSUPPORTED_SYSTEM_ACTION');
+    return action(...args);
+  },
+  maintainSystemAccountPassword: (...args) => {
+    const action = selectedService().maintainSystemAccountPassword;
+    if (!action) throw new ApiError('当前数据模式不支持账号密码维护', 'UNSUPPORTED_SYSTEM_ACTION');
+    return action(...args);
+  },
+  resetSystemParameters: (...args) => {
+    const action = selectedService().resetSystemParameters;
+    if (!action) throw new ApiError('当前数据模式不支持参数恢复', 'UNSUPPORTED_SYSTEM_ACTION');
+    return action(...args);
+  },
+  archiveSystemLogs: (...args) => {
+    const action = selectedService().archiveSystemLogs;
+    if (!action) throw new ApiError('当前数据模式不支持日志视图归档', 'UNSUPPORTED_SYSTEM_ACTION');
+    return action(...args);
+  },
   resetSystemWorkspace: (...args) => selectedService().resetSystemWorkspace(...args),
   recoverSystemWorkspace: (...args) => selectedService().recoverSystemWorkspace(...args),
   resetOperationLogs: (...args) => selectedService().resetOperationLogs(...args),
