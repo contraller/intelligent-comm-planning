@@ -1065,6 +1065,7 @@
             :editable="editing && !editor.busy"
             :draft="editing && editor.draftDirty"
             :configuration="configurationEntry"
+            :trace-services="httpMode ? collaborationHttp.deviceTraces : undefined"
             :maintenance-binding="
               workspace.read.workspace && !workspace.read.frozen && gis.mapMode === 'resource'
                 ? {
@@ -1076,6 +1077,7 @@
             "
             @ports="(id) => configurationAction(() => editor.openPorts(id))"
             @restore="(id, value) => configurationAction(() => editor.applyRestore(id, value))"
+            @restore-candidate="restoreCandidateAction"
             @locate-network="locateDeviceNetwork"
             @configure="openConfiguration"
             @select-device="!editing ? selectReadObject('device', $event) : selectDevice($event)"
@@ -1224,6 +1226,8 @@ import DecisionDialog from '../components/DecisionDialog.vue';
 import MapCanvas from '../components/MapCanvas.vue';
 import GisFrozenPlanPanel from '../components/GisFrozenPlanPanel.vue';
 import { collaborationHttp } from '../services/http';
+import { loadGisRestoreCandidate } from '../services/gis-device-restore';
+import type { RestoreProposal } from '../types/device-trace';
 import { previewService } from '../services';
 import { env } from '../config/env';
 import GisObjectInfoPanel from '../components/GisObjectInfoPanel.vue';
@@ -1489,6 +1493,26 @@ async function configurationAction(action: () => unknown | Promise<unknown>) {
   }
   return true;
 }
+const restoreCandidateAction=computed(()=>{
+  const session=auth.generation,revision=workspace.read.workspace?.revision,id=selectedDeviceId.value;
+  const current=()=>httpMode&&session===auth.generation&&revision===workspace.read.workspace?.revision
+    &&id===selectedDeviceId.value&&editing.value&&editor.canEdit&&!editor.busy&&!auth.blocked
+    &&auth.can('resources.device.edit')&&gis.mapMode==='resource'&&!frozenView.value&&!fault.active.value;
+  return async(value:RestoreProposal)=>{
+    if(!current()) return;
+    const context=()=>{
+      const device=editor.resources.devices.find(row=>row.id===id);
+      return device&&revision&&device.availability!=='OFF_SHELF'?{deviceId:id,modelId:device.modelId,revision,
+        values:{tx_power_dbm:device.txPowerDbm,work_freq_khz:device.workFreqKhz,antenna_height_m:device.antennaHeightM}}:null;
+    };
+    const loaded=await configurationAction(()=>loadGisRestoreCandidate(value,{
+      context,current,open:()=>editor.openForm('device',id),form:()=>editor.form,
+    }));
+    if(!current()) return;
+    if(loaded) editor.message='三参数恢复候选已载入，请核对后应用草稿并保存资源。';
+    else focusError.value='恢复候选与当前设备、资源版本或参数前态不符，未写入表单。';
+  };
+});
 async function openConfiguration(id: string, history = false) {
   if (
     !configurationEntry.value ||

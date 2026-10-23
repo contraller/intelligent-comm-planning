@@ -64,7 +64,7 @@
       <dd>{{ station.relayCapable ? '支持' : '不支持' }}</dd>
     </dl>
     <button
-      v-if="editable && auth.can('resources.edit')"
+      v-if="canEditNode"
       class="btn small section-gap"
       @click="$emit('edit-station', station.id)"
     >
@@ -73,7 +73,7 @@
     <div class="subsection">
       <h3>关联设备</h3
       ><button
-        v-if="editable && auth.can('resources.edit')"
+        v-if="canCreateDevice"
         class="btn small"
         @click="$emit('new-device', station.id)"
         >添加设备</button
@@ -158,6 +158,7 @@
         :status-display="statusDisplays?.[device.id]"
         :configuration="configuration"
         :maintenance-binding="maintenanceBinding"
+        :trace-services="traceServices"
         :detail-context="
           deviceDetail?.object.kind === 'device'
             ? {
@@ -171,6 +172,7 @@
         @configure="$emit('configure', device.id, $event)"
         @ports="emit('ports', device.id)"
         @restore="emit('restore', device.id, $event)"
+        @restore-candidate="emit('restore-candidate', $event)"
         @locate-network="emit('locate-network', $event)"
       >
         <template #actions>
@@ -181,7 +183,7 @@
             >查看覆盖</button
           >
           <button
-            v-if="editable && auth.can('resources.edit')"
+            v-if="canEditDevice"
             class="btn small section-gap"
             @click="$emit('edit-device', device.id)"
           >
@@ -207,6 +209,7 @@ import { useAuthStore } from '../stores/auth';
 // 当前权限变化时仅禁用操作，保留表单输入。
 const auth = useAuthStore();
 import { computed, ref, watch } from 'vue';
+import { env } from '../config/env';
 import type { Station, ResourcesData } from '../types/domain';
 import type { DeviceDetailCatalog } from '../types/device-detail';
 import type { DeviceNetworkContext } from '../types/device-network';
@@ -232,10 +235,12 @@ const props = defineProps<{
   statusDisplays?: Record<string, DeviceStatusDisplay>;
   configuration?: { editable: boolean; disabled: boolean; reason: string };
   maintenanceBinding?: import('../types/device-maintenance').MaintenanceBinding;
+  traceServices?: import('../services/device-trace-http').DeviceTraceClient;
 }>();
 const emit = defineEmits<{
   ports: [deviceId: string];
   restore: [deviceId: string, value: import('../types/device-maintenance').DeviceRestorePreview];
+  'restore-candidate': [value: import('../types/device-trace').RestoreProposal];
   'locate-network': [value: { snapshotId: string; linkIds: string[]; stationIds: string[] }];
   page: [value: number];
   'select-device': [id: string];
@@ -247,6 +252,19 @@ const emit = defineEmits<{
   configure: [deviceId: string, history: boolean];
 }>();
 const localDeviceId = ref('');
+// HTTP只展示已获专项授权的操作，不能借宽资源权限扩大写入范围。
+const canEditNode = computed(
+  () =>
+    !!props.editable &&
+    !auth.blocked &&
+    auth.can(env.mode === 'http' ? 'resources.workspace.edit' : 'resources.edit'),
+);
+const canCreateDevice = computed(
+  () => canEditNode.value && (env.mode !== 'http' || auth.can('resources.create')),
+);
+const canEditDevice = computed(
+  () => canEditNode.value && (env.mode !== 'http' || auth.can('resources.device.edit')),
+);
 // 目录负责成员名称；只有详情响应或编辑基线可提供完整设备参数。
 const equipment = computed(() => props.references ?? props.resources);
 const deviceId = computed(() => props.selectedDeviceId ?? localDeviceId.value);

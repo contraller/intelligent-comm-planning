@@ -12,10 +12,12 @@
     :device-network="deviceNetwork"
     :configuration="configuration"
     :maintenance-binding="maintenanceBinding"
+    :trace-services="traceServices"
     :coverage-enabled="coverageEnabled"
     @configure="(id, history) => emit('configure', id, history)"
     @ports="emit('ports', $event)"
     @restore="(id, value) => emit('restore', id, value)"
+    @restore-candidate="emit('restore-candidate', $event)"
     @locate-network="emit('locate-network', $event)"
     @view-coverage="emit('view-coverage', $event)"
     @select-device="emit('select-device', $event)"
@@ -72,8 +74,10 @@
         :network="detail.network ?? deviceNetwork"
         :configuration="configuration"
         :maintenance-binding="maintenanceBinding"
+        :trace-services="traceServices"
         @ports="emit('ports', object.id)"
         @restore="emit('restore', object.id, $event)"
+        @restore-candidate="emit('restore-candidate', $event)"
         @locate-network="emit('locate-network', $event)"
         @configure="emit('configure', object.id, $event)"
         :detail-context="{
@@ -133,12 +137,14 @@ const props = defineProps<{
   deviceNetwork?: import('../types/device-network').DeviceNetworkContext;
   configuration?: { editable: boolean; disabled: boolean; reason: string };
   maintenanceBinding?: import('../types/device-maintenance').MaintenanceBinding;
+  traceServices?: import('../services/device-trace-http').DeviceTraceClient;
   coverageEnabled?: boolean;
   selectedDeviceId?: string;
 }>();
 const emit = defineEmits<{
   ports: [deviceId: string];
   restore: [deviceId: string, value: import('../types/device-maintenance').DeviceRestorePreview];
+  'restore-candidate': [value: import('../types/device-trace').RestoreProposal];
   'locate-network': [value: { snapshotId: string; linkIds: string[]; stationIds: string[] }];
   'select-device': [id: string];
   configure: [id: string, history: boolean];
