@@ -9,6 +9,7 @@ const host = readFileSync(
   'utf8',
 );
 const situation = readFileSync(new URL('../src/views/SituationView.vue', import.meta.url), 'utf8');
+const legacyMonitoring = readFileSync(new URL('../src/components/SituationMonitoringDrawer.vue', import.meta.url), 'utf8');
 // 静态接线门禁不替代子组实际组件、共享类型或真实页面验收。
 describe('GIS跨组宿主静态边界', () => {
   it('只消费冻结网络和P06读取投影，不造监控帧或状态', () => {
@@ -59,5 +60,11 @@ describe('GIS跨组宿主静态边界', () => {
     expect(component).toContain("window.removeEventListener('beforeunload', beforeUnload)");
     expect(component).toContain('auth.registerLeave(requestLeave, hasPending)');
     expect(situation).toContain('additionalPending: () => httpMode');
+  });
+  it('旧监控包装不再裸挂需要HTTP服务的新组件，也不创建第二个客户端', () => {
+    expect(legacyMonitoring).not.toContain('<SpectrumMonitoringPanel v-else />');
+    expect(legacyMonitoring).toContain('v-else-if="observations"');
+    expect(legacyMonitoring).toContain(':services="observations.services"');
+    expect(legacyMonitoring).not.toContain('createHttpClient');
   });
 });

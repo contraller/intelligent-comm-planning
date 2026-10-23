@@ -130,7 +130,19 @@
             }}</p
           >
         </template>
-        <SpectrumMonitoringPanel v-else />
+        <SpectrumMonitoringPanel
+          v-else-if="observations"
+          :services="observations.services"
+          :can-view="observations.canView"
+          :can-import="observations.canImport"
+          :session-generation="observations.sessionGeneration"
+          :resource-revision="observations.resourceRevision"
+        />
+        <p
+          v-else
+          class="notice"
+          >未提供观测读取上下文。</p
+        >
       </template>
     </div>
   </section>
@@ -142,6 +154,17 @@ import { useGisWorkspaceStore } from '../stores/gis-workspace';
 import DeviceMonitoringPanel from './DeviceMonitoringPanel.vue';
 import LinkMonitoringPanel from './LinkMonitoringPanel.vue';
 import SpectrumMonitoringPanel from './SpectrumMonitoringPanel.vue';
+import type { ObservationServices } from '../types/observation';
+// 旧包装不创建客户端；实际HTTP宿主已由独立冻结方案工作区单点提供上下文。
+defineProps<{
+  observations?: {
+    services: ObservationServices;
+    canView: boolean;
+    canImport: boolean;
+    sessionGeneration: string;
+    resourceRevision?: string;
+  };
+}>();
 const store = useMonitoringStore(),
   gis = useGisWorkspaceStore(),
   // 高度随中间容器计算；窗口变化保留比例，不写入业务工作区。
