@@ -1,9 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createPinia, disposePinia, setActivePinia } from 'pinia';
+import { isReactive } from 'vue';
 import { authorizeStore } from './helpers/auth';
 import { useInterferenceStore } from '../src/stores/interference';
 import { ApiError } from '../src/services/types';
-import type { InterferenceSceneServices, InterferenceSceneVersion } from '../src/types/interference-scene';
+import type { InterferenceSceneDetail, InterferenceSceneServices, InterferenceSceneVersion } from '../src/types/interference-scene';
 import type { InterferenceWorkbenchServices, RunDetail, WorkbenchContext, WriteReceipt } from '../src/types/interference-workbench';
 
 const hash = 'a'.repeat(64), target = { taskId: 'T1', planId: 'P1', planVersion: 'V1' };
@@ -11,9 +12,13 @@ const version = (): InterferenceSceneVersion => ({ sceneId: 'SC1', taskId: 'T1',
   schemaVersion: 1, previousVersionId: null, savedBy: 'u1', resourceContentHash: hash, source: 'SR4', interferenceIds: [], interferenceSources: [],
   planSnapshot: { taskId: 'T1', planId: 'P1', planVersion: 'V1', inputVersion: 'I1', conditionVersion: 'C1', resourceRevision: 'RES1', source: 'SR4', inputSnapshot: {}, rawSnapshot: { detail: { nodes: [], links: [] } } } });
 const receipt = (): WriteReceipt => ({ request_id: 'accepted', task_id: 'T1', operation: 'SUBMIT_ANALYSIS', actor_id: 'u1', object_type: 'RUN', object_id: 'RUN1', accepted_version: 1, changed: true, status: 'ACCEPTED', source_hash: hash, data_origin: 'SYNTHETIC_INTEGRATION', accepted_at: '2026-10-23T08:00:00Z' });
-const run = (): RunDetail => ({ ...receipt(), run_id: 'RUN1', scene_id: 'SC1', scene_version_id: 'SV1', plan_id: 'P1', plan_version: 'V1', resource_revision: 'RES1', run_version: 1, state: 'PENDING', progress: 0, phase: '待执行', cancel_requested: false, error: null, source_state: { state: 'CURRENT', reasons: [] }, started_at: '2026-10-23T08:00:00Z', updated_at: '2026-10-23T08:00:00Z', source: version(), result: null, result_hash: null, adoptions: [], adoption_capabilities: {} as RunDetail['adoption_capabilities'] });
+const run = (): RunDetail => ({ ...receipt(), run_id: 'RUN1', scene_id: 'SC1', scene_version_id: 'SV1', plan_id: 'P1', plan_version: 'V1', resource_revision: 'RES1', run_version: 1, state: 'PENDING', progress: 0, phase: '待执行', cancel_requested: false, error: null, source_state: { state: 'CURRENT', reasons: [] }, started_at: '2026-10-23T08:00:00Z', updated_at: '2026-10-23T08:00:00Z', source: version(), result: null, result_hash: null, adoptions: [], adoption_capabilities: {
+  FREQ_ADJUST: { enabled: false, reasons: [] }, CHANNEL_SWITCH: { enabled: false, reasons: [] }, POWER_OPT: { enabled: false, reasons: [] },
+  ROUTE_REBUILD: { enabled: false, reasons: [] }, NODE_REDEPLOY: { enabled: false, reasons: [] } } });
 function context(taskId = 'T1'): WorkbenchContext {
-  return { task_id: taskId, resource_revision: 'RES1', source_options: [{ task_id: taskId, plan_id: taskId === 'T1' ? 'P1' : 'P2', plan_version: 'V1', input_version: 'I1', condition_version: 'C1', resource_revision: 'RES1', source: 'SR4', data_origin: 'SYNTHETIC_INTEGRATION', name: '确认方案', plan_snapshot_id: null, current: true, eligible: true, unavailable_reasons: [] }], scene_count: 1, run_count: 0, active_run_ids: [], data_origin: 'SYNTHETIC_INTEGRATION', interference_sources: [], capabilities: Object.fromEntries(['scene_save', 'analyze', 'cancel', 'preview', 'adopt_replan'].map(key => [key, { enabled: true, reasons: [] }])) as WorkbenchContext['capabilities'] };
+  return { task_id: taskId, resource_revision: 'RES1', source_options: [{ task_id: taskId, plan_id: taskId === 'T1' ? 'P1' : 'P2', plan_version: 'V1', input_version: 'I1', condition_version: 'C1', resource_revision: 'RES1', source: 'SR4', data_origin: 'SYNTHETIC_INTEGRATION', name: '确认方案', plan_snapshot_id: null, current: true, eligible: true, unavailable_reasons: [] }], scene_count: 1, run_count: 0, active_run_ids: [], data_origin: 'SYNTHETIC_INTEGRATION', interference_sources: [], capabilities: {
+    scene_save: { enabled: true, reasons: [] }, analyze: { enabled: true, reasons: [] }, cancel: { enabled: true, reasons: [] },
+    preview: { enabled: true, reasons: [] }, adopt_replan: { enabled: true, reasons: [] } } };
 }
 function deferred<T>() { let resolve!: (value: T) => void; const promise = new Promise<T>(done => { resolve = done; }); return { promise, resolve }; }
 let pinia: ReturnType<typeof createPinia>;
@@ -23,10 +28,10 @@ function setup() {
   const unused = vi.fn(async () => { throw new Error('意外调用'); });
   const workbench: InterferenceWorkbenchServices = { getContext: vi.fn(async input => context(input.task_id)), listSources: vi.fn(async input => ({ items: context().source_options, total: 1, page: input.page ?? 1, page_size: 20 })),
     submitRun: vi.fn(async () => receipt()), listRuns: vi.fn(async input => ({ items: [], total: 0, page: input.page ?? 1, page_size: 20 })), getProgress: unused,
-    getRun: vi.fn(async () => run()), getPreview: unused, cancelRun: vi.fn(async () => ({ ...receipt(), operation: 'CANCEL_ANALYSIS', object_state: 'CANCEL_REQUESTED' })),
+    getRun: vi.fn(async () => run()), getPreview: unused, cancelRun: vi.fn(async (): Promise<WriteReceipt> => ({ ...receipt(), operation: 'CANCEL_ANALYSIS', object_state: 'CANCEL_REQUESTED' })),
     adoptMeasure: unused, getAdoption: unused, cancelAdoption: unused, getOperation: unused };
   const scenes: InterferenceSceneServices = { listScenes: vi.fn(async input => ({ items: [], total: 0, page: input.page ?? 1, pageSize: 20 })),
-    getScene: vi.fn(async () => ({ version: version(), sourceState: { state: 'CURRENT', reasons: [] } })), saveScene: unused, listSceneVersions: unused, getSceneReceipt: unused };
+    getScene: vi.fn(async (): Promise<InterferenceSceneDetail> => ({ version: version(), sourceState: { state: 'CURRENT', reasons: [] } })), saveScene: unused, listSceneVersions: unused, getSceneReceipt: unused };
   const store = useInterferenceStore(); store.bindServices({ workbench, scenes }); return { store, workbench, scenes };
 }
 
@@ -65,6 +70,14 @@ describe('持久化干扰工作流store', () => {
   it('会话失效后晚到响应不能恢复旧状态', async () => {
     const { store, workbench } = setup(); await store.enterPlan(target); const pending = deferred<RunDetail>(); vi.mocked(workbench.getRun).mockReturnValue(pending.promise);
     const action = store.selectRun('RUN1'); store.clearForSession(); pending.resolve(run()); await action; expect(store.selected).toBeNull(); expect(store.connected).toBe(false);
+  });
+  it('服务DTO整体替换且根对象浅冻结，不代理递归JSON或共享调用者对象', async () => {
+    const { store, workbench } = setup(), response = run(); await store.enterPlan(target);
+    vi.mocked(workbench.getRun).mockResolvedValue(response); await store.selectRun('RUN1');
+    expect(Object.isFrozen(store.selected)).toBe(true); expect(isReactive(store.selected)).toBe(false);
+    expect(isReactive(store.selected!.source.planSnapshot.rawSnapshot)).toBe(false);
+    response.source.planSnapshot.rawSnapshot.detail = { nodes: [{ node_id: 'LATE' }] };
+    expect(store.selected!.source.planSnapshot.rawSnapshot.detail).toEqual({ nodes: [], links: [] });
   });
   it('A→B→A隔离旧入口完成值和乱序上下文', async () => {
     const { store, workbench } = setup(), old = deferred<WorkbenchContext>(); vi.mocked(workbench.getContext).mockReturnValueOnce(old.promise);

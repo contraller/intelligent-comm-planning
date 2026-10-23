@@ -2,16 +2,18 @@ import { describe, expect, it, vi } from 'vitest';
 import type { AuthenticatedRequest } from '../src/services/auth-http';
 import { createInterferenceWorkbenchHttp } from '../src/services/interference-workbench-http';
 import { ApiError } from '../src/services/types';
+import type { MeasurePreview, Operation, RunProgress, WorkbenchContext, WriteReceipt } from '../src/types/interference-workbench';
 
 const hash = 'a'.repeat(64), stamp = '2026-10-23T08:00:00Z';
 const body = () => ({ request_id: 'R1', task_id: 'T1', plan_id: 'P1', plan_version: 'V1', resource_revision: 'resource-1', scene_id: 'SC1', scene_version_id: 'SV1', snapshot_hash: hash });
-const receipt = (operation = 'SUBMIT_ANALYSIS', object_type = 'RUN') => ({ request_id: 'R1', operation, actor_id: 'actual-user', task_id: 'T1', object_type,
+const receipt = (operation: Operation = 'SUBMIT_ANALYSIS', object_type: WriteReceipt['object_type'] = 'RUN'): WriteReceipt => ({ request_id: 'R1', operation, actor_id: 'actual-user', task_id: 'T1', object_type,
   object_id: object_type === 'RUN' ? 'RUN1' : 'AD1', accepted_version: 1, changed: true, status: 'ACCEPTED', source_hash: hash, data_origin: 'SYNTHETIC_INTEGRATION', accepted_at: stamp });
-const progress = () => ({ run_id: 'RUN1', task_id: 'T1', scene_id: 'SC1', scene_version_id: 'SV1', plan_id: 'P1', plan_version: 'V1', resource_revision: 'resource-1', run_version: 2,
+const progress = (): RunProgress => ({ run_id: 'RUN1', task_id: 'T1', scene_id: 'SC1', scene_version_id: 'SV1', plan_id: 'P1', plan_version: 'V1', resource_revision: 'resource-1', run_version: 2,
   state: 'RUNNING', progress: 30, phase: '计算阶段', cancel_requested: false, error: null, source_hash: hash, source_state: { state: 'CURRENT', reasons: [] }, data_origin: 'SYNTHETIC_INTEGRATION', started_at: stamp, updated_at: stamp });
-const context = () => ({ task_id: 'T1', resource_revision: 'resource-1', source_options: [], scene_count: 0, run_count: 0, active_run_ids: [], data_origin: 'SYNTHETIC_INTEGRATION', interference_sources: [],
-  capabilities: Object.fromEntries(['scene_save', 'analyze', 'cancel', 'preview', 'adopt_replan'].map(key => [key, { enabled: false, reasons: ['没有来源'] }])) });
-const preview = () => ({ run_id: 'RUN1', measure_id: 'CM1', run_version: 2, source_hash: hash, preview_hash: hash, before_configuration: {}, proposed_changes: {}, impact_after: null, metrics: null, available: true, unavailable_reasons: [] });
+const context = (): WorkbenchContext => ({ task_id: 'T1', resource_revision: 'resource-1', source_options: [], scene_count: 0, run_count: 0, active_run_ids: [], data_origin: 'SYNTHETIC_INTEGRATION', interference_sources: [],
+  capabilities: { scene_save: { enabled: false, reasons: ['没有来源'] }, analyze: { enabled: false, reasons: ['没有来源'] },
+    cancel: { enabled: false, reasons: ['没有来源'] }, preview: { enabled: false, reasons: ['没有来源'] }, adopt_replan: { enabled: false, reasons: ['没有来源'] } } });
+const preview = (): MeasurePreview => ({ run_id: 'RUN1', measure_id: 'CM1', run_version: 2, source_hash: hash, preview_hash: hash, before_configuration: {}, proposed_changes: {}, impact_after: null, metrics: null, available: true, unavailable_reasons: [] });
 function deferred() { let resolve!: (value: unknown) => void; const promise = new Promise<unknown>(done => { resolve = done; }); return { promise, resolve }; }
 function setup(result: unknown) { const transport = vi.fn(async (_path: string, _init?: RequestInit) => result); return { transport, api: createInterferenceWorkbenchHttp(transport as AuthenticatedRequest) }; }
 

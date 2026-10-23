@@ -1,17 +1,20 @@
-import { computed, ref, watch } from 'vue';
+import { computed, markRaw, ref, shallowRef, watch, type Raw } from 'vue';
 import { defineStore } from 'pinia';
 import { randomUuid } from '../services/random-uuid';
 import { ApiError } from '../services/types';
 import { useAuthStore } from './auth';
 import type { InterferenceSceneDetail, InterferenceScenePage, InterferenceSceneReceipt, InterferenceSceneSave, InterferenceSceneServices } from '../types/interference-scene';
 import type { AdoptionDetail, InterferenceWorkbenchServices, MapProjection, MeasurePreview, Operation, Page,
-  RunDetail, RunProgress, SourceOption, TaskContext, WorkbenchContext, WriteReceipt } from '../types/interference-workbench';
+  Impact, Measure, RunDetail, RunProgress, SourceOption, TaskContext, WorkbenchContext, WriteReceipt } from '../types/interference-workbench';
 import type { SceneJsonObject } from '../types/interference-scene';
 
 const activeStates = ['PENDING', 'RUNNING', 'CANCEL_REQUESTED'];
 type PendingWrite = { request_id: string; task_id: string; operation: Operation; body: object; pathId?: string };
 type Services = { workbench: InterferenceWorkbenchServices; scenes: InterferenceSceneServices };
 const copy = <T>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
+type FrozenDto<T extends object> = Readonly<Raw<T>>;
+// 服务DTO只整体替换：克隆隔离调用者，浅冻结根对象，Raw阻止Pinia递归解包JSON。
+const frozenDto = <T extends object>(value: T): FrozenDto<T> => Object.freeze(markRaw(copy(value)));
 
 // 数据库场景、运行、采纳分别管理；未接服务时没有构造演示或隐式成功回退。
 export const useInterferenceStore = defineStore('interference', () => {
@@ -21,8 +24,8 @@ export const useInterferenceStore = defineStore('interference', () => {
   let timer: ReturnType<typeof setTimeout> | undefined;
   const taskContext = ref<TaskContext | null>(null), context = ref<WorkbenchContext | null>(null);
   const sourceDirectory = ref<Page<SourceOption> | null>(null), sourceSearch = ref('');
-  const selected = ref<RunDetail | null>(null), preview = ref<MeasurePreview | null>(null);
-  const scene = ref<InterferenceSceneDetail | null>(null), scenes = ref<InterferenceScenePage | null>(null);
+  const selected = shallowRef<FrozenDto<RunDetail> | null>(null), preview = shallowRef<FrozenDto<MeasurePreview> | null>(null);
+  const scene = shallowRef<FrozenDto<InterferenceSceneDetail> | null>(null), scenes = ref<InterferenceScenePage | null>(null);
   const sceneVersions = ref<InterferenceScenePage | null>(null);
   const draft = ref({ sceneId: '', name: '', note: '', interferenceIds: [] as string[] });
   const baselineDraft = ref(''), pendingScene = ref<InterferenceSceneSave | null>(null);
@@ -42,19 +45,26 @@ export const useInterferenceStore = defineStore('interference', () => {
   const dirty = computed(() => JSON.stringify(draft.value) !== baselineDraft.value);
   const running = computed(() => !!context.value?.active_run_ids.length || !!selected.value && activeStates.includes(selected.value.state));
   const analysisId = computed(() => selected.value?.run_id ?? '');
-  const measure = computed(() => selected.value?.result?.measures.find(row => row.measure_id === measureId.value) ?? null);
+  const measure = computed<FrozenDto<Measure> | null>(() => {
+    const value = selected.value?.result?.measures.find(row => row.measure_id === measureId.value);
+    return value ? frozenDto(value) : null;
+  });
   const selectedMeasurePreview = computed(() => preview.value);
   const previewUnavailableReason = computed(() => !measure.value ? '' : previewLoading.value ? '预览查询中'
     : !preview.value ? '尚未取得此措施的冻结预览' : !preview.value.available ? preview.value.unavailable_reasons.join('；')
     : !preview.value.impact_after ? '未提供措施后影响，保留措施前状态' : '');
   const canPreviewAfter = computed(() => !!preview.value?.available && !!preview.value.impact_after && !previewUnavailableReason.value);
   const effectiveAfter = computed(() => after.value && canPreviewAfter.value);
-  const impact = computed(() => effectiveAfter.value ? preview.value!.impact_after : selected.value?.result ?? null);
-  const filteredImpact = computed(() => impact.value ? { ...impact.value,
+  const impact = computed<FrozenDto<Impact> | null>(() => {
+    const value = effectiveAfter.value ? preview.value!.impact_after : selected.value?.result;
+    return value ? frozenDto({ affected_nodes: value.affected_nodes, affected_links: value.affected_links,
+      affected_area: value.affected_area, summary: value.summary }) : null;
+  });
+  const filteredImpact = computed<FrozenDto<Impact> | null>(() => impact.value ? frozenDto({ ...impact.value,
     affected_nodes: impact.value.affected_nodes.filter(row => levels.value.includes(row.level)),
     affected_links: impact.value.affected_links.filter(row => levels.value.includes(row.level)),
-  } : null);
-  const mapProjection = computed<MapProjection | null>(() => {
+  }) : null);
+  const mapProjection = computed<FrozenDto<MapProjection> | null>(() => {
     const run = selected.value, effect = filteredImpact.value;
     if (!run || !effect) return null;
     const detail = copy(run.source.planSnapshot.rawSnapshot.detail) as SceneJsonObject;
@@ -64,9 +74,9 @@ export const useInterferenceStore = defineStore('interference', () => {
       const node = nodes.find(row => row.node_id === target.node_id);
       if (node) { node.lon = values.to_lon ?? null; node.lat = values.to_lat ?? null; }
     }
-    return { taskId: run.task_id, planId: run.plan_id, sceneVersionId: run.scene_version_id, runId: run.run_id,
+    return frozenDto<MapProjection>({ taskId: run.task_id, planId: run.plan_id, sceneVersionId: run.scene_version_id, runId: run.run_id,
       sourceHash: run.source_hash, phase: effectiveAfter.value ? 'PREVIEW' : 'BEFORE', nodes, links,
-      sources: copy(run.source.interferenceSources.map(row => row.sourceRow)), impact: copy(effect) };
+      sources: copy(run.source.interferenceSources.map(row => row.sourceRow)), impact: copy(effect) });
   });
   const selectedSource = computed(() => context.value?.source_options.find(row => row.plan_id === taskContext.value?.planId
     && row.task_id === taskContext.value?.taskId && row.plan_version === taskContext.value?.planVersion) ?? null);
@@ -156,7 +166,7 @@ export const useInterferenceStore = defineStore('interference', () => {
     const target = taskContext.value; if (!target || !await prepareLeave()) return;
     invalidate(); preview.value = null;
     await read('scene', () => api().scenes.getScene({ taskId: target.taskId, sceneId: chosen.sceneId, versionId: chosen.versionId }), value => {
-      scene.value = value; resetDraft(); notice.value = value.sourceState.state === 'CURRENT' ? '' : '正在查看冻结历史来源';
+      scene.value = frozenDto(value); resetDraft(); notice.value = value.sourceState.state === 'CURRENT' ? '' : '正在查看冻结历史来源';
     });
     schedule();
   }
@@ -167,7 +177,7 @@ export const useInterferenceStore = defineStore('interference', () => {
   async function acceptScene(receipt: InterferenceSceneReceipt, isCurrent: () => boolean) {
     const loaded = await api().scenes.getScene({ sceneId: receipt.sceneId, versionId: receipt.versionId, taskId: receipt.taskId });
     if (!isCurrent()) return;
-    scene.value = loaded; lastSceneReceipt.value = receipt; resetDraft(); pendingScene.value = null; notice.value = '场景版本已保存；尚未提交分析';
+    scene.value = frozenDto(loaded); lastSceneReceipt.value = receipt; resetDraft(); pendingScene.value = null; notice.value = '场景版本已保存；尚未提交分析';
     await loadScenes();
   }
   async function saveScene() {
@@ -250,7 +260,7 @@ export const useInterferenceStore = defineStore('interference', () => {
     previewSerial++; previewLoading.value = false; delete queryErrors.value.preview;
     preview.value = null; after.value = false; measureId.value = '';
     await read('run', signal => api().workbench.getRun({ task_id: target.taskId, run_id: runId }, signal), value => {
-      selected.value = value; adoptions.value = [...value.adoptions]; historyOpen.value = false;
+      selected.value = frozenDto(value); adoptions.value = [...value.adoptions]; historyOpen.value = false;
     }); schedule();
   }
   async function loadMeasurePreview(id: string) {
@@ -260,7 +270,7 @@ export const useInterferenceStore = defineStore('interference', () => {
     await read('preview', signal => api().workbench.getPreview({ task_id: run.task_id, run_id: run.run_id, measure_id: id, expected_run_version: run.run_version }, signal), value => {
       const item = run.result?.measures.find(row => row.measure_id === id);
       if (selected.value?.run_id === run.run_id && measureId.value === id && item
-          && value.source_hash === run.source_hash && value.preview_hash === item.preview_hash) preview.value = value;
+          && value.source_hash === run.source_hash && value.preview_hash === item.preview_hash) preview.value = frozenDto(value);
       else throw new Error('措施预览来源不一致');
     });
     if (generation === epoch && number === previewSerial) previewLoading.value = false;
@@ -289,7 +299,7 @@ export const useInterferenceStore = defineStore('interference', () => {
   async function query() {
     if (!readable.value || busy.value) { schedule(); return; }
     const run = selected.value;
-    if (run && activeStates.includes(run.state)) await read('run', signal => api().workbench.getRun({ task_id: run.task_id, run_id: run.run_id }, signal), value => { selected.value = value; });
+    if (run && activeStates.includes(run.state)) await read('run', signal => api().workbench.getRun({ task_id: run.task_id, run_id: run.run_id }, signal), value => { selected.value = frozenDto(value); });
     const rows = adoptions.value.filter(row => activeStates.includes(row.state));
     for (const row of rows) await read('adoption:' + row.adoption_id, signal => api().workbench.getAdoption({ task_id: row.task_id, adoption_id: row.adoption_id }, signal), value => {
       const index = adoptions.value.findIndex(item => item.adoption_id === value.adoption_id); if (index >= 0) adoptions.value[index] = value;

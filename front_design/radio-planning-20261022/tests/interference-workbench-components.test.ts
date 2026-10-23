@@ -16,11 +16,21 @@ beforeAll(async () => { for (const [component, name] of [[Panel, 'InterferenceAn
 beforeEach(() => { vi.stubGlobal('window', { confirm: vi.fn(() => false) }); vi.stubGlobal('document', { activeElement: null }); pinia = createPinia(); setActivePinia(pinia); authorizeStore(); });
 afterEach(() => { app?.unmount(); app = undefined; disposePinia(pinia); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 function mount(component: Parameters<typeof h>[0], props = {}) { app = renderer.createApp({ render: () => h(component, props) }); app.use(pinia); app.provide(ssrContextKey, { modules: new Set() }); const root = node('root'); app.mount(root); return root; }
-function successful() {
-  return { run_id: 'RUN1', state: 'SUCCESS', progress: 100, source_hash: 'a'.repeat(64), source_state: { state: 'CURRENT', reasons: [] }, plan_id: 'P1', plan_version: 'V1', data_origin: 'SYNTHETIC_INTEGRATION', adoptions: [],
-    source: { name: '场景', versionNo: 1, planSnapshot: { rawSnapshot: { detail: { nodes: [], links: [] } } } },
-    result: { measures: [{ measure_id: 'CM1', type: 'POWER_OPT', title: '功率措施', detail: '拟调整设备', risk: '预测', available: true, unavailable_reasons: [] }], affected_nodes: [], affected_links: [], notes: [], unresolved: [], measure_review: [], parameter_substitutions: [], summary: { affected_nodes: 0, affected_links: 0 } },
-    adoption_capabilities: { POWER_OPT: { enabled: false, reasons: ['共享冻结重算桥未接'] } } } as unknown as RunDetail;
+function successful(): RunDetail {
+  const hash = 'a'.repeat(64), stamp = '2026-10-23T08:00:00Z';
+  return { run_id: 'RUN1', task_id: 'T1', scene_id: 'SC1', scene_version_id: 'SV1', resource_revision: 'RES1',
+    run_version: 1, phase: '分析完成', cancel_requested: false, error: null, result_hash: hash, started_at: stamp, updated_at: stamp,
+    state: 'SUCCESS', progress: 100, source_hash: hash, source_state: { state: 'CURRENT', reasons: [] }, plan_id: 'P1', plan_version: 'V1', data_origin: 'SYNTHETIC_INTEGRATION', adoptions: [],
+    source: { sceneId: 'SC1', taskId: 'T1', versionId: 'SV1', name: '场景', note: '', versionNo: 1, planId: 'P1', planVersion: 'V1',
+      schemaVersion: 1, resourceRevision: 'RES1', sourceCount: 0, snapshotHash: hash, dataOrigin: 'SYNTHETIC_INTEGRATION', savedAt: stamp,
+      previousVersionId: null, savedBy: 'u1', resourceContentHash: hash, source: 'SR4', interferenceIds: [], interferenceSources: [],
+      planSnapshot: { taskId: 'T1', planId: 'P1', planVersion: 'V1', inputVersion: 'I1', conditionVersion: 'C1', resourceRevision: 'RES1', source: 'SR4', inputSnapshot: {}, rawSnapshot: { detail: { nodes: [], links: [] } } } },
+    result: { analysis_id: 'RUN1', measures: [{ measure_id: 'CM1', type: 'POWER_OPT', target_node_id: null, target_link_id: 'L1', priority: 1,
+      change_set: {}, preview_hash: hash, pre_eval: null, restores: false, title: '功率措施', detail: '拟调整设备', risk: '预测', available: true, unavailable_reasons: [] }],
+      affected_nodes: [], affected_links: [], affected_area: {}, notes: [], unresolved: [], measure_review: [], parameter_substitutions: [],
+      summary: { links: 0, jammers: 0, affected_nodes: 0, affected_links: 0, by_level: { SEVERE: 0, MODERATE: 0, MINOR: 0 } } },
+    adoption_capabilities: { FREQ_ADJUST: { enabled: false, reasons: [] }, CHANNEL_SWITCH: { enabled: false, reasons: [] },
+      POWER_OPT: { enabled: false, reasons: ['共享冻结重算桥未接'] }, ROUTE_REBUILD: { enabled: false, reasons: [] }, NODE_REDEPLOY: { enabled: false, reasons: [] } } };
 }
 
 describe('专用干扰组件，不替代GIS宿主页验收', () => {
@@ -37,7 +47,11 @@ describe('专用干扰组件，不替代GIS宿主页验收', () => {
   });
   it('取消请求和真实参考方案分开显示，只有保存后才发openPlan', async () => {
     const store = useInterferenceStore(); store.selected = successful(); store.measureId = 'CM1'; store.measureOpen = true;
-    store.adoptions = [{ adoption_id: 'AD1', task_id: 'T1', run_id: 'RUN1', measure_id: 'CM1', state: 'CANCEL_REQUESTED', planning_job_id: 'JOB1', planning_state: 'RUNNING', planning_progress: 40, result_plan_id: null, error: null } as AdoptionDetail];
+    const adoption: AdoptionDetail = { adoption_id: 'AD1', task_id: 'T1', run_id: 'RUN1', measure_id: 'CM1', adoption_version: 1,
+      source_hash: 'a'.repeat(64), source_state: { state: 'CURRENT', reasons: [] }, planning_request_id: 'child-key', result_plan_state: null,
+      created_at: '2026-10-23T08:00:00Z', updated_at: '2026-10-23T08:00:00Z', data_origin: 'SYNTHETIC_INTEGRATION',
+      state: 'CANCEL_REQUESTED', planning_job_id: 'JOB1', planning_state: 'RUNNING', planning_progress: 40, result_plan_id: null, error: null };
+    store.adoptions = [adoption];
     const opened = vi.fn(), root = mount(MeasureDrawer, { onOpenPlan: opened }); expect(textOf(root)).toContain('尚未确认停止'); expect(textOf(root)).not.toContain('打开重算方案');
     store.adoptions[0] = { ...store.adoptions[0]!, state: 'SUCCESS', result_plan_id: 'P2', result_plan_state: 'REFERENCE', planning_state: 'SUCCESS' }; await nextTick();
     expect(textOf(root)).toContain('未达标参考方案'); const button = find(root, row => row.tag === 'button' && textOf(row) === '打开重算方案'); (button!.props.onClick as () => void)(); expect(opened).toHaveBeenCalledWith('P2');

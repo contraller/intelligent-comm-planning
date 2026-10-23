@@ -10,15 +10,25 @@ import type { RunDetail } from '../src/types/interference-workbench';
 // 仅测专用导航与冻结目标；SituationView/MapCanvas整页接线由P02单点验收。
 const hash = 'a'.repeat(64);
 function frozen(): RunDetail {
-  return { run_id: 'RUN1', task_id: 'T1', plan_id: 'P1', scene_version_id: 'SV1', source_hash: hash, state: 'SUCCESS', adoptions: [],
-    source: { interferenceSources: [], planSnapshot: { rawSnapshot: { detail: {
+  const stamp = '2026-10-23T08:00:00Z';
+  return { run_id: 'RUN1', task_id: 'T1', plan_id: 'P1', scene_id: 'SC1', scene_version_id: 'SV1', source_hash: hash, state: 'SUCCESS', adoptions: [],
+    plan_version: 'V1', resource_revision: 'RES1', run_version: 1, progress: 100, phase: '分析完成', cancel_requested: false, error: null,
+    source_state: { state: 'CURRENT', reasons: [] }, data_origin: 'SYNTHETIC_INTEGRATION', started_at: stamp, updated_at: stamp, result_hash: hash,
+    adoption_capabilities: { FREQ_ADJUST: { enabled: false, reasons: [] }, CHANNEL_SWITCH: { enabled: false, reasons: [] }, POWER_OPT: { enabled: false, reasons: [] },
+      ROUTE_REBUILD: { enabled: false, reasons: [] }, NODE_REDEPLOY: { enabled: false, reasons: [] } },
+    source: { sceneId: 'SC1', taskId: 'T1', versionId: 'SV1', name: '场景', note: '', versionNo: 1, planId: 'P1', planVersion: 'V1', schemaVersion: 1,
+      resourceRevision: 'RES1', sourceCount: 0, snapshotHash: hash, dataOrigin: 'SYNTHETIC_INTEGRATION', savedAt: stamp, previousVersionId: null,
+      savedBy: 'u1', resourceContentHash: hash, source: 'SR4', interferenceIds: [], interferenceSources: [],
+      planSnapshot: { taskId: 'T1', planId: 'P1', planVersion: 'V1', inputVersion: 'I1', conditionVersion: 'C1', resourceRevision: 'RES1', source: 'SR4', inputSnapshot: {}, rawSnapshot: { detail: {
       nodes: [{ node_id: 'N1', lon: '114', lat: '38' }, { node_id: 'N2', lon: '114.01', lat: '38' }],
       links: [{ link_id: 'L1', node_a_id: 'N1', node_b_id: 'N2' }],
     } } } },
-    result: { affected_nodes: [], affected_links: [], affected_area: {}, summary: { affected_nodes: 0, affected_links: 0 },
+    result: { analysis_id: 'RUN1', affected_nodes: [], affected_links: [], affected_area: {}, summary: { links: 1, jammers: 0, affected_nodes: 0, affected_links: 0, by_level: { SEVERE: 0, MODERATE: 0, MINOR: 0 } },
+      notes: [], unresolved: [], measure_review: [], parameter_substitutions: [],
       measures: [{ measure_id: 'CM1', type: 'NODE_REDEPLOY', target_node_id: 'N1', target_link_id: 'L1',
+        priority: 1, title: '迁移', detail: '', risk: '预测', available: true, unavailable_reasons: [], preview_hash: hash, pre_eval: null, restores: false,
         change_set: { type: 'NODE_REDEPLOY', target: { node_id: 'N1' }, detail: { to_lon: 114.02, to_lat: 38.01 } } }] },
-  } as unknown as RunDetail;
+  };
 }
 let pinia: ReturnType<typeof createPinia>, app: App | undefined;
 beforeEach(() => { vi.stubGlobal('window', { confirm: vi.fn(() => false) }); pinia = createPinia(); setActivePinia(pinia); authorizeStore(); });
@@ -48,7 +58,8 @@ describe('数据库冻结目标导航', () => {
   });
   it('缺冻结坐标或链路端点不能回查当前台账补齐', async () => {
     const { store, navigation, locate } = setup();
-    store.selected!.source.planSnapshot.rawSnapshot.detail = { nodes: [{ node_id: 'N1', lon: null, lat: '38' }], links: [{ link_id: 'L1', node_a_id: 'N1', node_b_id: 'N2' }] };
+    const value = frozen(); value.source.planSnapshot.rawSnapshot.detail = { nodes: [{ node_id: 'N1', lon: null, lat: '38' }], links: [{ link_id: 'L1', node_a_id: 'N1', node_b_id: 'N2' }] };
+    store.selected = value;
     expect(navigation.list.value[0]!.targets.every(target => !!target.reason)).toBe(true);
     await navigation.list.value[0]!.targets[1]!.locate(); expect(locate).not.toHaveBeenCalled();
   });
