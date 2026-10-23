@@ -39,6 +39,12 @@ function service(value: unknown) {
   const request = vi.fn<AuthenticatedRequest>().mockResolvedValue(value);
   return { request, api: createDeviceConfigurationHttp(request) };
 }
+function deferredService() {
+  let resolve!: (value: unknown) => void;
+  const response = new Promise<unknown>(done => { resolve = done; });
+  const request = vi.fn<AuthenticatedRequest>().mockReturnValue(response);
+  return { request, api: createDeviceConfigurationHttp(request), resolve };
+}
 
 describe('P06 system acceptance HTTP contract', () => {
   it('loads version-bound context and preserves unknown source and protocol fields', async () => {
@@ -118,6 +124,65 @@ describe('P06 system acceptance HTTP contract', () => {
     s.request.mockRejectedValue(new ApiError('rejected', code, null, 'trace-1', 409));
     await expect(s.api.submitRequest(input())).rejects.toMatchObject({ code: mapped, requestId: 'trace-1', status: 409 });
     expect(s.request).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('P06 captures the request before awaiting a response', () => {
+  const changedRevision = 'resource-2222222222222222';
+  function changedContext(): ConfigurationAcceptanceContext {
+    const c = context();
+    return { ...c, resource_revision: changedRevision, device: { ...c.device, device_id: 'DV-2', model_id: 'DM-2' },
+      model: { ...c.model, model_id: 'DM-2' } };
+  }
+  async function assertResponse(pending: Promise<unknown>, changedResponse: boolean, original: unknown) {
+    if (changedResponse) await expect(pending).rejects.toMatchObject({ code: 'INVALID_CONFIGURATION_RESPONSE' });
+    else await expect(pending).resolves.toEqual(original);
+  }
+  it.each([false, true])('binds context to the original device and revision, changed response=%s', async changedResponse => {
+    const s = deferredService(), query = { context: 'ledger' as const, device_id: 'DV-1', revision };
+    const pending = s.api.loadContext(query);
+    query.device_id = 'DV-2'; query.revision = changedRevision;
+    s.resolve(changedResponse ? changedContext() : context());
+    await assertResponse(pending, changedResponse, context());
+    expect(s.request.mock.calls[0]![0]).toBe('/device-configurations/context?context=ledger&device_id=DV-1&revision=' + revision);
+  });
+  it.each([false, true])('binds validation body and nested values to one snapshot, changed response=%s', async changedResponse => {
+    const s = deferredService(), { request_id: _, ...request } = input(), original = structuredClone(request);
+    const pending = s.api.validateRequest(request);
+    request.device_id = 'DV-2'; request.model_id = 'DM-2'; request.base_revision = changedRevision;
+    request.values.tx_power_dbm = 31; request.values.work_freq_khz = 4000;
+    const originalResponse = { valid: true, context: context(), requested_values: original.values };
+    s.resolve(changedResponse ? { valid: true, context: changedContext(), requested_values: { ...request.values } } : originalResponse);
+    await assertResponse(pending, changedResponse, originalResponse);
+    expect(JSON.parse(s.request.mock.calls[0]![1]!.body as string)).toEqual(original);
+  });
+  it.each([false, true])('binds submit identity and values after mutation or replacement, changed response=%s', async changedResponse => {
+    const s = deferredService(), request = input(), original = structuredClone(request), nested = request.values;
+    const pending = s.api.submitRequest(request);
+    nested.tx_power_dbm = 31; nested.work_freq_khz = 4000;
+    request.values = { ...nested }; request.request_id = 'request-2'; request.device_id = 'DV-2';
+    request.model_id = 'DM-2'; request.base_revision = changedRevision;
+    const c = changedContext();
+    s.resolve(changedResponse ? { ...acceptance(), request_id: request.request_id, device_id: request.device_id, model_id: request.model_id,
+      base_revision: changedRevision, requested_values: { ...request.values }, device_snapshot: c.device, model_constraints: c.model } : acceptance());
+    await assertResponse(pending, changedResponse, acceptance());
+    expect(JSON.parse(s.request.mock.calls[0]![1]!.body as string)).toEqual(original);
+  });
+  it.each([false, true])('binds detail lookup to the original request id, changed response=%s', async changedResponse => {
+    const s = deferredService(), query = { context: 'ledger' as const, request_id: 'request-1' };
+    const pending = s.api.getRequest(query);
+    query.request_id = 'request-2';
+    s.resolve(changedResponse ? { ...acceptance(), request_id: 'request-2' } : acceptance());
+    await assertResponse(pending, changedResponse, acceptance());
+    expect(s.request.mock.calls[0]![0]).toBe('/device-configurations/request-1?context=ledger');
+  });
+  it.each([false, true])('binds history filters and pagination to their original values, changed response=%s', async changedResponse => {
+    const s = deferredService(), query = { context: 'ledger' as const, device_id: 'DV-1', page: 1, page_size: 20 };
+    const pending = s.api.queryHistory(query);
+    query.device_id = 'DV-2'; query.page = 2; query.page_size = 1;
+    s.resolve(changedResponse ? { ...history(), total: 2, page: 2, page_size: 1, items: [{ ...history().items[0]!, device_id: 'DV-2' }] } : history());
+    await assertResponse(pending, changedResponse, history());
+    expect(s.request.mock.calls[0]![0]).toBe('/device-configurations/history?context=ledger&page=1&page_size=20&device_id=DV-1');
   });
 });
 

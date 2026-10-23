@@ -19,28 +19,34 @@ export function createDeviceConfigurationHttp(request: AuthenticatedRequest) {
       throw new ApiError(error.message, code, error.data, error.requestId, error.status);
     }
   }
+  // 传输与响应绑定使用同一请求副本，页面后续编辑不改变本次期望。
   return {
     async loadContext(input: ConfigurationContextQuery) {
       configurationContextQuery(input);
-      return readConfigurationContext(await call('/device-configurations/context?' + new URLSearchParams({ ...input })), input);
+      const captured = { ...input };
+      return readConfigurationContext(await call('/device-configurations/context?' + new URLSearchParams(captured)), captured);
     },
     async validateRequest(input: ConfigurationRequestInput) {
       configurationRequestInput(input);
-      return readConfigurationValidation(await call('/device-configurations/validate', { method: 'POST', body: JSON.stringify(input) }), input);
+      const captured = { ...input, values: { ...input.values } };
+      return readConfigurationValidation(await call('/device-configurations/validate', { method: 'POST', body: JSON.stringify(captured) }), captured);
     },
     async submitRequest(input: ConfigurationSubmissionInput) {
       configurationRequestInput(input, true);
-      return readConfigurationAcceptance(await call('/device-configurations', { method: 'POST', body: JSON.stringify(input) }), input);
+      const captured = { ...input, values: { ...input.values } };
+      return readConfigurationAcceptance(await call('/device-configurations', { method: 'POST', body: JSON.stringify(captured) }), captured);
     },
     async getRequest(input: ConfigurationDetailQuery) {
       configurationDetailQuery(input);
-      return readConfigurationAcceptance(await call('/device-configurations/' + encodeURIComponent(input.request_id) + '?context=ledger'), input);
+      const captured = { ...input };
+      return readConfigurationAcceptance(await call('/device-configurations/' + encodeURIComponent(captured.request_id) + '?context=ledger'), captured);
     },
     async queryHistory(input: ConfigurationHistoryQuery) {
       configurationHistoryQuery(input);
-      const query = new URLSearchParams({ context: input.context, page: String(input.page ?? 1), page_size: String(input.page_size ?? 20) });
-      if (input.device_id !== undefined) query.set('device_id', input.device_id);
-      return readConfigurationHistory(await call('/device-configurations/history?' + query), input);
+      const captured = { ...input };
+      const query = new URLSearchParams({ context: captured.context, page: String(captured.page ?? 1), page_size: String(captured.page_size ?? 20) });
+      if (captured.device_id !== undefined) query.set('device_id', captured.device_id);
+      return readConfigurationHistory(await call('/device-configurations/history?' + query), captured);
     },
   };
 }
