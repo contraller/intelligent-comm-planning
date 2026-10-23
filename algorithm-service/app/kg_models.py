@@ -27,6 +27,7 @@ class KgVersion(Base):
     note: Mapped[str] = mapped_column(Text, nullable=False)
     snapshot: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
     stats: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
+    frontend_metadata: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
 
 
 class KgChange(Base):
@@ -41,6 +42,7 @@ class KgChange(Base):
     note: Mapped[str] = mapped_column(Text, nullable=False)
     created_at: Mapped[float] = mapped_column(Float, nullable=False)
     updated_at: Mapped[float] = mapped_column(Float, nullable=False)
+    frontend_content: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
 
 
 class KgSubmission(Base):
@@ -56,6 +58,7 @@ class KgSubmission(Base):
     outcome: Mapped[str] = mapped_column(String(20), nullable=False)
     reviewer: Mapped[str | None] = mapped_column(String(100))
     opinion: Mapped[str | None] = mapped_column(Text)
+    frontend_content: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
 
 
 class KgReceipt(Base):
@@ -76,3 +79,4 @@ class KgAudit(Base):
     change_id: Mapped[str | None] = mapped_column(String(40))
     version: Mapped[int] = mapped_column(Integer, nullable=False)
     detail: Mapped[str] = mapped_column(Text, nullable=False)
+    identity_snapshot: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)

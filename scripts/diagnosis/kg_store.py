@@ -445,7 +445,7 @@ class KnowledgeGraph:
                         raise ValueError
                 except (ValueError, TypeError):
                     errs.append("第 %d 项门限值无效" % k)
-            elif o.get("op") == "upsert_entity":
+            elif o.get("op") in ("upsert_entity", "edit_entity"):
                 if o.get("entity_type") not in ENTITY_TYPES or not str(o.get("name", "")).strip():
                     errs.append("第 %d 项实体类型或名称无效" % k)
                 if not str(o.get("source", "")).strip():
@@ -458,6 +458,19 @@ class KnowledgeGraph:
                     errs.append("第 %d 项实体属性格式无效" % k)
                 if isinstance(attrs, dict) and {"rule_id", "threshold", "threshold_text"} & attrs.keys():
                     errs.append("第 %d 项链路数值门限只能通过 set_link_rule 修改" % k)
+                if o.get("op") == "edit_entity":
+                    old = self.entities.get(o.get("entity_id"))
+                    duplicate = self.by_key.get(entity_key(o.get("entity_type"), o.get("name")))
+                    if old is None or duplicate not in (None, o.get("entity_id")):
+                        errs.append("第 %d 项实体缺失或名称与既有实体冲突" % k)
+                    if old and old["type"] != o.get("entity_type"):
+                        errs.append("第 %d 项不能更改既有实体的本体类型" % k)
+            elif o.get("op") == "replace_triple":
+                if o.get("triple_id") not in self.triples:
+                    errs.append("第 %d 项三元组不存在" % k)
+                # 替换仍受同一本体和来源校验，不能绕过增量更新的约束。
+                _, nested = copy.deepcopy(self).submit_update([{**o, "op": "add_triple"}], "validation", "validation")
+                errs.extend(nested)
             else:
                 errs.append("第 %d 项操作 %s 不支持" % (k, o.get("op")))
         if errs:
@@ -489,6 +502,10 @@ class KnowledgeGraph:
                                           (o["tail_type"], o["tail"]),
                                           weight=float(o.get("weight", 1.0)),
                                           source=o["source"], graph=o.get("graph", "update"))
+                    if o.get("frontend_id"):
+                        self.triples[tid]["frontend_id"] = o["frontend_id"]
+                    if "display_weight" in o:
+                        self.triples[tid]["display_weight"] = o["display_weight"]
                     applied.append(tid)
                 elif o["op"] == "remove_triple":
                     self.remove_triple(o["triple_id"])
@@ -511,6 +528,32 @@ class KnowledgeGraph:
                     eid = self.add_entity(o["entity_type"], o["name"],
                                           graph=o.get("graph", "update"), attrs=attrs)
                     applied.append(eid)
+                elif o["op"] == "edit_entity":
+                    eid = o["entity_id"]
+                    entity = self.entities[eid]
+                    self.by_key.pop(entity_key(entity["type"], entity["name"]), None)
+                    entity["name"] = o["name"].strip()
+                    entity["attrs"].update(copy.deepcopy(o.get("attrs", {})))
+                    entity["attrs"]["source_doc"] = o["source"]
+                    self.by_key[entity_key(entity["type"], entity["name"])] = eid
+                    applied.append(eid)
+                elif o["op"] == "replace_triple":
+                    old = self.triples[o["triple_id"]]
+                    old_id, frontend_id = old["tid"], old.get("frontend_id")
+                    self.remove_triple(old_id)
+                    new_id = self.add_triple((o["head_type"], o["head"]), o["relation"],
+                        (o["tail_type"], o["tail"]), weight=float(o["weight"]),
+                        source=o["source"], graph=o.get("graph", "update"), merge="replace")
+                    replacement = self.triples.pop(new_id)
+                    replacement["tid"] = old_id
+                    if frontend_id:
+                        replacement["frontend_id"] = frontend_id
+                    if "display_weight" in o:
+                        replacement["display_weight"] = o["display_weight"]
+                    self.triples[old_id] = replacement
+                    self.out[replacement["head"]] = [old_id if t == new_id else t for t in self.out[replacement["head"]]]
+                    self.inn[replacement["tail"]] = [old_id if t == new_id else t for t in self.inn[replacement["tail"]]]
+                    applied.append(old_id)
         except Exception:
             self._restore(before)
             self.versions, self.log = versions_before, log_before

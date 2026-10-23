@@ -2,6 +2,20 @@
 
 本仓库用于保存《短波/超短波智能规划系统》课题组侧资料、算法模块计划、需求草稿和相关文档。
 
+## 当前交付入口
+
+唯一维护的前端为 `front_design/radio-planning-20261022/`。旧前端、旧 HTML 及其专用脚本已移动到 `old_front/`，不再启动或与后端联调；下文历史分工不等于全部能力已交付。
+
+在最新版前端目录执行 `npm run build -- --mode integration`，然后在仓库根目录运行：
+
+```powershell
+$env:DATABASE_URL='sqlite:///F:/work/project2026-1/data/runtime/sr56_integration_20261023.sqlite'
+$env:FRONTEND_INTEGRATION_DEMO='1'
+.\.venv\Scripts\python.exe scripts/serve_delivery.py --port 5183
+```
+
+访问 `http://127.0.0.1:5183/#/situation`。数据库地址必须指向已有数据库；启动入口不迁移、不重置、不替换库。首次部署的迁移及环境配置见新版 `README.integration.md`。联调身份、构造数据不能当作正式认证或真实设备接入。
+
 ## 项目目标
 
 系统整体目标是建设一套面向短波/超短波通信网络的综合管控平台，覆盖设备孪生建模、智能网络规划、知识图谱、综合态势和故障诊断。

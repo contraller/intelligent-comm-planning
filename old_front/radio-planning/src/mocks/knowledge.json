@@ -1,0 +1,146 @@
+{
+  "entities": [
+    {
+      "id": "KE-1",
+      "name": "短波通信设备",
+      "category": "设备知识",
+      "type": "装备类别",
+      "description": "支持短波通信的设备类别，关联设备型号、天线及链路能力。",
+      "state": "已发布",
+      "version": "v1.2"
+    },
+    {
+      "id": "KE-2",
+      "name": "功率放大模块",
+      "category": "设备知识",
+      "type": "设备部件",
+      "description": "短波设备的发射功率放大部件。",
+      "state": "已发布",
+      "version": "v1.2"
+    },
+    {
+      "id": "KE-3",
+      "name": "短波天线",
+      "category": "设备知识",
+      "type": "附属部件",
+      "description": "用于短波信号辐射与接收的天线。",
+      "state": "已发布",
+      "version": "v1.2"
+    },
+    {
+      "id": "KE-4",
+      "name": "功放过温",
+      "category": "故障运维知识",
+      "type": "故障现象",
+      "description": "预设遥测中温度超过阈值的故障现象。规则仅作数据展示。",
+      "state": "已发布",
+      "version": "v1.1"
+    },
+    {
+      "id": "KE-5",
+      "name": "链路中断",
+      "category": "故障运维知识",
+      "type": "业务影响",
+      "description": "链路不可用导致通信业务中断。",
+      "state": "已发布",
+      "version": "v1.1"
+    },
+    {
+      "id": "KE-6",
+      "name": "散热检查",
+      "category": "故障运维知识",
+      "type": "处置建议",
+      "description": "核查散热通道和设备工作环境，由人员处理。",
+      "state": "待审核",
+      "version": "草稿"
+    },
+    {
+      "id": "KE-7",
+      "name": "区域通信网络",
+      "category": "网络态势知识",
+      "type": "网络",
+      "description": "太行山地区域通信网络，关联关键节点与备份链路。",
+      "state": "已发布",
+      "version": "v1.0"
+    },
+    {
+      "id": "KE-8",
+      "name": "关键节点",
+      "category": "网络态势知识",
+      "type": "节点",
+      "description": "承担重点通信保障任务的节点。",
+      "state": "已发布",
+      "version": "v1.0"
+    },
+    {
+      "id": "KE-9",
+      "name": "备份链路",
+      "category": "网络态势知识",
+      "type": "保障措施",
+      "description": "预设方案中的备用通信链路。",
+      "state": "草稿",
+      "version": "草稿"
+    }
+  ],
+  "relations": [
+    {
+      "id": "KR-1",
+      "source": "KE-1",
+      "target": "KE-2",
+      "label": "包含"
+    },
+    {
+      "id": "KR-2",
+      "source": "KE-1",
+      "target": "KE-3",
+      "label": "连接"
+    },
+    {
+      "id": "KR-3",
+      "source": "KE-4",
+      "target": "KE-5",
+      "label": "可能导致"
+    },
+    {
+      "id": "KR-4",
+      "source": "KE-4",
+      "target": "KE-6",
+      "label": "建议"
+    },
+    {
+      "id": "KR-5",
+      "source": "KE-7",
+      "target": "KE-8",
+      "label": "包含"
+    },
+    {
+      "id": "KR-6",
+      "source": "KE-7",
+      "target": "KE-9",
+      "label": "采用"
+    }
+  ],
+  "versions": [
+    {
+      "id": "KV-12",
+      "name": "装备关系补充",
+      "state": "已发布",
+      "author": "知识管理员",
+      "time": "2026-10-02 16:20"
+    },
+    {
+      "id": "KV-11",
+      "name": "散热检查建议",
+      "state": "待审核",
+      "author": "教员",
+      "time": "2026-10-03 09:00"
+    },
+    {
+      "id": "KV-10",
+      "name": "网络态势基础版本",
+      "state": "历史版本",
+      "author": "知识管理员",
+      "time": "2026-09-28 14:30"
+    }
+  ]
+}

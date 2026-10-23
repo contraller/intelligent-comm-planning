@@ -16,6 +16,15 @@ from .fault import (archive_scenario, create_report, create_scenario, delete_sce
                     validate_scenario)
 from .fault_plan_source import FaultPlanSourceError, list_plan_sources
 from . import frontend_integration
+from . import resource_dataset_service as resource_dataset
+from . import resource_maintenance_service
+from .resource_maintenance_schemas import (AvailabilityChange, AvailabilityPreview,
+    ResourceDeviceChanges, ResourceMaintenanceQuery)
+from . import gis_frontend_service
+from . import integration_identity_service as integration_identity
+from . import fault_frontend_service, kg_frontend_service
+from .fault_frontend_schemas import FaultDraft, FaultMutation, FaultPage
+from .kg_frontend_schemas import KnowledgeMutation, KnowledgePage
 from . import kg
 from . import kg_workflow_service
 from .kg_schemas import KgDraftRequest, KgTransitionRequest
@@ -64,6 +73,217 @@ except ImportError as exc:  # pragma: no cover - exercised only without runtime 
 app = FastAPI(title="短波/超短波智能规划算法服务", version="0.1.0")
 
 
+def _frontend_workbench_call(response: Response, operation):
+    try:
+        data = operation()
+        return data if isinstance(data, Response) else {"code": 0, "message": "success", "data": data}
+    except (integration_identity.IdentityError, FaultPlanSourceError, KgWorkflowError, gis_frontend_service.GisReadError, resource_dataset.ResourceDatasetError) as exc:
+        response.status_code = exc.status
+        return {"code": exc.code, "message": str(exc), "data": None}
+    except ValidationError as exc:
+        response.status_code = 422
+        return {"code": 1001, "message": "页面请求字段无效", "data": [
+            {"field": ".".join(map(str, e["loc"])), "message": e["msg"]} for e in exc.errors()]}
+    except fault_frontend_service.fault.FaultInputError as exc:
+        response.status_code = 422
+        return {"code": exc.code, "message": str(exc), "data": exc.detail}
+    except DatabaseConfigurationError:
+        response.status_code = 503
+        return {"code": 5001, "message": "DATABASE_URL 未配置", "data": None}
+    except SQLAlchemyError:
+        response.status_code = 503
+        return {"code": 5002, "message": "数据库操作失败", "data": None}
+    except (ValueError, TypeError, KeyError) as exc:
+        response.status_code = 422
+        return {"code": 1001, "message": "请求内容无效：" + str(exc), "data": None}
+
+
+@app.middleware("http")
+async def resource_dataset_boundary(request: Request, call_next):
+    # 懒加载同版快照；不使用资源的健康检查、身份等请求不会读取资源库。
+    with resource_dataset.read_scope():
+        return await call_next(request)
+
+
+@app.exception_handler(resource_dataset.ResourceDatasetError)
+async def resource_dataset_error(request: Request, exc):
+    return JSONResponse(status_code=exc.status, content={"code": exc.code, "message": str(exc), "data": None})
+
+
+@app.middleware("http")
+async def integration_workflow_boundary(request: Request, call_next):
+    # 联调模式不能通过旧写入口冒充其他操作者；非联调算法接口保持兼容。
+    path = request.url.path
+    module = "diagnosis" if path.startswith("/api/v1/fault/") else "knowledge" if path.startswith("/api/v1/kg/") else None
+    if module and frontend_integration.integration_enabled() and "/workbench" not in path:
+        try:
+            integration_identity.require(request, module + ".view")
+            if request.method not in ("GET", "HEAD", "OPTIONS"):
+                raise integration_identity.IdentityError("联调写操作请使用新版工作区接口")
+        except integration_identity.IdentityError as exc:
+            return JSONResponse(status_code=exc.status, content={"code": exc.code, "message": str(exc), "data": None})
+    return await call_next(request)
+
+
+@app.get("/api/v1/auth/integration/identities")
+def integration_accounts(request: Request, response: Response):
+    return _frontend_workbench_call(response, lambda: integration_identity.catalog(request))
+
+
+@app.post("/api/v1/auth/integration/switch")
+def integration_switch(payload: dict[str, Any], request: Request, response: Response):
+    def operation():
+        if set(payload) != {"accountId"}:
+            raise integration_identity.IdentityError("只接受 accountId", 1001, 422)
+        return integration_identity.switch(request, response, payload["accountId"])
+    return _frontend_workbench_call(response, operation)
+
+
+@app.get("/api/v1/fault/workbench")
+def fault_workbench_context(request: Request, response: Response):
+    return _frontend_workbench_call(response, lambda: (
+        integration_identity.require(request, "diagnosis.view"), fault_frontend_service.context())[1])
+
+
+@app.get("/api/v1/fault/workbench/sources")
+def fault_workbench_sources(request: Request, response: Response, planId: str | None = None):
+    return _frontend_workbench_call(response, lambda: (
+        integration_identity.require(request, "diagnosis.view"),
+        fault_frontend_service.source_detail(planId) if planId else fault_frontend_service.sources())[1])
+
+
+@app.get("/api/v1/fault/workbench/catalog/{kind}")
+def fault_workbench_catalog(kind: str, request: Request, response: Response):
+    def operation():
+        integration_identity.require(request, "diagnosis.view")
+        if kind not in ("scenarios", "history"):
+            fault_frontend_service.fail("未知目录")
+        return fault_frontend_service.catalog(kind, FaultPage.model_validate(dict(request.query_params)))
+    return _frontend_workbench_call(response, operation)
+
+
+@app.get("/api/v1/fault/workbench/version")
+def fault_workbench_version(scenarioId: str, versionId: str, request: Request, response: Response):
+    return _frontend_workbench_call(response, lambda: (integration_identity.require(request, "diagnosis.view"),
+        fault_frontend_service.scenario_version(scenarioId, versionId))[1])
+
+
+@app.post("/api/v1/fault/workbench/validate")
+def fault_workbench_validate(payload: dict[str, Any], request: Request, response: Response):
+    return _frontend_workbench_call(response, lambda: (integration_identity.require(request, "diagnosis.scenario", writing=True),
+        fault_frontend_service.validate(FaultDraft.model_validate(payload)), [])[2])
+
+
+@app.post("/api/v1/fault/workbench/import-preview")
+def fault_workbench_import(payload: dict[str, Any], request: Request, response: Response):
+    return _frontend_workbench_call(response, lambda: (integration_identity.require(request, "diagnosis.scenario", writing=True),
+        fault_frontend_service.import_preview(payload))[1])
+
+
+@app.post("/api/v1/fault/workbench/actions/{action}")
+def fault_workbench_action(action: str, payload: dict[str, Any], request: Request, response: Response):
+    def operation():
+        permission = {"save": "diagnosis.scenario", "archive": "diagnosis.scenario", "import": "diagnosis.scenario",
+                      "submit": "diagnosis.execute", "impact": "diagnosis.execute", "cancel": "diagnosis.execute", "feedback": "knowledge.edit"}.get(action)
+        if not permission:
+            fault_frontend_service.fail("不支持此工作区操作")
+        identity = integration_identity.require(request, permission, writing=True)
+        if action == "feedback":
+            integration_identity.require(request, "diagnosis.view")
+        return fault_frontend_service.mutate(action, FaultMutation.model_validate(payload), identity)
+    return _frontend_workbench_call(response, operation)
+
+
+@app.get("/api/v1/fault/workbench/runs/{run_id}/{part}")
+def fault_workbench_run(run_id: str, part: str, request: Request, response: Response):
+    def operation():
+        integration_identity.require(request, "diagnosis.view")
+        if part == "report":
+            return fault_frontend_service.report(run_id)
+        data = fault_frontend_service.view(run_id)
+        if part == "progress":
+            return {k: data[k] for k in ("id", "dataOrigin", "state", "progress", "phases", "diagnosisReady", "impactReady", "error", "source", "resultVersion")}
+        if part == "detail":
+            return {k: v for k,v in data.items() if k not in ("result", "id", "resultVersion")}
+        if part == "stage":
+            stage = request.query_params.get("stage")
+            if stage not in ("diagnosis", "impact") or not data["diagnosisReady" if stage == "diagnosis" else "impactReady"]:
+                fault_frontend_service.fail("请求阶段尚未就绪", 2002, 409)
+            if request.query_params.get("resultVersion") != data["resultVersion"]:
+                fault_frontend_service.fail("阶段结果版本已变化，请重新读取", 1203, 409)
+            return data["result"]
+        fault_frontend_service.fail("未知读取分项")
+    return _frontend_workbench_call(response, operation)
+
+
+def _download_response(data, name):
+    content, mime = data
+    return Response(content, media_type=mime, headers={"Content-Disposition": f'attachment; filename="{name}"', "Cache-Control": "no-store"})
+
+
+@app.get("/api/v1/fault/workbench/template")
+def fault_workbench_template(planId: str, format: str, request: Request, response: Response):
+    return _frontend_workbench_call(response, lambda: (integration_identity.require(request, "diagnosis.scenario"),
+        _download_response(fault_frontend_service.template(planId, format), "fault-template."+format))[1])
+
+
+@app.get("/api/v1/fault/workbench/export/{run_id}")
+def fault_workbench_export(run_id: str, kind: str, format: str, request: Request, response: Response, filters: str = ""):
+    def operation():
+        integration_identity.require(request, "diagnosis.export")
+        if kind not in ("report", "impact") or len(filters) > 2000:
+            fault_frontend_service.fail("导出参数无效")
+        return _download_response(fault_frontend_service.export_file(run_id, kind, format, filters), run_id+"-"+kind+"."+format)
+    return _frontend_workbench_call(response, operation)
+
+
+@app.get("/api/v1/kg/workbench")
+def knowledge_workbench(request: Request, response: Response):
+    return _frontend_workbench_call(response, lambda: (integration_identity.require(request, "knowledge.view"), kg_frontend_service.metadata())[1])
+
+
+@app.get("/api/v1/kg/workbench/browse/{kind}")
+def knowledge_workbench_browse(kind: str, request: Request, response: Response):
+    def operation():
+        integration_identity.require(request, "knowledge.view")
+        if kind not in ("search", "graph", "entity", "device"):
+            kg_frontend_service._fail("未知查询分项")
+        return kg_frontend_service.browse(kind, dict(request.query_params))
+    return _frontend_workbench_call(response, operation)
+
+
+@app.get("/api/v1/kg/workbench/history/{kind}")
+def knowledge_workbench_history(kind: str, request: Request, response: Response):
+    def operation():
+        integration_identity.require(request, "knowledge.view")
+        if kind not in ("changes", "versions", "logs"):
+            kg_frontend_service._fail("未知历史分项")
+        return kg_frontend_service.history(kind, KnowledgePage.model_validate(dict(request.query_params)))
+    return _frontend_workbench_call(response, operation)
+
+
+@app.get("/api/v1/kg/workbench/detail/{kind}/{object_id}")
+def knowledge_workbench_detail(kind: str, object_id: str, request: Request, response: Response):
+    def operation():
+        integration_identity.require(request, "knowledge.view")
+        if kind not in ("change", "version"):
+            kg_frontend_service._fail("未知详情分项")
+        return kg_frontend_service.change_detail(object_id) if kind == "change" else kg_frontend_service.version_detail(object_id)
+    return _frontend_workbench_call(response, operation)
+
+
+@app.post("/api/v1/kg/workbench/actions/{action}")
+def knowledge_workbench_action(action: str, payload: dict[str, Any], request: Request, response: Response):
+    def operation():
+        permission = {"save": "knowledge.edit", "submit": "knowledge.edit", "withdraw": "knowledge.edit",
+                      "review": "knowledge.review", "publish": "knowledge.publish", "rollback": "knowledge.rollback"}.get(action)
+        if not permission:
+            kg_frontend_service._fail("不支持此操作")
+        identity = integration_identity.require(request, permission, writing=True)
+        return kg_frontend_service.mutate(action, KnowledgeMutation.model_validate(payload), identity)
+    return _frontend_workbench_call(response, operation)
+
+
 @app.exception_handler(StarletteHTTPException)
 async def api_http_exception(request: Request, exc: StarletteHTTPException) -> Response:
     if not request.url.path.startswith("/api/v1/"):
@@ -93,23 +313,21 @@ def health() -> dict[str, Any]:
 
 
 @app.get("/api/v1/auth/session")
-def frontend_auth_session(response: Response) -> dict[str, Any]:
+def frontend_auth_session(response: Response, request: Request) -> dict[str, Any]:
     """返回显式开启的固定联调身份；不作为正式认证实现。"""
     if not frontend_integration.integration_enabled():
         response.status_code = 401
         return {"code": 1101, "message": "前端联调身份未启用", "data": None}
-    return {"code": 0, "message": "success",
-            "data": frontend_integration.session_identity()}
+    return _frontend_workbench_call(response, lambda: integration_identity.current(request))
 
 
 @app.get("/api/v1/auth/csrf")
-def frontend_auth_csrf(response: Response) -> dict[str, Any]:
+def frontend_auth_csrf(response: Response, request: Request) -> dict[str, Any]:
     """为首个任务写接口提供同会话的联调 CSRF 挑战。"""
     if not frontend_integration.integration_enabled():
         response.status_code = 401
         return {"code": 1101, "message": "前端联调身份未启用", "data": None}
-    return {"code": 0, "message": "success",
-            "data": frontend_integration.csrf_challenge()}
+    return _frontend_workbench_call(response, lambda: integration_identity.challenge(request))
 
 
 @app.get("/health/database")
@@ -297,6 +515,35 @@ def plan_coverage_cache(cache_key: str) -> dict[str, Any]:
 # ── SR-4.2.2 / SR-4.2.3 第 3 周规划接口（异步，统一用 /plan/tasks/{id} 查询） ──
 
 
+@app.get("/api/v1/plan/jobs")
+def list_planning_jobs(response: Response, context: str | None = None,
+                       page: str = "1", page_size: str = "10",
+                       search: str = "") -> dict[str, Any]:
+    """分页读取冻结作业历史，仅开放规划场景。"""
+    try:
+        query = TaskListQuery.model_validate({
+            "context": context, "page": page, "page_size": page_size,
+            "search": search,
+        })
+        if query.context != "planning":
+            response.status_code = 422
+            return {"code": 1001, "message": "context 只能是 planning", "data": None}
+        data = planning_job_service.list_planning_jobs(query)
+        return {"code": 0, "message": "success", "data": data}
+    except ValidationError as exc:
+        response.status_code = 422
+        issues = [{"objectId": "plan/jobs",
+                   "field": ".".join(map(str, issue["loc"])), "message": issue["msg"]}
+                  for issue in exc.errors()]
+        return {"code": 1001, "message": "作业列表参数校验失败", "data": issues}
+    except DatabaseConfigurationError:
+        response.status_code = 503
+        return {"code": 5001, "message": "DATABASE_URL 未配置", "data": None}
+    except SQLAlchemyError:
+        response.status_code = 503
+        return {"code": 5002, "message": "数据库操作失败", "data": None}
+
+
 @app.post("/api/v1/plan/route")
 def plan_route(payload: dict[str, Any]) -> dict[str, Any]:
     """路由规划（SR-4.2.2.1）。三策略 + 备用路由 + 人工指定路径。"""
@@ -396,6 +643,58 @@ def frontend_resource_context(context: str = "planning") -> dict[str, Any]:
     return frontend_integration.resource_context()
 
 
+@app.get("/api/v1/resource/gis-directory")
+def frontend_gis_directory(request: Request, response: Response, revision: str, context: str = "gis"):
+    return _frontend_workbench_call(response, lambda: (
+        integration_identity.require(request, "situation.view"),
+        gis_frontend_service.read("directory", context, revision))[1])
+
+
+@app.get("/api/v1/resource/maintenance-context")
+def frontend_resource_maintenance_context(request: Request, response: Response):
+    def operation():
+        integration_identity.require(request, "resources.view")
+        integration_identity.require(request, "resources.device.edit")
+        if len(request.query_params) != len(request.query_params.multi_items()):
+            raise ValueError("查询参数不能重复")
+        return resource_maintenance_service.context(ResourceMaintenanceQuery.model_validate(dict(request.query_params)))
+    return _frontend_workbench_call(response, operation)
+
+
+@app.post("/api/v1/resource/changes")
+def frontend_resource_changes(request: Request, response: Response, payload: dict[str, Any]):
+    def operation():
+        identity = integration_identity.require(request, "resources.device.edit", writing=True)
+        integration_identity.require(request, "resources.view")
+        return resource_maintenance_service.save(ResourceDeviceChanges.model_validate(payload), identity["account_id"])
+    return _frontend_workbench_call(response, operation)
+
+
+@app.get("/api/v1/resource/gis-scene")
+def frontend_gis_scene(request: Request, response: Response, revision: str, context: str = "gis"):
+    return _frontend_workbench_call(response, lambda: (
+        integration_identity.require(request, "situation.view"),
+        gis_frontend_service.read("scene", context, revision))[1])
+
+
+@app.post("/api/v1/resource/device-availability/preview")
+def frontend_availability_preview(request: Request, response: Response, payload: dict[str, Any]):
+    def operation():
+        integration_identity.require(request, "resources.view")
+        integration_identity.require(request, "resources.device.availability", writing=True)
+        return resource_maintenance_service.availability_preview(AvailabilityPreview.model_validate(payload))
+    return _frontend_workbench_call(response, operation)
+
+
+@app.post("/api/v1/resource/device-availability")
+def frontend_device_availability(request: Request, response: Response, payload: dict[str, Any]):
+    def operation():
+        integration_identity.require(request, "resources.view")
+        actor = integration_identity.require(request, "resources.device.availability", writing=True)
+        return resource_maintenance_service.set_availability(AvailabilityChange.model_validate(payload), actor["account_id"])
+    return _frontend_workbench_call(response, operation)
+
+
 @app.get("/api/v1/resource/map")
 def frontend_resource_map(revision: str, bbox: str, zoom: float,
                           show_nodes: bool = True,
@@ -430,13 +729,15 @@ def frontend_resource_nodes(revision: str, page: int = 1, page_size: int = 10,
 @app.get("/api/v1/resource/devices")
 def frontend_resource_devices(revision: str, page: int = 1, page_size: int = 10,
                               search: str = "", node_id: str | None = None,
-                              context: str = "planning") -> dict[str, Any]:
+                              context: str = "planning", availability: str | None = None) -> dict[str, Any]:
     """返回资源台账或节点详情使用的设备分页。"""
     if context not in {"ledger", "gis", "planning"}:
         raise HTTPException(status_code=422, detail="invalid resource context")
+    if availability is not None and availability not in {"ACTIVE", "OFF_SHELF", "UNKNOWN"}:
+        raise HTTPException(status_code=422, detail="invalid availability")
     try:
         return frontend_integration.resource_page(
-            "device", revision, page, page_size, search, node_id=node_id)
+            "device", revision, page, page_size, search, node_id=node_id, availability=availability)
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 
@@ -659,6 +960,31 @@ def plans_save(payload: dict[str, Any], response: Response) -> dict[str, Any]:
         response.status_code = 503
         return {"code": 5002, "message": "数据库操作失败", "data": None,
                 "request_id": payload.get("request_id")}
+
+
+@app.get("/api/v1/plan/saved-plans")
+def saved_plan_history(response: Response, context: str | None = None,
+                       page: int = 1, page_size: int = 10,
+                       search: str | None = None, state: str | None = None) -> dict[str, Any]:
+    """全局目录仅供显式构造联调，不能代替正式的用户数据隔离。"""
+    if not frontend_integration.integration_enabled():
+        response.status_code = 401
+        return {"code": 1101, "message": "前端联调身份未启用", "data": None}
+    if context != "planning":
+        response.status_code = 422
+        return {"code": 1001, "message": "context 只能是 planning", "data": None}
+    try:
+        data = planning_plan_service.list_saved_plan_history(page, page_size, search, state)
+        return {"code": 0, "message": "success", "data": data}
+    except PlanningPlanError as exc:
+        response.status_code = exc.status
+        return {"code": exc.code, "message": str(exc), "data": exc.data}
+    except DatabaseConfigurationError:
+        response.status_code = 503
+        return {"code": 5001, "message": "DATABASE_URL 未配置", "data": None}
+    except SQLAlchemyError:
+        response.status_code = 503
+        return {"code": 5002, "message": "数据库操作失败", "data": None}
 
 
 @app.get("/api/v1/plans")

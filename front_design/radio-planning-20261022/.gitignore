@@ -1,0 +1,8 @@
+node_modules/
+# 保留失败安装目录供排查，但不随前端源码交付。
+node_modules.failed-install-*/
+dist/
+tmp/
+.env.local
+*.tsbuildinfo
+/docs/assets

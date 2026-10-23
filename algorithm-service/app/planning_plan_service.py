@@ -9,7 +9,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any
 
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 from openpyxl import Workbook
@@ -214,6 +214,50 @@ def save_planning_plan(payload: PlanningPlanSaveRequest,
                     "plan_id": existing.plan_id,
                 }) from None
         raise
+
+
+def list_saved_plan_history(page: int, page_size: int, search: str | None = None,
+                            state: str | None = None,
+                            factory: sessionmaker[Session] | None = None
+                            ) -> dict[str, Any]:
+    """只读已保存方案摘要，不加载完整输入、结果或旧演示文件。"""
+    if page < 1 or page_size not in (5, 10, 20, 50):
+        raise PlanningPlanError(1001, "分页参数超出范围", 422)
+    if state is not None and state not in ("SAVED", "REFERENCE", "CONFIRMED"):
+        raise PlanningPlanError(1001, "方案状态取值非法", 422)
+    if search is not None and (len(search) > 120 or any(
+            ord(char) < 32 or ord(char) == 127 for char in search)):
+        raise PlanningPlanError(1001, "搜索条件长度或字符非法", 422)
+    filters = []
+    if search and search.strip():
+        filters.append(or_(*(column.contains(search.strip(), autoescape=True)
+                             for column in (PlanningPlan.name, PlanningPlan.plan_id,
+                                            PlanningPlan.task_id, PlanningPlan.job_id))))
+    if state is not None:
+        filters.append(PlanningPlan.state == state)
+    factory = factory or get_session_factory()
+    with factory() as session:
+        total = session.scalar(select(func.count()).select_from(PlanningPlan).where(*filters)) or 0
+        # 一次联查当前指针；分页不读取 JSON 快照，也不逐条访问资源文件。
+        rows = session.execute(select(
+            PlanningPlan.plan_id, PlanningPlan.task_id, PlanningPlan.name,
+            PlanningPlan.version_no, PlanningPlan.state, PlanningPlan.resource_revision,
+            PlanningPlan.saved_at, PlanningCurrentPlan.plan_id.label("current_plan_id"),
+        ).outerjoin(PlanningCurrentPlan, PlanningCurrentPlan.task_id == PlanningPlan.task_id)
+          .where(*filters).order_by(PlanningPlan.saved_at.desc(), PlanningPlan.plan_id.desc())
+          .offset((page - 1) * page_size).limit(page_size)).all()
+        revision = frontend_integration.resource_revision()
+        items = []
+        for row in rows:
+            changed = row.resource_revision != revision
+            items.append({
+                "plan_id": row.plan_id, "task_id": row.task_id, "name": row.name,
+                "version": f"V{row.version_no}", "state": row.state,
+                "source_changed": changed, "saved_at": _timestamp(row.saved_at),
+                "current": row.state == "CONFIRMED" and row.current_plan_id == row.plan_id and not changed,
+            })
+        return {"items": items, "total": total, "page": page, "page_size": page_size,
+                "data_origin": "SYNTHETIC_INTEGRATION"}
 
 
 def list_planning_plans(task_id: str, page: int, page_size: int,

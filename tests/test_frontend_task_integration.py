@@ -48,8 +48,13 @@ def test_frontend_initialization_contract(api):
     client, _ = api
     identity = client.get("/api/v1/auth/session")
     assert identity.status_code == 200
-    assert {"planning.view", "planning.execute"}.issubset(
-        identity.json()["data"]["permissions"])
+    # 固定身份仅开放本批规划操作，不赋予管理或其他模块写权限。
+    assert set(identity.json()["data"]["permissions"]) == {
+        "planning.view", "planning.execute", "planning.save", "planning.confirm",
+        "resources.view", "situation.view",
+    }
+    assert identity.json()["data"]["identity_revision"] == "integration-identity-v2"
+    assert identity.json()["data"]["session_generation"] == "integration-session-v2"
 
     csrf = client.get("/api/v1/auth/csrf").json()["data"]
     assert csrf == {
@@ -221,3 +226,34 @@ def test_validation_error_is_frontend_issue_array(api):
     issues = response.json()["data"]
     assert isinstance(issues, list) and issues
     assert set(issues[0]) == {"objectId", "field", "message"}
+
+
+def test_database_resource_contract_matches_files(api, monkeypatch):
+    from app import resource_dataset_service as datasets
+    client, factory = api
+    monkeypatch.setenv("RESOURCE_DATASET_MODE", "file")
+    before = client.get("/api/v1/resource/context").json()
+    frequency = client.get("/api/v1/resource/frequency-pool?context=planning").json()
+    monkeypatch.setattr(datasets, "get_session_factory", lambda: factory)
+    initialized = datasets.initialize()
+    monkeypatch.setenv("RESOURCE_DATASET_MODE", "database")
+    assert client.get("/api/v1/resource/context").json() == before
+    assert client.get("/api/v1/resource/frequency-pool?context=planning").json() == frequency
+    # 模拟文件不可用，页面继续使用已核验的数据库资源，不回退源文件。
+    monkeypatch.setattr(frontend_integration, "DATA_FILES", {
+        key: ROOT / "data/runtime/nonexistent-input.csv" for key in frontend_integration.DATA_FILES})
+    for part in ("gis-directory", "gis-scene"):
+        response = client.get("/api/v1/resource/" + part, params={"revision": initialized["revision"]})
+        assert response.status_code == 200, response.text
+        assert response.json()["data"]["revision"] == initialized["revision"]
+    assert client.get("/api/v1/resource/context").json() == before
+
+
+def test_database_resource_errors_have_api_envelope(api, monkeypatch):
+    from app import resource_dataset_service as datasets
+    client, factory = api
+    monkeypatch.setattr(datasets, "get_session_factory", lambda: factory)
+    monkeypatch.setenv("RESOURCE_DATASET_MODE", "database")
+    response = client.get("/api/v1/resource/context")
+    assert response.status_code == 503 and response.json()["code"] == 5003
+    assert response.json()["data"] is None

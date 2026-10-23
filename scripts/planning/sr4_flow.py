@@ -59,6 +59,17 @@ def load(rel):
         return list(csv.DictReader(f))
 
 
+def _resource_reader(resource_rows):
+    if resource_rows is None:
+        return load
+    # 已冻结的输入缺表时直接失败，禁止夹杂当前磁盘文件。
+    def read(name):
+        if not isinstance(resource_rows, dict) or name not in resource_rows or not isinstance(resource_rows[name], list):
+            raise ValueError("冻结资源缺少输入表：" + name)
+        return copy.deepcopy(resource_rows[name])
+    return read
+
+
 def _endpoint_device_requests(links, demands, routes):
     """把设备级通联端点映射到已规划主路由的首末链路。"""
     by_link = {link["link_id"]: link for link in links}
@@ -288,20 +299,24 @@ def _candidate_score(objectives, checks, check_result, binding_errors, constrain
 
 def run_from_parent(parent_snapshot, adjustment, device_refs, task_id, demand_rows,
                     preset="TERRAIN", strategy="MAX_RELIABILITY", constraints=None,
-                    interference_rows=None, progress=None):
+                    interference_rows=None, progress=None, resource_rows=None):
     """固定父方案拓扑，重算人工调整后的下游规划结果。"""
     started = time.time()
+    read = _resource_reader(resource_rows)
     detail = parent_snapshot["detail"]
     nodes = copy.deepcopy(detail["nodes"])
     devices = copy.deepcopy(detail["devices"])
     links = copy.deepcopy(detail["links"])
+    inactive = {row["device_id"] for row in read("device.csv") if row.get("availability", "ACTIVE") != "ACTIVE"}
+    if any(row["device_id"] in inactive or row.get("availability", "ACTIVE") != "ACTIVE" for row in devices):
+        raise ValueError("父方案包含已下架设备，固定拓扑不能静默替换设备")
     terrain = default_terrain(verbose=False)
-    models, antennas = load("device_model.csv"), load("antenna_model.csv")
-    pool_rows, metrics_rows = load("frequency_resource.csv"), load("link_metric.csv")
-    jam_rows = (load("interference_source.csv") if interference_rows is None
+    models, antennas = read("device_model.csv"), read("antenna_model.csv")
+    pool_rows, metrics_rows = read("frequency_resource.csv"), read("link_metric.csv")
+    jam_rows = (read("interference_source.csv") if interference_rows is None
                 else [dict(row) for row in interference_rows])
-    cand_rows = load("candidate_site.csv")
-    original_demands = load("comm_demand.csv")
+    cand_rows = read("candidate_site.csv")
+    original_demands = read("comm_demand.csv")
     replacements = {row["demand_id"]: dict(row) for row in demand_rows}
     demand_ids = {row["demand_id"] for row in original_demands}
     all_demands = [replacements.get(row["demand_id"], row) for row in original_demands]
@@ -435,7 +450,7 @@ def rows_from_solution(pb, e, nodes, devices, models):
 def run(task_id=None, preset="TERRAIN", strategy="MAX_RELIABILITY",
         constraints=None, pop_size=40, generations=40, verbose=True,
         survivability_scope="NETWORK", extra_freq_rows=None, interference_rows=None,
-        progress=None, demand_rows=None):
+        progress=None, demand_rows=None, resource_rows=None):
     """survivability_scope：抗毁性约束按全网（NETWORK，默认）还是按本任务（TASK）评估。
 
     默认按全网（待办 #20 的处理）：网络是各任务共用的，抗毁性是网络的属性；
@@ -448,15 +463,18 @@ def run(task_id=None, preset="TERRAIN", strategy="MAX_RELIABILITY",
         raise ValueError("survivability_scope 只能取 %s，收到 %r"
                          % (" / ".join(SURVIVABILITY_SCOPES), survivability_scope))
     extra_freq_rows = list(extra_freq_rows or [])
+    read = _resource_reader(resource_rows)
     steps = []
     T = time.time()
 
     # ── 1 任务条件输入 ──
     t0 = time.time()
     terrain = default_terrain(verbose=False)
-    nodes, devices = load("node.csv"), load("device.csv")
-    models, antennas = load("device_model.csv"), load("antenna_model.csv")
-    demands_all = load("comm_demand.csv")
+    nodes, devices = read("node.csv"), read("device.csv")
+    # 冻结表保留完整审计输入；实际装配、绑定与代表型号选择均只用在架设备。
+    devices = [row for row in devices if row.get("availability", "ACTIVE") == "ACTIVE"]
+    models, antennas = read("device_model.csv"), read("antenna_model.csv")
+    demands_all = read("comm_demand.csv")
     if demand_rows is not None:
         replacements = {row["demand_id"]: dict(row) for row in demand_rows}
         original_ids = {row["demand_id"] for row in demands_all}
@@ -467,11 +485,18 @@ def run(task_id=None, preset="TERRAIN", strategy="MAX_RELIABILITY",
     demands = [d for d in demands_all if task_id is None or d["task_id"] == task_id]
     if not demands:
         raise ValueError("任务 %s 没有通联需求" % task_id)
-    pool_rows, jam_rows = load("frequency_resource.csv"), load("interference_source.csv")
+    active_ids = {row["device_id"] for row in devices}
+    active_nodes = {row["node_id"] for row in devices}
+    for demand in demands:
+        if any(demand[key] not in active_nodes for key in ("src_node_id", "dst_node_id")):
+            raise ValueError("通联端点没有在架设备，不能自动虚构替代设备")
+        if any(demand.get(key) and demand[key] not in active_ids for key in ("source_device_id", "target_device_id")):
+            raise ValueError("指定通联设备不存在或已下架")
+    pool_rows, jam_rows = read("frequency_resource.csv"), read("interference_source.csv")
     if interference_rows is not None:
         jam_rows = [dict(row) for row in interference_rows]
     pool_rows = pool_rows + extra_freq_rows
-    metrics_rows, cand_rows = load("link_metric.csv"), load("candidate_site.csv")
+    metrics_rows, cand_rows = read("link_metric.csv"), read("candidate_site.csv")
     stations = stations_from_nodes(nodes, devices, models, antennas)
     steps.append(("1 任务条件输入（需求 %d 条）" % len(demands), time.time() - t0))
     if progress:

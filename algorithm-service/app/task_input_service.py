@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from .database import get_session_factory
 from . import frontend_integration
+from . import resource_dataset_service
 from .planning_job_models import PlanningJob
 from .task_input_models import PlanningOperationReceipt, PlanningTask, PlanningTaskRevision
 from .task_input_schemas import (PlanningInput, TaskListQuery, TaskSaveRequest,
@@ -152,6 +153,29 @@ def get_task_input(task_id: str, context: str,
         return _current_dto(session, revision)
 
 
+def availability_issues(input_data: dict[str, Any], catalog=None) -> list[dict[str, str]]:
+    """只检查生命周期可用性，不把下架解释为运行故障或新增资源。"""
+    catalog = catalog or frontend_integration.task_reference_catalog()
+    devices = catalog["devices"]
+    issues = []
+    for node_id in input_data["stationIds"]:
+        configured = [row for row in devices.values() if row["node_id"] == node_id]
+        if configured and not any(row.get("availability", "ACTIVE") == "ACTIVE" for row in configured):
+            issues.append({"objectId": node_id, "field": "stationIds", "message": "参与节点的设备均已下架，不能提交新规划"})
+    for demand in input_data["demands"]:
+        if demand.get("endpointMode") == "device":
+            for key in ("sourceDeviceId", "targetDeviceId"):
+                row = devices.get(demand.get(key))
+                if row and row.get("availability", "ACTIVE") != "ACTIVE":
+                    issues.append({"objectId": demand["id"], "field": key, "message": "指定设备已下架，请启用设备或修改通联需求"})
+        elif demand.get("preferredClass"):
+            for node_id in (demand["sourceId"], demand["targetId"]):
+                configured = [row for row in devices.values() if row["node_id"] == node_id and row["device_class"] == demand["preferredClass"]]
+                if configured and not any(row.get("availability", "ACTIVE") == "ACTIVE" for row in configured):
+                    issues.append({"objectId": demand["id"], "field": "preferredClass", "message": "所需频段的设备均已下架"})
+    return issues
+
+
 def validate_task_input(payload: TaskValidationRequest,
                         factory: sessionmaker[Session] | None = None) -> dict[str, Any]:
     """只读预检当前输入结构与资源引用，返回可定位的字段问题。"""
@@ -191,6 +215,7 @@ def validate_task_input(payload: TaskValidationRequest,
         raise TaskInputError(1205, "资源在校验期间发生变化，请重试", 409)
     node_ids = catalog["node_ids"]
     devices = catalog["devices"]
+    issues.extend(availability_issues(data.model_dump(mode="json"), catalog))
     for node_id in data.stationIds:
         if node_id not in node_ids:
             issues.append({"objectId": node_id, "field": "stationIds",
@@ -247,9 +272,16 @@ def _save(session: Session, payload: TaskSaveRequest, digest: str) -> dict[str, 
             "suggestions": ["重新打开任务"],
         })
     input_data = payload.input.model_dump(mode="json", exclude_unset=True)
+    if resource_dataset_service.database_mode():
+        if payload.resource_revision != frontend_integration.resource_revision():
+            raise TaskInputError(1205, "资源版本已变化，请刷新后重新保存任务", 409)
+        issues = availability_issues(input_data)
+        if issues:
+            raise TaskInputError(1001, "任务引用了不可用设备", 422, issues)
     previous = session.get(PlanningTaskRevision, current_id) if current_id else None
     now = datetime.now(timezone.utc)
-    if previous is not None and previous.input_snapshot == input_data:
+    if (previous is not None and previous.input_snapshot == input_data
+            and previous.resource_revision == payload.resource_revision):
         revision = previous
     else:
         revision_id = "TREV-" + uuid.uuid4().hex

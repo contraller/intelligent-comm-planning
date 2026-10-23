@@ -10,6 +10,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable
 
+from . import resource_dataset_service as resource_dataset
+
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DATA_FILES = {
@@ -41,11 +43,14 @@ def session_identity() -> dict[str, Any]:
         "permissions": [
             "planning.view",
             "planning.execute",
+            "planning.save",
+            "planning.confirm",
             "resources.view",
             "situation.view",
         ],
-        "identity_revision": "integration-identity-v1",
-        "session_generation": "integration-session-v1",
+        # 权限变化同步更新会话代次，旧页面须重新读取身份。
+        "identity_revision": "integration-identity-v2",
+        "session_generation": "integration-session-v2",
     }
 
 
@@ -54,6 +59,9 @@ def csrf_challenge() -> dict[str, str]:
 
 
 def _rows(name: str) -> list[dict[str, str]]:
+    if resource_dataset.database_mode():
+        from copy import deepcopy
+        return deepcopy(resource_dataset.current()["tables"][resource_dataset.PRIMARY_NAMES[name]])
     with DATA_FILES[name].open(encoding="utf-8-sig", newline="") as stream:
         return list(csv.DictReader(stream))
 
@@ -77,6 +85,8 @@ def _envelope(data: Any, code: int = 0, message: str = "success") -> dict[str, A
 
 
 def resource_revision() -> str:
+    if resource_dataset.database_mode():
+        return resource_dataset.current()["revision"]
     digest = hashlib.sha256()
     for path in DATA_FILES.values():
         digest.update(path.name.encode("utf-8"))
@@ -91,11 +101,14 @@ def task_reference_catalog() -> dict[str, Any]:
     devices = {row["device_id"]: {
         "node_id": row["node_id"],
         "device_class": models.get(row["model_id"]),
+        "availability": row.get("availability", "ACTIVE"),
     } for row in _rows("devices")}
     return {"node_ids": {row["node_id"] for row in nodes}, "devices": devices}
 
 
 def _updated_at() -> str:
+    if resource_dataset.database_mode():
+        return resource_dataset.current()["source_updated_at"]
     timestamp = max(path.stat().st_mtime for path in DATA_FILES.values())
     return datetime.fromtimestamp(timestamp, timezone.utc).isoformat().replace("+00:00", "Z")
 
@@ -143,7 +156,7 @@ def _device_item(row: dict[str, str], nodes: list[dict[str, str]],
         "azimuth_deg": _optional_number(row.get("azimuth_deg")),
         "alert": row.get("status") != "NORMAL",
         "origin": "SOURCE",
-        "availability": "ACTIVE",
+        "availability": row.get("availability", "ACTIVE"),
     }
 
 
@@ -198,8 +211,8 @@ def resource_context() -> dict[str, Any]:
             "vuhf": classes["VUHF"],
             "alerts": device_alerts,
             "unknown_alerts": 0,
-            "active": len(devices),
-            "off_shelf": 0,
+            "active": sum(row.get("availability", "ACTIVE") == "ACTIVE" for row in devices),
+            "off_shelf": sum(row.get("availability", "ACTIVE") == "OFF_SHELF" for row in devices),
             "unknown_availability": 0,
         },
     })
@@ -269,7 +282,7 @@ def resource_object(kind: str, object_id: str, revision: str) -> dict[str, Any]:
 
 def resource_page(kind: str, revision: str, page: int, page_size: int,
                   search: str = "", node_id: str | None = None,
-                  parent_id: str | None = None) -> dict[str, Any]:
+                  parent_id: str | None = None, availability: str | None = None) -> dict[str, Any]:
     """返回前端资源树需要的稳定分页，不在读取时改写源数据。"""
     _assert_revision(revision)
     if page < 1 or page_size not in {5, 10, 20, 50}:
@@ -283,6 +296,10 @@ def resource_page(kind: str, revision: str, page: int, page_size: int,
         names = lambda item: (item["node_id"], item["node_name"])
     elif kind == "device":
         rows = devices if node_id is None else [row for row in devices if row["node_id"] == node_id]
+        if availability is not None:
+            if availability not in {"ACTIVE", "OFF_SHELF", "UNKNOWN"}:
+                raise ValueError("上下架筛选无效")
+            rows = [row for row in rows if row.get("availability", "ACTIVE") == availability]
         models, antennas = _rows("models"), _rows("antennas")
         items = [_device_item(row, nodes, models, antennas) for row in rows]
         names = lambda item: (item["device_id"], item["model_name"], item["node_name"])

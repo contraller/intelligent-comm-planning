@@ -138,7 +138,11 @@ def _spawn_formal(kind, payload, work, *, task_id, plan_id, scenario_id,
     algorithm_task_id, created = _reserve_submission(
         payload, kind, task_id, plan_id, scenario_id, version_id, diagnose_task_id)
     if created:
-        result = _spawn(kind, payload, work, task_id=algorithm_task_id)
+        callback = None
+        if payload.get("frontend_run_id"):
+            from .fault_frontend_service import record_runtime
+            callback = lambda state: record_runtime(payload["frontend_run_id"], kind, state)
+        result = _spawn(kind, payload, work, task_id=algorithm_task_id, on_update=callback)
     else:
         result = _ok({"task_id": algorithm_task_id, "estimated_sec": 5})
     if result["code"] == CODE_OK:
@@ -417,7 +421,7 @@ def _diagnosis(tid):
     return task["result"]
 
 
-def submit_diagnosis_feedback(task_id, payload):
+def submit_diagnosis_feedback(task_id, payload, *, session=None):
     """把人工确认结论送入 SR-6 待审核队列，审核发布后才参与后续推理。"""
     diagnosis = _diagnosis(task_id)
     if diagnosis is None:
@@ -453,7 +457,8 @@ def submit_diagnosis_feedback(task_id, payload):
         return _bad(FaultInputError("root_cause、solution 必填，diagnosis_steps 必须是字符串列表"))
 
     case_id = "DF-%s-%02d" % (task_id.removeprefix("tsk-").upper(), index + 1)
-    source = "diagnosis_feedback#%s by %s [UNAUTHENTICATED_REVIEW]" % (case_id, reviewer)
+    provenance = "INTEGRATION_CONFIRMED_CONSTRUCTED" if payload.get("_workflow_request") else "UNAUTHENTICATED_REVIEW"
+    source = "diagnosis_feedback#%s by %s [%s]" % (case_id, reviewer, provenance)
     ops = [
         {"op": "add_triple", "head_type": "Fault", "head": case_id,
          "relation": "instanceOf", "tail_type": "FaultType", "tail": fault_type, "source": source},
@@ -480,6 +485,16 @@ def submit_diagnosis_feedback(task_id, payload):
                     "tail": "%02d:%s" % (step_index, step.strip()), "source": source})
 
     from . import kg
+    if payload.get("_workflow_request"):
+        from . import kg_workflow_service
+        if session is not None:
+            state = kg_workflow_service._bootstrap(session, kg.STORE_PATH)
+            published, _ = kg_workflow_service._current_graph(session, state)
+            if published.get("Fault", case_id) is not None:
+                raise FaultPlanSourceError(1204, "该诊断结论已发布知识反馈，请勿重复提交", 409)
+        request = {**payload["_workflow_request"], "ops": ops, "note": "诊断反馈 " + case_id}
+        created = kg_workflow_service.save_draft(kg.STORE_PATH, request, _session=session)
+        return _ok({**created, "case_id": case_id, "requires_kg_review": True, "provenance": provenance})
     with kg._LOCK:
         graph, _ = kg._load()
         duplicate_pending = any(change["status"] == "PENDING" and any(
@@ -546,8 +561,13 @@ def submit_diagnosis(payload):
         if scenario is None:
             return {"code": 1002, "message": "故障场景不存在", "data": None}
     network = source["network"] if source else None
+    frozen_graph = None
+    if payload.get("frontend_run_id"):
+        from . import kg
+        with kg._LOCK:
+            frozen_graph = deepcopy(kg._load()[0])
     try:
-        _diagnose_live(scenario, payload, network=network)
+        _diagnose_live(scenario, payload, network=network, frozen_graph=frozen_graph)
     except FaultInputError as exc:
         return _bad(exc)
     if not formal and payload.get("network_solution_id") and _solution(payload["network_solution_id"]) is None:
@@ -555,7 +575,7 @@ def submit_diagnosis(payload):
 
     def work(_payload, tick):
         tick(0.4, "规则与图谱推理")
-        out = _diagnose_live(scenario, payload, network=network)
+        out = _diagnose_live(scenario, payload, network=network, frozen_graph=frozen_graph)
         if source:
             meta = source["meta"]
             out.update(context="planning", network_solution_id=meta["plan_id"],
@@ -573,14 +593,16 @@ def submit_diagnosis(payload):
     return _spawn("FAULT_DIAGNOSE", payload, work)
 
 
-def _diagnose_live(scenario, payload, require_fault_type=True, network=None):
+def _diagnose_live(scenario, payload, require_fault_type=True, network=None, frozen_graph=None):
     from . import kg
     with kg._LOCK:
-        graph, _ = kg._load()
+        graph = frozen_graph if frozen_graph is not None else kg._load()[0]
         engine = _engine().for_network(network) if network is not None else _engine()
-        return engine.diagnose(scenario, payload.get("fusion_weights"),
-                               payload.get("confidence_threshold", 0.6), graph=graph,
-                               require_fault_type=require_fault_type)
+        result = engine.diagnose(scenario, payload.get("fusion_weights"),
+                                 payload.get("confidence_threshold", 0.6), graph=graph,
+                                 require_fault_type=require_fault_type)
+        result["knowledge_version"] = graph.version
+        return result
 
 
 def submit_observation_diagnosis(payload):

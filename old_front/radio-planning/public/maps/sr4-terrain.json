@@ -1,0 +1,16 @@
+{
+  "extent": [
+    113.14986111114996,
+    36.27597222221908,
+    114.9498611111502,
+    37.72402777777483
+  ],
+  "size": [
+    890,
+    896
+  ],
+  "projection": "EPSG:4326",
+  "source": "太行山东麓_20261009.zip / dem/dem_taihang.tif",
+  "source_sha256": "a42f42e17d38218f539cb04323696cacb296c4bcc11bb50a77cccf927f91bf7f",
+  "image_sha256": "49ba963435142b733db04a2cca58aea1ef9afd0063147a0c25284fd9c6055a2e"
+}

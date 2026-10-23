@@ -1,0 +1,209 @@
+{
+  "format": "mvt",
+  "version": "d6dfb716a60f8e75",
+  "layer": "roads",
+  "minZoom": 0,
+  "maxZoom": 14,
+  "tileSize": 256,
+  "extent": 4096,
+  "buffer": 64,
+  "tolerance": 3,
+  "bounds": [
+    114.044674,
+    36.572147,
+    115.862814,
+    38.025311
+  ],
+  "ranges": [
+    [
+      0,
+      0,
+      0,
+      0
+    ],
+    [
+      1,
+      0,
+      1,
+      0
+    ],
+    [
+      3,
+      1,
+      3,
+      1
+    ],
+    [
+      6,
+      3,
+      6,
+      3
+    ],
+    [
+      13,
+      6,
+      13,
+      6
+    ],
+    [
+      26,
+      12,
+      26,
+      12
+    ],
+    [
+      52,
+      24,
+      52,
+      25
+    ],
+    [
+      104,
+      49,
+      105,
+      50
+    ],
+    [
+      209,
+      98,
+      210,
+      100
+    ],
+    [
+      418,
+      197,
+      420,
+      200
+    ],
+    [
+      836,
+      394,
+      841,
+      400
+    ],
+    [
+      1672,
+      789,
+      1683,
+      800
+    ],
+    [
+      3345,
+      1579,
+      3366,
+      1600
+    ],
+    [
+      6691,
+      3159,
+      6732,
+      3200
+    ],
+    [
+      13382,
+      6318,
+      13465,
+      6401
+    ]
+  ],
+  "tiles": "d6dfb716a60f8e75/{z}/{x}/{y}.mvt",
+  "source": {
+    "file": "demo-roads.geojson",
+    "sha256": "9da0dcf1d4b96731d4f6e411b9e7b1e8d4777a83e14af1532840bfeb1f7b20fd",
+    "featureCount": 15600,
+    "pointCount": 262596,
+    "classes": [
+      "motorway",
+      "motorway_link",
+      "primary",
+      "primary_link",
+      "secondary",
+      "tertiary",
+      "trunk",
+      "trunk_link"
+    ]
+  },
+  "statistics": {
+    "tileCount": 9520,
+    "totalBytes": 6133979,
+    "maxTileBytes": 235040,
+    "maxTile": "6/52/24",
+    "byZoom": [
+      {
+        "zoom": 0,
+        "tileCount": 1,
+        "bytes": 498
+      },
+      {
+        "zoom": 1,
+        "tileCount": 1,
+        "bytes": 5078
+      },
+      {
+        "zoom": 2,
+        "tileCount": 1,
+        "bytes": 21319
+      },
+      {
+        "zoom": 3,
+        "tileCount": 1,
+        "bytes": 62399
+      },
+      {
+        "zoom": 4,
+        "tileCount": 1,
+        "bytes": 116799
+      },
+      {
+        "zoom": 5,
+        "tileCount": 1,
+        "bytes": 175564
+      },
+      {
+        "zoom": 6,
+        "tileCount": 2,
+        "bytes": 254699
+      },
+      {
+        "zoom": 7,
+        "tileCount": 4,
+        "bytes": 307318
+      },
+      {
+        "zoom": 8,
+        "tileCount": 6,
+        "bytes": 358697
+      },
+      {
+        "zoom": 9,
+        "tileCount": 12,
+        "bytes": 415321
+      },
+      {
+        "zoom": 10,
+        "tileCount": 42,
+        "bytes": 480392
+      },
+      {
+        "zoom": 11,
+        "tileCount": 144,
+        "bytes": 553531
+      },
+      {
+        "zoom": 12,
+        "tileCount": 484,
+        "bytes": 677473
+      },
+      {
+        "zoom": 13,
+        "tileCount": 1764,
+        "bytes": 912992
+      },
+      {
+        "zoom": 14,
+        "tileCount": 7056,
+        "bytes": 1791899
+      }
+    ]
+  }
+}

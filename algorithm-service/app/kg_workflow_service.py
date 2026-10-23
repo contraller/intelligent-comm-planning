@@ -6,6 +6,7 @@ import hashlib
 import json
 import time
 import uuid
+from contextlib import nullcontext
 from pathlib import Path
 from typing import Any
 
@@ -186,7 +187,8 @@ def _finish(session: Session, state: KgWorkspace, request: dict[str, Any],
     result["workspace_revision"] = next_revision
     session.add(KgAudit(created_at=time.time(), actor=actor, action=action,
                         change_id=change_id, version=state.current_version,
-                        detail=result.get("status", action)))
+                        detail=result.get("status", action),
+                        identity_snapshot=copy.deepcopy(request.get("_identity"))))
     if digest:
         session.add(KgReceipt(request_id=request["request_id"], digest=digest,
                               response=copy.deepcopy(result)))
@@ -213,8 +215,9 @@ def _change(session: Session, change_id: str, request: dict[str, Any],
 
 
 def save_draft(old_path: Path, request: dict[str, Any], change_id: str | None = None,
-               *, submit_now: bool = False) -> dict[str, Any]:
-    with get_session_factory().begin() as session:
+               *, submit_now: bool = False, _session: Session | None = None) -> dict[str, Any]:
+    # 跨 SR5 知识反馈时复用调用方事务，避免业务回执与知识草稿分开提交。
+    with (nullcontext(_session) if _session is not None else get_session_factory().begin()) as session:
         state = _bootstrap(session, old_path)
         replay, digest = _receipt(session, request, "SUBMIT" if submit_now else "SAVE")
         if replay is not None:
@@ -238,6 +241,7 @@ def save_draft(old_path: Path, request: dict[str, Any], change_id: str | None = 
                 raise KgWorkflowError("只有作者可修改草稿", 1003, 403)
             row.ops = copy.deepcopy(request["ops"])
             row.note = request["note"]
+            row.frontend_content = copy.deepcopy(request.get("_frontend_content"))
             row.revision += 1
             row.state = "DRAFT"
             row.updated_at = now
@@ -247,7 +251,8 @@ def save_draft(old_path: Path, request: dict[str, Any], change_id: str | None = 
             row = KgChange(change_id="CR-" + uuid.uuid4().hex[:16].upper(),
                            state="DRAFT", revision=1, base_version=state.current_version,
                            ops=copy.deepcopy(request["ops"]), submitter=request["actor"],
-                           note=request["note"], created_at=now, updated_at=now)
+                           note=request["note"], created_at=now, updated_at=now,
+                           frontend_content=copy.deepcopy(request.get("_frontend_content")))
             session.add(row)
         if submit_now:
             row.state = "PENDING"
@@ -285,12 +290,16 @@ def transition(old_path: Path, change_id: str, request: dict[str, Any],
             row.state = "PENDING"
             session.add(KgSubmission(change_id=change_id, number=len(submissions) + 1,
                                      revision=row.revision, ops=copy.deepcopy(row.ops),
-                                     submitted_at=now, outcome="PENDING"))
+                                     submitted_at=now, outcome="PENDING",
+                                     frontend_content=copy.deepcopy(row.frontend_content)))
         elif action == "WITHDRAW":
             row.state = "DRAFT"
             submissions[-1].outcome = "WITHDRAWN"
             submissions[-1].reviewer = actor
             submissions[-1].opinion = "作者撤回"
+            content = copy.deepcopy(submissions[-1].frontend_content or {})
+            content["review"] = {"actor": request.get("_identity"), "time": now}
+            submissions[-1].frontend_content = content
         elif action == "REVIEW":
             if request.get("submission") != submissions[-1].number:
                 raise KgWorkflowError("送审记录已变化")
@@ -312,6 +321,9 @@ def transition(old_path: Path, change_id: str, request: dict[str, Any],
             submissions[-1].outcome = row.state
             submissions[-1].reviewer = actor
             submissions[-1].opinion = request.get("opinion", "")
+            content = copy.deepcopy(submissions[-1].frontend_content or {})
+            content["review"] = {"actor": request.get("_identity"), "time": now}
+            submissions[-1].frontend_content = content
         else:
             graph, _ = _current_graph(session, state)
             graph.pending = [{"change_id": change_id, "status": "PENDING",
@@ -323,7 +335,8 @@ def transition(old_path: Path, change_id: str, request: dict[str, Any],
             session.add(KgVersion(version=graph.version, parent_version=state.current_version,
                                   restored_from=None, created_at=now,
                                   note=graph.versions[-1]["note"], snapshot=graph._snapshot(),
-                                  stats=graph.versions[-1]["stats"]))
+                                  stats=graph.versions[-1]["stats"],
+                                  frontend_metadata={"actor": request.get("_identity"), "changeId": change_id}))
             state.current_version = graph.version
             row.state = "PUBLISHED"
         row.updated_at = now
@@ -352,7 +365,8 @@ def rollback(old_path: Path, target_version: int, request: dict[str, Any]) -> di
                               restored_from=target_version, created_at=time.time(),
                               note="恢复版本 %d：%s" % (target_version, request["reason"]),
                               snapshot=copy.deepcopy(target.snapshot),
-                              stats=copy.deepcopy(target.stats)))
+                              stats=copy.deepcopy(target.stats),
+                              frontend_metadata={"actor": request.get("_identity")}))
         state.current_version = new_version
         result = {"version": new_version, "restored_from": target_version,
                   "entities": target.stats["entities"], "triples": target.stats["triples"]}

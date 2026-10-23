@@ -8,6 +8,8 @@ from sqlalchemy import engine_from_config, pool
 
 from app.database import Base, get_database_url
 from app import fault_scenario_models, fault_submission_models, kg_models, planning_job_models, planning_plan_models, task_input_models  # noqa: F401  # 注册模型供迁移比较。
+from app import integration_identity_models, fault_frontend_models  # noqa: F401
+from app import resource_dataset_models  # noqa: F401  # 注册资源快照与指针。
 
 
 config = context.config

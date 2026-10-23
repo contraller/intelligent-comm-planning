@@ -8,17 +8,20 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
 from . import (frontend_integration, planning_adjustment_service,
                planning_result_adapter, planning_w3, planning_w4)
+from . import resource_dataset_service as resource_dataset
+from . import task_input_service
 from .database import get_session_factory
 from .planning_job_models import PlanningJob, PlanningJobCancellation
 from .planning_plan_models import PlanningPlan
 from .planning_job_schemas import PlanningJobCancelRequest, PlanningJobSubmitRequest
 from .task_input_models import PlanningTask, PlanningTaskRevision
+from .task_input_schemas import TaskListQuery
 
 
 class PlanningJobError(ValueError):
@@ -46,6 +49,43 @@ _PHASES = (
     ("多目标优化", 0.80),
     ("干扰分析与方案校验", 1.00),
 )
+
+
+def list_planning_jobs(query: TaskListQuery,
+                       factory: sessionmaker[Session] | None = None) -> dict[str, Any]:
+    """按冻结输入版本读取已持久化的规划作业摘要。"""
+    factory = factory or get_session_factory()
+    base = select(PlanningJob, PlanningTaskRevision).join(
+        PlanningTaskRevision,
+        PlanningJob.revision_id == PlanningTaskRevision.revision_id,
+    ).where(PlanningJob.context == "planning")
+    term = query.search.strip()
+    if term:
+        escaped = term.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        pattern = f"%{escaped}%"
+        base = base.where(or_(
+            PlanningJob.job_id.ilike(pattern, escape="\\"),
+            PlanningJob.task_id.ilike(pattern, escape="\\"),
+            PlanningTaskRevision.input_snapshot["name"].as_string().ilike(
+                pattern, escape="\\"),
+        ))
+    with factory() as session:
+        total = session.scalar(select(func.count()).select_from(base.subquery())) or 0
+        rows = session.execute(base.order_by(
+            PlanningJob.created_at.desc(), PlanningJob.job_id.desc(),
+        ).offset((query.page - 1) * query.page_size).limit(query.page_size)).all()
+        items = []
+        for job, revision in rows:
+            created_at = job.created_at
+            if created_at.tzinfo is None:
+                created_at = created_at.replace(tzinfo=timezone.utc)
+            items.append({
+                "job_id": job.job_id, "task_id": job.task_id,
+                "name": revision.input_snapshot["name"],
+                "created_at": created_at.isoformat(), "status": job.status,
+            })
+    return {"items": items, "total": total, "page": query.page,
+            "page_size": query.page_size, "data_origin": "SYNTHETIC_INTEGRATION"}
 
 
 def _digest(payload: PlanningJobSubmitRequest | PlanningJobCancelRequest) -> str:
@@ -114,6 +154,9 @@ def _validate_resources(input_data: dict[str, Any], revision: str) -> None:
             frontend_integration.resource_object("node", node_id, revision)
         except KeyError as exc:
             raise PlanningJobError(1002, f"参与节点不存在：{node_id}", 404) from exc
+    issues = task_input_service.availability_issues(input_data)
+    if issues:
+        raise PlanningJobError(1001, "任务引用了不可用设备", 422, issues)
     preset_id = input_data["presetId"]
     if preset_id not in _PRESET_MAP:
         raise PlanningJobError(1003, f"规划预设不存在：{preset_id}", 422)
@@ -127,8 +170,12 @@ def _algorithm_payload(payload: PlanningJobSubmitRequest,
     input_data = revision.input_snapshot
     _validate_supported_input(input_data)
     _validate_resources(input_data, revision.resource_revision)
+    # 在提交线程中冻结输入，工作线程不得再查询“当前”资源或回退文件。
+    frozen_rows = (resource_dataset.algorithm_tables(revision.resource_revision)
+                   if resource_dataset.database_mode() else None)
     existing_demands = {row["demand_id"]: row
-                        for row in planning_w4._load("comm_demand.csv")}
+                        for row in (frozen_rows["comm_demand.csv"] if frozen_rows is not None
+                                    else planning_w4._load("comm_demand.csv"))}
     conflicting_ids = [row["id"] for row in input_data["demands"]
                        if row["id"] in existing_demands
                        and existing_demands[row["id"]]["task_id"] != payload.task_id]
@@ -159,7 +206,7 @@ def _algorithm_payload(payload: PlanningJobSubmitRequest,
             "target_device_id": row.get("targetDeviceId") or "",
         })
     constraints = input_data["constraints"]
-    return {
+    algorithm_payload = {
         "task_id": payload.task_id,
         "preset": _PRESET_MAP[input_data["presetId"]],
         "strategy": next(iter(strategies), "MAX_RELIABILITY"),
@@ -171,6 +218,10 @@ def _algorithm_payload(payload: PlanningJobSubmitRequest,
         "survivability_scope": "NETWORK",
         "demand_rows": demands,
     }
+    if frozen_rows is not None:
+        algorithm_payload["resource_rows"] = frozen_rows
+        algorithm_payload["resource_revision"] = revision.resource_revision
+    return algorithm_payload
 
 
 def _update_job(factory: sessionmaker[Session], job_id: str,

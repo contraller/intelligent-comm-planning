@@ -321,6 +321,7 @@ def _do_sr4(payload, tick):
             strategy=payload.get("strategy", "MAX_RELIABILITY"),
             constraints=payload.get("hard_constraints"),
             interference_rows=payload.get("interference_rows"), progress=tick,
+            resource_rows=payload.get("resource_rows"),
         )
     else:
         o = sr4_flow.run(task_id=payload.get("task_id"),
@@ -329,7 +330,8 @@ def _do_sr4(payload, tick):
                          constraints=payload.get("hard_constraints"), verbose=False,
                          survivability_scope=payload.get("survivability_scope", "NETWORK"),
                          interference_rows=payload.get("interference_rows"),
-                         demand_rows=payload.get("demand_rows"), progress=tick)
+                         demand_rows=payload.get("demand_rows"), progress=tick,
+                         resource_rows=payload.get("resource_rows"))
     b = o["optimization"]["best"]
     summary = dict(task_id=o["task_id"], total_s=round(o["total_s"], 2),
                    within_limit=o["within_limit"], objectives=b["objectives"],
@@ -338,6 +340,8 @@ def _do_sr4(payload, tick):
                    check_passed=o["check"]["passed"],
                    affected_links=o["interference"]["analysis"]["summary"]["affected_links"],
                    snapshot_id=payload.get("snapshot_id"))
+    if payload.get("resource_revision") is not None:
+        summary["resource_revision"] = payload["resource_revision"]
     detail = dict(steps=[dict(stage=n, seconds=round(t, 3)) for n, t in o["steps"]],
                   optimization=o["optimization"], routes=o["routes"],
                   frequency=o["frequency"], params=o["params"], check=o["check"],

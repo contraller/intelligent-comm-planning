@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""One-command native DEM import, dataset rebuild, algorithm run and HTML export."""
+"""导入 DEM、重建数据并执行算法；不再生成已归档的旧前端页面。"""
 import base64
 import io
 import math
@@ -52,7 +52,7 @@ def hillshade_data_uri(grid, extent, size):
 
 def main():
     steps = ['prepare_replacement_dem.py', 'gen_test_data.py', 'gen_algorithm_design_data.py',
-             'diagnosis/build_fault_graph.py', 'rerun_dem_algorithms.py', 'gen_w1w3_demo.py']
+             'diagnosis/build_fault_graph.py', 'rerun_dem_algorithms.py']
     for script in steps:
         print('Running:', script, flush=True)
         subprocess.run([sys.executable, str(ROOT / 'scripts' / script)], cwd=ROOT, check=True)
