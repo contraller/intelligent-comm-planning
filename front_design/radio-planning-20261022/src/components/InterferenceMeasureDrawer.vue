@@ -16,7 +16,7 @@
       <ul v-if="capability && !capability.enabled"><li v-for="reason in capability.reasons" :key="reason">{{ reason }}</li></ul>
       <button class="btn primary" :disabled="!store.adoptable || !store.measure.available || !capability?.enabled || store.locked || !!store.pendingWrites.length || !!adopted" @click="store.adoptMeasure(store.measure.measure_id)">采纳措施并提交规划重算</button>
       <section v-if="adopted" aria-label="措施重算状态">
-        <h4>{{ labels[adopted.state] }}</h4><p>{{ adopted.adoption_id }}</p>
+        <h4>{{ adopted.state === 'RUNNING' && !adopted.planning_job_id ? '正在核实重算受理' : labels[adopted.state] }}</h4><p>{{ adopted.adoption_id }}</p>
         <p v-if="adopted.planning_state">{{ adopted.planning_state }} · {{ adopted.planning_progress }}%</p>
         <p v-if="adopted.state === 'CANCEL_REQUESTED'">取消已请求，尚未确认停止。</p>
         <p v-if="adopted.error" role="alert">{{ adopted.error }}</p>

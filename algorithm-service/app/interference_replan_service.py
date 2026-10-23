@@ -1,6 +1,7 @@
 """采纳事实与真实规划桥分离；桥未接时明确不可用，不伪造规划结果。"""
 from copy import deepcopy
 from datetime import timedelta
+from math import isfinite
 from uuid import uuid4
 
 from sqlalchemy import or_, select
@@ -56,6 +57,9 @@ class InterferenceReplanService:
                 or job.condition_version != scene["plan_snapshot"]["condition_version"]
                 or (job.adjustment or {}).get("interference_origin") != self.origin(row)):
             fail("共享规划作业没有回显精确冻结来源", 5002, 503)
+        if (not isinstance(job.progress, (int, float)) or isinstance(job.progress, bool)
+                or not isfinite(job.progress) or not 0 <= job.progress <= 1):
+            fail("共享规划进度不符合数据库0..1契约", 5002, 503)
         return job
 
     def _plan(self, session, row, run, plan_id, *, accepting=False):
@@ -111,7 +115,7 @@ class InterferenceReplanService:
             "measure_id": row.measure_id, "adoption_version": row.adoption_version, "state": row.state,
             "source_hash": row.source_hash, "source_state": self.workbench.source_state(session, run.source_snapshot),
             "planning_request_id": row.planning_request_id, "planning_job_id": row.planning_job_id,
-            "planning_state": job.status if job else None, "planning_progress": job.progress if job else None,
+            "planning_state": job.status if job else None, "planning_progress": job.progress * 100 if job else None,
             "result_plan_id": row.result_plan_id, "result_plan_state": plan.state if plan else None,
             "error": row.error, "data_origin": run.source_snapshot["scene"]["data_origin"],
             "created_at": iso(row.created_at), "updated_at": iso(row.updated_at)}

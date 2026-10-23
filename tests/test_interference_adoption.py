@@ -28,7 +28,7 @@ class BridgeStub:
             job = PlanningJob(job_id="CHILD-JOB", request_id=request["planning_request_id"], request_digest="c" * 64,
                 task_id="T1", revision_id=parent.revision_id, condition_version=parent.condition_version,
                 resource_revision=parent.resource_revision, context="planning", parent_plan_id="P1",
-                adjustment={"interference_origin": request["interference_origin"]}, status="SUCCESS", progress=100,
+                adjustment={"interference_origin": request["interference_origin"]}, status="SUCCESS", progress=1,
                 stage="测试桩重算", created_at=now(), updated_at=now())
             session.add(job)
             session.flush()
@@ -79,6 +79,7 @@ def test_durable_adoption_verifies_actual_child_and_preserves_parent(wb, omit_ch
     client = wb[0][0]
     result = data(client.get(BASE + "/adoptions/" + receipt["object_id"], params={"task_id": "T1"}))
     assert result["state"] == ("FAILED" if omit_change else "SUCCESS")
+    assert result["planning_progress"] == 100
     assert result["result_plan_id"] == (None if omit_change else "CHILD-PLAN")
     assert data(adoption(wb, payload)) == receipt and bridge.submissions == 1
     with wb[0][1]() as session:
@@ -129,6 +130,21 @@ def test_later_explicit_confirmation_does_not_break_adoption_history(wb):
     detail = data(wb[0][0].get(BASE + "/runs/" + result["run_id"], params={"task_id": "T1"}))
     assert detail["source_state"]["state"] == "HISTORICAL"
     assert not any(cap["enabled"] for cap in detail["adoption_capabilities"].values())
+
+
+def test_child_job_fractional_progress_is_explicitly_percent(wb):
+    class ProgressBridge(BridgeStub):
+        def poll(self, request):
+            with self.factory.begin() as session:
+                job = session.get(PlanningJob, "CHILD-JOB")
+                job.status, job.progress = "RUNNING", 0.25
+            return {"state": "RUNNING", "progress": 25, "plan_id": None, "error": None}
+    bridge = ProgressBridge(wb[0][1])
+    receipt = data(adoption(wb, ready(wb, bridge)))
+    wb[1].run_once()
+    result = data(wb[0][0].get(BASE + "/adoptions/" + receipt["object_id"], params={"task_id": "T1"}))
+    assert result["state"] == "RUNNING" and result["planning_progress"] == 25
+    assert result["result_plan_id"] is None
 
 
 @pytest.mark.parametrize("kind", MEASURE_TYPES)

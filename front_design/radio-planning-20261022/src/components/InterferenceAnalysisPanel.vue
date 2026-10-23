@@ -28,6 +28,7 @@
       <p v-if="store.dirty" role="status">场景草稿未保存，不能提交分析。</p>
       <p v-if="store.scene?.sourceState.state !== 'CURRENT' && store.scene">{{ store.scene.sourceState.reasons.join('；') }}。保留冻结历史。</p>
       <button class="btn primary" :disabled="!store.canAnalyze || store.locked" @click="store.submitAnalysis()"><i class="pi pi-play" aria-hidden="true" /> 提交干扰分析</button>
+      <section v-if="store.taskContext && store.context?.active_run_ids.length" aria-label="活动分析"><p>已有活动分析</p><button v-for="id in store.context.active_run_ids" :key="id" class="text-link" :disabled="store.locked" @click="store.selectRun(id)">查看 {{ id }}</button></section>
       <section v-if="store.pendingWrites.length" aria-label="待核实写入">
         <div v-for="row in store.pendingWrites" :key="row.request_id"><p>受理状态待核实 · {{ row.request_id }}</p>
           <button class="btn small" :disabled="store.busy" @click="store.resolvePending(row.request_id)">查询回执</button>
@@ -87,7 +88,7 @@ const store = useInterferenceStore();
 const labels = { PENDING: '等待计算', RUNNING: '分析中', CANCEL_REQUESTED: '取消请求中', SUCCESS: '分析完成', FAILED: '分析失败', CANCELLED: '已取消' };
 const levelNames = { SEVERE: '严重', MODERATE: '中等', MINOR: '轻微' };
 watch(() => props.taskContext, value => { if (value && (value.planId !== store.taskContext?.planId || value.taskId !== store.taskContext?.taskId || value.planVersion !== store.taskContext?.planVersion)) void store.enterPlan(value); }, { immediate: true });
-async function choosePlan(event: Event) { const row = store.sourceDirectory?.items.find(item => item.plan_id === (event.target as HTMLSelectElement).value); if (row) await store.chooseSource(row); }
+async function choosePlan(event: Event) { const control = event.target as HTMLSelectElement; const row = store.sourceDirectory?.items.find(item => item.plan_id === control.value); if (!row || !await store.chooseSource(row)) control.value = store.taskContext?.planId ?? ''; }
 function openHistory() { store.historyOpen = true; void store.loadHistory(1); }
 </script>
 <style scoped>

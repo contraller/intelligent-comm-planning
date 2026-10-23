@@ -78,6 +78,7 @@ export function readAdoption(value: unknown, expected: { task_id: string; adopti
   ensure(row.task_id === expected.task_id && (!expected.adoption_id || row.adoption_id === expected.adoption_id));
   integer(row.adoption_version, 1); state(row.state); hash(row.source_hash); sourceState(row.source_state);
   nullable(row.planning_job_id, id); nullable(row.planning_state, state); nullable(row.planning_progress, finite);
+  ensure(row.planning_progress === null || (row.planning_progress as number) >= 0 && (row.planning_progress as number) <= 100);
   nullable(row.result_plan_id, id); ensure([null, 'SAVED', 'REFERENCE', 'CONFIRMED'].includes(row.result_plan_state as string | null));
   ensure((row.result_plan_id === null) === (row.result_plan_state === null));
   ensure(row.state !== 'SUCCESS' || row.result_plan_id !== null && row.planning_job_id !== null && row.planning_state === 'SUCCESS');

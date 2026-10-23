@@ -59,4 +59,12 @@ describe('干扰工作流真实HTTP专用工厂', () => {
     expect((await setup(value).api.adoptMeasure(adopt)).planning_job_id).toBeNull();
     await expect(setup({ ...value, adoption_id: 'wrong' }).api.adoptMeasure(adopt)).rejects.toMatchObject({ code: 'INVALID_RESPONSE' });
   });
+  it('子规划进度使用明确百分比且拒绝越界值', async () => {
+    const value = { adoption_id: 'AD1', task_id: 'T1', run_id: 'RUN1', measure_id: 'CM1', adoption_version: 2,
+      state: 'RUNNING', source_hash: hash, source_state: { state: 'CURRENT', reasons: [] }, planning_request_id: 'child-key',
+      planning_job_id: 'JOB1', planning_state: 'RUNNING', planning_progress: 25, result_plan_id: null, result_plan_state: null,
+      error: null, data_origin: 'SYNTHETIC_INTEGRATION', created_at: stamp, updated_at: stamp };
+    expect((await setup(value).api.getAdoption({ task_id: 'T1', adoption_id: 'AD1' })).planning_progress).toBe(25);
+    await expect(setup({ ...value, planning_progress: 125 }).api.getAdoption({ task_id: 'T1', adoption_id: 'AD1' })).rejects.toMatchObject({ code: 'INVALID_RESPONSE' });
+  });
 });
