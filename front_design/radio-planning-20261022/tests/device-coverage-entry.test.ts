@@ -1026,6 +1026,11 @@ describe('GIS 拓扑独立透明度和上下文保护', () => {
     await clickWorkbench(s.root, '措施前');expect(analysis.mapProjection?.phase).toBe('BEFORE');
     expect(JSON.stringify(analysis.selected)).toBe(frozen);expect(s.wb.workbench.getRun).toHaveBeenCalledTimes(reads);
     await returnFromAnalysis(s);await click(s.root,'图层管理');expect(s.map().topologyOpacity).toBe(0.4);
+    const restoredSelection = s.map().selectedLinkId;
+    // frozenView往返即使恢复同一资源模式，也不能复活进入前捕获的控件和地图回调。
+    oldOpacity({ target: { value: '0.8' } }); oldMap('PL-001'); await settleWorkbench();
+    expect(s.map().topologyOpacity).toBe(0.4); expect(s.map().selectedLinkId).toBe(restoredSelection);
+    await opacity(s.root, '0.6'); expect(s.map().topologyOpacity).toBe(0.6);
     await opacity(s.root,'0');await change(s.root,'显示规划后链路',false);expect(s.map().showLinks).toBe(false);
     expect(s.storage.writes).toBe(0);s.wb.assertNoWrites();
   });
