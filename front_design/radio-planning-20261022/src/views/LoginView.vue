@@ -2,14 +2,14 @@
   <main class="login-page">
     <header>
       <span class="login-logo"><i class="pi pi-wifi" /></span><strong>无线网络智能规划系统</strong
-      ><span class="chip">教学演示平台</span>
+      ><span class="chip">{{ isMock ? '教学演示平台' : '本地账号认证' }}</span>
     </header>
     <div class="login-main">
       <section class="login-story">
         <p class="eyebrow">RADIO NETWORK · INTELLIGENT PLANNING</p>
         <h1>连接全域资源<br /><span>洞察网络态势</span></h1>
         <p class="login-description">
-          面向教学演示的无线网络规划与诊断工作台。<br />让资源、方案与知识，在同一张网络中清晰呈现。
+          {{ isMock ? '面向教学演示的无线网络规划与诊断工作台。' : '无线网络规划与诊断工作台。' }}<br />资源、方案与知识的统一工作区。
         </p>
         <div
           class="network-art"
@@ -164,7 +164,7 @@
               <i class="pi pi-user" /><input
                 v-model="username"
                 required
-                autocomplete="off"
+                autocomplete="username"
                 :aria-label="isMock ? '演示账号' : '账号'" /></div></label
           ><label
             >密码
@@ -174,7 +174,7 @@
                 v-model="password"
                 @input="passwordEdited = true"
                 required
-                autocomplete="off"
+                autocomplete="current-password"
                 :aria-label="isMock ? '演示密码' : '密码'" /><button
                 type="button"
                 class="icon-btn"
@@ -187,7 +187,7 @@
                 /> </button></div></label
           ><button
             class="btn primary login-enter"
-            :disabled="submitting || auth.transition || !!auth.busy || recovering"
+            :disabled="submitting || auth.transition || !!auth.busy || recovering || (!isMock && (!capabilities?.initialized || capabilityLoading || capabilities.passwordChangeRequired))"
             >登录工作区<i class="pi pi-arrow-right"
           /></button>
           <p
@@ -195,6 +195,9 @@
             role="alert"
             >{{ message }}</p
           >
+          <p v-if="!isMock && capabilities && !capabilities.initialized" role="status">系统尚未显式初始化。请由获授权运维人员完成初始化后重新读取状态；此页不自动创建管理员。</p>
+          <button v-if="!isMock && capabilities?.passwordChangeRequired" type="button" class="btn" @click="passwordRequired = true">维护本人密码</button>
+          <button v-if="!isMock && passwordUncertain" type="button" class="btn" :disabled="submitting || !!auth.busy" @click="reconcilePassword">核实改密回执</button>
           <button
             v-if="isMock && recoverable"
             type="button"
@@ -236,6 +239,7 @@
         >
       </section>
     </div>
+    <SystemPasswordDrawer v-if="!isMock" :visible="passwordRequired" mode="SELF" :disabled="passwordUncertain" :submit="changeRequiredPassword" @close="closePassword" @saved="passwordSaved" />
     <Dialog
       v-if="isMock"
       :visible="recovery"
@@ -273,13 +277,18 @@
   </main>
 </template>
 <script setup lang="ts">
-import { ref, onMounted } from 'vue';
+import { ref, onMounted, onBeforeUnmount } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
 import { useAuthStore } from '../stores/auth';
 import { previewService } from '../services';
 import { env } from '../config/env';
 import type { LoginCatalog } from '../types/system';
 import Dialog from 'primevue/dialog';
+import SystemPasswordDrawer from '../components/SystemPasswordDrawer.vue';
+import { readLocalIdentityCapabilities } from '../services/local-identity-http';
+import type { LocalIdentityCapabilities, PasswordFields } from '../types/local-identity';
+import { randomUuid } from '../services/random-uuid';
+import { ApiError } from '../services/types';
 const router = useRouter();
 const isMock = env.mode === 'mock';
 const passwordVisible = ref(false);
@@ -298,10 +307,44 @@ const recovery = ref(false);
 const recoverable = ref(false);
 const recovering = ref(false);
 const submitting = ref(false);
+const capabilities = ref<LocalIdentityCapabilities | null>(null), capabilityLoading = ref(false), passwordRequired = ref(false), passwordUncertain = ref(false);
+let capabilitySerial = 0, capabilityAbort: AbortController | undefined, passwordRequestId = '', passwordActorId = '';
+onBeforeUnmount(() => { capabilitySerial++; capabilityAbort?.abort(); password.value = ''; });
+async function refreshCapabilities() {
+  const serial = ++capabilitySerial;
+  capabilityAbort?.abort(); const controller = new AbortController(); capabilityAbort = controller; capabilityLoading.value = true;
+  const timer = setTimeout(() => controller.abort(), 15000);
+  try { const value = await readLocalIdentityCapabilities({ baseUrl: env.apiBaseUrl, signal: capabilityAbort.signal });
+    if (serial !== capabilitySerial) return false;
+    capabilities.value = value; passwordRequired.value = value.passwordChangeRequired; return true;
+  } catch { if (serial === capabilitySerial) { capabilities.value = null; message.value = '本地认证服务尚未就绪，请重新读取状态。'; } return false; }
+  finally { clearTimeout(timer); if (serial === capabilitySerial) capabilityLoading.value = false; }
+}
+async function changeRequiredPassword(fields: PasswordFields) {
+  if (passwordUncertain.value) throw new Error('请先核实原请求编号');
+  if (!previewService.changeOwnPassword) throw new Error('本人改密入口尚未接线');
+  passwordRequestId = randomUuid(); passwordActorId = auth.identity?.id ?? '';
+  try { return await previewService.changeOwnPassword({ requestId: passwordRequestId, currentPassword: fields.currentPassword, newPassword: fields.newPassword }); }
+  catch (e) { if (e instanceof ApiError && ['NETWORK_ERROR','REQUEST_TIMEOUT','INVALID_RESPONSE','INVALID_ENVELOPE','INVALID_SYSTEM_RESPONSE'].includes(String(e.code))) {
+    passwordUncertain.value = true; message.value = '改密结果待核实，请求编号：' + passwordRequestId + '。重新认证后可核实回执，不自动重试。';
+  } throw e; }
+}
+async function passwordSaved() { passwordRequired.value = false; passwordUncertain.value = false; passwordRequestId = ''; await auth.check(); await refreshCapabilities(); message.value = '密码已提交，请使用新密码重新登录。'; }
+async function reconcilePassword() {
+  if (!passwordUncertain.value) return true;
+  if (!auth.identity || auth.identity.id !== passwordActorId) { message.value = '请使用原账号重新认证后核实，请求编号：' + passwordRequestId; return false; }
+  if (!previewService.getSystemOperation) { message.value = '改密回执入口尚未接线，请保留编号：' + passwordRequestId; return false; }
+  try { const result = await previewService.getSystemOperation({ requestId: passwordRequestId });
+    if (result.status === 'NOT_FOUND') { message.value = '尚未查到回执，不能判定失败；请保留编号：' + passwordRequestId; return false; }
+    passwordUncertain.value = false; passwordRequestId = ''; message.value = '原改密操作已确认提交。'; await refreshCapabilities(); return true;
+  } catch { message.value = '回执暂无法核实，请保留编号并重新认证：' + passwordRequestId; return false; }
+}
+function closePassword() { passwordRequired.value = false; }
 // 正式模式不查询演示账号目录，也不暴露本地系统恢复入口。
 onMounted(async () => {
   if (!isMock) {
     message.value = auth.error;
+    await refreshCapabilities();
     return;
   }
   try {
@@ -312,13 +355,16 @@ onMounted(async () => {
   }
 });
 async function login() {
-  if (submitting.value) return;
+  if (submitting.value || !isMock && (!capabilities.value?.initialized || capabilities.value.passwordChangeRequired)) return;
   submitting.value = true;
   message.value = '';
   recoverable.value = false;
   try {
-    if (await auth.login(username.value, password.value))
-      await router.replace(auth.firstPath(route.query.next));
+    if (await auth.login(username.value, password.value)) {
+      if (!isMock && !(await refreshCapabilities())) return;
+      if (passwordUncertain.value && !(await reconcilePassword())) return;
+      if (!capabilities.value?.passwordChangeRequired) await router.replace(auth.firstPath(route.query.next));
+    }
     else {
       message.value = auth.error;
       recoverable.value =
@@ -355,7 +401,8 @@ async function reloadSession() {
   password.value = '';
   try {
     if (await auth.discardRestricted()) {
-      if (auth.identity && !auth.error) await router.replace(auth.firstPath(route.query.next));
+      if (!(await refreshCapabilities())) return;
+      if (auth.identity && !auth.error && !capabilities.value?.passwordChangeRequired) await router.replace(auth.firstPath(route.query.next));
       else message.value = auth.error || '当前未登录，请输入账号和密码。';
     }
   } finally {

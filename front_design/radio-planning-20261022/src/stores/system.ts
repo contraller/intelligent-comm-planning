@@ -8,6 +8,10 @@ import { createReadCancellation } from '../services/data-access';
 import type { SystemAccount, SystemRole, SystemParameter, SystemQuery, SystemPage } from '../types/system';
 import type { Decision, DecisionRequest } from '../types/resource-edit';
 import { togglePermission, type Permission } from '../config/permissions';
+import { env } from '../config/env';
+import { ApiError } from '../services/types';
+import type { SystemResult } from '../types/system';
+import type { PasswordFields } from '../types/local-identity';
 import type { SystemOptions, SystemRoleSummary, OperationSummary, SystemAccountQuery, SystemRoleQuery, SystemParameterQuery, SystemLogQuery } from '../types/system';
 
 type AccountForm=Omit<SystemAccount,'id'|'enabled'> & {id:string|null};
@@ -21,17 +25,19 @@ export const useSystemStore=defineStore('system',()=>{
   // 输入条件与成功查询分开，翻页不提交尚未查询的筛选输入。
   const appliedQuery=ref<SystemQuery>({pageNum:1,pageSize:20});
   const accountForm=ref<AccountForm|null>(null),roleForm=ref<RoleForm|null>(null),parameterForm=ref<SystemParameter|null>(null),initial=ref(''),baseRevision=ref('');
+  const passwordTarget=ref<{mode:'SELF'|'ADMIN';accountId:string;baseRevision:string}|null>(null),secretDirty=ref(false);
+  const pendingMutation=ref<{requestId:string;action:string;actorId:string}|null>(null);
   const decision=ref<DecisionRequest|null>(null);let resolver:((d:Decision)=>void)|null=null,generation=0;
   const form=computed(()=>accountForm.value??roleForm.value??parameterForm.value);
-  const dirty=computed(()=>!!form.value&&JSON.stringify(form.value)!==initial.value);
+  const dirty=computed(()=>secretDirty.value||!!form.value&&JSON.stringify(form.value)!==initial.value);
   const formPermission=computed<Permission>(()=>accountForm.value?'system.accounts':roleForm.value?'system.roles':'system.parameters');
-  const canSave=computed(()=>!!form.value&&auth.can(formPermission.value)&&!busy.value);
+  const canSave=computed(()=>!!form.value&&auth.can(formPermission.value)&&!busy.value&&!pendingMutation.value);
   const page=computed(()=>({accounts:accounts.value,roles:roles.value,logs:logs.value,parameters:parameters.value})[tab.value]);
   function answer(d:Decision){const next=resolver;resolver=null;decision.value=null;next?.(d);}
   function ask(request:DecisionRequest){if(decision.value||busy.value)return Promise.resolve<Decision>('cancel');decision.value=request;return new Promise<Decision>(resolve=>{resolver=resolve;});}
   function clearFeedback(){error.value='';notice.value='';}
   function resetQuery(){query.value={pageNum:1,pageSize:20};appliedQuery.value={...query.value};}
-  function closeForms(){requests.stop('detail');generation++;loading.value=false;accountForm.value=null;roleForm.value=null;parameterForm.value=null;initial.value='';error.value='';}
+  function closeForms(){requests.stop('detail');generation++;loading.value=false;accountForm.value=null;roleForm.value=null;parameterForm.value=null;passwordTarget.value=null;secretDirty.value=false;initial.value='';error.value='';}
   // 只有实际改变本人角色或已关联角色权限时才提示权限影响。
   function saveImpact(){
     if(accountForm.value&&accountForm.value.id===auth.identity?.id&&initial.value){
@@ -48,6 +54,17 @@ export const useSystemStore=defineStore('system',()=>{
   }
   async function allowLeave(deferDiscard=false){
     if(busy.value)return false;
+    if(pendingMutation.value){
+      const choice=await ask({title:'操作结果尚未核实',message:'请求编号 '+pendingMutation.value.requestId+' 已保留。离开不会撤销服务端事务，不应重新提交相同操作。',saveLabel:'核实回执',discardLabel:'保留编号并离开'});
+      if(choice==='cancel'||choice==='save'&&!(await reconcilePending()))return false;
+    }
+    if(secretDirty.value){
+      const choice=await ask({title:'密码输入尚未提交',message:'离开将清空密码输入。',discardLabel:'清空并离开'});
+      if(choice!=='discard')return false;
+      secretDirty.value=false;
+      if(passwordTarget.value)passwordTarget.value=null;
+      if(!deferDiscard)closeForms();return true;
+    }
     if(dirty.value){
       const choice=await ask({title:'系统表单尚未保存',message:'可保存本次修改，或明确放弃后离开。'+saveImpact(),saveLabel:auth.can(formPermission.value)?'保存并离开':'无保存权限',discardLabel:'放弃修改'});
       if(choice==='cancel'||choice==='save'&&!(await save(true)))return false;
@@ -101,9 +118,31 @@ export const useSystemStore=defineStore('system',()=>{
     await readForm(signal=>previewService.getSystemParameter({id:p.id,signal}),value=>{parameterForm.value=value.parameter;baseRevision.value=value.revision;initial.value=JSON.stringify(parameterForm.value);});
   }
   function toggle(code:Permission,on:boolean){if(canSave.value&&roleForm.value)roleForm.value.permissions=togglePermission(roleForm.value.permissions,code,on);}
-  async function save(impactConfirmed=false){
+  async function runWrite(action:string,send:(requestId:string)=>Promise<SystemResult>){
+    if(pendingMutation.value)throw new ApiError('请先核实上次操作回执','OPERATION_UNCERTAIN');
+    const requestId=randomUuid(),actorId=auth.identity?.id??'';
+    if(env.mode==='http')pendingMutation.value={requestId,action,actorId};
+    try{const result=await send(requestId);pendingMutation.value=null;return result;}
+    catch(e){
+      const uncertain=e instanceof ApiError&&['NETWORK_ERROR','REQUEST_TIMEOUT','INVALID_RESPONSE','INVALID_ENVELOPE','INVALID_SYSTEM_RESPONSE','REQUEST_ABORTED'].includes(String(e.code));
+      if(!uncertain)pendingMutation.value=null;
+      throw e;
+    }
+  }
+  async function reconcilePending(){
+    const pending=pendingMutation.value;if(!pending||busy.value)return !pending;
+    if(pending.actorId!==auth.identity?.id){error.value='原操作必须由原账号重新认证后核实';return false;}
+    if(!previewService.getSystemOperation){error.value='操作回执入口尚未接线，保留原请求编号';return false;}
+    busy.value=true;
+    try{const result=await previewService.getSystemOperation({requestId:pending.requestId});
+      if(result.status==='NOT_FOUND'){error.value='尚未查到回执，不能判定失败；保留原请求编号，不自动重试';return false;}
+      pendingMutation.value=null;closeForms();await auth.check();if(auth.can('system.view'))await load();notice.value='已核实操作提交成功';return true;
+    }catch(e){error.value=e instanceof Error?e.message:'回执核实失败';return false;}finally{busy.value=false;}
+  }
+  async function save(impactConfirmed=false,secrets?:{initialPassword?:string}){
     if(!canSave.value)return false;
     if(!dirty.value){closeForms();notice.value='内容未变化';return true;}
+    if(env.mode==='http'&&accountForm.value&&!accountForm.value.id&&!secrets?.initialPassword){error.value='新增账号请在密码字段显式输入初始密码';return false;}
     const impact=saveImpact();
     if(impact&&!impactConfirmed){
       const choice=await ask({title:'确认账号与权限影响',message:impact,saveLabel:'确认保存'});
@@ -111,12 +150,16 @@ export const useSystemStore=defineStore('system',()=>{
     }
     busy.value=true;clearFeedback();
     try{
-      const mutation={baseRevision:baseRevision.value,requestId:randomUuid()};
-      const result=accountForm.value?await previewService.saveSystemAccount({...mutation,account:JSON.parse(JSON.stringify(accountForm.value))}):
-        roleForm.value?await previewService.saveSystemRole({...mutation,role:JSON.parse(JSON.stringify(roleForm.value))}):
-        await previewService.saveSystemParameter({...mutation,parameterId:parameterForm.value!.id,value:parameterForm.value!.value});
+      const baseline=baseRevision.value,session=auth.generation;
+      const result=await runWrite('form.save',requestId=>{
+        const mutation={baseRevision:baseline,requestId};
+        return accountForm.value?previewService.saveSystemAccount({...mutation,account:JSON.parse(JSON.stringify(accountForm.value)),...(secrets?.initialPassword?{initialPassword:secrets.initialPassword}:{})}):
+          roleForm.value?previewService.saveSystemRole({...mutation,role:JSON.parse(JSON.stringify(roleForm.value))}):
+          previewService.saveSystemParameter({...mutation,parameterId:parameterForm.value!.id,value:parameterForm.value!.value});
+      });
+      if(session!==auth.generation){notice.value='原账号操作已提交；当前页面身份已变化';return true;}
       initial.value=JSON.stringify(form.value);baseRevision.value=result.revision;
-      closeForms();if(auth.can('system.view'))await load();notice.value=result.changed?'修改已保存':'内容未变化';return true;
+      closeForms();if(result.reauthenticationRequired)await auth.check();if(auth.can('system.view'))await load();notice.value=result.reauthenticationRequired?'修改已提交，请重新登录':result.changed?'修改已保存':'内容未变化';return true;
     }catch(e){error.value=e instanceof Error?e.message:'保存失败，输入已保留';return false;}
     finally{busy.value=false;}
   }
@@ -125,22 +168,48 @@ export const useSystemStore=defineStore('system',()=>{
     clearFeedback();
     if(await ask({title:account.enabled?'停用账号':'启用账号',message:account.enabled?'停用后，该账号下次校验即失效。未保存输入冻结，已提交业务任务保留。':'启用后，该账号可按关联角色的权限登录。',saveLabel:'确认'})!=='save')return;
     busy.value=true;
-    try{await previewService.setSystemAccountState({baseRevision:accounts.value!.revision,requestId:randomUuid(),accountId:account.id,enabled:!account.enabled});await load();notice.value='账号状态已保存';}
+    try{const result=await runWrite('account.state',requestId=>previewService.setSystemAccountState({baseRevision:accounts.value!.revision,requestId,accountId:account.id,enabled:!account.enabled}));if(result.reauthenticationRequired)await auth.check();if(auth.can('system.view'))await load();notice.value='账号状态已提交';}
     catch(e){error.value=e instanceof Error?e.message:'状态修改失败';}finally{busy.value=false;}
   }
   async function reset(kind:'system'|'logs'){
     if(!auth.can('system.reset')||kind==='logs'&&!auth.can('system.logs')||busy.value)return;
     clearFeedback();
-    const message=kind==='system'?'恢复初始账号、角色和参数，所有旧会话失效；保留资源、规划、诊断、知识及日志。未保存系统表单将被丢弃。':'清空操作日志和旧待补记录，保留本次重置事件；业务数据和系统配置不变。';
-    if(await ask({title:kind==='system'?'重置系统配置':'重置操作日志',message,saveLabel:'确认重置'})!=='save')return;
+    const formal=env.mode==='http';
+    const message=formal?(kind==='system'?'将状态展示间隔恢复为30秒、请求超时恢复为15秒，保存新版本；账号、角色、业务和历史不变。':'归档当前快照及以前的日志视图。原事件保留，可通过包含归档历史查询。'):(kind==='system'?'恢复初始账号、角色和参数，所有旧会话失效；保留资源、规划、诊断、知识及日志。未保存系统表单将被丢弃。':'清空操作日志和旧待补记录，保留本次重置事件；业务数据和系统配置不变。');
+    if(await ask({title:formal?(kind==='system'?'恢复参数默认值':'归档日志视图'):(kind==='system'?'重置系统配置':'重置操作日志'),message,saveLabel:'确认'})!=='save')return;
     busy.value=true;error.value='';
     try{
-      if(kind==='system'){await previewService.resetSystemWorkspace({baseRevision:catalog.value!.revision,requestId:randomUuid()});closeForms();}
+      if(formal){
+        if(kind==='system'){
+          if(!auth.can('system.parameters')||!previewService.resetSystemParameters)throw new Error('参数恢复入口未接线或无权限');
+          await runWrite('parameter.reset',requestId=>previewService.resetSystemParameters!({baseRevision:catalog.value!.revision,requestId,parameterIds:['PAR-01','PAR-02'],reason:'显式恢复参数默认值',confirm:'RESTORE_PARAMETER_DEFAULTS'}));
+        }else{
+          if(!previewService.archiveSystemLogs||logs.value?.snapshotSequence===undefined)throw new Error('日志归档入口未接线或缺少快照');
+          await runWrite('logs.archive',requestId=>previewService.archiveSystemLogs!({baseAuditRevision:logs.value!.revision,requestId,throughSequence:logs.value!.snapshotSequence!,reason:'显式归档日志视图',confirm:'ARCHIVE_LOG_VIEW'}));
+        }
+        closeForms();await load();
+      }else if(kind==='system'){await previewService.resetSystemWorkspace({baseRevision:catalog.value!.revision,requestId:randomUuid()});closeForms();}
       else{await previewService.resetOperationLogs({baseRevision:logs.value?.revision??null});await refresh(appliedQuery.value);}
-      notice.value='重置已完成';
+      notice.value=formal?'操作已提交，历史记录保留':'重置已完成';
     }catch(e){error.value=e instanceof Error?e.message:'重置失败';}finally{busy.value=false;}
   }
   function stopQueries(){requests.stop();generation++;loading.value=false;answer('cancel');}
+  async function openPassword(account?:Pick<SystemAccount,'id'>){
+    if(env.mode!=='http'||!auth.identity||account&&!auth.can('system.accounts')||!(await allowLeave()))return;
+    if(account)await readForm(signal=>previewService.getSystemAccount({id:account.id,signal}),value=>{passwordTarget.value={mode:'ADMIN',accountId:account.id,baseRevision:value.revision};});
+    else passwordTarget.value={mode:'SELF',accountId:auth.identity.id,baseRevision:''};
+  }
+  async function submitPassword(fields:PasswordFields){
+    const target=passwordTarget.value;if(!target||busy.value)throw new Error('密码操作不可用');
+    if(target.mode==='ADMIN'&&!auth.can('system.accounts')||target.mode==='SELF'&&target.accountId!==auth.identity?.id)throw new Error('当前身份不可提交该密码操作');
+    busy.value=true;
+    try{return await runWrite('password',requestId=>{
+      if(target.mode==='SELF'){if(!previewService.changeOwnPassword)throw new Error('本人改密入口尚未接线');return previewService.changeOwnPassword({requestId,currentPassword:fields.currentPassword,newPassword:fields.newPassword});}
+      if(!previewService.maintainSystemAccountPassword)throw new Error('账号密码维护入口尚未接线');
+      return previewService.maintainSystemAccountPassword({requestId,baseRevision:target.baseRevision,accountId:target.accountId,operatorPassword:fields.operatorPassword,newPassword:fields.newPassword});
+    });}finally{busy.value=false;secretDirty.value=false;}
+  }
+  async function passwordSaved(result:SystemResult){closeForms();if(result.reauthenticationRequired)await auth.check();if(auth.can('system.view'))await load();notice.value=result.reauthenticationRequired?'密码已提交，请重新登录':'密码已维护，目标账号下次登录须自行改密';}
   function clearForSession(){stopQueries();closeForms();catalog.value=null;accounts.value=null;roles.value=null;logs.value=null;parameters.value=null;resetQuery();tab.value='accounts';loadError.value='';notice.value='';}
-  return {catalog,tab,accounts,roles,logs,parameters,query,appliedQuery,loading,busy,error,loadError,notice,accountForm,roleForm,parameterForm,dirty,canSave,decision,page,load,refresh,search,changePage,changeTab,resetQuery,openAccount,openRole,openParameter,toggle,save,setEnabled,reset,allowLeave,answer,stopQueries,clearForSession};
+  return {catalog,tab,accounts,roles,logs,parameters,query,appliedQuery,loading,busy,error,loadError,notice,accountForm,roleForm,parameterForm,passwordTarget,secretDirty,pendingMutation,dirty,canSave,decision,page,load,refresh,search,changePage,changeTab,resetQuery,openAccount,openRole,openParameter,openPassword,submitPassword,passwordSaved,reconcilePending,toggle,save,setEnabled,reset,allowLeave,answer,stopQueries,clearForSession};
 });

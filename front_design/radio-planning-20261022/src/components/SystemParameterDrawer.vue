@@ -34,8 +34,8 @@
       → {{ store.parameterForm.value }} {{ store.parameterForm.unit }}</p
     >
     <p class="notice"
-      >状态采集间隔用于设备与链路态势，下一轮采用新周期。频谱按采集源周期刷新；规划、诊断轮询和 HTTP
-      超时保持原规则，设备配置不受影响。WGS84 / EPSG:4326 保持只读。</p
+      >{{ store.parameterForm?.applicationState === 'STORED_ONLY' ? '参数已存储，尚未接入运行消费者。' : store.parameterForm?.applicationState === 'APPLIED' ? '当前参数约定已应用。' : '参数作用域以当前运行配置为准。' }}
+      {{ store.parameterForm?.appliesTo }}。WGS84 / EPSG:4326 保持只读。</p
     ><p
       v-if="store.error"
       role="alert"

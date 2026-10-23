@@ -36,6 +36,7 @@
           ></select
         ></label
       >
+      <label v-if="formal && !store.accountForm.id">初始密码<input v-model="initialPassword" type="password" autocomplete="new-password" maxlength="256" @input="store.secretDirty = !!initialPassword" /></label>
       <p class="muted">每个账号仅关联一个角色。登录名创建后不可修改；新增账号默认启用。</p>
     </fieldset>
     <p
@@ -52,7 +53,7 @@
       ><button
         class="btn primary"
         :disabled="!store.canSave"
-        @click="store.save()"
+        @click="save"
         >保存账号</button
       ></template
     >
@@ -61,7 +62,13 @@
 <script setup lang="ts">
 import { useSystemStore } from '../stores/system';
 import AppDrawer from './AppDrawer.vue';
+import { onBeforeUnmount, ref, watch } from 'vue';
+import { env } from '../config/env';
 const store = useSystemStore();
+const formal = env.mode === 'http', initialPassword = ref('');
+watch(() => store.accountForm, () => { initialPassword.value = ''; store.secretDirty = false; });
+onBeforeUnmount(() => { initialPassword.value = ''; });
+async function save() { try { await store.save(false, { initialPassword: initialPassword.value }); } finally { initialPassword.value = ''; store.secretDirty = false; } }
 // Mock 与 HTTP 共用账号表单；失权时只禁用，不清空输入。
 </script>
 <style scoped>

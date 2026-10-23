@@ -25,7 +25,7 @@
       <p class="role-impact"
         >当前关联
         {{ affected }}
-        个账号。保存后关联账号采用新权限；内置系统管理员可兼有知识编辑与审核权限，其他角色不能同时授予。</p
+        个账号。保存后关联账号采用新权限；本地账号角色的知识编辑与审核权限必须分离。</p
       >
       <!-- 分组并排压缩纵向留白，保留全部权限及原有依赖勾选行为。 -->
       <div class="permission-groups"
@@ -70,10 +70,11 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 import { useSystemStore } from '../stores/system';
-import { permissions } from '../config/permissions';
+import { permissions as mockPermissions } from '../config/permissions';
 import AppDrawer from './AppDrawer.vue';
-const store = useSystemStore(),
-  groups = [...new Set(permissions.map((p) => p.group))];
+const store = useSystemStore();
+const permissions = computed(() => store.catalog?.permissions ?? mockPermissions);
+const groups = computed(() => [...new Set(permissions.value.map((p) => p.group))]);
 const affected = computed(
   () => store.roles?.items.find((r) => r.id === store.roleForm?.id)?.accountCount ?? 0,
 );

@@ -3,16 +3,17 @@
     <div class="page-heading"
       ><h1>系统管理</h1>
       <div class="toolbar"
-        ><span class="chip">账号与权限</span
+        ><span class="chip">账号与权限</span><button v-if="formal" class="btn" :disabled="store.busy" @click="store.openPassword()"><i class="pi pi-key" />修改本人密码</button
         ><button
           v-if="auth.can('system.reset')"
           class="btn"
           :disabled="store.busy || store.loading || !store.catalog"
           @click="store.reset('system')"
-          >重置系统配置</button
+          >{{ formal ? '恢复参数默认值' : '重置系统配置' }}</button
         ></div
       >
     </div>
+    <div v-if="store.pendingMutation" class="notice" role="status">操作结果待核实：{{ store.pendingMutation.requestId }}<button class="btn" :disabled="store.busy" @click="store.reconcilePending">核实回执</button></div>
     <div class="split">
       <aside class="panel"
         ><div class="panel-head"><h3>管理中心</h3></div
@@ -53,7 +54,7 @@
               class="btn"
               :disabled="store.busy || store.loading"
               @click="store.reset('logs')"
-              >重置日志</button
+              >{{ formal ? '归档日志视图' : '重置日志' }}</button
             >
           </div></div
         >
@@ -104,7 +105,7 @@
               v-model="store.query.date"
               type="date"
               aria-label="日志日期（北京时间）"
-          /></template>
+          /><label v-if="formal"><input v-model="store.query.includeArchived" type="checkbox" />包含归档历史</label></template>
           <!-- 查询统一提交筛选，四个页签都不提供排序。 -->
           <button
             class="btn"
@@ -172,6 +173,7 @@
                 :disabled="store.loading || store.busy"
                 @click="store.setEnabled(row)"
                 >{{ row.enabled ? '停用' : '启用' }}</button
+              ><button v-if="formal" class="text-link" :disabled="store.loading || store.busy" @click="store.openPassword(row)">维护密码</button
               ></template
             >
           </AppTable>
@@ -303,6 +305,7 @@
         ><p>身份为操作当时快照，后续改名或换角色不改写此记录。</p></template
       ></AppDrawer
     >
+    <SystemPasswordDrawer v-if="formal && store.passwordTarget" :visible="true" :mode="store.passwordTarget.mode" :disabled="!!store.pendingMutation || (store.passwordTarget.mode === 'ADMIN' && !auth.can('system.accounts'))" :submit="store.submitPassword" @close="store.allowLeave()" @dirty-change="store.secretDirty = $event" @saved="store.passwordSaved" />
     <SystemAccountDrawer /><SystemRoleDrawer /><SystemParameterDrawer /><DecisionDialog
       :request="store.decision"
       @answer="store.answer"
@@ -324,6 +327,9 @@ import DecisionDialog from '../components/DecisionDialog.vue';
 import SystemAccountDrawer from '../components/SystemAccountDrawer.vue';
 import SystemRoleDrawer from '../components/SystemRoleDrawer.vue';
 import SystemParameterDrawer from '../components/SystemParameterDrawer.vue';
+import SystemPasswordDrawer from '../components/SystemPasswordDrawer.vue';
+import { env } from '../config/env';
+const formal = env.mode === 'http';
 const store = useSystemStore(),
   auth = useAuthStore(),
   selectedLog = ref<OperationEvent | null>(null);
