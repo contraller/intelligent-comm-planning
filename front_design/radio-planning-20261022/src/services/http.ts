@@ -24,6 +24,7 @@ import { createSystemManagementHttp } from './system-http';
 import { createLocalIdentityHttp } from './local-identity-http';
 import { createResourceResetHttp } from './resource-reset-http';
 import { createRuntimeParametersHttp, decodeRuntimeParameters } from './runtime-parameters-http';
+import { createFrozenCoverageHttp } from './frozen-coverage-http';
 
 // 保留既有导出路径；认证、传输与页面会话分别维护，不在入口堆叠实现。
 export { createHttpClient } from './http-client';
@@ -43,6 +44,7 @@ export const switchIntegrationIdentity = (accountId: string) => authentication.s
 // 新模块使用独立 DTO，先共享真实会话，不伪装为旧页面尚未接入的服务。
 export const collaborationHttp = Object.freeze({
   runtimeParameters: createRuntimeParametersHttp(authentication.authenticatedRequest),
+  frozenCoverage: createFrozenCoverageHttp(authentication.authenticatedRequest),
   gisPlans: createGisPlanHttp(authentication.authenticatedRequest),
   interferenceScenes: createInterferenceSceneHttp(authentication.authenticatedRequest),
   frequencies: createFrequencyResourceHttp(authentication.authenticatedRequest),

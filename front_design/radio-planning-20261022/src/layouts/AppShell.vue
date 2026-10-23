@@ -141,9 +141,13 @@ if (env.mode === 'http') {
     applyHttpRuntimeParameters(null);
     if (key) void runtime.refresh().catch(() => { /* 参数错误由独立状态保留，不卸载业务页面。 */ });
   }, { immediate: true, flush: 'sync' });
-  watch(() => runtime.snapshot, value => {
-    applyHttpRuntimeParameters(value);
-    if (value) runtime.reportApplied('http.request-timeout', value.epoch, value.revision);
+  watch(() => [runtime.snapshot, runtime.loading, runtime.error] as const, ([value, loading, error]) => {
+    // 快照先于loading落定；只在读取完成后报告真实消费者已应用。
+    if (!value) applyHttpRuntimeParameters(null);
+    else if (!loading && !error) {
+      applyHttpRuntimeParameters(value);
+      runtime.reportApplied('http.request-timeout', value.epoch, value.revision);
+    }
   }, { immediate: true, flush: 'sync' });
 }
 onUnmounted(() => { runtime.unbind(); applyHttpRuntimeParameters(null); });

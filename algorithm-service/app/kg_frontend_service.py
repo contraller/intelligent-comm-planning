@@ -318,8 +318,17 @@ def mutate(action, request: KnowledgeMutation, identity):
     elif action == "rollback":
         if not request.reason.strip():
             _fail("回滚必须填写原因")
-        payload.update(reason=request.reason, current_version=workflow.workspace(kg.STORE_PATH)["current_version"])
-        result = workflow.rollback(kg.STORE_PATH, _version(request.versionId), payload)
+        # 页面锚定当前版，目标只能是该不可变版本的父版；旧号重放仍用原锚点。
+        current_version = _version(request.versionId)
+        state = workflow.workspace(kg.STORE_PATH)
+        version = next((item for item in state["versions"] if item["version"] == current_version), None)
+        if version is None:
+            _fail("知识版本不存在", 4001, 404)
+        target = version.get("parent_version")
+        if target is None:
+            _fail("当前版本没有可恢复的父版本", 1203, 409)
+        payload.update(reason=request.reason, current_version=current_version)
+        result = workflow.rollback(kg.STORE_PATH, target, payload)
     else:
         if not request.changeId or request.revision is None:
             _fail("缺少变更编号或修订")

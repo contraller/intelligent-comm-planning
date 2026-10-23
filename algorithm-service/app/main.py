@@ -26,6 +26,7 @@ from .resource_workspace_router import router as resource_workspace_router
 from .task_file_router import create_task_file_router
 from .resource_reset_router import router as resource_reset_router
 from .gis_plan_router import router as gis_plan_router
+from .frozen_coverage_router import create_frozen_coverage_router
 from .interference_frontend_router import router as interference_frontend_router
 from .interference_workbench_router import router as interference_workbench_router
 from .frequency_resource_router import router as frequency_resource_router
@@ -98,44 +99,64 @@ except ImportError as exc:  # pragma: no cover - exercised only without runtime 
 @asynccontextmanager
 async def application_lifespan(application):
     with ExitStack() as ownership:
-        worker = None
-        enabled = os.environ.get("INTERFERENCE_WORKBENCH_ENABLED", "0")
-        if enabled not in ("0", "1"):
-            raise RuntimeError("INTERFERENCE_WORKBENCH_ENABLED只能为0或1")
-        if enabled == "1":
-            from .interference_workbench_service import (InterferenceWorkbenchService,
-                start_interference_worker, stop_interference_worker)
-            from .interference_replan_service import FrozenPlanningReplanner
-            from .interference_workbench_models import InterferenceWorkbenchRun
-            from .runtime_ownership import exclusive_runtime_directory
-            from sqlalchemy import select
-            if not resource_dataset.database_mode():
-                raise RuntimeError("干扰工作流要求显式数据库资源模式")
-            factory = get_session_factory()
-            root = Path(__file__).resolve().parents[2] / "data/runtime/r2"
-            ownership.enter_context(exclusive_runtime_directory(root))
-            bridge = FrozenPlanningReplanner(factory, runtime_root=root)
-            service = InterferenceWorkbenchService(factory, runtime_root=root, replanner=bridge)
-            # 先验证表及实际路径，只有拿到进程排他锁才能恢复中断作业。
-            with service.transaction() as session:
-                session.execute(select(InterferenceWorkbenchRun).limit(0))
-            application.state.interference_recovered_jobs = bridge.recover_interrupted(exclusive_runtime=True)
-            application.state.interference_workbench = service
-            worker = start_interference_worker(service)
-            application.state.interference_worker = worker
+        worker = coverage = None
+        application.state.interference_worker = None
+        application.state.frozen_coverage = None
         try:
+            enabled = os.environ.get("INTERFERENCE_WORKBENCH_ENABLED", "0")
+            coverage_enabled = os.environ.get("FROZEN_COVERAGE_ENABLED", "0")
+            if enabled not in ("0", "1") or coverage_enabled not in ("0", "1"):
+                raise RuntimeError("后台工作流开关只能为0或1")
+            if enabled == "1":
+                from .interference_workbench_service import (InterferenceWorkbenchService,
+                    start_interference_worker, stop_interference_worker)
+                from .interference_replan_service import FrozenPlanningReplanner
+                from .interference_workbench_models import InterferenceWorkbenchRun
+                from .runtime_ownership import exclusive_runtime_directory
+                from sqlalchemy import select
+                if not resource_dataset.database_mode():
+                    raise RuntimeError("干扰工作流要求显式数据库资源模式")
+                factory = get_session_factory()
+                root = Path(__file__).resolve().parents[2] / "data/runtime/r2"
+                ownership.enter_context(exclusive_runtime_directory(root))
+                bridge = FrozenPlanningReplanner(factory, runtime_root=root)
+                service = InterferenceWorkbenchService(factory, runtime_root=root, replanner=bridge)
+                # 先验证表及实际路径，只有拿到进程排他锁才能恢复中断作业。
+                with service.transaction() as session:
+                    session.execute(select(InterferenceWorkbenchRun).limit(0))
+                application.state.interference_recovered_jobs = bridge.recover_interrupted(exclusive_runtime=True)
+                application.state.interference_workbench = service
+                worker = start_interference_worker(service)
+                application.state.interference_worker = worker
+            if coverage_enabled == "1":
+                from .frozen_coverage_service import create_frozen_coverage_service
+                directory = os.environ.get("FROZEN_COVERAGE_RUNTIME_DIR", "")
+                if not directory or not Path(directory).is_absolute() or not resource_dataset.database_mode():
+                    raise RuntimeError("冻结覆盖要求数据库资源模式及显式绝对运行目录")
+                coverage = create_frozen_coverage_service(runtime_root=directory,
+                    session_factory=get_session_factory())
+                coverage.start()
+                application.state.frozen_coverage = coverage
             yield
         finally:
+            failures = []
+            if coverage is not None:
+                try:
+                    coverage.close(timeout=10.0)
+                except BaseException as exc:
+                    failures.append(exc)
             if worker is not None:
                 try:
                     dispatcher_stopped = stop_interference_worker(worker, timeout=5)
                     children_stopped = worker.service.replanner.bridge.shutdown(timeout=5)
                     if not dispatcher_stopped or not children_stopped:
                         raise RuntimeError("干扰调度或重算子线程未在检查点停止，不能宣称已安全关服")
-                except BaseException:
-                    # 未停的线程仍占用目录；保留锁直至进程退出，避免新实例误恢复。
-                    application.state.interference_runtime_ownership = ownership.pop_all()
-                    raise
+                except BaseException as exc:
+                    failures.append(exc)
+            if failures:
+                # 任一线程未停时保留所有权，且仍尝试关停另一模块。
+                application.state.interference_runtime_ownership = ownership.pop_all()
+                raise failures[0]
 
 
 app = FastAPI(title="短波/超短波智能规划算法服务", version="0.1.0", lifespan=application_lifespan)
@@ -172,6 +193,7 @@ app.include_router(resource_reset_router)
 app.include_router(create_task_file_router(integration_identity.require))
 # 并行模块在此统一挂载；各模块保留自己的严格契约和错误包络。
 app.include_router(gis_plan_router)
+app.include_router(create_frozen_coverage_router(integration_identity.require))
 app.include_router(interference_frontend_router)
 app.include_router(interference_workbench_router)
 app.include_router(frequency_resource_router)
@@ -441,13 +463,19 @@ def health() -> dict[str, Any]:
 @app.get("/health/workers")
 def worker_health(response: Response):
     worker = getattr(app.state, "interference_worker", None)
-    if worker is None:
-        return {"code": 0, "message": "success", "data": {"interference": "disabled"}}
-    healthy = worker.thread.is_alive() and worker.error is None
+    coverage = getattr(app.state, "frozen_coverage", None)
+    coverage_health = {"state": "disabled"} if coverage is None else coverage.status()
+    coverage_state = coverage_health.get("state")
+    if coverage_state not in ("disabled", "running", "failed"):
+        coverage_state = "failed"
+    states = {"interference": "disabled" if worker is None else
+              "running" if worker.thread.is_alive() and worker.error is None else "failed",
+              "frozen_coverage": coverage_state}
+    healthy = "failed" not in states.values()
     if not healthy:
         response.status_code = 503
-    return {"code": 0 if healthy else 5002, "message": "success" if healthy else "干扰调度线程不可用",
-            "data": {"interference": "running" if healthy else "failed"}}
+    return {"code": 0 if healthy else 5002, "message": "success" if healthy else "后台工作流不可用",
+            "data": states}
 
 
 def frontend_auth_session(response: Response, request: Request) -> dict[str, Any]:
