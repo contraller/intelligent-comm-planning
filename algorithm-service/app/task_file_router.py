@@ -6,8 +6,11 @@ from pydantic import ValidationError
 from sqlalchemy.exc import SQLAlchemyError
 
 from .database import DatabaseConfigurationError
+from .integration_identity_service import IdentityError
+from .system_management_schemas import SystemManagementError
 from .device_configuration_router import _EnvelopeRoute
 from .task_input_service import TaskInputError
+from .task_file_parser import TaskFileError
 from .task_file_service import (TaskFilePreviewRequest, TaskFileTemplateRequest,
                                 preview_task_files, task_file_template)
 
@@ -36,15 +39,12 @@ def create_task_file_router(actor_resolver, *, factory=None):
         except SQLAlchemyError:
             response.status_code = 503
             return {"code": 5002, "message": "数据库操作失败", "data": None}
-        except Exception as exc:
-            from .task_file_parser import TaskFileError
-            if isinstance(exc, TaskFileError):
-                response.status_code = 422
-                return {"code": 1001, "message": str(exc), "data": {"fileCode": exc.code}}
-            if isinstance(exc, TaskInputError) or getattr(exc, "code", None) in (1101, 1104, 1105, 1106):
-                response.status_code = exc.status
-                return {"code": exc.code, "message": str(exc), "data": getattr(exc, "data", None)}
-            raise
+        except TaskFileError as exc:
+            response.status_code = 422
+            return {"code": 1001, "message": str(exc), "data": {"fileCode": exc.code}}
+        except (IdentityError, SystemManagementError, TaskInputError) as exc:
+            response.status_code = exc.status
+            return {"code": exc.code, "message": str(exc), "data": getattr(exc, "data", None)}
 
     @router.post("/preview")
     def preview(request: Request, response: Response, payload: dict = Body(...)):
