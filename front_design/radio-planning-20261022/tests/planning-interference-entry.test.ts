@@ -258,11 +258,15 @@ describe('P02 M5 任务编辑返回真实页面命令', () => {
   it('只保存指定任务再回 GIS，同任务回读，不提交规划或保存资源', async () => {
     const s=await editFixture(), taskId=s.task.taskId;
     s.task.updateInput({...structuredClone(toRaw(s.task.draft!)),name:'GIS 编辑保存回读'});
+    vi.mocked(previewService.getTaskInput).mockClear();
+    vi.mocked(previewService.queryTaskSummaries).mockClear();
     await clickWorkbench(s.root,'保存任务并返回 GIS');
     expect(s.router.currentRoute.value.path).toBe('/situation');expect(s.router.currentRoute.value.query).toEqual({taskId});
     expect(previewService.saveTaskInputReceipt).toHaveBeenCalledTimes(1);
     expect(previewService.saveTaskInputReceipt).toHaveBeenCalledWith(expect.objectContaining({context:'planning',taskId,input:expect.objectContaining({name:'GIS 编辑保存回读'})}));
-    expect(previewService.getTaskInput).toHaveBeenCalledWith(expect.objectContaining({context:'gis',taskId}));
+    expect(previewService.queryTaskSummaries).toHaveBeenCalledWith(expect.objectContaining({context:'planning'}));
+    expect(previewService.getTaskInput).toHaveBeenCalledWith(expect.objectContaining({context:'planning',taskId}));
+    expect(previewService.getTaskInput).not.toHaveBeenCalledWith(expect.objectContaining({context:'gis',taskId}));
     for(const name of ['saveResourceChanges','commitResources','submitPlanningReceipt'] as const)expect(previewService[name]).not.toHaveBeenCalled();
     s.wb.assertNoWrites();
   });
