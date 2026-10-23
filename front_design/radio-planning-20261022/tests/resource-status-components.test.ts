@@ -1,4 +1,4 @@
-import { afterEach, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { h, nextTick, shallowReactive, ssrContextKey, type App } from 'vue';
 import { createPinia, disposePinia, setActivePinia } from 'pinia';
 import { authorizeStore } from './helpers/auth';
@@ -15,7 +15,11 @@ import GisDeviceClusterPanel from '../src/components/GisDeviceClusterPanel.vue';
 await clientTemplate(Panel, 'src/components/ResourceStatusPanel.vue', 'p06-status-render.ts');
 await clientTemplate(GisDeviceClusterPanel, 'src/components/GisDeviceClusterPanel.vue', 'p06-cluster-render.ts');
 let app: App<HostNode> | undefined, pinia: ReturnType<typeof createPinia> | undefined;
-afterEach(() => { app?.unmount(); if (pinia) disposePinia(pinia); vi.restoreAllMocks(); });
+beforeEach(() => {
+  class TestDocument extends EventTarget { activeElement = null; }
+  vi.stubGlobal('Document', TestDocument); vi.stubGlobal('document', new TestDocument()); vi.stubGlobal('ShadowRoot', class {});
+});
+afterEach(() => { app?.unmount(); app = undefined; if (pinia) disposePinia(pinia); pinia = undefined; vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 const revision = 'resource-1111111111111111';
 const header: DeviceStatusHeader = { schema_version: schema, snapshot_id: 'DSS-' + 'a'.repeat(32), snapshot_revision: 'device-status-' + 'b'.repeat(64),
   content_hash: 'b'.repeat(64), resource_revision: revision, resource_content_hash: 'c'.repeat(64), data_origin: 'SYNTHETIC_INTEGRATION',

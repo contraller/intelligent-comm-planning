@@ -1,4 +1,4 @@
-import { afterEach, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { h, nextTick, reactive, ssrContextKey, type App } from 'vue';
 import { createPinia, disposePinia, setActivePinia } from 'pinia';
 import { authorizeStore } from './helpers/auth';
@@ -13,7 +13,11 @@ vi.mock('../src/components/AppDrawer.vue', async () => {
 });
 await clientTemplate(Drawer, 'src/components/DeviceConfigurationDrawer.vue', 'p06-acceptance-render.ts');
 let app: App<HostNode> | undefined, pinia: ReturnType<typeof createPinia> | undefined;
-afterEach(() => { app?.unmount(); if (pinia) disposePinia(pinia); vi.restoreAllMocks(); });
+beforeEach(() => {
+  class TestDocument extends EventTarget { activeElement = null; }
+  vi.stubGlobal('Document', TestDocument); vi.stubGlobal('document', new TestDocument()); vi.stubGlobal('ShadowRoot', class {});
+});
+afterEach(() => { app?.unmount(); app = undefined; if (pinia) disposePinia(pinia); pinia = undefined; vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 it('readonly missing-service state has no fake modes, execution scenarios or dispatch success', async () => {
   pinia = createPinia(); setActivePinia(pinia); authorizeStore();
   const root = node('root'); app = renderer.createApp({ render: () => h(Drawer, { visible: true, deviceId: 'D1', resourceRevision: 'resource-1111111111111111' }) });
