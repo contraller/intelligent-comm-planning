@@ -1142,6 +1142,7 @@ class _LocalJobIdentity(SimpleNamespace):
 def local_owner_api(monkeypatch, tmp_path):
     """R10仅验证数据库/受理语义，算法运行记录为显式桩，不启动线程。"""
     import secrets
+    from sqlalchemy import event
     from fastapi import FastAPI
     from starlette.requests import Request
     from app import database, resource_dataset_service
@@ -1216,6 +1217,22 @@ def local_owner_api(monkeypatch, tmp_path):
     monkeypatch.setattr(planning_job_service.planning_w3, "TASK_DIR", runtime_root / "owner-tests/tasks")
     monkeypatch.setattr(planning_job_service.planning_w4, "PLAN_DIR", runtime_root / "owner-tests/plans")
     submitted, cancelled, records, callbacks = [], [], {}, {}
+    active_sessions, pending_checkpoints = set(), set()
+    def publish_checkpoints():
+        if active_sessions:
+            return
+        while pending_checkpoints:
+            job_id = pending_checkpoints.pop()
+            callbacks[job_id]({**records[job_id], "stage": "显式模拟worker取消检查点，非原生CPU证据"})
+    def transaction_started(session, transaction, connection):
+        if connection.engine is engine:
+            active_sessions.add(session)
+    def transaction_ended(session, transaction):
+        if transaction.parent is None and session in active_sessions:
+            active_sessions.discard(session)
+            publish_checkpoints()
+    event.listen(factory.class_, "after_begin", transaction_started)
+    event.listen(factory.class_, "after_transaction_end", transaction_ended)
     def fake_submit(payload, *, job_id, on_update):
         submitted.append(job_id)
         callbacks[job_id] = on_update
@@ -1226,7 +1243,9 @@ def local_owner_api(monkeypatch, tmp_path):
         cancelled.append(job_id)
         records[job_id].update(status="CANCELLED", progress=1, stage="桩取消请求，不是CPU确认")
         if env.auto_checkpoint:
-            callbacks[job_id]({**records[job_id], "stage": "显式模拟worker取消检查点，非原生CPU证据"})
+            # 原生cancel_task不调on_update；独立worker确认不能重入尚持写锁的业务事务。
+            pending_checkpoints.add(job_id)
+            publish_checkpoints()
         return deepcopy(records[job_id])
     monkeypatch.setattr(planning_job_service.planning_w4, "submit_sr4", fake_submit)
     monkeypatch.setattr(planning_job_service.planning_w3, "get_task_record", lambda job_id: deepcopy(records.get(job_id)))
@@ -1234,6 +1253,8 @@ def local_owner_api(monkeypatch, tmp_path):
     try:
         yield TestClient(app), factory, submitted, cancelled, env
     finally:
+        event.remove(factory.class_, "after_begin", transaction_started)
+        event.remove(factory.class_, "after_transaction_end", transaction_ended)
         for client in clients:
             client.close()
         engine.dispose()
