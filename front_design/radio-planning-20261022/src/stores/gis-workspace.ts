@@ -134,7 +134,9 @@ export const useGisWorkspaceStore=defineStore('gis-workspace',()=>{
       const candidate=editor.candidateWithForm();
       const resourceChanges=diffResources(editor.base,candidate);
       if(changesPresent(resourceChanges)&&!canEditResources()||!auth.can('situation.view'))throw new Error('缺少本次资源保存所需权限');
-      const content={baseRevision:editor.baseRevision,...resourceChanges,restoreFrom:editor.restoreSources(candidate),context:'gis' as const};
+      const restoreFrom = editor.restoreSources(candidate);
+      // 普通手工保存没有旧演示恢复标记，不发送后端未约定的空字段。
+      const content={baseRevision:editor.baseRevision,...resourceChanges,...(Object.keys(restoreFrom).length?{restoreFrom}:{}),context:'gis' as const};
       const signature=resourceSignature(content);if(request?.signature!==signature)request={signature,id:randomUuid()};
       busy.value=true;editor.saving=true;
       const result=await previewService.saveResourceChanges({...content,requestId:request.id});

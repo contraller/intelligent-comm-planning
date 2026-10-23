@@ -117,6 +117,7 @@ describe('GIS scene 同源在途合并', () => {
     edit.resolve(baseline('R2')); expect(await save).toBe(true);
     expect(gis.saveState).toBe('succeeded'); expect(editor.baseRevision).toBe('R2'); expect(editor.baselinePending).toBe(false);
     expect(write).toHaveBeenCalledTimes(2); expect(write.mock.calls[1]![0].requestId).toBe(write.mock.calls[0]![0].requestId);
+    expect(write.mock.calls.every(([input]) => !Object.hasOwn(input, 'restoreFrom'))).toBe(true);
     expect(context).toHaveBeenCalledTimes(1); expect(vi.mocked(previewService.loadGisResourceScene)).toHaveBeenCalledTimes(1);
   });
 
