@@ -451,6 +451,8 @@ import {
   type MockCoverageState,
 } from '../maps/mock-coverage-layers';
 import type { CoverageDisplay, PlanningCoverage } from '../types/coverage';
+import type { FrozenCoverageOverlay } from '../types/frozen-coverage';
+import { frozenCoverageLayer } from '../maps/frozen-coverage-layers';
 import type { DeviceCoverageOverlay } from '../types/device-coverage';
 import { createDeviceCoverageLayers } from '../maps/device-coverage-layers';
 import { usePlanningCoverage } from '../composables/usePlanningCoverage';
@@ -508,6 +510,7 @@ const props = withDefaults(
     planningCandidates?: CandidateMapFrame;
     deploymentConstraints?: DeploymentConstraintFrame | null;
     coverageDisplay?: CoverageDisplay;
+    frozenCoverage?: FrozenCoverageOverlay | null;
     mockCoverage?: PlanningCoverage;
     mockCoverageDisplay?: MockCoverageDisplay;
     deviceCoverageActive?: boolean;
@@ -941,6 +944,16 @@ let lastViewportKey = '';
 let resizeFrame: number | undefined;
 let lastSize = '';
 let renderedCoverage: ReturnType<typeof coverageLayers> | null = null;
+let frozenCoverageRender:{value:FrozenCoverageOverlay;snapshot:string;planId?:string;layer:ReturnType<typeof frozenCoverageLayer>}|null=null;
+function clearFrozenCoverage(){frozenCoverageRender?.layer.getSource()?.dispose();frozenCoverageRender?.layer.dispose();frozenCoverageRender=null;}
+function updateFrozenCoverage(){
+  const value=props.frozenCoverage,snapshot=props.frozenNetwork?.identity.snapshot_id??props.planningOverlay?.snapshotId,planId=props.frozenNetwork?.identity.plan_id;
+  if(!value||!snapshot||fullScene.value){clearFrozenCoverage();return null;}
+  if(!frozenCoverageRender||frozenCoverageRender.value!==value||frozenCoverageRender.snapshot!==snapshot||frozenCoverageRender.planId!==planId){
+    clearFrozenCoverage();frozenCoverageRender={value,snapshot,planId,layer:frozenCoverageLayer(value,snapshot,planId)};
+  }
+  return frozenCoverageRender.layer;
+}
 let coverageKey: { value: PlanningMapOverlay['coverage']; url: string } | null = null;
 // 道路按视口加载离线瓦片，业务图层无需等待；卸载时取消当前地图未完成的道路请求。
 const roadManager = roadLayer((state) => {
@@ -978,6 +991,7 @@ function clearTerrain() {
 function updateTerrain() {
   if (terrainKey === (props.terrainBasemap ?? null)) return;
   clearTerrain();
+  clearFrozenCoverage();
   if (!props.terrainBasemap) return;
   terrainKey = props.terrainBasemap;
   const source = new ImageStatic({ url: terrainKey.url, imageExtent: terrainKey.extent, projection: 'EPSG:4326' });
@@ -997,6 +1011,7 @@ function updateTerrain() {
 function paint() {
   if (!map) return;
   updateTerrain();
+  const frozenLayer=updateFrozenCoverage();
   updateRoadClip();
   clearHoverPreview();
   clearPickHover();
@@ -1023,6 +1038,7 @@ function paint() {
     updateLinkDisplay();
     roads.setVisible(props.showRoads);
     const layers: import('ol/layer/Base').default[] = [...(terrainLayer ? [terrainLayer] : []), roads];
+    if(frozenLayer) layers.push(frozenLayer);
     if (props.planningOverlay?.coverage && props.showCoverage) {
       const url = coverageImage.url.value;
       if (
@@ -1678,6 +1694,8 @@ watch(
   { deep: true },
 );
 // 显示偏好只更新已有图层，保留图片源与当前业务快照。
+// 冻结覆盖是不可变大快照，不加入旧深监听，避免遍历每个原生采样点。
+watch(()=>props.frozenCoverage,paint);
 watch(
   () => props.deploymentConstraints,
   (frame, previous) => {
@@ -1759,6 +1777,7 @@ onBeforeUnmount(() => {
   unByKey(roadClipListener);
   roadManager.dispose();
   clearTerrain();
+  clearFrozenCoverage();
   map?.getViewport().removeEventListener('pointerdown', captureReadPress, true);
   map?.dispose();
 });

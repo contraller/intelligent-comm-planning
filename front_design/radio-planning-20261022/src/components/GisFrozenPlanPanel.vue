@@ -122,6 +122,7 @@
             gis-surface
             :frozen-network="model.network"
             :planning-overlay="coverageOverlay"
+            :frozen-coverage="frozenCoverage"
             :show-coverage="showCoverage"
             :coverage-display="coverageDisplay"
             :terrain-basemap="basemap"
@@ -142,6 +143,8 @@
             </select>
             <span v-if="model.surface?.coverage_notice" class="muted">{{ model.surface.coverage_notice }}</span>
           </div>
+          <FrozenCoveragePanel :query="{planId:model.network.identity.plan_id,taskId:model.network.identity.task_id,snapshotId:model.network.identity.snapshot_id,resourceRevision:model.network.identity.resource_revision,context:'gis'}"
+            :services="coverageServices" @overlay="frozenCoverage=$event" />
           <div class="toolbar"
             ><strong
               >{{ model.network.nodes.length }} 节点 / {{ model.network.links.length }} 链路</strong
@@ -237,9 +240,11 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue';
+import { computed, onBeforeUnmount, reactive, ref, shallowRef, watch } from 'vue';
 import MapCanvas from './MapCanvas.vue';
 import GisPlanOperations from './GisPlanOperations.vue';
+import FrozenCoveragePanel from './FrozenCoveragePanel.vue';
+import type { FrozenCoverageClient,FrozenCoverageOverlay } from '../types/frozen-coverage';
 import {
   createGisFrozenPlanWorkspace,
   type GisFrozenPlanServices,
@@ -249,9 +254,10 @@ import type { ApiPlan } from '../types/planning-api';
 import type { CoverageDisplay } from '../types/coverage';
 import type { GisPlanOperationServices } from '../types/gis-plan';
 import type { PlanningPlanSummary } from '../types/planning-api';
-const props = defineProps<{ services: GisFrozenPlanServices; sessionGeneration: number; operations?: GisPlanOperationServices; currentResourceRevision?: string; initialTab?: 'devices' | 'interference' }>();
+const props = defineProps<{ services: GisFrozenPlanServices; sessionGeneration: number; operations?: GisPlanOperationServices; coverageServices?:FrozenCoverageClient; currentResourceRevision?: string; initialTab?: 'devices' | 'interference' }>();
 const emit = defineEmits<{ openPlan: [value: { taskId: string; planId: string }]; openJob: [value: { taskId: string; jobId: string }] }>();
 const analysisMap = ref(false);
+const frozenCoverage=shallowRef<FrozenCoverageOverlay|null>(null);
 const operationPanel = ref<InstanceType<typeof GisPlanOperations>>();
 const model = reactive(createGisFrozenPlanWorkspace(props.services));
 const searchText = ref(''),
@@ -288,7 +294,7 @@ async function requestLeave() { return operationPanel.value ? operationPanel.val
 async function openPlan(row: PlanningPlanSummary) { if (await requestLeave()) await model.openPlan(row); }
 async function closeNetwork() { if (await requestLeave()) model.closeNetwork(); }
 async function openIdentity(input: { taskId: string; planId: string }) { return await requestLeave() && await model.openIdentity(input); }
-watch(() => model.network?.identity.snapshot_id, () => { analysisMap.value = false; });
+watch(() => model.network?.identity.snapshot_id, () => { analysisMap.value = false; frozenCoverage.value=null; });
 function changePage(delta: number) {
   page.value += delta;
   return load();

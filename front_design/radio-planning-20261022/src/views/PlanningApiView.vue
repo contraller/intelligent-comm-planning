@@ -132,6 +132,7 @@
           :show-coverage="planning.step === 3 && !!planning.adjustmentParent ? true : showCoverage"
           :coverage-display="coverageDisplay"
           :selected-id="planning.step === 1 ? inputFocused : focused"
+          :frozen-coverage="frozenCoverageForMap"
           :selected-link-id="planning.step === 1 ? '' : focusedLink"
           :highlight-station-ids="planning.step === 1 ? [] : nodeHighlights"
           :highlight-link-ids="planning.step === 1 ? [] : linkHighlights"
@@ -252,6 +253,8 @@
             @focus="resultFocus"
             @coverage="showCoverage = $event"
           />
+          <FrozenCoveragePanel v-if="planning.step !== 1 && frozenCoverageQuery" :query="frozenCoverageQuery"
+            :services="collaborationHttp.frozenCoverage" @overlay="frozenCoverage=$event" />
           <PlanningAdjustmentDrawer
             v-if="
               planning.adjustmentContext && planning.adjustmentDraft && planning.adjustmentParent
@@ -419,7 +422,7 @@
   </div>
 </template>
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, toRaw, watch } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref, shallowRef, toRaw, watch } from 'vue';
 import { useTerrainBasemap } from '../composables/useTerrainBasemap';
 import DeploymentConstraintsSummary from '../components/DeploymentConstraintsSummary.vue';
 import PlanningOptionsSummary from '../components/PlanningOptionsSummary.vue';
@@ -450,6 +453,8 @@ import PlanningHistoryDrawer from '../components/PlanningHistoryDrawer.vue';
 import type { PlanningJobSummary, PlanningPlanSummary } from '../types/planning-api';
 import { previewService } from '../services';
 import { collaborationHttp } from '../services/http';
+import FrozenCoveragePanel from '../components/FrozenCoveragePanel.vue';
+import type { FrozenCoverageOverlay,FrozenCoverageQuery } from '../types/frozen-coverage';
 import { verifyPlanningInterferenceEntry } from '../services/planning-interference-entry';
 import { saveTaskForGis } from '../services/gis-task-edit-entry';
 
@@ -462,6 +467,15 @@ const { basemap: terrainBasemap, message: terrainMessage } = useTerrainBasemap((
 const route = useRoute();
 const router = useRouter();
 const auth = useAuthStore();
+const frozenCoverage=shallowRef<FrozenCoverageOverlay|null>(null);
+const frozenCoverageQuery=computed<FrozenCoverageQuery|null>(()=>{
+  const plan=planning.selectedPlan;
+  return plan?.resourceRevision?{planId:plan.id,taskId:plan.taskId,snapshotId:plan.result.snapshotId,resourceRevision:plan.resourceRevision,context:'planning'}:null;
+});
+const frozenCoverageForMap=computed(()=>{
+  const query=frozenCoverageQuery.value,value=frozenCoverage.value;
+  return planning.step!==1&&query&&value&&value.anchor.plan_id===query.planId&&value.anchor.snapshot_id===query.snapshotId?value:null;
+});
 const routeTaskError = ref('');
 const historyVisible = ref(false);
 const historyInitialTab = ref<'saved' | undefined>();

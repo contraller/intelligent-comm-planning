@@ -96,7 +96,7 @@
         </template>
       </div>
     </div>
-    <GisFrozenPlanPanel v-if="frozenView" ref="frozenPanel" :services="frozenServices" :operations="frozenOperationServices"
+    <GisFrozenPlanPanel v-if="frozenView" ref="frozenPanel" :services="frozenServices" :operations="frozenOperationServices" :coverage-services="collaborationHttp.frozenCoverage"
       :initial-tab="frozenInitialTab" :current-resource-revision="workspace.read.workspace?.revision" :session-generation="auth.generation"
       @open-plan="openAnalysisResult" @open-job="openAnalysisJob" />
     <template v-if="!frozenView">
