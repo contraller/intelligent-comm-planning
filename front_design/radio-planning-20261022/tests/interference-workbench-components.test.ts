@@ -1,0 +1,50 @@
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { createPinia, disposePinia, setActivePinia } from 'pinia';
+import { defineComponent, h, nextTick, ssrContextKey, type App } from 'vue';
+import { authorizeStore } from './helpers/auth';
+import { clientTemplate, find, node, renderer, textOf } from './helpers/vue-client';
+import { useInterferenceStore } from '../src/stores/interference';
+import Panel from '../src/components/InterferenceAnalysisPanel.vue';
+import SceneDrawer from '../src/components/InterferenceSceneDrawer.vue';
+import MeasureDrawer from '../src/components/InterferenceMeasureDrawer.vue';
+import HistoryDrawer from '../src/components/InterferenceHistoryDrawer.vue';
+import type { RunDetail, AdoptionDetail } from '../src/types/interference-workbench';
+
+vi.mock('../src/components/AppDrawer.vue', () => ({ default: defineComponent({ props: ['visible'], setup: (props, { slots }) => () => props.visible ? h('aside', [slots.default?.(), slots.footer?.()]) : null }) }));
+let pinia: ReturnType<typeof createPinia>, app: App | undefined;
+beforeAll(async () => { for (const [component, name] of [[Panel, 'InterferenceAnalysisPanel'], [SceneDrawer, 'InterferenceSceneDrawer'], [MeasureDrawer, 'InterferenceMeasureDrawer'], [HistoryDrawer, 'InterferenceHistoryDrawer']] as const) await clientTemplate(component, 'src/components/' + name + '.vue', 'interference-r2-render.ts'); });
+beforeEach(() => { vi.stubGlobal('window', { confirm: vi.fn(() => false) }); vi.stubGlobal('document', { activeElement: null }); pinia = createPinia(); setActivePinia(pinia); authorizeStore(); });
+afterEach(() => { app?.unmount(); app = undefined; disposePinia(pinia); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
+function mount(component: Parameters<typeof h>[0], props = {}) { app = renderer.createApp({ render: () => h(component, props) }); app.use(pinia); app.provide(ssrContextKey, { modules: new Set() }); const root = node('root'); app.mount(root); return root; }
+function successful() {
+  return { run_id: 'RUN1', state: 'SUCCESS', progress: 100, source_hash: 'a'.repeat(64), source_state: { state: 'CURRENT', reasons: [] }, plan_id: 'P1', plan_version: 'V1', data_origin: 'SYNTHETIC_INTEGRATION', adoptions: [],
+    source: { name: '场景', versionNo: 1, planSnapshot: { rawSnapshot: { detail: { nodes: [], links: [] } } } },
+    result: { measures: [{ measure_id: 'CM1', type: 'POWER_OPT', title: '功率措施', detail: '拟调整设备', risk: '预测', available: true, unavailable_reasons: [] }], affected_nodes: [], affected_links: [], notes: [], unresolved: [], measure_review: [], parameter_substitutions: [], summary: { affected_nodes: 0, affected_links: 0 } },
+    adoption_capabilities: { POWER_OPT: { enabled: false, reasons: ['共享冻结重算桥未接'] } } } as unknown as RunDetail;
+}
+
+describe('专用干扰组件，不替代GIS宿主页验收', () => {
+  it('首屏没有预设成功、默认源或可用分析按钮', () => {
+    const root = mount(Panel, { sourceEditable: false, selectedNodeId: '', selectedLinkId: '' });
+    expect(textOf(root)).toContain('尚未接入真实服务'); expect(textOf(root)).not.toContain('预生成');
+    const button = find(root, row => row.tag === 'button' && textOf(row).includes('提交干扰分析'));
+    expect(button?.props.disabled).toBe(true); expect(useInterferenceStore().draft.interferenceIds).toEqual([]);
+  });
+  it('预览只有未知全网指标时不显示打开方案或假百分比', () => {
+    const store = useInterferenceStore(); store.selected = successful(); store.measureId = 'CM1'; store.measureOpen = true;
+    store.preview = { run_id: 'RUN1', measure_id: 'CM1', run_version: 1, source_hash: 'a'.repeat(64), preview_hash: 'a'.repeat(64), before_configuration: {}, proposed_changes: { type: 'POWER_OPT' }, impact_after: null, metrics: null, available: true, unavailable_reasons: [] };
+    const root = mount(MeasureDrawer); expect(textOf(root)).toContain('尚未重算'); expect(textOf(root)).toContain('共享冻结重算桥未接'); expect(textOf(root)).not.toContain('打开重算方案');
+  });
+  it('取消请求和真实参考方案分开显示，只有保存后才发openPlan', async () => {
+    const store = useInterferenceStore(); store.selected = successful(); store.measureId = 'CM1'; store.measureOpen = true;
+    store.adoptions = [{ adoption_id: 'AD1', task_id: 'T1', run_id: 'RUN1', measure_id: 'CM1', state: 'CANCEL_REQUESTED', planning_job_id: 'JOB1', planning_state: 'RUNNING', planning_progress: 40, result_plan_id: null, error: null } as AdoptionDetail];
+    const opened = vi.fn(), root = mount(MeasureDrawer, { onOpenPlan: opened }); expect(textOf(root)).toContain('尚未确认停止'); expect(textOf(root)).not.toContain('打开重算方案');
+    store.adoptions[0] = { ...store.adoptions[0]!, state: 'SUCCESS', result_plan_id: 'P2', result_plan_state: 'REFERENCE', planning_state: 'SUCCESS' }; await nextTick();
+    expect(textOf(root)).toContain('未达标参考方案'); const button = find(root, row => row.tag === 'button' && textOf(row) === '打开重算方案'); (button!.props.onClick as () => void)(); expect(opened).toHaveBeenCalledWith('P2');
+  });
+  it('场景保存权限不足时禁用，历史不宣称被规划重置清除', () => {
+    const store = useInterferenceStore(); store.taskContext = { taskId: 'T1', planId: 'P1', planVersion: 'V1' };
+    const root = mount(SceneDrawer, { visible: true, taskContext: store.taskContext }); const save = find(root, row => row.tag === 'button' && textOf(row).includes('保存版本')); expect(save?.props.disabled).toBe(true);
+    app?.unmount(); store.historyOpen = true; const history = mount(HistoryDrawer); expect(textOf(history)).toContain('规划重置不清除');
+  });
+});

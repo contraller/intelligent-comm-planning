@@ -1,274 +1,319 @@
-// 统一生成 UUID，兼容局域网 HTTP 访问。
-import { randomUuid } from '../services/random-uuid';
 import { computed, ref, watch } from 'vue';
 import { defineStore } from 'pinia';
-import { previewService } from '../services';
+import { randomUuid } from '../services/random-uuid';
 import { ApiError } from '../services/types';
-import { createReadCancellation } from '../services/data-access';
-import { INTERFERENCE_POLL_MS, PLANNING_STORAGE_KEY, RESOURCE_STORAGE_KEY } from '../config/demo';
-import type { Countermeasure, InterferenceLevel, InterferenceReadView, InterferenceHistoryItem, InterferenceScenario, InterferenceScenarioId, InterferenceReadSources, InterferenceMeasurePreview } from '../types/interference';
-import type { PageResult } from '../types/data-access';
-import type { PlanningIssue, PlanningWorkspace } from '../types/planning';
 import { useAuthStore } from './auth';
-import { usePlanningStore } from './planning';
-import { useGisWorkspaceStore } from './gis-workspace';
-import { useResourceReadStore } from './resource-read';
+import type { InterferenceSceneDetail, InterferenceScenePage, InterferenceSceneReceipt, InterferenceSceneSave, InterferenceSceneServices } from '../types/interference-scene';
+import type { AdoptionDetail, InterferenceWorkbenchServices, MapProjection, MeasurePreview, Operation, Page,
+  RunDetail, RunProgress, SourceOption, TaskContext, WorkbenchContext, WriteReceipt } from '../types/interference-workbench';
+import type { SceneJsonObject } from '../types/interference-scene';
 
-// 页面只组织选择；提交、轮询及迟到响应隔离集中在此处。
+const activeStates = ['PENDING', 'RUNNING', 'CANCEL_REQUESTED'];
+type PendingWrite = { request_id: string; task_id: string; operation: Operation; body: object; pathId?: string };
+type Services = { workbench: InterferenceWorkbenchServices; scenes: InterferenceSceneServices };
+const copy = <T>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
+
+// 数据库场景、运行、采纳分别管理；未接服务时没有构造演示或隐式成功回退。
 export const useInterferenceStore = defineStore('interference', () => {
-  const requests=createReadCancellation();
-  const auth = useAuthStore(), planning = usePlanningStore(), gis = useGisWorkspaceStore(), preview = useResourceReadStore();
-  const workspace = ref<Pick<PlanningWorkspace,'revision'> | PlanningWorkspace | null>(null);
-  const sources = ref<InterferenceReadSources>({ plans: [], sources: [], resourceRevision: null, error: null });
-  const scenarios = ref<Omit<InterferenceScenario,'sources'>[]>([]), views = ref<InterferenceReadView[]>([]);
-  const history=ref<PageResult<InterferenceHistoryItem>|null>(null),historyTotal=ref(0),historyPage=ref(1);
-  const previewLoading=ref(false),loadedPreview=ref<InterferenceMeasurePreview|null>(null),adoptedTaskId=ref('');
-  const acceptedAnalysisId=ref('');
-  let previewSerial=0,historySerial=0;
-  const planId = ref(''), interferenceIds = ref<string[]>([]), scenarioId = ref<InterferenceScenarioId>('single');
-  const analysisId = ref(''), measureId = ref('');
-  const levels = ref<InterferenceLevel[]>(['SEVERE', 'MODERATE', 'MINOR']);
-  const after = ref(false), historyOpen = ref(false), measureOpen = ref(false);
-  const loading = ref(false), busy = ref(false), error = ref(''), queryError = ref(''), notice = ref('');
-  const issues = ref<PlanningIssue[]>([]);
-  const readable = computed(() => auth.can('situation.view') && auth.can('planning.view'));
-  const executable = computed(() => readable.value && auth.can('planning.execute'));
-  const adoptable = computed(() => executable.value && auth.can('planning.save'));
-  const selected = computed(() => views.value.find(row => row.run.analysisId === analysisId.value) ?? null);
-  const measure = computed(() => selected.value?.result?.measures.find(row => row.id === measureId.value) ?? null);
-  // 按明确措施身份唯一匹配，旧服务缺省字段时不在页面回查预设。
-  const selectedMeasurePreview = computed(() => {
-    if (!measure.value) return null;
-    if(loadedPreview.value?.measureId===measure.value.id)return loadedPreview.value;
-    const matches = selected.value?.measurePreviews?.filter(row => row.measureId === measure.value!.id) ?? [];
-    return matches.length === 1 ? matches[0] : null;
-  });
-  const previewUnavailableReason = computed(() => {
-    const entry = selectedMeasurePreview.value, result = entry?.result;
-    if (measure.value?.unavailableReason) return measure.value.unavailableReason;
-    if (entry?.unavailableReason) return entry.unavailableReason;
-    // 只检查展示所需结构，不计算或重判服务提供的业务结果。
-    if (!result || !Array.isArray(result.inputSnapshot?.stations) || !Array.isArray(result.inputSnapshot?.devices) ||
-      !Array.isArray(result.links) || !Array.isArray(result.regions) || !Array.isArray(result.checks) || !Array.isArray(result.notes) ||
-      !['deployment', 'devices', 'routes', 'frequencies'].every(key => Array.isArray(result.configuration?.[key as keyof typeof result.configuration])) ||
-      !result.metrics || !['coveragePercent', 'connectivityPercent', 'survivabilityPercent', 'totalRadiatedPowerW', 'delayMs']
-        .every(key => Number.isFinite(result.metrics[key as keyof typeof result.metrics])) ||
-      !(result.deploymentCost === null || Number.isFinite(result.deploymentCost)) || typeof result.costUnit !== 'string')
-      return '未提供完整措施预览';
-    if (!measure.value?.after) return '未提供措施后影响结果';
-    return '';
-  });
-  const canPreviewAfter = computed(() => !!measure.value && !previewUnavailableReason.value);
-  const effectiveAfter = computed(() => after.value && canPreviewAfter.value);
-  const running = computed(() => !!acceptedAnalysisId.value || views.value.some(row => ['PENDING', 'RUNNING'].includes(row.state)));
-  const locked = computed(() => loading.value || busy.value);
-  const impact = computed(() => effectiveAfter.value ? measure.value!.after : selected.value?.result?.impact ?? null);
-  watch([analysisId, () => selected.value?.run.network.taskId], () => {
-    measureId.value = ''; after.value = false; measureOpen.value = false;
-  }, { flush: 'sync' });
-  watch(measureId, () => { after.value = false; loadedPreview.value=null; if(measureId.value&&!selected.value?.measurePreviews?.some(row=>row.measureId===measureId.value))void loadMeasurePreview(); }, { flush: 'sync' });
-  watch(canPreviewAfter, available => { if (!available) after.value = false; }, { flush: 'sync' });
-  const filteredImpact = computed(() => impact.value ? { ...impact.value,
-    nodes: impact.value.nodes.filter(row => levels.value.includes(row.level)),
-    links: impact.value.links.filter(row => levels.value.includes(row.level)),
-    regions: impact.value.regions.filter(row => levels.value.includes(row.level)),
-  } : null);
-  let generation = 0, active = false, pending = false, serial = 0;
-  let entrySerial=0,entryAbort:AbortController|undefined,entryLoading=false;
-  let inputTarget:{taskId:string;planId:string}|null=null;
+  const auth = useAuthStore();
+  let services: Services | null = null, epoch = 0, previewSerial = 0, active = false;
+  const controllers = new Map<string, AbortController>(), sequences = new Map<string, number>();
   let timer: ReturnType<typeof setTimeout> | undefined;
-  let submission: { signature: string; id: string } | null = null;
-  const valid = (token: number, session: number) => token === generation && session === auth.generation && readable.value;
-  const clearTimer = () => { if (timer) clearTimeout(timer); timer = undefined; };
-  function report(reason: unknown) {
-    error.value = reason instanceof Error ? reason.message : '干扰操作失败';
-    issues.value = reason instanceof ApiError && Array.isArray(reason.data) ? reason.data : [];
+  const taskContext = ref<TaskContext | null>(null), context = ref<WorkbenchContext | null>(null);
+  const sourceDirectory = ref<Page<SourceOption> | null>(null), sourceSearch = ref('');
+  const selected = ref<RunDetail | null>(null), preview = ref<MeasurePreview | null>(null);
+  const scene = ref<InterferenceSceneDetail | null>(null), scenes = ref<InterferenceScenePage | null>(null);
+  const sceneVersions = ref<InterferenceScenePage | null>(null);
+  const draft = ref({ sceneId: '', name: '', note: '', interferenceIds: [] as string[] });
+  const baselineDraft = ref(''), pendingScene = ref<InterferenceSceneSave | null>(null);
+  const pendingWrites = ref<PendingWrite[]>([]), adoptions = ref<AdoptionDetail[]>([]);
+  const lastReceipt = ref<WriteReceipt | null>(null);
+  const lastSceneReceipt = ref<InterferenceSceneReceipt | null>(null);
+  const history = ref<Page<RunProgress & { adoption_count: number }> | null>(null);
+  const historySearch = ref(''), historyState = ref<RunProgress['state'] | ''>('');
+  const measureId = ref(''), after = ref(false), historyOpen = ref(false), measureOpen = ref(false), sceneOpen = ref(false);
+  const levels = ref(['SEVERE', 'MODERATE', 'MINOR']), busy = ref(false), loading = ref(false), previewLoading = ref(false);
+  const error = ref(''), queryErrors = ref<Record<string, string>>({}), notice = ref(''), connected = ref(false);
+  const queryError = computed(() => Object.values(queryErrors.value).filter(Boolean).join('；'));
+  const readable = computed(() => !auth.blocked && auth.can('situation.view') && auth.can('planning.view'));
+  const executable = computed(() => readable.value && auth.can('planning.execute') && connected.value);
+  const adoptable = computed(() => executable.value && auth.can('planning.save'));
+  const locked = computed(() => busy.value || loading.value);
+  const dirty = computed(() => JSON.stringify(draft.value) !== baselineDraft.value);
+  const running = computed(() => !!context.value?.active_run_ids.length || !!selected.value && activeStates.includes(selected.value.state));
+  const analysisId = computed(() => selected.value?.run_id ?? '');
+  const measure = computed(() => selected.value?.result?.measures.find(row => row.measure_id === measureId.value) ?? null);
+  const selectedMeasurePreview = computed(() => preview.value);
+  const previewUnavailableReason = computed(() => !measure.value ? '' : previewLoading.value ? '预览查询中'
+    : !preview.value ? '尚未取得此措施的冻结预览' : !preview.value.available ? preview.value.unavailable_reasons.join('；')
+    : !preview.value.impact_after ? '未提供措施后影响，保留措施前状态' : '');
+  const canPreviewAfter = computed(() => !!preview.value?.available && !!preview.value.impact_after && !previewUnavailableReason.value);
+  const effectiveAfter = computed(() => after.value && canPreviewAfter.value);
+  const impact = computed(() => effectiveAfter.value ? preview.value!.impact_after : selected.value?.result ?? null);
+  const filteredImpact = computed(() => impact.value ? { ...impact.value,
+    affected_nodes: impact.value.affected_nodes.filter(row => levels.value.includes(row.level)),
+    affected_links: impact.value.affected_links.filter(row => levels.value.includes(row.level)),
+  } : null);
+  const mapProjection = computed<MapProjection | null>(() => {
+    const run = selected.value, effect = filteredImpact.value;
+    if (!run || !effect) return null;
+    const detail = copy(run.source.planSnapshot.rawSnapshot.detail) as SceneJsonObject;
+    const nodes = (detail.nodes ?? []) as SceneJsonObject[], links = (detail.links ?? []) as SceneJsonObject[];
+    if (effectiveAfter.value && measure.value?.type === 'NODE_REDEPLOY') {
+      const change = measure.value.change_set, target = change.target as SceneJsonObject, values = change.detail as SceneJsonObject;
+      const node = nodes.find(row => row.node_id === target.node_id);
+      if (node) { node.lon = values.to_lon ?? null; node.lat = values.to_lat ?? null; }
+    }
+    return { taskId: run.task_id, planId: run.plan_id, sceneVersionId: run.scene_version_id, runId: run.run_id,
+      sourceHash: run.source_hash, phase: effectiveAfter.value ? 'PREVIEW' : 'BEFORE', nodes, links,
+      sources: copy(run.source.interferenceSources.map(row => row.sourceRow)), impact: copy(effect) };
+  });
+  const selectedSource = computed(() => context.value?.source_options.find(row => row.plan_id === taskContext.value?.planId
+    && row.task_id === taskContext.value?.taskId && row.plan_version === taskContext.value?.planVersion) ?? null);
+  const canAnalyze = computed(() => executable.value && !!selectedSource.value?.eligible && !!scene.value && !dirty.value
+    && scene.value.sourceState.state === 'CURRENT' && scene.value.version.planId === taskContext.value?.planId
+    && scene.value.version.planVersion === taskContext.value?.planVersion && !pendingScene.value && !pendingWrites.value.length && !running.value);
+  const historyTotal = computed(() => history.value?.total ?? context.value?.run_count ?? 0);
+  const historyPage = computed(() => history.value?.page ?? 1);
+
+  function invalidate() { epoch++; previewSerial++; controllers.forEach(controller => controller.abort()); controllers.clear(); sequences.clear(); loading.value = false; previewLoading.value = false; clearTimer(); }
+  const valid = (generation: number, session: number) => generation === epoch && session === auth.generation && readable.value;
+  function api() { if (!services) throw new Error('干扰工作流尚未接入真实服务'); return services; }
+  function report(reason: unknown, channel?: string) {
+    const message = reason instanceof Error ? reason.message : '干扰操作失败';
+    if (channel) queryErrors.value[channel] = message; else error.value = message;
   }
-  function accept(next: Pick<PlanningWorkspace,'revision'>) {
-    workspace.value = next;
-    planning.readRevision=next.revision;
-  }
-  function updateView(next: InterferenceReadView) {
-    if(acceptedAnalysisId.value===next.run.analysisId)acceptedAnalysisId.value='';
-    const index = views.value.findIndex(row => row.run.analysisId === next.run.analysisId);
-    if (index < 0) views.value.push(next); else views.value[index] = next;
-  }
+  function clearTimer() { if (timer !== undefined) clearTimeout(timer); timer = undefined; }
   function schedule() {
     clearTimer();
-    if (active && readable.value && running.value && !queryError.value && !locked.value)
-      timer = setTimeout(() => { void query(); }, INTERFERENCE_POLL_MS);
+    if (active && readable.value && connected.value && (running.value || adoptions.value.some(row => activeStates.includes(row.state))))
+      timer = setTimeout(() => { void query(); }, 1500);
   }
+  async function read<T>(key: string, action: (signal: AbortSignal) => Promise<T>, accept: (value: T) => void) {
+    const generation = epoch, session = auth.generation, number = (sequences.get(key) ?? 0) + 1;
+    sequences.set(key, number); controllers.get(key)?.abort();
+    const controller = new AbortController(); controllers.set(key, controller);
+    try {
+      const value = await action(controller.signal);
+      if (valid(generation, session) && sequences.get(key) === number) { accept(value); delete queryErrors.value[key]; }
+      return valid(generation, session) && sequences.get(key) === number;
+    } catch (reason) {
+      if (!controller.signal.aborted && valid(generation, session) && sequences.get(key) === number) report(reason, key);
+      return false;
+    } finally { if (controllers.get(key) === controller) controllers.delete(key); }
+  }
+  function newDraft() {
+    scene.value = null; sceneVersions.value = null;
+    draft.value = { sceneId: 'ISC-' + randomUuid(), name: '', note: '', interferenceIds: [] };
+    baselineDraft.value = JSON.stringify(draft.value);
+  }
+  function resetDraft() {
+    if (scene.value) {
+      const saved = scene.value.version;
+      draft.value = { sceneId: saved.sceneId, name: saved.name, note: saved.note, interferenceIds: [...saved.interferenceIds] };
+      baselineDraft.value = JSON.stringify(draft.value);
+    } else newDraft();
+  }
+  async function prepareLeave() {
+    if (busy.value) { notice.value = '写入正在受理，请先核实回执'; return false; }
+    return !dirty.value && !pendingScene.value && !pendingWrites.value.length
+      || window.confirm('有未保存草稿或待核实请求。离开不会取消服务器运行，是否离开？');
+  }
+  function bindServices(value: Services) { invalidate(); services = value; connected.value = true; error.value = ''; if (active) void load(); }
   async function load() {
-    if (!readable.value || locked.value) return;
-    const token = generation, session = auth.generation;
+    if (!readable.value) return;
+    const generation = epoch, target = taskContext.value ? { ...taskContext.value } : null;
     loading.value = true;
     try {
-      const loaded = await previewService.loadInterferenceContext({signal:requests.signal('metadata')});
-      if (!valid(token, session)) return;
-      accept({revision:loaded.revision}); sources.value = loaded.sources; scenarios.value = loaded.scenarios; historyTotal.value=loaded.total;
-      // 显式方案入口不自动恢复其他网络的最近分析，手动打开历史仍沿用原流程。
-      if(inputTarget&&planId.value!==inputTarget.planId)inputTarget=null;
-      if(!analysisId.value&&!inputTarget)analysisId.value=loaded.latestId??'';
-      const ids=[...new Set([...loaded.activeIds,analysisId.value].filter(Boolean))];
-      const selectedViews=await Promise.all(ids.map(analysisId=>previewService.getInterferenceDetail({analysisId,signal:requests.signal('detail:'+analysisId)})));
-      if(!valid(token,session))return;views.value=selectedViews;
-      if (!planId.value&&!inputTarget) planId.value = sources.value.plans.find(row => row.eligible)?.plan.id ?? '';
-      if (!interferenceIds.value.length) interferenceIds.value = ['IF-0008'];
-      error.value = ''; queryError.value = ''; issues.value = [];
-    } catch (reason) { if (valid(token, session)) report(reason); }
-    finally { if (token === generation) { loading.value = false; schedule(); } }
+      const loaded = await read('context', signal => api().workbench.getContext(target ? { task_id: target.taskId } : {}, signal), value => { context.value = value; });
+      if (!loaded) return;
+      if (generation === epoch) await loadSourceOptions(sourceDirectory.value?.page ?? 1);
+      if (target && generation === epoch) await loadScenes();
+    } finally { if (generation === epoch) { loading.value = false; schedule(); } }
   }
-  function cancelEntry(){
-    entrySerial++;entryAbort?.abort();entryAbort=undefined;
-    if(entryLoading){entryLoading=false;loading.value=false;schedule();}
+  async function enterPlan(input: TaskContext): Promise<boolean> {
+    const target = copy(input);
+    if (!readable.value || !await prepareLeave()) return false;
+    if (!target.taskId || !target.planId || !/^V[1-9][0-9]*$/.test(target.planVersion)) { error.value = '目标方案身份不完整'; return false; }
+    invalidate(); taskContext.value = target; selected.value = null; preview.value = null; measureId.value = '';
+    const generation = epoch;
+    history.value = null; adoptions.value = []; newDraft(); error.value = ''; queryErrors.value = {};
+    lastReceipt.value = null; lastSceneReceipt.value = null;
+    await load();
+    return generation === epoch && taskContext.value?.taskId === target.taskId && taskContext.value?.planId === target.planId && !!selectedSource.value;
   }
-  async function enterPlan(taskId:string,targetPlanId:string,isCurrent:()=>boolean=()=>true){
-    if(!readable.value||auth.blocked||busy.value||!isCurrent())return false;
-    cancelEntry();requests.stop();generation++;serial++;pending=false;clearTimer();
-    const token=generation,session=auth.generation,ticket=entrySerial;
-    const current=()=>valid(token,session)&&ticket===entrySerial&&!auth.blocked&&isCurrent();
-    entryAbort=new AbortController();const signal=entryAbort.signal;
-    loading.value=true;entryLoading=true;
-    try{
-      const loaded=await previewService.loadInterferenceContext({signal});
-      if(!current())return false;
-      const target=loaded.sources.plans.find(row=>row.plan.id===targetPlanId&&row.plan.taskId===taskId);
-      if(!target)throw new Error('目标方案不存在或不属于指定任务，请返回规划重新选择');
-      if(loaded.sources.error)throw new Error(loaded.sources.error);
-      if(!target.eligible)throw new Error(target.reason||'目标方案当前不可分析');
-      const runningViews=await Promise.all(loaded.activeIds.map(analysisId=>previewService.getInterferenceDetail({analysisId,signal})));
-      if(!current())return false;
-      const running=runningViews.filter(row=>['PENDING','RUNNING'].includes(row.state));
-      if(running.some(row=>row.run.network.id!==targetPlanId||row.run.network.taskId!==taskId))throw new Error('其他方案的干扰分析正在运行，请待其结束后再进入');
-      // 只接纳本次指定网络；旧记录保留在历史中，不能冒充新目标的结果。
-      accept({revision:loaded.revision});sources.value=loaded.sources;scenarios.value=loaded.scenarios;historyTotal.value=loaded.total;
-      views.value=running;analysisId.value=running[0]?.run.analysisId??'';planId.value=targetPlanId;
-      inputTarget={taskId,planId:targetPlanId};acceptedAnalysisId.value='';
-      measureId.value='';after.value=false;measureOpen.value=false;historyOpen.value=false;loadedPreview.value=null;submission=null;
-      if(!interferenceIds.value.length)interferenceIds.value=['IF-0008'];
-      error.value='';queryError.value='';notice.value='';issues.value=[];
-      return true;
-    }catch(reason){if(current())report(reason);return false;}
-    finally{if(ticket===entrySerial){entryLoading=false;loading.value=false;schedule();}}
+  async function chooseSource(value: SourceOption) { return enterPlan({ taskId: value.task_id, planId: value.plan_id, planVersion: value.plan_version }); }
+  async function loadSourceOptions(page = 1) {
+    const input = { page, page_size: 20, search: sourceSearch.value };
+    await read('source-directory', signal => api().workbench.listSources(input, signal), value => { sourceDirectory.value = value; });
+  }
+  async function loadScenes(page = 1, search = '') {
+    const target = taskContext.value; if (!target) return;
+    await read('scenes', () => api().scenes.listScenes({ taskId: target.taskId, page, pageSize: 20, search }), value => { scenes.value = value; });
+  }
+  async function selectScene(input: { sceneId: string; versionId: string }) {
+    const chosen = { ...input };
+    const target = taskContext.value; if (!target || !await prepareLeave()) return;
+    invalidate(); preview.value = null;
+    await read('scene', () => api().scenes.getScene({ taskId: target.taskId, sceneId: chosen.sceneId, versionId: chosen.versionId }), value => {
+      scene.value = value; resetDraft(); notice.value = value.sourceState.state === 'CURRENT' ? '' : '正在查看冻结历史来源';
+    });
+    schedule();
+  }
+  async function loadSceneVersions(sceneId: string, page = 1) {
+    const target = taskContext.value; if (!target) return;
+    await read('scene-versions', () => api().scenes.listSceneVersions({ taskId: target.taskId, sceneId, page, pageSize: 20 }), value => { sceneVersions.value = value; });
+  }
+  async function acceptScene(receipt: InterferenceSceneReceipt, isCurrent: () => boolean) {
+    const loaded = await api().scenes.getScene({ sceneId: receipt.sceneId, versionId: receipt.versionId, taskId: receipt.taskId });
+    if (!isCurrent()) return;
+    scene.value = loaded; lastSceneReceipt.value = receipt; resetDraft(); pendingScene.value = null; notice.value = '场景版本已保存；尚未提交分析';
+    await loadScenes();
+  }
+  async function saveScene() {
+    const target = taskContext.value, source = selectedSource.value;
+    if (!target || !source?.eligible || busy.value || !auth.can('planning.save') || pendingScene.value) return;
+    const payload: InterferenceSceneSave = { sceneId: draft.value.sceneId, requestId: randomUuid(), taskId: target.taskId,
+      planId: target.planId, planVersion: target.planVersion, resourceRevision: source.resource_revision,
+      baseSceneVersionId: scene.value?.version.versionId ?? null, name: draft.value.name, note: draft.value.note,
+      interferenceIds: [...draft.value.interferenceIds] };
+    const generation = epoch, session = auth.generation;
+    busy.value = true; pendingScene.value = copy(payload);
+    try { const receipt = await api().scenes.saveScene(payload); if (valid(generation, session)) await acceptScene(receipt, () => valid(generation, session)); }
+    catch (reason) { if (valid(generation, session)) { report(reason); if (knownRejection(reason)) pendingScene.value = null; } }
+    finally { if (generation === epoch) busy.value = false; }
+  }
+  function knownRejection(reason: unknown) { return reason instanceof ApiError && ['VALIDATION_ERROR', 'NOT_FOUND', 'VERSION_CONFLICT', 'RESOURCE_VERSION_CHANGED', 'REQUEST_CONFLICT', 'STATE_CONFLICT', 'FORBIDDEN', 'CSRF_REJECTED', 'SESSION_REPLACED'].includes(String(reason.code)); }
+  async function resolveSceneSave(retry = false) {
+    const payload = pendingScene.value; if (!payload || busy.value || payload.taskId !== taskContext.value?.taskId) return;
+    const generation = epoch, session = auth.generation; busy.value = true;
+    try {
+      const receipt = retry ? await api().scenes.saveScene(copy(payload)) : await api().scenes.getSceneReceipt({ taskId: payload.taskId, sceneId: payload.sceneId, requestId: payload.requestId });
+      if (valid(generation, session)) await acceptScene(receipt, () => valid(generation, session));
+    } catch (reason) { if (valid(generation, session)) report(reason); }
+    finally { if (generation === epoch) busy.value = false; }
+  }
+  async function acceptReceipt(receipt: WriteReceipt, isCurrent: () => boolean) {
+    lastReceipt.value = receipt;
+    if (receipt.object_type === 'RUN') await selectRun(receipt.object_id);
+    else {
+      const row = await api().workbench.getAdoption({ task_id: receipt.task_id, adoption_id: receipt.object_id });
+      if (!isCurrent()) return;
+      const index = adoptions.value.findIndex(item => item.adoption_id === row.adoption_id);
+      if (index < 0) adoptions.value.push(row); else adoptions.value[index] = row;
+      notice.value = row.state === 'SUCCESS' ? '重算方案已保存，尚未改变当前确认方案' : '采纳已受理，等待真实重算';
+    }
+    if (isCurrent()) { void loadHistory(historyPage.value); schedule(); }
+  }
+  async function dispatch(item: PendingWrite): Promise<WriteReceipt> {
+    const service = api().workbench;
+    if (item.operation === 'SUBMIT_ANALYSIS') return service.submitRun(item.body as Parameters<typeof service.submitRun>[0]);
+    if (item.operation === 'CANCEL_ANALYSIS') return service.cancelRun(item.body as Parameters<typeof service.cancelRun>[0]);
+    if (item.operation === 'ADOPT_MEASURE') return service.adoptMeasure(item.body as Parameters<typeof service.adoptMeasure>[0]);
+    return service.cancelAdoption(item.body as Parameters<typeof service.cancelAdoption>[0]);
+  }
+  async function write(item: PendingWrite, resolve = false, retry = false) {
+    if (busy.value || !executable.value) return;
+    if (item.task_id !== taskContext.value?.taskId) { notice.value = '请先返回原任务核实此请求'; return; }
+    const generation = epoch, session = auth.generation; busy.value = true; error.value = '';
+    if (!pendingWrites.value.some(row => row.request_id === item.request_id)) pendingWrites.value.push(copy(item));
+    try {
+      const receipt = resolve && !retry ? await api().workbench.getOperation({ task_id: item.task_id, request_id: item.request_id, operation: item.operation })
+        : await dispatch(copy(item));
+      if (valid(generation, session)) {
+        pendingWrites.value = pendingWrites.value.filter(row => row.request_id !== item.request_id);
+        await acceptReceipt(receipt, () => valid(generation, session));
+      }
+    } catch (reason) {
+      if (valid(generation, session)) { report(reason); if (!resolve && knownRejection(reason)) pendingWrites.value = pendingWrites.value.filter(row => row.request_id !== item.request_id); }
+    } finally { if (generation === epoch) { busy.value = false; schedule(); } }
+  }
+  async function resolvePending(requestId: string, retry = false) {
+    const item = pendingWrites.value.find(row => row.request_id === requestId); if (item) await write(item, true, retry);
+  }
+  async function submitAnalysis() {
+    if (!canAnalyze.value || busy.value) return;
+    const value = scene.value!.version, request_id = randomUuid();
+    await write({ request_id, task_id: value.taskId, operation: 'SUBMIT_ANALYSIS', body: {
+      request_id, task_id: value.taskId, plan_id: value.planId, plan_version: value.planVersion,
+      resource_revision: value.resourceRevision, scene_id: value.sceneId, scene_version_id: value.versionId, snapshot_hash: value.snapshotHash } });
+  }
+  async function cancelAnalysis() {
+    const run = selected.value; if (!run || !activeStates.includes(run.state) || pendingWrites.value.length) return;
+    const request_id = randomUuid();
+    await write({ request_id, task_id: run.task_id, operation: 'CANCEL_ANALYSIS', body: { request_id, task_id: run.task_id, run_id: run.run_id, expected_run_version: run.run_version } });
+  }
+  async function selectRun(runId: string) {
+    const target = taskContext.value; if (!target) return;
+    controllers.get('preview')?.abort(); controllers.delete('preview');
+    sequences.set('preview', (sequences.get('preview') ?? 0) + 1);
+    previewSerial++; previewLoading.value = false; delete queryErrors.value.preview;
+    preview.value = null; after.value = false; measureId.value = '';
+    await read('run', signal => api().workbench.getRun({ task_id: target.taskId, run_id: runId }, signal), value => {
+      selected.value = value; adoptions.value = [...value.adoptions]; historyOpen.value = false;
+    }); schedule();
+  }
+  async function loadMeasurePreview(id: string) {
+    const run = selected.value; if (!run) return;
+    measureId.value = id; measureOpen.value = true; after.value = false; preview.value = null; previewLoading.value = true;
+    const generation = epoch, number = ++previewSerial;
+    await read('preview', signal => api().workbench.getPreview({ task_id: run.task_id, run_id: run.run_id, measure_id: id, expected_run_version: run.run_version }, signal), value => {
+      const item = run.result?.measures.find(row => row.measure_id === id);
+      if (selected.value?.run_id === run.run_id && measureId.value === id && item
+          && value.source_hash === run.source_hash && value.preview_hash === item.preview_hash) preview.value = value;
+      else throw new Error('措施预览来源不一致');
+    });
+    if (generation === epoch && number === previewSerial) previewLoading.value = false;
+  }
+  async function adoptMeasure(id: string) {
+    const run = selected.value, item = run?.result?.measures.find(row => row.measure_id === id);
+    if (!run || !item?.available || !adoptable.value || !run.adoption_capabilities[item.type].enabled || pendingWrites.value.length) return;
+    const request_id = randomUuid(), value = run.source;
+    await write({ request_id, task_id: run.task_id, operation: 'ADOPT_MEASURE', body: {
+      request_id, task_id: run.task_id, run_id: run.run_id, measure_id: id, expected_run_version: run.run_version,
+      plan_id: run.plan_id, plan_version: run.plan_version, resource_revision: run.resource_revision,
+      scene_version_id: run.scene_version_id, snapshot_hash: value.snapshotHash } });
+  }
+  async function cancelAdoption(id: string) {
+    const row = adoptions.value.find(item => item.adoption_id === id); if (!row || !activeStates.includes(row.state) || pendingWrites.value.length) return;
+    const request_id = randomUuid();
+    await write({ request_id, task_id: row.task_id, operation: 'CANCEL_ADOPTION', body: {
+      request_id, task_id: row.task_id, adoption_id: id, expected_adoption_version: row.adoption_version } });
+  }
+  async function loadHistory(page = 1) {
+    const target = taskContext.value; if (!target) return;
+    const input = { task_id: target.taskId, page, page_size: 20, search: historySearch.value,
+      ...(historyState.value ? { state: historyState.value } : {}) };
+    await read('history', signal => api().workbench.listRuns(input, signal), value => { history.value = value; });
   }
   async function query() {
-    if (!readable.value || pending || locked.value) return;
-    const token = generation, session = auth.generation, request = ++serial;
-    const ids = [...new Set([...views.value.filter(row => ['PENDING', 'RUNNING'].includes(row.state)).map(row => row.run.analysisId), analysisId.value].filter(Boolean))];
-    pending = true;
-    try {
-      const results = await Promise.all(ids.map(async id => {
-        const progress=await previewService.getInterferenceProgress({analysisId:id,signal:requests.signal('progress:'+id)}),previous=views.value.find(row=>row.run.analysisId===id);
-        if(!previous||previous.state!==progress.state&&['SUCCESS','FAILED','CANCELLED'].includes(progress.state))return previewService.getInterferenceDetail({analysisId:id,signal:requests.signal('detail:'+id)});
-        return {...previous,...progress};
-      }));
-      if (!valid(token, session)) return;
-      results.forEach(updateView); queryError.value = '';
-    } catch (reason) {
-      if (valid(token, session)) queryError.value = '查询失败，状态未确认：' + (reason instanceof Error ? reason.message : '请重试');
-    } finally { if (request === serial) { pending = false; schedule(); } }
+    if (!readable.value || busy.value) { schedule(); return; }
+    const run = selected.value;
+    if (run && activeStates.includes(run.state)) await read('run', signal => api().workbench.getRun({ task_id: run.task_id, run_id: run.run_id }, signal), value => { selected.value = value; });
+    const rows = adoptions.value.filter(row => activeStates.includes(row.state));
+    for (const row of rows) await read('adoption:' + row.adoption_id, signal => api().workbench.getAdoption({ task_id: row.task_id, adoption_id: row.adoption_id }, signal), value => {
+      const index = adoptions.value.findIndex(item => item.adoption_id === value.adoption_id); if (index >= 0) adoptions.value[index] = value;
+    });
+    const target = taskContext.value;
+    await read('context', signal => api().workbench.getContext(target ? { task_id: target.taskId } : {}, signal), value => { context.value = value; });
+    schedule();
   }
-  async function submit() {
-    if (!executable.value || locked.value || running.value) return false;
-    const token = generation, session = auth.generation;
-    // 资源表单与任务草稿必须先作出保存/放弃选择；绝不分析未保存输入。
-    if (!(await gis.prepareAnalysis()) || !valid(token, session)) return false;
-    await load();
-    if (!valid(token, session) || !workspace.value || sources.value.error || !sources.value.resourceRevision) return false;
-    const payload = { planId: planId.value, scenarioId: scenarioId.value, interferenceIds: [...interferenceIds.value],
-      baseRevision: workspace.value.revision, baseResourceRevision: sources.value.resourceRevision };
-    const signature = JSON.stringify(payload);
-    if (submission?.signature !== signature) submission = { signature, id: randomUuid() };
-    busy.value = true; error.value = ''; notice.value = ''; issues.value = []; clearTimer();
-    try {
-      const result = await previewService.submitInterferenceReceipt({ ...payload, requestId: submission.id });
-      if (!valid(token, session)) return false;
-      accept({revision:result.revision}); analysisId.value=result.objectId; submission=null;acceptedAnalysisId.value=result.objectId;gis.mapMode='analysis';
-      const detail=await previewService.getInterferenceDetail({analysisId:result.objectId});
-      if(!valid(token,session))return false;updateView(detail);historyTotal.value++;
-      gis.mapMode = 'analysis'; after.value = false; measureId.value = ''; submission = null; queryError.value = '';
-      return true;
-    } catch (reason) { if (valid(token, session)) {report(reason);if(acceptedAnalysisId.value)queryError.value='操作已受理，详情读取失败，请重试查询';} return false; }
-    finally { if (token === generation) { busy.value = false; schedule(); } }
-  }
-  async function cancel() {
-    if (!executable.value || locked.value || !selected.value || !workspace.value) return;
-    const token = generation, session = auth.generation;
-    busy.value = true; clearTimer();let accepted=false;
-    try {
-      const result = await previewService.cancelInterferenceReceipt({ baseRevision: workspace.value.revision, analysisId: analysisId.value });
-      if (!valid(token, session)) return;
-      accepted=true;accept({revision:result.revision});const detail=await previewService.getInterferenceDetail({analysisId:result.objectId});
-      if(!valid(token,session))return;updateView(detail);error.value = ''; queryError.value = '';
-    } catch (reason) { if (valid(token, session)) {report(reason);if(accepted){notice.value='取消已受理，状态读取失败，请重试查询';queryError.value='请重新读取取消后的状态';}} }
-    finally { if (token === generation) { busy.value = false; schedule(); } }
-  }
-  async function adopt() {
-    if (!adoptable.value || locked.value || !selected.value || !measure.value || !workspace.value) return;
-    if (!canPreviewAfter.value && !selected.value.adoptions.some(row => row.measureId === measure.value!.id)) {
-      error.value = previewUnavailableReason.value; return;
-    }
-    const token = generation, session = auth.generation, selectedMeasure = measure.value.id, selectedAnalysis = analysisId.value;
-    busy.value = true; error.value = ''; clearTimer();
-    try {
-      const result = await previewService.adoptInterferenceReceipt({
-        baseRevision: workspace.value.revision, requestId: 'adopt:' + selectedAnalysis + ':' + selectedMeasure,
-        analysisId: selectedAnalysis, measureId: selectedMeasure,
-      });
-      if (!valid(token, session)) return;
-      accept({revision:result.revision});adoptedTaskId.value=result.taskId;
-      const current = views.value.find(row => row.run.analysisId === selectedAnalysis);
-      if (current && !current.adoptions.some(row => row.measureId === selectedMeasure))
-        current.adoptions.push({ measureId: selectedMeasure, planId: result.planId });
-      notice.value = result.changed ? '已生成待确认方案 ' + result.version + '，请前往网络规划查看并确认。' : '此措施已采纳，已定位原方案。';
-      return result.planId;
-    } catch (reason) { if (valid(token, session)) report(reason); }
-    finally { if (token === generation) { busy.value = false; schedule(); } }
-  }
-  function select(id: string) {
-    if (locked.value) return;
-    inputTarget=null;
-    views.value=views.value.filter(row=>row.run.analysisId===id||['PENDING','RUNNING'].includes(row.state));
-    analysisId.value = id; after.value = false; measureId.value = ''; gis.mapMode = 'analysis'; historyOpen.value = false;
-    void query();
-  }
-  function inspectMeasure(row: Countermeasure) { measureId.value = row.id; measureOpen.value = true; after.value = false; }
-  async function loadMeasurePreview(){
-    const id=analysisId.value,selectedId=measureId.value,serial=++previewSerial,session=auth.generation;
-    if(!id||!selectedId||!readable.value)return;previewLoading.value=true;
-    try{const value=await previewService.getInterferenceMeasurePreview({analysisId:id,measureId:selectedId,signal:requests.signal('measure')});
-      if(serial===previewSerial&&session===auth.generation&&id===analysisId.value&&selectedId===measureId.value){loadedPreview.value=value;const item=selected.value?.result?.measures.find(row=>row.id===selectedId);if(item)item.after=value.impact;}
-    }catch(e){if(serial===previewSerial&&session===auth.generation)error.value=e instanceof Error?e.message:'措施预览读取失败';}
-    finally{if(serial===previewSerial)previewLoading.value=false;}
-  }
-  async function loadHistory(page=1){
-    if(!readable.value)return;const token=generation,session=auth.generation,serial=++historySerial;
-    try{const value=await previewService.queryInterferenceHistory({pageNum:page,pageSize:20,signal:requests.signal('history')});if(serial===historySerial&&valid(token,session)){history.value=value;historyPage.value=page;historyTotal.value=value.total;}}
-    catch(e){if(valid(token,session))report(e);}
-  }
-  watch(historyOpen,value=>{if(value)void loadHistory();});
-  function stop() {
-    cancelEntry();
-    requests.stop();active = false; generation++; historySerial++;serial++; previewSerial++; loadedPreview.value=null;previewLoading.value=false;pending = false; loading.value = false; busy.value = false; clearTimer();
-    if (typeof window !== 'undefined') { window.removeEventListener('focus', refresh); window.removeEventListener('storage', storage); }
-  }
-  const refresh = () => { if (active) void load(); };
-  const storage = (event: StorageEvent) => { if (!event.key || [PLANNING_STORAGE_KEY, RESOURCE_STORAGE_KEY].includes(event.key)) refresh(); };
-  function start() {
-    active = true;
-    if (typeof window !== 'undefined') { window.addEventListener('focus', refresh); window.addEventListener('storage', storage); }
-    void load();
-  }
-  watch(() => preview.workspace?.revision, refresh);
+  function start() { active = true; void load(); }
+  function stop() { active = false; invalidate(); busy.value = false; }
   function clearForSession() {
-    inputTarget=null;
-    history.value=null;historyTotal.value=0;historyPage.value=1;adoptedTaskId.value='';acceptedAnalysisId.value='';
-    stop(); workspace.value = null; sources.value = { plans: [], sources: [], resourceRevision: null, error: null };
-    scenarios.value = []; views.value = []; planId.value = ''; interferenceIds.value = []; scenarioId.value = 'single';
-    analysisId.value = ''; measureId.value = ''; gis.mapMode = 'resource'; after.value = false;
-    historyOpen.value = false; measureOpen.value = false; error.value = ''; queryError.value = ''; notice.value = ''; issues.value = []; submission = null;
+    stop(); services = null; connected.value = false; busy.value = false; taskContext.value = null; context.value = null;
+    selected.value = null; preview.value = null; history.value = null; scenes.value = null; adoptions.value = [];
+    pendingWrites.value = []; pendingScene.value = null; lastReceipt.value = null; lastSceneReceipt.value = null; sourceDirectory.value = null; sourceSearch.value = ''; measureId.value = ''; historyOpen.value = false;
+    measureOpen.value = false; sceneOpen.value = false; newDraft(); error.value = ''; queryErrors.value = {}; notice.value = '';
   }
-  return { workspace, sources, scenarios, views, planId, interferenceIds, scenarioId, analysisId, selected, measureId, measure, history, historyTotal, historyPage,loadHistory,loadedPreview,previewLoading,loadMeasurePreview,adoptedTaskId,
-    after, selectedMeasurePreview, previewUnavailableReason, canPreviewAfter, effectiveAfter, impact, levels, filteredImpact, historyOpen, measureOpen, loading, busy, locked, error, queryError, notice, issues,
-    readable, executable, adoptable, running, load, query, submit, cancel, adopt, select, inspectMeasure, start, stop, clearForSession,enterPlan,cancelEntry };
+  watch(() => auth.generation, clearForSession, { flush: 'sync' });
+  watch(measureId, () => { preview.value = null; after.value = false; }, { flush: 'sync' });
+  newDraft();
+  return { taskContext, context, connected, selectedSource, sourceDirectory, sourceSearch, scene, scenes, sceneVersions, draft, dirty, pendingScene, pendingWrites, lastReceipt, lastSceneReceipt,
+    selected, preview, adoptions, history, historySearch, historyState, historyTotal, historyPage, analysisId, measureId, measure,
+    after, levels, impact, filteredImpact, mapProjection, selectedMeasurePreview, previewUnavailableReason, canPreviewAfter, effectiveAfter,
+    historyOpen, measureOpen, sceneOpen, busy, loading, previewLoading, error, queryError, notice, readable, executable, adoptable,
+    locked, running, canAnalyze, bindServices, enterPlan, chooseSource, load, query, loadSourceOptions, loadScenes, selectScene, loadSceneVersions,
+    newDraft, resetDraft, saveScene, resolveSceneSave, resolvePending, submitAnalysis, cancelAnalysis, selectRun, loadMeasurePreview,
+    adoptMeasure, cancelAdoption, loadHistory, prepareLeave, start, stop, clearForSession };
 });

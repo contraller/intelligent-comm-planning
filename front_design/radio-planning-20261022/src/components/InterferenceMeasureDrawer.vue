@@ -1,176 +1,50 @@
 <template>
-  <AppDrawer
-    :visible="store.measureOpen"
-    title="抗干扰措施与预评估"
-    :subtitle="store.measure?.title"
-    @update:visible="!store.busy && (store.measureOpen = $event)"
-  >
+  <AppDrawer :visible="store.measureOpen" title="抗干扰措施与预评估" :subtitle="store.measure?.title" @update:visible="store.measureOpen = $event">
     <template v-if="store.measure">
-      <p>{{ store.measure.detail }}</p
-      ><p class="notice">风险与条件：{{ store.measure.risk }}</p>
-      <!-- 抽屉定位随实际前后态，入口能力由 GIS 冻结上下文提供。 -->
-      <section
-        v-if="targetEntry"
-        aria-label="措施定位对象"
-      >
-        <p>关联对象 · {{ targetEntry.stateLabel }}</p>
-        <div
-          v-for="target in targetEntry.targets"
-          :key="target.kind"
-          ><p>{{ target.kind === 'node' ? '节点' : '链路' }} {{ target.id }}</p>
-          <button
-            class="btn small"
-            :disabled="!!target.reason"
-            :onClick="target.locate"
-            >{{ target.label }}</button
-          ><p
-            v-if="target.reason"
-            class="muted"
-            >{{ target.reason }}</p
-          > </div
-        ><p
-          v-if="!targetEntry.targets.length"
-          class="muted"
-          >未提供定位对象</p
-        >
-      </section>
-      <p
-        v-if="store.previewUnavailableReason"
-        role="alert"
-        >{{ store.previewUnavailableReason }}</p
-      >
-      <div class="toolbar"
-        ><button
-          class="btn small"
-          :class="{ primary: !store.effectiveAfter }"
-          @click="
-            gis.mapMode = 'analysis';
-            store.after = false;
-          "
-          >地图查看措施前</button
-        ><button
-          class="btn small"
-          :class="{ primary: store.effectiveAfter }"
-          :disabled="!store.canPreviewAfter"
-          @click="
-            gis.mapMode = 'analysis';
-            store.after = true;
-          "
-          >地图查看措施后</button
-        ></div
-      >
-      <template v-if="result">
-        <p
-          >预评估信噪比：{{ store.measure.snrAfterDb }} dB；连通率
-          {{ result.metrics.connectivityPercent }}%；覆盖 {{ result.metrics.coveragePercent }}%。</p
-        >
-        <p>采纳生成同任务待确认版本。确认后切换当前网络；原资源与输入快照保留。</p>
-        <section
-          v-for="change in changes"
-          :key="change.label"
-          class="change"
-        >
-          <h4>{{ change.label }}</h4
-          ><details
-            ><summary>原配置</summary><pre>{{ JSON.stringify(change.before, null, 2) }}</pre>
-          </details>
-          <details open
-            ><summary>措施后配置</summary><pre>{{ JSON.stringify(change.after, null, 2) }}</pre>
-          </details>
-        </section>
-        <h4>预生成校验</h4
-        ><p
-          v-for="check in result.checks"
-          :key="check.id"
-          >{{ check.passed ? '通过' : '未通过' }} · {{ check.label }} · {{ check.detail }}</p
-        >
+      <p>{{ store.measure.detail }}</p><p>风险与条件：{{ store.measure.risk }}</p>
+      <p v-if="store.previewUnavailableReason" role="status">{{ store.previewUnavailableReason }}</p>
+      <button v-if="!store.preview && !store.previewLoading" class="btn" @click="store.loadMeasurePreview(store.measure.measure_id)">重试预览</button>
+      <div class="toolbar" role="group" aria-label="措施影响状态"><button class="btn" :aria-pressed="!store.effectiveAfter" @click="store.after = false">措施前</button><button class="btn" :aria-pressed="store.effectiveAfter" :disabled="!store.canPreviewAfter" @click="store.after = true">措施后预测</button></div>
+      <section v-if="targetEntry" aria-label="措施定位对象"><p>{{ targetEntry.stateLabel }}</p><div v-for="target in targetEntry.targets" :key="target.kind"><button class="text-link" :disabled="!!target.reason" @click="target.locate()">{{ target.label }} · {{ target.id }}</button><p v-if="target.reason">{{ target.reason }}</p></div></section>
+      <template v-if="store.preview">
+        <h4>拟应用变更</h4><pre>{{ JSON.stringify(store.preview.proposed_changes, null, 2) }}</pre>
+        <details><summary>冻结的变更前配置</summary><pre>{{ JSON.stringify(store.preview.before_configuration, null, 2) }}</pre></details>
+        <p v-if="store.preview.impact_after">措施后预测受扰节点 {{ store.preview.impact_after.summary.affected_nodes }} · 链路 {{ store.preview.impact_after.summary.affected_links }}</p>
+        <p v-if="store.preview.metrics === null">全网覆盖、连通与时延指标尚未重算。</p>
+        <pre v-else>{{ JSON.stringify(store.preview.metrics, null, 2) }}</pre>
       </template>
-      <p
-        v-if="store.error"
-        role="alert"
-        >{{ store.error }}</p
-      ><p
-        v-if="store.notice"
-        role="status"
-        >{{ store.notice }}</p
-      >
+      <ul v-if="capability && !capability.enabled"><li v-for="reason in capability.reasons" :key="reason">{{ reason }}</li></ul>
+      <button class="btn primary" :disabled="!store.adoptable || !store.measure.available || !capability?.enabled || store.locked || !!store.pendingWrites.length || !!adopted" @click="store.adoptMeasure(store.measure.measure_id)">采纳措施并提交规划重算</button>
+      <section v-if="adopted" aria-label="措施重算状态">
+        <h4>{{ labels[adopted.state] }}</h4><p>{{ adopted.adoption_id }}</p>
+        <p v-if="adopted.planning_state">{{ adopted.planning_state }} · {{ adopted.planning_progress }}%</p>
+        <p v-if="adopted.state === 'CANCEL_REQUESTED'">取消已请求，尚未确认停止。</p>
+        <p v-if="adopted.error" role="alert">{{ adopted.error }}</p>
+        <button v-if="adopted.planning_job_id" class="btn" @click="emit('openPlanningJob', { taskId: adopted.task_id, jobId: adopted.planning_job_id! })">查看规划作业</button>
+        <button class="text-link" @click="emit('openAdoption', { adoptionId: adopted.adoption_id })">采纳详情</button>
+        <button v-if="['PENDING', 'RUNNING'].includes(adopted.state)" class="btn" :disabled="store.locked || !store.adoptable" @click="store.cancelAdoption(adopted.adoption_id)">请求取消重算</button>
+        <template v-if="adopted.state === 'SUCCESS' && adopted.result_plan_id">
+          <p>{{ adopted.result_plan_state === 'CONFIRMED' ? '重算方案此后已被显式确认' : adopted.result_plan_state === 'REFERENCE' ? '已保存未达标参考方案；采纳未改变原确认方案' : '已保存重算方案；采纳未改变原确认方案' }}。</p>
+          <button class="btn primary" @click="emit('openPlan', adopted.result_plan_id!)">打开重算方案</button>
+        </template>
+        <button v-if="['PENDING', 'RUNNING', 'CANCEL_REQUESTED'].includes(adopted.state)" class="text-link" @click="store.query()">刷新状态</button>
+      </section>
     </template>
-    <template #footer>
-      <button
-        v-if="adopted"
-        class="btn primary"
-        :disabled="store.busy"
-        @click="emit('openPlan', adopted.planId)"
-        >查看已生成方案</button
-      >
-      <button
-        v-else
-        class="btn primary"
-        :disabled="
-          !store.adoptable ||
-          store.locked ||
-          !result ||
-          store.selected?.source.state !== 'CURRENT' ||
-          !!store.queryError
-        "
-        @click="adopt"
-        >采纳此项并生成待确认方案</button
-      >
-    </template>
+    <p v-if="store.error || store.queryError" role="alert">{{ store.error || store.queryError }}</p>
   </AppDrawer>
 </template>
 <script setup lang="ts">
 import { computed } from 'vue';
-import { useGisWorkspaceStore } from '../stores/gis-workspace';
-import { useInterferenceStore } from '../stores/interference';
-import { sameValue } from '../services/planning-validation';
-import type { PlanningConfiguration } from '../types/planning';
-import type { InterferenceTargetEntry } from '../composables/useInterferenceTargetNavigation';
 import AppDrawer from './AppDrawer.vue';
+import { useInterferenceStore } from '../stores/interference';
+import type { InterferenceTargetEntry } from '../composables/useInterferenceTargetNavigation';
 defineProps<{ targetEntry?: InterferenceTargetEntry | null }>();
-const emit = defineEmits<{ openPlan: [id: string] }>();
-// 地图上下文由 GIS 统一管理，分析仅请求切换。
-const store = useInterferenceStore(),
-  gis = useGisWorkspaceStore();
-const adopted = computed(() =>
-  store.selected?.adoptions.find((row) => row.measureId === store.measureId),
-);
-// 配置、指标与地图共用服务提供的完整措施快照。
-const result = computed(() =>
-  store.canPreviewAfter ? store.selectedMeasurePreview?.result : null,
-);
-// 仅展示完整配置中的差异项，不把预评估值重新计算为业务指标。
-const changes = computed(() => {
-  const before = store.selected?.run.network.workflow?.configuration,
-    after = result.value?.configuration;
-  if (!before || !after) return [];
-  const names: Record<keyof PlanningConfiguration, string> = {
-    deployment: '部署',
-    devices: '设备参数',
-    routes: '路由',
-    frequencies: '频率资源',
-  };
-  return (Object.keys(names) as (keyof PlanningConfiguration)[])
-    .filter((key) => !sameValue(before[key], after[key]))
-    .map((key) => ({ label: names[key], before: before[key], after: after[key] }));
-});
-async function adopt() {
-  const id = await store.adopt();
-  if (id) store.measureOpen = true;
-}
+const emit = defineEmits<{ openPlan: [id: string]; openPlanningJob: [value: { taskId: string; jobId: string }]; openAdoption: [value: { adoptionId: string }] }>();
+const store = useInterferenceStore();
+const adopted = computed(() => store.adoptions.find(row => row.measure_id === store.measureId && row.run_id === store.selected?.run_id));
+const capability = computed(() => store.measure ? store.selected?.adoption_capabilities[store.measure.type] : null);
+const labels = { PENDING: '等待重算', RUNNING: '规划重算中', CANCEL_REQUESTED: '取消请求中', SUCCESS: '重算结果已保存', FAILED: '重算失败', CANCELLED: '重算已取消' };
 </script>
 <style scoped>
-.change {
-  margin: 18px 0;
-  border-top: 1px solid #314965;
-}
-.change pre {
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-  font-size: 11px;
-  color: #abc2db;
-}
-p {
-  line-height: 1.8;
-}
+p{line-height:1.7;overflow-wrap:anywhere}pre{font-size:11px;white-space:pre-wrap;overflow-wrap:anywhere;max-height:300px;overflow:auto}.toolbar{display:flex;flex-wrap:wrap;gap:8px}section{padding:14px 0;border-top:1px solid var(--line)}button{max-width:100%;white-space:normal;margin:4px 4px 4px 0}
 </style>

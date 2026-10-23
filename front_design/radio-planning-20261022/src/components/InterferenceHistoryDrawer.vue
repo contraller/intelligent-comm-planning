@@ -1,74 +1,26 @@
 <template>
-  <AppDrawer
-    :visible="store.historyOpen"
-    title="干扰分析历史"
-    subtitle="选择记录查看冻结方案、干扰源和措施；旧结果不会被覆盖。"
-    @update:visible="store.historyOpen = $event"
-  >
-    <p v-if="!store.historyTotal">暂无已提交分析。</p>
-    <button
-      v-for="view in store.history?.items ?? []"
-      :key="view.id"
-      class="history-row"
-      :disabled="store.locked"
-      @click="store.select(view.id)"
-    >
-      <strong>{{ view.name }} · {{ view.version }}</strong>
-      <span>{{ new Date(view.startedAt).toLocaleString() }} · {{ labels[view.state] }}</span>
-      <small
-        >{{ view.sourceIds.join(' / ') }} ·
-        {{
-          view.source.state === 'CURRENT'
-            ? '当前来源'
-            : view.source.state === 'UNKNOWN'
-              ? '来源待核实'
-              : '历史来源'
-        }}</small
-      >
-      <small>已采纳 {{ view.adoptionCount }} 项 · {{ view.id }}</small>
+  <AppDrawer :visible="store.historyOpen" title="干扰分析历史" @update:visible="store.historyOpen = $event">
+    <div class="toolbar"><input v-model="store.historySearch" type="search" aria-label="搜索运行或方案编号" />
+      <select v-model="store.historyState" aria-label="运行状态"><option value="">全部状态</option><option v-for="(label, key) in labels" :key="key" :value="key">{{ label }}</option></select>
+      <button class="icon-button" title="查询历史" aria-label="查询历史" :disabled="store.locked" @click="store.loadHistory(1)"><i class="pi pi-search" aria-hidden="true" /></button>
+    </div>
+    <p v-if="!store.taskContext">请选择任务及确认方案。</p>
+    <p v-else-if="!store.historyTotal">暂无分析记录。</p>
+    <button v-for="row in store.history?.items ?? []" :key="row.run_id" class="history-row" :disabled="store.locked" @click="store.selectRun(row.run_id)">
+      <strong>{{ row.plan_id }} · {{ row.plan_version }} · {{ labels[row.state] }}</strong>
+      <span>{{ row.started_at }} · {{ row.run_id }}</span><small>{{ row.source_state.state === 'CURRENT' ? '当前来源' : '冻结历史 / 待核实' }} · 采纳记录 {{ row.adoption_count }} 项</small>
     </button>
-    <div class="toolbar"
-      ><button
-        class="btn small"
-        :disabled="store.historyPage <= 1"
-        @click="store.loadHistory(store.historyPage - 1)"
-        >上页</button
-      ><span>{{ store.historyTotal }} 条 · 第 {{ store.historyPage }} 页</span
-      ><button
-        class="btn small"
-        :disabled="store.historyPage * 20 >= store.historyTotal"
-        @click="store.loadHistory(store.historyPage + 1)"
-        >下页</button
-      ></div
-    >
-    <template #footer><p>记录与规划工作区共同保留；重置规划会同时清空这些分析。</p></template>
+    <div class="toolbar"><button class="icon-button" title="历史上一页" aria-label="历史上一页" :disabled="store.historyPage <= 1 || store.locked" @click="store.loadHistory(store.historyPage - 1)"><i class="pi pi-angle-left" aria-hidden="true" /></button><span>{{ store.historyPage }} · 共 {{ store.historyTotal }} 项</span><button class="icon-button" title="历史下一页" aria-label="历史下一页" :disabled="store.historyPage * 20 >= store.historyTotal || store.locked" @click="store.loadHistory(store.historyPage + 1)"><i class="pi pi-angle-right" aria-hidden="true" /></button></div>
+    <p v-if="store.queryError" role="alert">{{ store.queryError }}</p>
+    <p class="muted">场景版本、分析和采纳记录独立持久化；规划重置不清除这些历史。</p>
   </AppDrawer>
 </template>
 <script setup lang="ts">
-import { useInterferenceStore } from '../stores/interference';
 import AppDrawer from './AppDrawer.vue';
+import { useInterferenceStore } from '../stores/interference';
 const store = useInterferenceStore();
-const labels = {
-  PENDING: '排队中',
-  RUNNING: '分析中',
-  SUCCESS: '成功',
-  FAILED: '失败',
-  CANCELLED: '已取消',
-};
+const labels = { PENDING: '排队中', RUNNING: '分析中', CANCEL_REQUESTED: '取消请求中', SUCCESS: '分析完成', FAILED: '失败', CANCELLED: '已取消' };
 </script>
 <style scoped>
-.history-row {
-  display: grid;
-  gap: 8px;
-  width: 100%;
-  padding: 16px;
-  margin: 10px 0;
-  background: #14283e;
-  border: 1px solid #30506e;
-  text-align: left;
-  overflow-wrap: anywhere;
-}
-.history-row small {
-  color: #94acc6;
-}
+.toolbar{display:flex;flex-wrap:wrap;gap:8px;align-items:center}input{flex:1;min-width:120px}.icon-button{width:32px;height:32px;flex:0 0 32px}.history-row{display:grid;gap:6px;padding:12px 0;width:100%;text-align:left;border:0;border-bottom:1px solid var(--line);background:transparent;overflow-wrap:anywhere}.muted,small{color:var(--muted)}p{overflow-wrap:anywhere}
 </style>
