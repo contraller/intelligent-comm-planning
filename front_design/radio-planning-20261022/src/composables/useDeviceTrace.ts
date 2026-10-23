@@ -9,7 +9,7 @@ export function useDeviceTrace(target: () => DeviceTraceTarget | null, services:
   let serial = 0, control: AbortController | null = null;
   function cancel() { serial++; control?.abort(); control = null; busy.value = false; }
   function clear() { cancel(); history.value = null; detail.value = null; selected.value = null; restore.value = null; error.value = ''; }
-  watch([() => JSON.stringify(target()), () => auth.identity?.id, () => auth.identity?.sessionId], clear, { flush: 'sync' });
+  watch([() => JSON.stringify(target()), services, () => auth.identity?.id, () => auth.identity?.sessionId], clear, { flush: 'sync' });
   watch(() => auth.generation, cancel, { flush: 'sync' });
   async function run(operation: (client: DeviceTraceClient, value: DeviceTraceTarget, signal: AbortSignal, current: () => boolean) => Promise<void>) {
     const value = target(), client = services();
@@ -29,8 +29,11 @@ export function useDeviceTrace(target: () => DeviceTraceTarget | null, services:
     });
   }
   async function select(item: TraceSummary) {
+    const value = target();
+    if (!value?.readable || !auth.can('resources.view') || item.device_id !== value.device_id) return;
+    // 新选择先使旧明细/预览失效，不能让迟到结果挂到另一条历史上。
+    cancel();
     restore.value = null; detail.value = null;
-    if (item.device_id !== target()?.device_id) return;
     selected.value = { ...item, changed_fields: [...item.changed_fields] };
     if (item.request_id === null) return;
     const requestId = item.request_id;

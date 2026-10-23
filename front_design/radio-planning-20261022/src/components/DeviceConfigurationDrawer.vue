@@ -79,9 +79,16 @@ const config = useDeviceConfigurationAcceptanceStore();
 watch([() => props.services, () => props.visible, () => props.deviceId, () => props.resourceRevision, () => props.editable, () => props.disabledReason], () => {
   config.bind(props.services ?? null);
   if (props.visible === false) { config.close(); return; }
-  if (props.visible && props.deviceId && props.resourceRevision) void config.open({
-    deviceId: props.deviceId, resourceRevision: props.resourceRevision, editable: props.editable, disabledReason: props.disabledReason,
-  });
+  if (props.visible && props.deviceId && props.resourceRevision) {
+    const target = { deviceId: props.deviceId, resourceRevision: props.resourceRevision, editable: props.editable, disabledReason: props.disabledReason };
+    if (config.visible && config.target?.deviceId === target.deviceId && config.target.resourceRevision === target.resourceRevision) {
+      // 同目标能力变化不重开表单，保留输入但立即收紧提交权限。
+      if (config.target.editable !== target.editable) config.validated = false;
+      config.target = target;
+      return;
+    }
+    void config.open(target);
+  }
 }, { immediate: true });
 watch(() => config.acceptedEvent, () => {
   const value = config.acceptance;

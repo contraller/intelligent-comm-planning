@@ -3,7 +3,7 @@ import { createPinia, disposePinia, setActivePinia } from 'pinia';
 import { authorizeStore } from './helpers/auth';
 import { TestStorage } from './helpers/storage';
 import { useDeviceConfigurationAcceptanceStore, type DeviceConfigurationClient } from '../src/stores/device-configuration-acceptance';
-import { acceptanceMessage, deviceConfigurationSchema as schema, type ConfigurationAcceptanceContext, type ConfigurationSubmissionInput } from '../src/services/device-configuration-decode';
+import { acceptanceMessage, deviceConfigurationSchema as schema, type ConfigurationAcceptanceContext, type ConfigurationSubmissionInput, type ConfigurationSystemAcceptance, type ConfigurationAcceptanceHistory } from '../src/services/device-configuration-decode';
 import { ApiError } from '../src/services/types';
 const revision = 'resource-1111111111111111';
 export function acceptanceContext(): ConfigurationAcceptanceContext {
@@ -81,5 +81,46 @@ describe('system acceptance state', () => {
     expect(config.closeKeepingPending()).toBe(true); expect(config.visible).toBe(false); expect(config.pending?.request_id).toBe(id);
     await config.open({ deviceId: 'D1', resourceRevision: revision, editable: true });
     expect(config.pending?.request_id).toBe(id); expect(config.data?.resource_revision).toBe(revision);
+  });
+  it('does not cancel an in-flight operation on the same client and storage binding', async () => {
+    const { config, client, storage } = await setup(); let done!: (value: ConfigurationAcceptanceHistory) => void;
+    client.queryHistory.mockImplementationOnce(() => new Promise<ConfigurationAcceptanceHistory>(resolve => { done = resolve; }));
+    const reading = config.queryHistory(), signal = client.queryHistory.mock.calls.at(-1)![1]?.signal;
+    config.bind(client, storage);
+    expect(config.busy).toBe(true); expect(signal?.aborted).toBe(false); expect(config.close()).toBe(false);
+    done({ schema_version: schema, context: 'ledger', items: [], total: 0, page: 1, page_size: 20 }); await reading;
+    expect(config.history?.total).toBe(0); expect(config.busy).toBe(false);
+  });
+  it('does not restore validation after the target becomes readonly during precheck', async () => {
+    const { config, client } = await setup();
+    type Validation = Awaited<ReturnType<DeviceConfigurationClient['validateRequest']>>;
+    let done!: (value: Validation) => void;
+    client.validateRequest.mockImplementationOnce(() => new Promise<Validation>(resolve => { done = resolve; }));
+    const validating = config.validate(); config.target = { ...config.target!, editable: false };
+    done({ valid: true, context: acceptanceContext(), requested_values: { tx_power_dbm: 20, work_freq_khz: 3000 } }); await validating;
+    expect(config.validated).toBe(false); expect(config.locked).toBe(true);
+    await config.submit(); expect(client.submitRequest).not.toHaveBeenCalled();
+  });
+  it.each(['account', 'revision'] as const)('retains the original pending request on a wrong %s receipt', async mismatch => {
+    const { config, client, auth, storage } = await setup(); client.submitRequest.mockRejectedValueOnce(new Error('timeout'));
+    await config.validate(); await config.submit();
+    const original = { ...config.pending!, values: { ...config.pending!.values } };
+    const wrong = receipt(original, mismatch === 'account' ? 'another-account' : auth.identity!.id);
+    if (mismatch === 'revision') wrong.base_revision = 'resource-2222222222222222';
+    client.getRequest.mockResolvedValueOnce(wrong); await config.verify();
+    expect(config.pending).toEqual(original); expect(config.acceptance).toBeNull(); expect(config.error).toContain('不符');
+    expect(config.close()).toBe(false);
+    expect(JSON.parse(storage.getItem('device-configuration-pending-a1:' + encodeURIComponent(auth.identity!.id))!).request).toEqual(original);
+  });
+  it('keeps original id after stopping POST waiting and verifies rather than claiming it was cancelled', async () => {
+    const { config, client, auth } = await setup(); let done!: (value: ConfigurationSystemAcceptance) => void;
+    client.submitRequest.mockImplementationOnce(() => new Promise<ConfigurationSystemAcceptance>(resolve => { done = resolve; }));
+    await config.validate(); const sending = config.submit();
+    const original = { ...config.pending!, values: { ...config.pending!.values } }, result = receipt(original, auth.identity!.id);
+    const signal = client.submitRequest.mock.calls.at(-1)![1]?.signal;
+    config.cancel(); done(result); await sending;
+    expect(signal?.aborted).toBe(true); expect(config.acceptance).toBeNull(); expect(config.pending).toEqual(original); expect(config.close()).toBe(false);
+    client.getRequest.mockResolvedValueOnce(result); await config.verify();
+    expect(config.pending).toBeNull(); expect(config.acceptance?.dispatch_status).toBe('NOT_DISPATCHED'); expect(client.submitRequest).toHaveBeenCalledTimes(1);
   });
 });

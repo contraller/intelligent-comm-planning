@@ -108,8 +108,10 @@ watch(() => dirtyInput.value || !!status.pendingImport, value => emit('dirty', v
 watch(localBusy, value => emit('busy', value), { immediate: true });
 function clear() { status.clearSnapshot(); emit('clear-snapshot'); }
 async function readFile(event: Event) {
+  if (status.busy || status.pendingImport) return;
   const file = (event.target as HTMLInputElement).files?.[0]; if (!file) return;
-  fileName.value = file.name;
+  // 换文件即废弃旧原文；新文件失败时不能提交上一份内容。
+  raw.value = ''; fileName.value = file.name; parseError.value = ''; submittedInput = null;
   const serial = ++fileSerial; fileBusy.value = false;
   if (file.size > 2 * 1024 * 1024) { parseError.value = '导入文件不能超过 2 MiB'; return; }
   fileBusy.value = true;

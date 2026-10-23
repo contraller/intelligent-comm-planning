@@ -4,8 +4,9 @@ import { createPinia, disposePinia, setActivePinia } from 'pinia';
 import { authorizeStore } from './helpers/auth';
 import { clientTemplate, node, renderer, find, textOf, type HostNode } from './helpers/vue-client';
 import Panel from '../src/components/ResourceStatusPanel.vue';
-import { deviceStatusSchema as schema, type DeviceStatusHeader } from '../src/types/device-status-snapshot';
+import { deviceStatusSchema as schema, type DeviceStatusHeader, type DeviceStatusImport } from '../src/types/device-status-snapshot';
 import type { DeviceStatusClient } from '../src/services/device-status-http';
+import { useResourceStatusStore } from '../src/stores/resource-status';
 import { createMockService } from '../src/services/mock';
 import { TestStorage } from './helpers/storage';
 import { gisDevicePoints, defaultGisDeviceSettings, GIS_DEVICE_COLORS } from '../src/maps/gis-device-display';
@@ -29,13 +30,14 @@ function client(): DeviceStatusClient { return {
 async function settle() { for (let i = 0; i < 15; i++) await nextTick(); }
 async function mount(services?: DeviceStatusClient, allowImport = false) {
   pinia = createPinia(); setActivePinia(pinia); const auth = authorizeStore();
-  (auth.identity!.permissions as string[]).push('resources.device.status.import');
+  const permissions = auth.identity!.permissions as string[];
+  if (!permissions.includes('resources.device.status.import')) permissions.push('resources.device.status.import');
   const selected = vi.fn(), root = node('root');
-  const dirty = vi.fn(), busy = vi.fn();
+  const dirty = vi.fn(), busy = vi.fn(), imported = vi.fn();
   let exposed!: { requestLeave(): Promise<boolean> };
   app = renderer.createApp({ render: () => h(Panel, { resourceRevision: revision, total: null, services, allowImport,
-    ref: value => { exposed = value as unknown as typeof exposed; }, 'onSnapshot-selected': selected, onDirty: dirty, onBusy: busy }) });
-  app.use(pinia); app.provide(ssrContextKey, {}); app.mount(root); await settle(); return { root, selected, dirty, busy, leave: () => exposed.requestLeave() };
+    ref: value => { exposed = value as unknown as typeof exposed; }, 'onSnapshot-selected': selected, onDirty: dirty, onBusy: busy, onImported: imported }) });
+  app.use(pinia); app.provide(ssrContextKey, {}); app.mount(root); await settle(); return { root, selected, dirty, busy, imported, leave: () => exposed.requestLeave() };
 }
 it('missing service is explicit and does not create mock batches', async () => {
   const { root } = await mount(); expect(textOf(root)).toContain('状态服务未接入'); expect(textOf(root)).toContain('未知');
@@ -64,6 +66,50 @@ it('blocks leaving while file content is still being read and reports busy', asy
   const reading = (input.props.onChange as Function)({ target: { files: [{ name: 'status.json', size: 10, text: () => new Promise(resolve => { done = resolve; }) }] } });
   await settle(); expect(s.busy).toHaveBeenLastCalledWith(true); expect(await s.leave()).toBe(false);
   done('unsubmitted-file-content'); await reading; await settle(); expect(s.busy).toHaveBeenLastCalledWith(false); expect(await s.leave()).toBe(false);
+});
+const fileRequest: DeviceStatusImport = {
+  schema_version: schema, context: 'ledger', request_id: 'status-file-original', base_revision: revision,
+  data_origin: 'SYNTHETIC_INTEGRATION', source_label: '原构造文件', provenance_note: '测试构造，不是真实上报',
+  records: [{ device_id: 'D1', node_id: 'N1', model_id: 'M1', status: null, alert: false, observed_at: null, unknown_reasons: ['缺采集时间和状态'] }],
+};
+type TestFile = { name: string; size: number; text(): Promise<string> };
+function chooseFile(root: HostNode, file: TestFile): Promise<void> {
+  const input = find(root, n => n.tag === 'input' && n.props.type === 'file')!;
+  return (input.props.onChange as (event: Event) => Promise<void>)({ target: { files: [file] } } as unknown as Event);
+}
+it.each(['oversize', 'read-error'] as const)('invalidates old JSON when replacement file fails: %s', async failure => {
+  const services = client(), s = await mount(services, true);
+  await chooseFile(s.root, { name: 'original.json', size: 100, text: async () => JSON.stringify(fileRequest) });
+  const read = vi.fn().mockRejectedValue(new Error('file unavailable'));
+  await chooseFile(s.root, { name: 'replacement.json', size: failure === 'oversize' ? 2 * 1024 * 1024 + 1 : 100, text: read });
+  await settle(); expect(textOf(s.root)).toContain(failure === 'oversize' ? '不能超过 2 MiB' : '文件读取失败');
+  if (failure === 'oversize') expect(read).not.toHaveBeenCalled();
+  const submit = find(s.root, n => n.tag === 'button' && textOf(n) === '校验并导入')!;
+  await (submit.props.onClick as () => Promise<void>)(); await settle();
+  expect(services.importSnapshot).not.toHaveBeenCalled(); expect(await s.leave()).toBe(false);
+});
+it('does not restore old content when a superseded file finishes after an invalid replacement', async () => {
+  const services = client(), s = await mount(services, true); let done!: (value: string) => void;
+  const first = chooseFile(s.root, { name: 'first.json', size: 100, text: () => new Promise<string>(resolve => { done = resolve; }) });
+  await chooseFile(s.root, { name: 'oversize.json', size: 2 * 1024 * 1024 + 1, text: vi.fn() });
+  done(JSON.stringify(fileRequest)); await first; await settle();
+  expect(textOf(s.root)).toContain('不能超过 2 MiB');
+  const submit = find(s.root, n => n.tag === 'button' && textOf(n) === '校验并导入')!;
+  await (submit.props.onClick as () => Promise<void>)(); expect(services.importSnapshot).not.toHaveBeenCalled();
+});
+it.each(['request', 'revision', 'total'] as const)('keeps pending import and leave protection on a mismatched %s receipt', async mismatch => {
+  const services = client(); vi.mocked(services.importSnapshot).mockRejectedValueOnce(new Error('timeout'));
+  const s = await mount(services, true);
+  await chooseFile(s.root, { name: 'original.json', size: 100, text: async () => JSON.stringify(fileRequest) });
+  const submit = find(s.root, n => n.tag === 'button' && textOf(n) === '校验并导入')!;
+  await (submit.props.onClick as () => Promise<void>)(); await settle();
+  const status = useResourceStatusStore(); expect(status.pendingImport).toEqual(fileRequest);
+  vi.mocked(services.getImport).mockResolvedValueOnce({ schema_version: schema, request_id: mismatch === 'request' ? 'wrong-import' : fileRequest.request_id,
+    snapshot_id: header.snapshot_id, snapshot_revision: header.snapshot_revision, resource_revision: mismatch === 'revision' ? 'resource-2222222222222222' : revision,
+    content_hash: header.content_hash, total: mismatch === 'total' ? 2 : 1, imported_at: header.imported_at, data_origin: header.data_origin });
+  await status.verifyImport(); await settle();
+  expect(status.pendingImport).toEqual(fileRequest); expect(status.receipt).toBeNull(); expect(status.error).toContain('不符');
+  expect(s.imported).not.toHaveBeenCalled(); expect(s.dirty).toHaveBeenLastCalledWith(true); expect(await s.leave()).toBe(false);
 });
 it('retains GIS unknown-state color and cluster behavior independently of status snapshot import', async () => {
   const storage = new TestStorage(), raw = createMockService(() => storage), data = await raw.loadPreview();

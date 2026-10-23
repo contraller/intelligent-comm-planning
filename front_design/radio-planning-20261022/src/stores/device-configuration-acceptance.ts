@@ -36,7 +36,10 @@ export const useDeviceConfigurationAcceptanceStore = defineStore('device-configu
   watch(() => auth.generation, cancel, { flush: 'sync' });
   watch(readable, value => { if (!value) { cancel(); data.value = null; history.value = null; acceptance.value = null; } }, { flush: 'sync' });
   watch([power, frequency], () => { validated.value = false; }, { flush: 'sync' });
-  function bind(client: DeviceConfigurationClient | null, storage?: PendingStorage) { cancel(); services.value = client; store = storage; restorePending(); }
+  function bind(client: DeviceConfigurationClient | null, storage?: PendingStorage) {
+    if (services.value === client && store === storage) return;
+    cancel(); services.value = client; store = storage; restorePending();
+  }
   async function run(operation: (client: DeviceConfigurationClient, signal: AbortSignal, current: () => boolean) => Promise<void>) {
     if (!services.value || !readable.value || busy.value) return;
     const token = ++serial, generation = auth.generation;
@@ -83,7 +86,7 @@ export const useDeviceConfigurationAcceptanceStore = defineStore('device-configu
     await run(async (client, signal, current) => {
       const request = input(), fingerprint = JSON.stringify(request);
       await client.validateRequest(request, { signal });
-      if (current() && JSON.stringify(input()) === fingerprint) { validatedInput = fingerprint; validated.value = true; }
+      if (current() && editable.value && JSON.stringify(input()) === fingerprint) { validatedInput = fingerprint; validated.value = true; }
     });
   }
   function receive(result: ConfigurationSystemAcceptance, account: string) {
