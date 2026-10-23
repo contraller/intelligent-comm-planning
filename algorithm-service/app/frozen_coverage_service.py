@@ -111,7 +111,7 @@ def _source_loader(factory, plan_id, task_id, snapshot_id, *, audit_context=None
                 raise CoverageServiceError("冻结规划方案不存在", 2001, 404)
             if not isinstance(plan.result_snapshot, dict) or plan.result_snapshot.get("snapshot_id") != snapshot_id:
                 raise CoverageServiceError("规划快照锚点已变化", 1205, 409)
-            if context is not None:
+            if context is not None and context._writing:
                 _require_owner(session, context, operation="plan.save", request_id=plan.request_id, object_id=plan_id,
                                page_context="planning", task_id=task_id, revision_id=plan.revision_id)
             version = session.get(ResourceDatasetVersion, plan.resource_revision)
@@ -156,6 +156,16 @@ class FrozenCoverageService:
         self._queue = queue.Queue()
         self._requests, self._caches, self._active, self._cancel_events = {}, {}, {}, {}
         self._storage_fault = None
+
+    def status(self):
+        """只读生命周期快照，不读取运行文件或触发恢复。"""
+        with self._lock:
+            alive = self._thread is not None and self._thread.is_alive()
+            stopped = self._stop.is_set()
+            fault = self._storage_fault is not None
+            unexpected_exit = self._thread is not None and not alive and not stopped
+            state = "failed" if fault or unexpected_exit else "running" if alive and not stopped else "disabled"
+            return {"state": state, "worker_alive": alive, "stop_requested": stopped, "storage_fault": fault}
 
     def _path(self, job_id):
         if not isinstance(job_id, str) or not JOB_ID.fullmatch(job_id):

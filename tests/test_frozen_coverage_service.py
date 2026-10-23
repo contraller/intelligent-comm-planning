@@ -335,3 +335,188 @@ def test_default_loader_uses_exact_historical_version_not_current(context, tmp_p
     with pytest.raises(module.CoverageServiceError):
         module._source_loader(factory, "P1", "T1", "WRONG")
     db.dispose()
+
+
+@pytest.fixture(scope="module")
+def local_coverage_modules():
+    import importlib
+    import importlib.util
+    from pathlib import Path
+    import sys
+    from types import ModuleType, SimpleNamespace
+
+    # 隔离包避免旧树同名共享模块遮住真实Context；待测service仍从本树加载。
+    sys.dont_write_bytecode = True
+    root = Path(__file__).resolve().parents[1]
+    shared = next(parent / "algorithm-service/app" for parent in (root, *root.parents)
+                  if (parent / "algorithm-service/app/local_business_context.py").is_file())
+    name = "_p04_frozen_coverage_local_context"
+    package = ModuleType(name)
+    package.__path__ = [str(shared)]
+    sys.modules[name] = package
+    spec = importlib.util.spec_from_file_location(name + ".frozen_coverage_service",
+                                                  root / "algorithm-service/app/frozen_coverage_service.py")
+    service = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = service
+    spec.loader.exec_module(service)
+    load = lambda value: importlib.import_module(name + "." + value)
+    result = SimpleNamespace(service=service, database=load("database"), models=load("system_management_models"),
+        identity=load("local_identity_service"), sessions=load("local_identity_models"),
+        settings=load("local_identity_schemas"), system=load("system_management_service"),
+        permissions=load("permission_registry"), context=load("local_business_context"),
+        errors=load("system_management_schemas"), plans=load("planning_plan_models"),
+        resources=load("resource_dataset_models"), datasets=load("resource_dataset_service"))
+    # 声明外键元数据，不创建/运行共享任务服务。
+    load("planning_job_models")
+    load("task_input_models")
+    yield result
+    for key in list(sys.modules):
+        if key == name or key.startswith(name + "."):
+            sys.modules.pop(key)
+
+
+@pytest.fixture
+def local_cache(context, tmp_path, monkeypatch, local_coverage_modules):
+    from hashlib import sha256
+    from types import SimpleNamespace
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import sessionmaker
+    from starlette.requests import Request
+
+    m = local_coverage_modules
+    monkeypatch.setenv("AUTH_MODE", "LOCAL_PASSWORD")
+    db = create_engine("sqlite:///" + str(tmp_path / "local-cache.sqlite"), connect_args={"check_same_thread": False})
+    selected = [m.models.LocalRole, m.models.LocalAccount, m.models.LocalCredential, m.models.SystemAuditEvent,
+                m.sessions.LocalIdentitySession, m.plans.PlanningPlan, m.resources.ResourceDatasetVersion]
+    m.database.Base.metadata.create_all(db, tables=[model.__table__ for model in selected])
+    factory = sessionmaker(bind=db, expire_on_commit=False)
+    clock = 2_000_000_000
+    system = m.system.SystemManagementService(session_factory=factory,
+        permission_registry=m.permissions.SERVER_PERMISSION_REGISTRY,
+        request_key=b"isolated-frozen-coverage-key-32-bytes", clock=lambda: clock)
+    adapter = m.identity.LocalIdentityAdapter(service=m.identity.LocalIdentityService(system_service=system,
+        settings=m.settings.LocalIdentitySettings(frozenset({"http://127.0.0.1:8811"}), allow_insecure_loopback=True)))
+    application = SimpleNamespace(state=SimpleNamespace(local_identity_adapter=adapter))
+    with factory.begin() as session:
+        for account, permissions in (("A", ["planning.view", "planning.execute", "planning.save"]),
+                                     ("B", ["planning.view", "situation.view"])):
+            session.add(m.models.LocalRole(id="ROLE-" + account, name="UNIT-" + account,
+                description="隔离测试角色", permissions=permissions))
+            session.flush()
+            session.add(m.models.LocalAccount(id="ACC-" + account, username="unit_" + account.lower(), name="UNIT-" + account,
+                department="UNIT", role_id="ROLE-" + account, enabled=True, identity_revision=1, last_login=None))
+            session.flush()
+            session.add(m.models.LocalCredential(account_id="ACC-" + account, password_hash="seeded-session-not-login",
+                must_change_password=False, revision=1, changed_at=clock))
+            session.add(m.sessions.LocalIdentitySession(token_hash=sha256(("unit-cookie-" + account).encode()).hexdigest(),
+                account_id="ACC-" + account, session_id="SID-" + account, generation="GEN-" + account,
+                identity_revision=1, csrf="unit-csrf-" + account, created_at=clock, last_seen=clock,
+                expires_at=clock + 20000, revoked=False))
+
+    def capture(account="A", method="POST"):
+        headers = {"cookie": m.identity.SESSION_COOKIE + "=unit-cookie-" + account,
+                   "origin": "http://127.0.0.1:8811", "x-session-id": "SID-" + account,
+                   "x-csrf-token": "unit-csrf-" + account}
+        request = Request({"type": "http", "app": application, "method": method, "scheme": "http",
+            "server": ("127.0.0.1", 8811), "client": ("127.0.0.1", 1), "path": "/api/v1/planning-coverages",
+            "query_string": b"", "headers": [(k.encode(), v.encode()) for k, v in headers.items()]})
+        return m.context.create_local_business_context(request, adapter=adapter)
+
+    tables = deepcopy(context.source["tables"])
+    for name, key in m.datasets.ID_FIELDS.items():
+        tables.setdefault(name, [{key: "X"}])
+    tables.update({"node.csv": [{"node_id": "N1"}], "device.csv": [{"device_id": "D1", "node_id": "N1", "model_id": "M1", "antenna_id": "A1"}],
+        "task_scenario.csv": [{"task_id": "T1"}], "comm_demand.csv": [{"demand_id": "C1", "task_id": "T1", "src_node_id": "N1", "dst_node_id": "N1"}]})
+    tables["device_model.csv"][0]["source"] = ""
+    snapshot = {"schema_version": 1, "tables": tables, "source_updated_at": "2026-10-24T00:00:00Z",
+                "source_files": {name: {"path": "data/unit/" + name, "sha256": "d" * 64} for name in m.datasets.ID_FIELDS}}
+    with factory.begin() as session:
+        session.add(m.resources.ResourceDatasetVersion(revision=context.source["resource_revision"], content_hash=m.datasets.content_hash(snapshot),
+            source=m.datasets.SOURCE, data_origin=m.datasets.ORIGIN, snapshot=snapshot, created_at=datetime.now(timezone.utc)))
+        for pid in ("P1", "P2"):
+            session.add(m.plans.PlanningPlan(plan_id=pid, request_id="SAVE-" + pid, request_digest="e" * 64, task_id="T1", job_id="J-" + pid,
+                revision_id="TV1", condition_version="TC1", resource_revision=context.source["resource_revision"], version_no=1 if pid == "P1" else 2,
+                name="UNIT", note="", state="CONFIRMED", input_snapshot={"name": "UNIT"}, result_snapshot={"snapshot_id": "SNP-PL-UNIT"},
+                raw_snapshot=context.source["raw_snapshot"], outcome_snapshot={}, source="SR4", saved_at=datetime.now(timezone.utc)))
+    owner = capture("A")
+    with factory.begin() as session:
+        ticket = owner.prepare(session, "planning.save")
+        owner.append_owner(session, ticket, operation="plan.save", request_id="SAVE-P1", object_id="P1",
+                           changes={"context": "planning", "task_id": "T1", "revision_id": "TV1"})
+    service = m.service.create_frozen_coverage_service(runtime_root=tmp_path / "local-coverage", session_factory=factory,
+        fingerprint_provider=lambda: FINGERPRINT, terrain_provider=context.scenario.factory, engine=synthetic_result)
+    try:
+        yield SimpleNamespace(m=m, factory=factory, service=service, capture=capture)
+    finally:
+        service.close()
+        db.dispose()
+
+
+def _local_cached_job(e):
+    e.service.start()
+    job, status = e.service.submit("P1", BODY, "ACC-A", audit_context=e.capture("A"))
+    assert status == 202
+    until = time.monotonic() + 8
+    while time.monotonic() < until:
+        if e.service._job(job["job_id"])["state"] not in module.ACTIVE:
+            break
+        time.sleep(0.01)
+    assert e.service._job(job["job_id"])["state"] == "SUCCESS"
+    return job
+
+
+def test_local_readonly_other_account_cache_hit_miss_and_job_actor_bound(local_cache):
+    e = local_cache
+    reader = e.capture("B", "GET")
+    assert "planning.save" not in reader.actor.permissions and "planning.execute" not in reader.actor.permissions
+    assert e.service.cache("P1", "T1", "SNP-PL-UNIT", SMALL, audit_context=reader)["state"] == "MISS"
+    job = _local_cached_job(e)
+    assert e.service.cache("P1", "T1", "SNP-PL-UNIT", SMALL, audit_context=reader)["state"] == "HIT"
+    assert e.service.cache("P1", "T1", "SNP-PL-UNIT", {**SMALL, "radius_m": 500}, audit_context=reader)["state"] == "MISS"
+    with pytest.raises(e.m.service.CoverageServiceError) as error:
+        e.service.get_job(job["job_id"], **{**QUERY, "actor_id": "ACC-B"}, audit_context=reader)
+    assert error.value.status == 403 and error.value.code == 1103
+
+
+def test_local_other_compute_and_legacy_without_save_proof_still_denied(local_cache):
+    e = local_cache
+    e.service.start()
+    # B补齐execute后再测，避免仅因只读权限不足掩盖owner proof断言。
+    with e.factory.begin() as session:
+        session.get(e.m.models.LocalRole, "ROLE-B").permissions = ["planning.view", "planning.execute", "situation.view"]
+    for account, pid in (("B", "P1"), ("A", "P2")):
+        with pytest.raises(e.m.errors.SystemManagementError, match="归属证明") as error:
+            e.service.submit(pid, {**BODY, "request_id": "DENIED-" + account}, "ACC-" + account, audit_context=e.capture(account))
+        assert error.value.code == 1104 and error.value.status == 403
+    assert not e.service._requests
+
+
+def test_local_readonly_cache_fresh_session_revocation_still_denied(local_cache):
+    e = local_cache
+    reader = e.capture("B", "GET")
+    assert e.service.cache("P1", "T1", "SNP-PL-UNIT", SMALL, audit_context=reader)["state"] == "MISS"
+    with e.factory.begin() as session:
+        session.get(e.m.sessions.LocalIdentitySession, reader._token_hash).revoked = True
+    with pytest.raises(e.m.errors.SystemManagementError) as error:
+        e.service.cache("P1", "T1", "SNP-PL-UNIT", SMALL, audit_context=reader)
+    assert error.value.code == 1102 and error.value.status == 401
+
+
+def test_public_status_is_readonly_and_reports_lifecycle_and_storage_fault(context, monkeypatch):
+    from types import SimpleNamespace
+
+    service = context.make(engine=synthetic_result)
+    assert service.status() == {"state": "disabled", "worker_alive": False, "stop_requested": False, "storage_fault": False}
+    assert not service.root.exists()
+    service.start()
+    assert service.status()["state"] == "running" and service.status()["worker_alive"] is True
+    with monkeypatch.context() as patch:
+        patch.setattr(service, "_storage_fault", module.CoverageServiceError("unit storage fault", 5002, 503))
+        patch.setattr(module, "_read", lambda *_: pytest.fail("status may not read cache"))
+        patch.setattr(module, "_atomic", lambda *_: pytest.fail("status may not write cache"))
+        assert service.status()["state"] == "failed" and service.status()["storage_fault"] is True
+    with monkeypatch.context() as patch:
+        patch.setattr(service, "_thread", SimpleNamespace(is_alive=lambda: False))
+        assert service.status()["state"] == "failed"
+    service.close()
+    assert service.status() == {"state": "disabled", "worker_alive": False, "stop_requested": True, "storage_fault": False}
