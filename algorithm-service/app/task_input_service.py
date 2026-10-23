@@ -5,7 +5,7 @@ import hashlib
 import json
 import uuid
 from datetime import datetime, timezone
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from pydantic import ValidationError
 from sqlalchemy import func, or_, select
@@ -16,9 +16,13 @@ from .database import get_session_factory
 from . import frontend_integration
 from . import resource_dataset_service
 from .planning_job_models import PlanningJob
+from .planning_operation_service import _append_owner, _business_context, _require_owner
 from .task_input_models import PlanningOperationReceipt, PlanningTask, PlanningTaskRevision
 from .task_input_schemas import (PlanningInput, TaskListQuery, TaskSaveRequest,
                                  TaskValidationRequest)
+
+if TYPE_CHECKING:
+    from .local_business_context import LocalBusinessContext
 
 
 class TaskInputError(Exception):
@@ -245,24 +249,30 @@ def validate_task_input(payload: TaskValidationRequest,
     return {"valid": not issues, "issues": issues, "task": saved}
 
 
-def _replay(session: Session, request_id: str, digest: str) -> dict[str, Any] | None:
+def _replay(session: Session, request_id: str, digest: str, audit_context=None) -> dict[str, Any] | None:
     receipt = session.get(PlanningOperationReceipt, request_id)
     if receipt is None:
         return None
     if receipt.request_digest != digest:
         raise TaskInputError(1204, "同一请求编号对应不同内容", 409)
     revision = session.get(PlanningTaskRevision, receipt.revision_id)
+    if audit_context is not None:
+        if revision is None or receipt.operation != "saveTask":
+            raise TaskInputError(1204, "任务回执类型或冻结版本不一致", 409)
+        _require_owner(session, audit_context, operation="task.save", request_id=request_id,
+            object_id=receipt.task_id, page_context=revision.context, task_id=receipt.task_id, revision_id=receipt.revision_id)
     return _dto(revision)
 
 
-def _save(session: Session, payload: TaskSaveRequest, digest: str) -> dict[str, Any]:
-    replay = _replay(session, payload.request_id, digest)
+def _save(session: Session, payload: TaskSaveRequest, digest: str, audit_context=None) -> dict[str, Any]:
+    prepared = audit_context.prepare(session, "planning.execute") if audit_context is not None else None
+    replay = _replay(session, payload.request_id, digest, audit_context)
     if replay is not None:
         return replay
     task = session.scalar(select(PlanningTask).where(
         PlanningTask.task_id == payload.task_id).with_for_update())
     # 等待同一任务的并发写入后，重新读取请求回执。
-    replay = _replay(session, payload.request_id, digest)
+    replay = _replay(session, payload.request_id, digest, audit_context)
     if replay is not None:
         return replay
     current_id = task.current_revision_id if task else None
@@ -307,30 +317,44 @@ def _save(session: Session, payload: TaskSaveRequest, digest: str) -> dict[str, 
         )
         session.add(revision)
         session.flush()
+    if audit_context is not None and revision.context != payload.context:
+        raise TaskInputError(1204, "任务冻结场景与保存请求不一致", 409)
     session.add(PlanningOperationReceipt(
         request_id=payload.request_id, request_digest=digest, operation="saveTask",
         task_id=payload.task_id, revision_id=revision.revision_id, state="SUCCEEDED",
         message="任务已保存", created_at=now,
     ))
     session.flush()
+    if audit_context is not None:
+        _append_owner(audit_context, session, prepared, operation="task.save", request_id=payload.request_id,
+            object_id=payload.task_id, page_context=revision.context, task_id=payload.task_id,
+            revision_id=revision.revision_id, changed=revision is not previous)
     return _dto(revision)
 
 
 def save_task_input(payload: TaskSaveRequest, path_task_id: str,
-                    factory: sessionmaker[Session] | None = None) -> dict[str, Any]:
+                    factory: sessionmaker[Session] | None = None, *,
+                    audit_context: LocalBusinessContext | None = None) -> dict[str, Any]:
+    owner = _business_context(audit_context)
     if path_task_id != payload.task_id:
         raise TaskInputError(1001, "路径任务编号与请求正文不一致", 422)
     digest = _request_digest(payload)
+    if owner is not None:
+        digest = owner.digest(digest, operation="task.save")
     factory = factory or get_session_factory()
     try:
         with factory() as session, session.begin():
-            return _save(session, payload, digest)
+            return _save(session, payload, digest, owner)
     except IntegrityError:
         # 并发创建可能先命中唯一约束；提交者完成后可按回执安全重放。
-        with factory() as session:
-            replay = _replay(session, payload.request_id, digest)
+        with factory() as session, session.begin():
+            if owner is not None:
+                owner.prepare(session, "planning.execute")
+            replay = _replay(session, payload.request_id, digest, owner)
             if replay is not None:
                 return replay
+            if owner is not None:
+                raise
             actual = session.get(PlanningTask, payload.task_id)
             raise TaskInputError(1203, "任务版本已变化，请重新打开后编辑", 409, {
                 "expected": payload.expected_revision,

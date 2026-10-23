@@ -572,7 +572,7 @@ const leaveGuard = useResourceLedgerLeaveGuard(() => [
     leave: leaveConfiguration },
   { dirty: () => spectrumDirty.value, busy: () => spectrumBusy.value,
     leave: () => spectrumPanel.value?.requestLeave() ?? true, clear: () => spectrumPanel.value?.clearForSession() },
-  { dirty: () => frequencyPendingOperation.value || !!frequencyStore.pending || !!frequencyStore.selectedIds.length || !!frequencyStore.preview,
+  { dirty: () => frequencyPendingOperation.value || !!frequencyStore.pending || !!frequencyStore.selectedIds.length || !!frequencyStore.preview || frequencyStore.editorDirty || !!frequencyStore.changesPreview,
     busy: () => frequencyBusy.value,
     leave: () => {
       if (frequencyStore.pending) { hostMessage.value = '请先核实频点原请求；停止读取不会撤销已提交保存。'; return false; }

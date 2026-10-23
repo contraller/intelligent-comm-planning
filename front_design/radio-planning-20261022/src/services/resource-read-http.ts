@@ -4,13 +4,15 @@ import { assertMapQuery, assertPageQuery, assertReadOptions, decodeMap, decodeMo
 import { createHttpClient } from './http-client';
 import { ApiError } from './types';
 
-interface Options { baseUrl: () => string; fetcher?: typeof fetch; origin?: () => string | undefined; timeoutMs?: number }
+interface Options { baseUrl: () => string; fetcher?: typeof fetch; origin?: () => string | undefined; timeoutMs?: number | (() => number) }
 const paths = { node: 'nodes', device: 'devices', interference: 'interference-sources' } as const;
 // 只读适配不复用全量 PreviewData；所有路径/传输差异集中在本文件。
 export function createResourceReadHttp(options: Options): ResourceReadServices {
   const fetcher = options.fetcher ?? ((input, init) => globalThis.fetch(input, init));
   async function get(path: string, params: Record<string, string | number | boolean | undefined>, input: ReadOptions): Promise<unknown> {
     assertReadOptions(input);
+    const timeout = typeof options.timeoutMs === 'function' ? options.timeoutMs() : options.timeoutMs ?? 15000;
+    if (!Number.isFinite(timeout) || timeout <= 0) throw new ApiError('资源读取超时设置无效', 'INVALID_REQUEST_TIMEOUT');
     const base = resolveAuthApiBaseUrl(options.baseUrl(), options.origin?.() ?? globalThis.location?.origin);
     const query = new URLSearchParams();
     for (const [key, value] of Object.entries({ context: input.context, ...params })) if (value !== undefined) query.set(key, String(value));
@@ -23,7 +25,7 @@ export function createResourceReadHttp(options: Options): ResourceReadServices {
           abort = () => { reject(new ApiError('资源读取已取消', 'REQUEST_ABORTED')); controller.abort(); };
           input.signal?.addEventListener('abort', abort, { once: true });
           if (input.signal?.aborted) abort();
-          timer = setTimeout(() => { reject(new ApiError('资源读取超时，请重试', 'REQUEST_TIMEOUT')); controller.abort(); }, options.timeoutMs ?? 15000);
+          timer = setTimeout(() => { reject(new ApiError('资源读取超时，请重试', 'REQUEST_TIMEOUT')); controller.abort(); }, timeout);
         }),
       ]);
     } catch (reason) {

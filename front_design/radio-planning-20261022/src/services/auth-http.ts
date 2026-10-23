@@ -9,7 +9,7 @@ interface AuthHttpOptions {
   baseUrl: () => string;
   fetcher?: typeof fetch;
   origin?: () => string | undefined;
-  timeoutMs?: number;
+  timeoutMs?: number | (() => number);
 }
 // 业务请求沿用当前页面的会话绑定；适配器只指定路径、数据和响应类型。
 export type AuthenticatedRequest = <T>(path: string, init?: RequestInit, responseType?: 'json' | 'blob') => Promise<T>;
@@ -47,6 +47,9 @@ export function createAuthHttp(options: AuthHttpOptions) {
 
   async function request(path: string, init?: RequestInit, responseType: 'json' | 'blob' = 'json'): Promise<unknown> {
     const baseUrl = resolveAuthApiBaseUrl(options.baseUrl(), origin());
+    // 每个请求冻结已验证的运行参数；后续修改不改变在途计时。
+    const timeout = typeof options.timeoutMs === 'function' ? options.timeoutMs() : options.timeoutMs ?? 15000;
+    if (!Number.isFinite(timeout) || timeout <= 0) throw new ApiError('请求超时设置无效', 'INVALID_REQUEST_TIMEOUT');
     const controller = new AbortController();
     let timer: ReturnType<typeof setTimeout> | undefined;
     let abort: () => void = () => {};
@@ -64,7 +67,7 @@ export function createAuthHttp(options: AuthHttpOptions) {
           timer = setTimeout(() => {
             reject(new ApiError('认证请求超时，请重新校验会话后再操作', 'REQUEST_TIMEOUT'));
             controller.abort();
-          }, options.timeoutMs ?? 15000);
+          }, timeout);
         }),
       ]);
     } catch (reason) {

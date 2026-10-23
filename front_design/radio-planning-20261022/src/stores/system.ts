@@ -13,6 +13,7 @@ import { ApiError } from '../services/types';
 import type { SystemResult } from '../types/system';
 import type { PasswordFields } from '../types/local-identity';
 import type { SystemOptions, SystemRoleSummary, OperationSummary, SystemAccountQuery, SystemRoleQuery, SystemParameterQuery, SystemLogQuery } from '../types/system';
+import { useRuntimeParametersStore } from './runtime-parameters';
 
 type AccountForm=Omit<SystemAccount,'id'|'enabled'> & {id:string|null};
 type RoleForm=Omit<SystemRole,'id'> & {id:string|null};
@@ -136,7 +137,10 @@ export const useSystemStore=defineStore('system',()=>{
     if(pendingMutation.value)throw new ApiError('请先核实上次操作回执','OPERATION_UNCERTAIN');
     const requestId=randomUuid(),actorId=auth.identity?.id??'';
     if(env.mode==='http')pendingMutation.value={requestId,action,actorId};
-    try{const result=await send(requestId);pendingMutation.value=null;return result;}
+    try{const result=await send(requestId);pendingMutation.value=null;
+      // 事务成功与参数刷新分离；刷新失败不把已提交写入伪报失败。
+      if(env.mode==='http'&&['PAR-01','PAR-02','parameters'].includes(result.objectId))void useRuntimeParametersStore().refresh().catch(()=>{});
+      return result;}
     catch(e){
       const uncertain=e instanceof ApiError&&['NETWORK_ERROR','REQUEST_TIMEOUT','INVALID_RESPONSE','INVALID_ENVELOPE','INVALID_SYSTEM_RESPONSE','REQUEST_ABORTED'].includes(String(e.code));
       if(!uncertain)pendingMutation.value=null;

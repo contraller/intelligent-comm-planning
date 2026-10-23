@@ -7,7 +7,7 @@ import json
 import threading
 import uuid
 from datetime import datetime, timezone
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import func, or_, select
 from sqlalchemy.exc import IntegrityError
@@ -18,6 +18,7 @@ from openpyxl.cell.cell import ILLEGAL_CHARACTERS_RE
 from . import frontend_integration, planning_adjustment_service, planning_job_service
 from .database import get_session_factory
 from .planning_job_models import PlanningJob
+from .planning_operation_service import _append_owner, _business_context, _require_owner
 from .planning_plan_models import (
     PlanningCurrentPlan,
     PlanningPlan,
@@ -29,6 +30,9 @@ from .planning_plan_schemas import (
     PlanningPlanExportRequest,
     PlanningPlanSaveRequest,
 )
+
+if TYPE_CHECKING:
+    from .local_business_context import LocalBusinessContext
 
 
 class PlanningPlanError(ValueError):
@@ -104,7 +108,7 @@ def _plan_dto(session: Session, plan: PlanningPlan) -> dict[str, Any]:
 
 
 def _replay(session: Session, request_id: str,
-            digest: str) -> PlanningPlan | None:
+            digest: str, audit_context=None) -> PlanningPlan | None:
     plan = session.scalar(select(PlanningPlan).where(
         PlanningPlan.request_id == request_id
     ))
@@ -112,6 +116,9 @@ def _replay(session: Session, request_id: str,
         return None
     if plan.request_digest != digest:
         raise PlanningPlanError(1204, "同一请求编号对应不同内容", 409)
+    if audit_context is not None:
+        _require_owner(session, audit_context, operation="plan.save", request_id=request_id,
+            object_id=plan.plan_id, page_context="planning", task_id=plan.task_id, revision_id=plan.revision_id)
     return plan
 
 
@@ -142,12 +149,18 @@ def _job_result(payload: PlanningPlanSaveRequest,
 
 
 def save_planning_plan(payload: PlanningPlanSaveRequest,
-                       factory: sessionmaker[Session] | None = None
+                       factory: sessionmaker[Session] | None = None, *,
+                       audit_context: LocalBusinessContext | None = None
                        ) -> dict[str, Any]:
+    owner = _business_context(audit_context)
     factory = factory or get_session_factory()
     digest = _digest(payload)
-    with factory() as session:
-        replay = _replay(session, payload.request_id, digest)
+    if owner is not None:
+        digest = owner.digest(digest, operation="plan.save")
+    with factory() as session, session.begin():
+        if owner is not None:
+            owner.prepare(session, "planning.save")
+        replay = _replay(session, payload.request_id, digest, owner)
         if replay is not None:
             return _plan_dto(session, replay)
 
@@ -156,7 +169,8 @@ def save_planning_plan(payload: PlanningPlanSaveRequest,
     now = datetime.now(timezone.utc)
     try:
         with _SAVE_LOCK, factory() as session, session.begin():
-            replay = _replay(session, payload.request_id, digest)
+            prepared = owner.prepare(session, "planning.save") if owner is not None else None
+            replay = _replay(session, payload.request_id, digest, owner)
             if replay is not None:
                 return _plan_dto(session, replay)
             existing = session.scalar(select(PlanningPlan).where(
@@ -200,12 +214,19 @@ def save_planning_plan(payload: PlanningPlanSaveRequest,
             )
             session.add(plan)
             session.flush()
+            if owner is not None:
+                _append_owner(owner, session, prepared, operation="plan.save", request_id=payload.request_id,
+                    object_id=plan.plan_id, page_context="planning", task_id=plan.task_id, revision_id=plan.revision_id)
             return _plan_dto(session, plan)
     except IntegrityError:
-        with factory() as session:
-            replay = _replay(session, payload.request_id, digest)
+        with factory() as session, session.begin():
+            if owner is not None:
+                owner.prepare(session, "planning.save")
+            replay = _replay(session, payload.request_id, digest, owner)
             if replay is not None:
                 return _plan_dto(session, replay)
+            if owner is not None:
+                raise
             existing = session.scalar(select(PlanningPlan).where(
                 PlanningPlan.job_id == payload.job_id
             ))
@@ -422,7 +443,7 @@ def _confirmation_digest(plan_id: str,
 
 
 def _confirmation_replay(session: Session, request_id: str,
-                         digest: str) -> PlanningPlan | None:
+                         digest: str, audit_context=None) -> PlanningPlan | None:
     receipt = session.get(PlanningPlanConfirmation, request_id)
     if receipt is None:
         return None
@@ -431,18 +452,26 @@ def _confirmation_replay(session: Session, request_id: str,
     plan = session.get(PlanningPlan, receipt.plan_id)
     if plan is None:
         raise PlanningPlanError(5001, "确认记录引用的方案不存在", 500)
+    if audit_context is not None:
+        _require_owner(session, audit_context, operation="plan.confirm", request_id=request_id,
+            object_id=receipt.plan_id, page_context="planning", task_id=receipt.task_id, revision_id=receipt.revision_id)
     return plan
 
 
 def confirm_planning_plan(plan_id: str, payload: PlanningPlanConfirmRequest,
-                          factory: sessionmaker[Session] | None = None
+                          factory: sessionmaker[Session] | None = None, *,
+                          audit_context: LocalBusinessContext | None = None
                           ) -> dict[str, Any]:
     """确认达标且来源未变化的方案，并切换任务的当前方案指针。"""
+    owner = _business_context(audit_context)
     factory = factory or get_session_factory()
     digest = _confirmation_digest(plan_id, payload)
+    if owner is not None:
+        digest = owner.digest(digest, operation="plan.confirm")
     try:
         with _CONFIRM_LOCK, factory() as session, session.begin():
-            replay = _confirmation_replay(session, payload.request_id, digest)
+            prepared = owner.prepare(session, "planning.confirm") if owner is not None else None
+            replay = _confirmation_replay(session, payload.request_id, digest, owner)
             if replay is not None:
                 return _plan_dto(session, replay)
             plan = session.get(PlanningPlan, plan_id)
@@ -478,6 +507,10 @@ def confirm_planning_plan(plan_id: str, payload: PlanningPlanConfirmRequest,
                     created_at=datetime.now(timezone.utc),
                 ))
                 session.flush()
+                if owner is not None:
+                    _append_owner(owner, session, prepared, operation="plan.confirm", request_id=payload.request_id,
+                        object_id=plan.plan_id, page_context="planning", task_id=plan.task_id,
+                        revision_id=plan.revision_id, changed=False)
                 return _plan_dto(session, plan)
             if plan.state != "SAVED":
                 raise PlanningPlanError(1001, "方案状态不允许确认", 409)
@@ -502,10 +535,15 @@ def confirm_planning_plan(plan_id: str, payload: PlanningPlanConfirmRequest,
                 created_at=now,
             ))
             session.flush()
+            if owner is not None:
+                _append_owner(owner, session, prepared, operation="plan.confirm", request_id=payload.request_id,
+                    object_id=plan.plan_id, page_context="planning", task_id=plan.task_id, revision_id=plan.revision_id)
             return _plan_dto(session, plan)
     except IntegrityError:
-        with factory() as session:
-            replay = _confirmation_replay(session, payload.request_id, digest)
+        with factory() as session, session.begin():
+            if owner is not None:
+                owner.prepare(session, "planning.confirm")
+            replay = _confirmation_replay(session, payload.request_id, digest, owner)
             if replay is not None:
                 return _plan_dto(session, replay)
         raise

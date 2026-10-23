@@ -83,8 +83,11 @@
       /><RouterView v-else-if="store.data" />
     </main>
     <footer class="app-footer">
-      <span><i class="pi pi-database" />资源与业务结果以各自版本及采集时间为准</span
-      ><span>WGS84 / EPSG:4326 <b>·</b> 资源编辑与规划方案管理</span>
+      <span><i class="pi pi-database" />资源与业务结果以各自版本及采集时间为准
+        <template v-if="runtime.error && !auth.blocked"> · 运行参数未就绪
+          <button class="text-link" title="重新读取运行参数" aria-label="重新读取运行参数" :disabled="runtime.loading" @click="runtime.refresh().catch(() => {})"><i class="pi pi-refresh" /></button>
+        </template>
+      </span><span>WGS84 / EPSG:4326 <b>·</b> 资源编辑与规划方案管理</span>
     </footer>
     <ResourceEditDrawer
       v-if="
@@ -101,7 +104,7 @@
   </div>
 </template>
 <script setup lang="ts">
-import { computed, provide, ref, watch } from 'vue';
+import { computed, onUnmounted, provide, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useAuthStore } from '../stores/auth';
 import { routePermissions } from '../config/permissions';
@@ -121,12 +124,29 @@ import { previewService } from '../services';
 import IntegrationIdentitySwitcher from '../components/IntegrationIdentitySwitcher.vue';
 import { randomUuid } from '../services/random-uuid';
 import { ApiError } from '../services/types';
+import { useRuntimeParametersStore } from '../stores/runtime-parameters';
+import { applyHttpRuntimeParameters, collaborationHttp } from '../services/http';
 const route = useRoute(),
   router = useRouter(),
   auth = useAuthStore();
 const visibleNavigation = computed(() =>
   navigation.filter((n) => auth.can(routePermissions[n.path])),
 );
+const runtime = useRuntimeParametersStore();
+const runtimeSession = () => env.mode === 'http' && auth.identity && !auth.transition && !auth.blocked
+  ? JSON.stringify([auth.generation, auth.identity.id, auth.identity.sessionId, auth.identity.revision]) : null;
+if (env.mode === 'http') {
+  runtime.bind(collaborationHttp.runtimeParameters, runtimeSession);
+  watch(runtimeSession, key => {
+    applyHttpRuntimeParameters(null);
+    if (key) void runtime.refresh().catch(() => { /* 参数错误由独立状态保留，不卸载业务页面。 */ });
+  }, { immediate: true, flush: 'sync' });
+  watch(() => runtime.snapshot, value => {
+    applyHttpRuntimeParameters(value);
+    if (value) runtime.reportApplied('http.request-timeout', value.epoch, value.revision);
+  }, { immediate: true, flush: 'sync' });
+}
+onUnmounted(() => { runtime.unbind(); applyHttpRuntimeParameters(null); });
 const resourceRead = useResourceReadStore();
 const ledger = useResourceLedgerEditStore();
 const httpResource = computed(

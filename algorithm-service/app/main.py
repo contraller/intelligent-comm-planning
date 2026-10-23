@@ -46,6 +46,7 @@ from . import gis_frontend_service
 from . import integration_identity_service as integration_identity
 from .application_identity import install_local_identity
 from .local_frontend_boundary import authorize_local_request
+from .system_management_schemas import SystemManagementError
 from . import fault_frontend_service, kg_frontend_service
 from .fault_frontend_schemas import FaultDraft, FaultMutation, FaultPage
 from .kg_frontend_schemas import KnowledgeMutation, KnowledgePage
@@ -151,6 +152,19 @@ def _frontend_device_actor(request, permission, *, writing=False):
     return {**actor, "authentication_mode": "LOCAL_PASSWORD"}
 
 
+def _planning_business_kwargs(request, *, job=False):
+    adapter = getattr(request.app.state, "local_identity_adapter", None)
+    local = getattr(request.app.state, "auth_mode", None) == "LOCAL_PASSWORD" or os.environ.get("AUTH_MODE") == "LOCAL_PASSWORD"
+    if not local:
+        return {}
+    if adapter is None:
+        raise SystemManagementError("正式规划身份未装配", 5001, 503)
+    from .local_business_context import create_local_business_context
+    context = create_local_business_context(request, adapter=adapter)
+    # 上下文只传业务事务，不进入请求DTO、持久化快照或算法线程。
+    return {"audit_context": context, **({"local_owner": True, "actor_id": context.actor.account_id} if job else {})}
+
+
 app.include_router(resource_export_router)
 app.include_router(resource_import_router)
 app.include_router(resource_workspace_router)
@@ -206,6 +220,11 @@ async def resource_dataset_boundary(request: Request, call_next):
 @app.exception_handler(resource_dataset.ResourceDatasetError)
 async def resource_dataset_error(request: Request, exc):
     return JSONResponse(status_code=exc.status, content={"code": exc.code, "message": str(exc), "data": None})
+
+
+@app.exception_handler(SystemManagementError)
+async def local_business_error(request: Request, exc):
+    return JSONResponse(status_code=exc.status, content={"code": exc.code, "message": str(exc), "data": exc.data})
 
 
 @app.middleware("http")
@@ -467,11 +486,11 @@ def database_health(response: Response) -> dict[str, Any]:
 
 @app.put("/api/v1/task-inputs/{task_id}")
 def save_planning_task_input(task_id: str, payload: dict[str, Any],
-                             response: Response) -> dict[str, Any]:
+                             response: Response, http_request: Request) -> dict[str, Any]:
     """保存规划任务输入，并返回数据库中的不可变版本。"""
     try:
         request = TaskSaveRequest.model_validate(payload)
-        data = save_task_input(request, task_id)
+        data = save_task_input(request, task_id, **_planning_business_kwargs(http_request))
         return {"code": 0, "message": "success", "data": data}
     except ValidationError as exc:
         response.status_code = 422
@@ -567,7 +586,7 @@ def get_planning_task_input(task_id: str, response: Response,
 
 
 @app.get("/api/v1/planning-operations/{request_id}")
-def planning_operation_receipt(request_id: str, response: Response,
+def planning_operation_receipt(request_id: str, response: Response, http_request: Request,
                                context: str | None = None,
                                task_id: str | None = None,
                                kind: str | None = None) -> dict[str, Any]:
@@ -577,7 +596,7 @@ def planning_operation_receipt(request_id: str, response: Response,
             "request_id": request_id, "context": context,
             "task_id": task_id, "kind": kind,
         })
-        data = planning_operation_service.query_operation(query)
+        data = planning_operation_service.query_operation(query, **_planning_business_kwargs(http_request))
         return {"code": 0, "message": "success", "data": data}
     except ValidationError as exc:
         response.status_code = 422
@@ -728,11 +747,11 @@ def plan_task_status(job_id: str, response: Response,
 
 @app.delete("/api/v1/tasks/{job_id}")
 def cancel_plan_task(job_id: str, payload: dict[str, Any],
-                     response: Response) -> dict[str, Any]:
+                     response: Response, http_request: Request) -> dict[str, Any]:
     """取消版本化 SR4 作业，返回前端可直接读取的完整作业。"""
     try:
         request = PlanningJobCancelRequest.model_validate(payload)
-        return planning_job_service.cancel_planning_job(job_id, request)
+        return planning_job_service.cancel_planning_job(job_id, request, **_planning_business_kwargs(http_request, job=True))
     except ValidationError as exc:
         response.status_code = 422
         issues = [{"objectId": str(payload.get("task_id") or job_id),
@@ -936,7 +955,7 @@ def interference_adopt(payload: dict[str, Any]) -> dict[str, Any]:
 
 
 @app.post("/api/v1/plan/sr4-flow")
-def plan_sr4_flow(payload: dict[str, Any], response: Response) -> dict[str, Any]:
+def plan_sr4_flow(payload: dict[str, Any], response: Response, http_request: Request) -> dict[str, Any]:
     """SR-4 全流程：部署 → 路由 → 频率/功率 → 优化 → 闭环重做 → 干扰分析。"""
     # 兼容旧调用方的枚举错误反馈；正式提交参数由下方版本化模型校验。
     if "preset" in payload and payload["preset"] not in {
@@ -947,7 +966,7 @@ def plan_sr4_flow(payload: dict[str, Any], response: Response) -> dict[str, Any]
         return {"code": 1003, "message": "strategy 取值非法", "data": None}
     try:
         request = PlanningJobSubmitRequest.model_validate(payload)
-        data = planning_job_service.submit_planning_job(request)
+        data = planning_job_service.submit_planning_job(request, **_planning_business_kwargs(http_request, job=True))
         response.status_code = 202
         return {"code": 0, "message": "计算任务已提交", "data": data,
                 "request_id": request.request_id}
@@ -1005,11 +1024,11 @@ def sr4_integration_run(payload: dict[str, Any]) -> dict[str, Any]:
 
 
 @app.post("/api/v1/plans")
-def plans_save(payload: dict[str, Any], response: Response) -> dict[str, Any]:
+def plans_save(payload: dict[str, Any], response: Response, http_request: Request) -> dict[str, Any]:
     """保存版本化 SR4 作业结果，供方案列表和后续确认使用。"""
     try:
         request = PlanningPlanSaveRequest.model_validate(payload)
-        data = planning_plan_service.save_planning_plan(request)
+        data = planning_plan_service.save_planning_plan(request, **_planning_business_kwargs(http_request))
         return {"code": 0, "message": "方案版本已保存", "data": data,
                 "request_id": request.request_id}
     except ValidationError as exc:
@@ -1140,13 +1159,13 @@ def plans_compare(payload: dict[str, Any], response: Response) -> dict[str, Any]
 
 
 @app.post("/api/v1/plans/{solution_id}/confirm")
-def plans_confirm(solution_id: str, response: Response,
+def plans_confirm(solution_id: str, response: Response, http_request: Request,
                   payload: dict[str, Any] | None = None) -> dict[str, Any]:
     if payload is None:
         return confirm_plan(solution_id)
     try:
         request = PlanningPlanConfirmRequest.model_validate(payload)
-        data = planning_plan_service.confirm_planning_plan(solution_id, request)
+        data = planning_plan_service.confirm_planning_plan(solution_id, request, **_planning_business_kwargs(http_request))
         return {"code": 0, "message": "方案已确认", "data": data,
                 "request_id": request.request_id}
     except ValidationError as exc:

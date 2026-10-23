@@ -23,10 +23,17 @@ import { createInterferenceWorkbenchHttp } from './interference-workbench-http';
 import { createSystemManagementHttp } from './system-http';
 import { createLocalIdentityHttp } from './local-identity-http';
 import { createResourceResetHttp } from './resource-reset-http';
+import { createRuntimeParametersHttp, decodeRuntimeParameters } from './runtime-parameters-http';
 
 // 保留既有导出路径；认证、传输与页面会话分别维护，不在入口堆叠实现。
 export { createHttpClient } from './http-client';
-const authentication = createAuthHttp({ baseUrl: () => env.apiBaseUrl });
+let requestTimeoutMs = 15000;
+export function applyHttpRuntimeParameters(value: unknown | null) {
+  // 身份变化或读取失败时恢复安全默认；不把浏览器输入直接当系统参数。
+  requestTimeoutMs = value === null ? 15000 : decodeRuntimeParameters(value).values['PAR-02'] * 1000;
+}
+const timeoutMs = () => requestTimeoutMs;
+const authentication = createAuthHttp({ baseUrl: () => env.apiBaseUrl, timeoutMs });
 const resourceWorkspace = createResourceWorkspaceHttp(authentication.authenticatedRequest);
 const resourceMaintenance = createResourceMaintenanceHttp(authentication.authenticatedRequest);
 export const releaseHttpSessionBinding = () => authentication.releaseSessionBinding();
@@ -35,6 +42,7 @@ export const switchIntegrationIdentity = (accountId: string) => authentication.s
 
 // 新模块使用独立 DTO，先共享真实会话，不伪装为旧页面尚未接入的服务。
 export const collaborationHttp = Object.freeze({
+  runtimeParameters: createRuntimeParametersHttp(authentication.authenticatedRequest),
   gisPlans: createGisPlanHttp(authentication.authenticatedRequest),
   interferenceScenes: createInterferenceSceneHttp(authentication.authenticatedRequest),
   frequencies: createFrequencyResourceHttp(authentication.authenticatedRequest),
@@ -43,7 +51,7 @@ export const collaborationHttp = Object.freeze({
   deviceTraces: createDeviceTraceHttp(authentication.authenticatedRequest),
   spectrumSources: createSpectrumSourceHttp(authentication.authenticatedRequest),
   interferenceWorkbench: createInterferenceWorkbenchHttp(authentication.authenticatedRequest),
-  observations: createObservationHttp({ baseUrl: () => env.apiBaseUrl, authenticatedRequest: authentication.authenticatedRequest }),
+  observations: createObservationHttp({ baseUrl: () => env.apiBaseUrl, timeoutMs, authenticatedRequest: authentication.authenticatedRequest }),
 });
 
 export const httpService: PreviewService = {
@@ -107,7 +115,7 @@ export const httpService: PreviewService = {
   ...createTaskHttp(authentication.authenticatedRequest),
   ...createPlanningHttp(authentication.authenticatedRequest, () => env.apiBaseUrl),
   // 分页读取与全量编辑契约隔离；未接入的写操作继续明确拒绝。
-  ...createResourceReadHttp({ baseUrl: () => env.apiBaseUrl }),
+  ...createResourceReadHttp({ baseUrl: () => env.apiBaseUrl, timeoutMs }),
   // 观测 DTO、版本关系及采集协议尚待甲方确认，不猜测实际端点。
   async loadMonitoringContext() { throw new ApiError('HTTP 态势观测适配尚未接入', 'NOT_IMPLEMENTED'); },
   async getMonitoringFrame() { throw new ApiError('HTTP 态势观测适配尚未接入', 'NOT_IMPLEMENTED'); },
