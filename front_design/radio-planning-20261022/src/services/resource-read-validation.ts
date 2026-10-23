@@ -52,6 +52,7 @@ function assertFilter(input: ResourcePageQuery | ResourceMapQuery) {
   if (input.relayCapable !== undefined) bool(input.relayCapable, 'relayCapable');
   if (input.statusMode !== undefined) choice(input.statusMode, ['baseline', 'observed'], 'statusMode');
   if (input.statusMode === 'observed' && !input.observationSnapshotId) fail('observationSnapshotId');
+  if (input.statusMode !== 'observed' && input.observationSnapshotId) fail('baseline observationSnapshotId');
   if (input.frequency !== undefined) {
     const f = readRecord(input.frequency, 'frequency');
     choice(f.mode, ['ALL', 'MODEL', 'DEVICE'], 'frequency.mode'); choice(f.presence, ['ALL', 'PRESENT', 'MISSING'], 'frequency.presence');
@@ -129,11 +130,33 @@ export function decodeObject(kind: ResourceObjectKind, value: unknown): ReadObje
     antennaGainDbi: nullableNumber(v.antenna_gain_dbi, 'antenna_gain_dbi'), interferenceType: readText(v.interference_type, 'interference_type'), patternType: textOrEmpty(v.pattern_type, 'pattern_type') || null,
     azimuthDeg: nullableNumber(v.azimuth_deg, 'azimuth_deg'), dutyCycle: nullableNumber(v.duty_cycle, 'duty_cycle'), active: bool(v.active, 'active') } satisfies ReadInterference;
 }
+// 观测结果必须绑定原请求的不可变快照；缺报保持未知，不回退资源基线。
+export function decodeObservedDevice(object: ReadDevice, raw: unknown, envelope: unknown, snapshotId: string, revision: string): ReadDevice {
+  const data = readRecord(envelope), metadata = readRecord(data.observation, 'observation'), item = readRecord(raw);
+  if (data.status_mode !== 'observed' || data.observation_snapshot_id !== snapshotId
+    || metadata.snapshot_id !== snapshotId || metadata.resource_revision !== revision
+    || metadata.data_origin !== 'SYNTHETIC_INTEGRATION') fail('observation binding');
+  const snapshotRevision = readText(metadata.snapshot_revision, 'observation.snapshot_revision');
+  if (!/^device-status-[0-9a-f]{64}$/.test(snapshotRevision)) fail('observation.snapshot_revision');
+  const sourceLabel = readText(metadata.source_label, 'observation.source_label');
+  const observedAt = item.observed_at == null ? undefined : readText(item.observed_at, 'observed_at');
+  if (observedAt && (!Number.isFinite(Date.parse(observedAt)) || !/(Z|[+-]\d{2}:\d{2})$/.test(observedAt))) fail('observed_at');
+  return { ...object, statusDisplay: { mode: 'observed', status: object.status, alert: object.alert,
+    sourceLabel, observedAt, retained: false, note: observedAt ? '构造联调状态，非设备实时上报' : '该快照未提供状态报告' } };
+}
 export function decodePage<T extends ReadObject>(kind: ResourceObjectKind, value: unknown, query: ResourcePageQuery): ResourcePage<T> {
   const v = readRecord(value), revision = requireRevision(v.revision, query.revision);
   // 既有 HTTP 草案仍用 page/page_size，只在边界映射一次。
   if (!Array.isArray(v.items) || v.items.length > query.pageSize || v.page !== query.pageNum || v.page_size !== query.pageSize) fail('page');
-  const items = (v.items as unknown[]).map(x => decodeObject(kind, x) as T), total = count(v.total, 'total');
+  const items = (v.items as unknown[]).map(x => {
+    const object = decodeObject(kind, x);
+    if (query.statusMode === 'observed') {
+      if (object.kind !== 'device' || !query.observationSnapshotId) fail('observed query kind');
+      return decodeObservedDevice(object as ReadDevice, x, v, query.observationSnapshotId!, revision) as T;
+    }
+    if (v.status_mode !== undefined && v.status_mode !== 'baseline' || v.observation_snapshot_id != null) fail('baseline response mode');
+    return object as T;
+  }), total = count(v.total, 'total');
   // 全库筛选由服务端执行；不能接纳未过滤的当前页再假报匹配总数。
   if (kind === 'device' && query.availability && items.some(row => row.kind !== 'device'
     || (row.availability ?? 'UNKNOWN') !== query.availability)) fail('availability filter result');

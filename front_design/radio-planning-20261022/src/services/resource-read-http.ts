@@ -1,6 +1,6 @@
 import { resolveAuthApiBaseUrl } from '../config/env';
 import type { ReadDevice, ReadInterference, ReadNode, ReadOptions, ResourcePageQuery, ResourceReadServices } from '../types/resource-read';
-import { assertMapQuery, assertPageQuery, assertReadOptions, decodeMap, decodeModel, decodeObject, decodePage, decodeWorkspace, readRecord, readText, requireRevision } from './resource-read-validation';
+import { assertMapQuery, assertPageQuery, assertReadOptions, decodeMap, decodeModel, decodeObject, decodeObservedDevice, decodePage, decodeWorkspace, readRecord, readText, requireRevision } from './resource-read-validation';
 import { createHttpClient } from './http-client';
 import { ApiError } from './types';
 
@@ -38,26 +38,33 @@ export function createResourceReadHttp(options: Options): ResourceReadServices {
       mapped.cause = reason; throw mapped;
     } finally { clearTimeout(timer); input.signal?.removeEventListener('abort', abort); }
   }
-  function params(input: ResourcePageQuery) {
+  function params(input: ResourcePageQuery, kind: 'node' | 'device' | 'interference') {
     assertPageQuery(input);
-    // 状态快照协议待接入时显式失败，不能忽略快照后返回基线结果。
-    if (input.statusMode === 'observed' || input.observationSnapshotId) throw new ApiError('观测快照查询尚未接入，已保留上次成功结果', 'NOT_IMPLEMENTED');
+    if (kind !== 'device' && (input.statusMode === 'observed' || input.observationSnapshotId))
+      throw new ApiError('节点与干扰源不支持设备观测快照聚合', 'INVALID_RESOURCE_QUERY');
     return { revision: input.revision, page: input.pageNum, page_size: input.pageSize, search: input.search, sort: input.sort, order: input.order,
       device_class: input.deviceClass, status: input.status, availability: input.availability, alert: input.alert, node_id: input.nodeId, parent_id: input.parentId === null ? '' : input.parentId, cluster_id: input.clusterId,
       mobility: input.mobility, node_role: input.nodeRole, relay_capable: input.relayCapable, frequency_mode: input.frequency?.mode,
-      frequency_presence: input.frequency?.presence, min_khz: input.frequency?.minKhz ?? undefined, max_khz: input.frequency?.maxKhz ?? undefined };
+      frequency_presence: input.frequency?.presence, min_khz: input.frequency?.minKhz ?? undefined, max_khz: input.frequency?.maxKhz ?? undefined,
+      status_mode: input.statusMode, observation_snapshot_id: input.observationSnapshotId };
   }
   return {
     async loadResourceReadContext(input) { return decodeWorkspace(await get('/resource/context', {}, input)); },
-    async queryResourceDevices(input) { return decodePage<ReadDevice>('device', await get('/resource/devices', params(input), input), input); },
-    async queryResourceNodes(input) { return decodePage<ReadNode>('node', await get('/resource/nodes', params(input), input), input); },
-    async queryResourceInterferences(input) { return decodePage<ReadInterference>('interference', await get('/resource/interference-sources', params(input), input), input); },
+    async queryResourceDevices(input) { return decodePage<ReadDevice>('device', await get('/resource/devices', params(input, 'device'), input), input); },
+    async queryResourceNodes(input) { return decodePage<ReadNode>('node', await get('/resource/nodes', params(input, 'node'), input), input); },
+    async queryResourceInterferences(input) { return decodePage<ReadInterference>('interference', await get('/resource/interference-sources', params(input, 'interference'), input), input); },
     async getResourceObject(input) {
-      if(input.observationSnapshotId)throw new ApiError('详情观测快照协议尚待确认','NOT_IMPLEMENTED');
       assertReadOptions(input, true); readText(input.id, 'id');
       if (!Object.hasOwn(paths, input.kind)) throw new ApiError('不支持的资源类型', 'INVALID_RESOURCE_QUERY');
-      const data = readRecord(await get(`/resource/${paths[input.kind]}/${encodeURIComponent(input.id)}`, { revision: input.revision }, input));
-      const revision = requireRevision(data.revision, input.revision), object = decodeObject(input.kind, data.item);
+      if (input.observationSnapshotId && (input.kind !== 'device' || input.context === 'planning'))
+        throw new ApiError('该对象不支持设备观测快照', 'INVALID_RESOURCE_QUERY');
+      if (input.observationSnapshotId) readText(input.observationSnapshotId, 'observationSnapshotId');
+      const data = readRecord(await get(`/resource/${paths[input.kind]}/${encodeURIComponent(input.id)}`, { revision: input.revision,
+        ...(input.observationSnapshotId ? { status_mode: 'observed', observation_snapshot_id: input.observationSnapshotId } : {}) }, input));
+      const revision = requireRevision(data.revision, input.revision);
+      let object = decodeObject(input.kind, data.item);
+      if (input.observationSnapshotId && object.kind === 'device')
+        object = decodeObservedDevice(object, data.item, data, input.observationSnapshotId, revision);
       if (object.id !== input.id) throw new ApiError('详情 ID 与请求不一致', 'INVALID_RESOURCE_RESPONSE');
       if (object.kind !== 'device') return { revision, object, model: null, antenna: null };
       // 所属节点、型号和天线按 ID 与同一版本读取，不拉取整库补分页关联。
@@ -81,12 +88,14 @@ export function createResourceReadHttp(options: Options): ResourceReadServices {
     },
     async queryResourceMap(input) {
       assertMapQuery(input);
-      // 未对齐的空间筛选不能被适配器静默丢弃。
-      if(input.frequency||input.availability||input.statusMode==='observed'||input.observationSnapshotId)
-        throw new ApiError('空间查询的频率、上下架及观测筛选协议尚待确认', 'NOT_IMPLEMENTED');
+      // 仅设备明细支持观测投影；空间图层不猜测节点聚合状态。
+      if(input.statusMode==='observed'||input.observationSnapshotId)
+        throw new ApiError('空间图层不支持设备观测快照聚合', 'INVALID_RESOURCE_QUERY');
       return decodeMap(await get('/resource/map', { revision: input.revision, bbox: input.bbox.join(','), zoom: input.zoom,
         show_nodes: input.showNodes, show_interferences: input.showInterferences, search: input.search, device_class: input.deviceClass, status: input.status, alert: input.alert,
-        mobility: input.mobility, node_role: input.nodeRole, relay_capable: input.relayCapable }, input), input);
+        mobility: input.mobility, node_role: input.nodeRole, relay_capable: input.relayCapable, availability: input.availability,
+        frequency_mode: input.frequency?.mode, frequency_presence: input.frequency?.presence,
+        min_khz: input.frequency?.minKhz ?? undefined, max_khz: input.frequency?.maxKhz ?? undefined }, input), input);
     },
   };
 }

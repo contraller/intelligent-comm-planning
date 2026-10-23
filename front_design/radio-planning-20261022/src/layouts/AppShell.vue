@@ -52,6 +52,7 @@
       role="alert"
       >{{ resetError || auth.notice }}</div
     >
+    <div v-if="resetNotice" class="reset-notice" role="status">{{ resetNotice }}</div>
     <main class="app-content">
       <RequestState
         v-if="!entered"
@@ -96,16 +97,6 @@
         (!['/resources', '/planning'].includes(route.path) && env.mode === 'mock' && store.data)
       "
     />
-    <DeviceConfigurationDrawer
-      v-if="
-        route.path === '/situation' ||
-        (!['/resources', '/planning'].includes(route.path) && env.mode === 'mock')
-      "
-    />
-    <DecisionDialog
-      :request="configuration.decision"
-      @answer="configuration.answer"
-    />
     <DecisionDialog />
   </div>
 </template>
@@ -125,10 +116,11 @@ import { useGisWorkspaceStore } from '../stores/gis-workspace';
 import { usePlanningStore } from '../stores/planning';
 import { useResourceReadStore } from '../stores/resource-read';
 import { useResourceLedgerEditStore } from '../stores/resource-ledger-edit';
-import DeviceConfigurationDrawer from '../components/DeviceConfigurationDrawer.vue';
-import { useDeviceConfigurationStore } from '../stores/device-configuration';
+import { useDeviceConfigurationAcceptanceStore } from '../stores/device-configuration-acceptance';
 import { previewService } from '../services';
 import IntegrationIdentitySwitcher from '../components/IntegrationIdentitySwitcher.vue';
+import { randomUuid } from '../services/random-uuid';
+import { ApiError } from '../services/types';
 const route = useRoute(),
   router = useRouter(),
   auth = useAuthStore();
@@ -157,7 +149,11 @@ const editor = useResourceEditStore();
 const planning = usePlanningStore(),
   gis = useGisWorkspaceStore();
 const resetError = ref('');
-const configuration = useDeviceConfigurationStore();
+const resetNotice = ref(''), resetBusy = ref(false);
+// 网络结果未核实时保留原请求号和原版本，重试不产生第二次恢复操作。
+let resetPending: { generation: number; input: { baseRevision: string; requestId: string } } | null = null;
+// 配置抽屉由所属业务页单点装配，布局只参与未核实请求的忙态保护。
+const configuration = useDeviceConfigurationAcceptanceStore();
 // 页面只迁移恢复入口，确认流程与忙碌保护仍由公共布局统一维护。
 const resourceResetDisabled = computed(
   () =>
@@ -166,6 +162,7 @@ const resourceResetDisabled = computed(
     !!auth.busy ||
     configuration.busy ||
     !!configuration.pending ||
+    resetBusy.value ||
     ledger.busy,
 );
 provide('resourceResetAction', { disabled: resourceResetDisabled, run: resetResources });
@@ -187,22 +184,23 @@ async function resetResources() {
     resourceResetDisabled.value
   )
     return;
-  const resourcePage = route.path === '/resources',
-    resourcePath = route.path,
+  const resourcePath = route.path,
     session = auth.generation;
   // handler 同样保护旧事件；最后确认重置后才放弃配置输入。
-  if (!(await configuration.leave(true))) return;
-  if (route.path !== resourcePath || (resourcePage && session !== auth.generation)) return;
+  if (!configuration.close()) return;
+  if (route.path !== resourcePath || session !== auth.generation) return;
   const choice = await editor.ask({
     title: '恢复初始资源',
     message:
-      '将清除新增资源、参数修改、上下架、导入回执、干扰源修改、候选链路新增与修改、未保存表单、GIS 草稿与撤销历史，恢复本批初始资源和 500 条候选来源参考。频谱配置和已保存任务独立保留；任务中的失效引用需手工修正，任务草稿保留待校验。后来生成的规划任务与方案保留为历史记录，配置需重新规划；不会清空规划工作区。已提交诊断继续使用冻结快照，并标记为历史记录。设备配置回执独立保留，旧来源记录不能再次提交。',
-    saveLabel: '确认重置资源',
+      resetPending?.generation === session
+        ? '上次恢复请求尚未核实，将使用原请求号查询或重试。不会另建一次恢复操作。'
+        : '将基于数据库初始资源快照生成新的当前资源版本，并放弃本地未保存的资源与 GIS 草稿。历史资源版本、导入及配置回执、已保存任务、规划方案和诊断记录全部保留，不删除原始文件。历史任务可能需要重新校验资源引用、重新规划。',
+    saveLabel: '确认恢复资源',
   });
   if (
     choice !== 'save' ||
     route.path !== resourcePath ||
-    (resourcePage && session !== auth.generation) ||
+    session !== auth.generation ||
     !auth.can('resources.reset') ||
     configuration.busy ||
     configuration.pending ||
@@ -210,25 +208,44 @@ async function resetResources() {
   )
     return;
   resetError.value = '';
+  resetNotice.value = '';
+  const baseRevision = resourceRead.workspace?.revision ?? gis.scene?.resourceMeta.revision ?? ledger.context?.baseRevision;
+  if (!resetPending || resetPending.generation !== session) {
+    if (!baseRevision) { resetError.value = '请先刷新资源，取得当前版本后再恢复。'; return; }
+    resetPending = { generation: session, input: { baseRevision, requestId: randomUuid() } };
+  }
+  const operation = resetPending;
+  resetBusy.value = true;
   try {
-    // 两次确认后仍绑定原入口，统一使用当前资源重置接口。
-    await previewService.resetResourceData({
-      baseRevision: gis.scene?.resourceMeta.revision ?? ledger.context?.baseRevision ?? null,
-    });
+    const receipt = await previewService.resetResourceData(operation.input);
     if (session !== auth.generation) return;
+    resetPending = null;
+    resetNotice.value = receipt.changed ? '已恢复初始资源并生成新版本，历史记录保留。' : '当前资源已是初始版本，无需变更。';
     store.invalidateResources();
-    await resourceRead.refresh();
-    if (resourcePage && session !== auth.generation) return;
-    configuration.clearForSession();
+    configuration.cancel();
+    configuration.visible = false;
     editor.clearSession();
     ledger.clearForSession();
     gis.clearHistory();
-    if (route.path === '/resources') await resourceRead.refresh();
+    // 写入已成功；后续读取失败不能把它误报成恢复失败。
+    try {
+      await resourceRead.refresh();
+      if (session === auth.generation && Object.keys(resourceRead.errors).length)
+        resetError.value = '恢复已成功，但刷新资源失败，请手动刷新。';
+    } catch {
+      if (session === auth.generation) resetError.value = '恢复已成功，但刷新资源失败，请手动刷新。';
+    }
   } catch (reason) {
-    if (resourcePage && session !== auth.generation) return;
-    resetError.value = reason instanceof Error ? reason.message : '重置失败，当前输入已保留';
+    if (session !== auth.generation) return;
+    const definitive = reason instanceof ApiError && (!!reason.status && reason.status >= 400 && reason.status < 500);
+    if (definitive) resetPending = null;
+    resetError.value = (reason instanceof Error ? reason.message : '恢复请求失败，当前输入已保留')
+      + (definitive ? '' : '；结果尚未核实，再次恢复将重试原请求。');
+  } finally {
+    resetBusy.value = false;
   }
 }
+watch(() => auth.generation, () => { resetPending = null; resetError.value = ''; resetNotice.value = ''; });
 const navigation = [
   { path: '/situation', title: 'GIS 态势', icon: 'pi-globe' },
   { path: '/resources', title: '资源管理', icon: 'pi-server' },
@@ -254,6 +271,12 @@ watch(
   padding: 10px 28px;
   color: #ffb4b4;
   background: #392333;
+  font-size: 12px;
+}
+.reset-notice {
+  padding: 10px 28px;
+  color: #a1e9d9;
+  background: #163d37;
   font-size: 12px;
 }
 .app-shell {

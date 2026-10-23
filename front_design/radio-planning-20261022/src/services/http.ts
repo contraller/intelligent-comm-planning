@@ -16,6 +16,13 @@ import { createInterferenceSceneHttp } from './interference-scene-http';
 import { createFrequencyResourceHttp } from './frequency-resource-http';
 import { createDeviceConfigurationHttp } from './device-configuration-http';
 import { createObservationHttp } from './observation-http';
+import { createDeviceStatusHttp } from './device-status-http';
+import { createDeviceTraceHttp } from './device-trace-http';
+import { createSpectrumSourceHttp } from './spectrum-source-http';
+import { createInterferenceWorkbenchHttp } from './interference-workbench-http';
+import { createSystemManagementHttp } from './system-http';
+import { createLocalIdentityHttp } from './local-identity-http';
+import { createResourceResetHttp } from './resource-reset-http';
 
 // 保留既有导出路径；认证、传输与页面会话分别维护，不在入口堆叠实现。
 export { createHttpClient } from './http-client';
@@ -32,16 +39,23 @@ export const collaborationHttp = Object.freeze({
   interferenceScenes: createInterferenceSceneHttp(authentication.authenticatedRequest),
   frequencies: createFrequencyResourceHttp(authentication.authenticatedRequest),
   deviceConfigurations: createDeviceConfigurationHttp(authentication.authenticatedRequest),
+  deviceStatuses: createDeviceStatusHttp(authentication.authenticatedRequest),
+  deviceTraces: createDeviceTraceHttp(authentication.authenticatedRequest),
+  spectrumSources: createSpectrumSourceHttp(authentication.authenticatedRequest),
+  interferenceWorkbench: createInterferenceWorkbenchHttp(authentication.authenticatedRequest),
   observations: createObservationHttp({ baseUrl: () => env.apiBaseUrl, authenticatedRequest: authentication.authenticatedRequest }),
 });
 
 export const httpService: PreviewService = {
   ...createDiagnosisHttp(authentication.authenticatedRequest),
   ...createKnowledgeHttp(authentication.authenticatedRequest),
+  ...createSystemManagementHttp(authentication.authenticatedRequest),
+  ...createLocalIdentityHttp(authentication.authenticatedRequest),
   ...createGisHttp(authentication.authenticatedRequest),
   ...resourceMaintenance,
   ...createResourceExportHttp(authentication.authenticatedRequest),
   ...createResourceImportHttp(authentication.authenticatedRequest),
+  ...createResourceResetHttp(authentication.authenticatedRequest),
   loadGisResourceEditContext: resourceWorkspace.loadGisResourceEditContext,
   commitResources: resourceWorkspace.commitResources,
   // 公共入口按操作分流，旧单设备工厂继续保持三参数窄契约。
@@ -60,15 +74,6 @@ export const httpService: PreviewService = {
   async getDeviceHistory() { throw new ApiError('HTTP 设备追溯尚未接入', 'NOT_IMPLEMENTED'); },
   async previewDeviceRestore() { throw new ApiError('HTTP 历史恢复预览尚未接入', 'NOT_IMPLEMENTED'); },
   async getGisCoverageCatalog() { throw new ApiError('HTTP 设备覆盖资料协议尚未接入', 'NOT_IMPLEMENTED'); },
-  async loadSystemOptions() { throw new ApiError('HTTP 系统分层读取协议尚未接入', 'NOT_IMPLEMENTED'); },
-  async queryAccountSummaries() { throw new ApiError('HTTP 系统分层读取协议尚未接入', 'NOT_IMPLEMENTED'); },
-  async queryRoleSummaries() { throw new ApiError('HTTP 系统分层读取协议尚未接入', 'NOT_IMPLEMENTED'); },
-  async queryParameterSummaries() { throw new ApiError('HTTP 系统分层读取协议尚未接入', 'NOT_IMPLEMENTED'); },
-  async queryOperationSummaries() { throw new ApiError('HTTP 系统分层读取协议尚未接入', 'NOT_IMPLEMENTED'); },
-  async getSystemAccount() { throw new ApiError('HTTP 系统分层读取协议尚未接入', 'NOT_IMPLEMENTED'); },
-  async getSystemRole() { throw new ApiError('HTTP 系统分层读取协议尚未接入', 'NOT_IMPLEMENTED'); },
-  async getSystemParameter() { throw new ApiError('HTTP 系统分层读取协议尚未接入', 'NOT_IMPLEMENTED'); },
-  async getOperationEvent() { throw new ApiError('HTTP 系统分层读取协议尚未接入', 'NOT_IMPLEMENTED'); },
   async queryDeviceConfigurationHistory() { throw new ApiError('HTTP 设备配置摘要及受理协议尚未接入', 'NOT_IMPLEMENTED'); },
   async submitDeviceConfigurationReceipt() { throw new ApiError('HTTP 设备配置摘要及受理协议尚未接入', 'NOT_IMPLEMENTED'); },
   async getDeviceConfigurationProgress() { throw new ApiError('HTTP 设备配置摘要及受理协议尚未接入', 'NOT_IMPLEMENTED'); },
@@ -89,7 +94,6 @@ export const httpService: PreviewService = {
   async cancelInterferenceReceipt() { throw new ApiError('HTTP 干扰读取及回执协议尚未接入', 'NOT_IMPLEMENTED'); },
   async adoptInterferenceReceipt() { throw new ApiError('HTTP 干扰读取及回执协议尚未接入', 'NOT_IMPLEMENTED'); },
   async getGisLinkDetails() { throw new ApiError('HTTP 链路详情协议尚未接入', 'NOT_IMPLEMENTED'); },
-  async resetResourceData() { throw new ApiError('HTTP 资源重置尚未接入', 'NOT_IMPLEMENTED'); },
   // 轻目录遵循统一契约；真实传输映射待确认，不猜地址或回退其他来源。
   // 正式配置协议未确认；占位不发真实控制请求，不回落教学成功。
   async loadDeviceConfigurationContext() { throw new ApiError('HTTP 设备配置协议尚未接入', 'NOT_IMPLEMENTED'); },
@@ -136,14 +140,6 @@ export const httpService: PreviewService = {
   logout: authentication.logout,
   getSession: authentication.getSession,
   async loadSystemCatalog() { throw new ApiError('HTTP 登录与系统管理适配尚未接入','NOT_IMPLEMENTED'); },
-  async querySystemAccounts() { throw new ApiError('HTTP 登录与系统管理适配尚未接入','NOT_IMPLEMENTED'); },
-  async saveSystemAccount() { throw new ApiError('HTTP 登录与系统管理适配尚未接入','NOT_IMPLEMENTED'); },
-  async setSystemAccountState() { throw new ApiError('HTTP 登录与系统管理适配尚未接入','NOT_IMPLEMENTED'); },
-  async querySystemRoles() { throw new ApiError('HTTP 登录与系统管理适配尚未接入','NOT_IMPLEMENTED'); },
-  async saveSystemRole() { throw new ApiError('HTTP 登录与系统管理适配尚未接入','NOT_IMPLEMENTED'); },
-  async querySystemParameters() { throw new ApiError('HTTP 登录与系统管理适配尚未接入','NOT_IMPLEMENTED'); },
-  async saveSystemParameter() { throw new ApiError('HTTP 登录与系统管理适配尚未接入','NOT_IMPLEMENTED'); },
-  async queryOperationLogs() { throw new ApiError('HTTP 登录与系统管理适配尚未接入','NOT_IMPLEMENTED'); },
   async resetSystemWorkspace() { throw new ApiError('HTTP 登录与系统管理适配尚未接入','NOT_IMPLEMENTED'); },
   async recoverSystemWorkspace() { throw new ApiError('HTTP 登录与系统管理适配尚未接入','NOT_IMPLEMENTED'); },
   async resetOperationLogs() { throw new ApiError('HTTP 登录与系统管理适配尚未接入','NOT_IMPLEMENTED'); },

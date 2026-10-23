@@ -79,7 +79,21 @@ def _summary(row):
             "time": _time(row.created_at), "summary": row.note, "changeId": meta.get("changeId")}
 
 
-def metadata():
+def _actors(identities, identity=None):
+    if identity is None or identity.get("integration_mode") is True:
+        return [{"id": key, "name": row[0], "role": row[1]}
+                for key, row in CATALOG.items() if row[1] != "PLANNER"]
+    # 本地目录只投影可信当前身份和冻结署名，不暴露账号管理目录或伪造联调身份。
+    actors = {row["id"]: {key: row[key] for key in ("id", "name", "role")}
+              for row in identities if row.get("role") in ("EDITOR", "REVIEWER")}
+    permissions = identity["permissions"]
+    if "knowledge.edit" in permissions or "knowledge.review" in permissions:
+        current = identity_snapshot(identity)
+        actors[current["id"]] = {key: current[key] for key in ("id", "name", "role")}
+    return [actors[key] for key in sorted(actors)]
+
+
+def metadata(*, identity=None):
     state = workflow.workspace(kg.STORE_PATH)
     vid = f"KGV-{state['current_version']}"
     snap = snapshot(vid)
@@ -97,7 +111,7 @@ def metadata():
         summary = _summary(current)
     return {"workspace": {"revision": f"KG-{state['revision']}", "currentVersionId": vid, "current": summary,
                 "counts": {c: sum(e["category"] == c for e in snap["entities"]) for c in CATEGORIES.values()}, "identitySnapshots": identities},
-            "actors": [{"id": key, "name": row[0], "role": row[1]} for key, row in CATALOG.items() if row[1] != "PLANNER"],
+            "actors": _actors(identities, identity),
             "types": [{"id": t, "name": t, "category": "设备知识" if t in DEVICE_TYPES else "网络态势知识" if t in NETWORK_TYPES else "故障运维知识"} for t in sorted(ENTITY_TYPES)],
             "relationTypes": [{"id": r, "name": r} for r in sorted(RELATIONS)],
             "models": [{"id": e["name"], "name": e["name"]} for e in snap["entities"] if e["type"] == "DeviceModel"],

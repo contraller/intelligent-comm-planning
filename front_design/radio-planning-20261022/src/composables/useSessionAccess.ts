@@ -1,5 +1,5 @@
 import { useMonitoringStore } from '../stores/monitoring';
-import { useDeviceConfigurationStore } from '../stores/device-configuration';
+import { useDeviceConfigurationAcceptanceStore } from '../stores/device-configuration-acceptance';
 import { useResourceReadStore } from '../stores/resource-read';
 import { useResourceLedgerEditStore } from '../stores/resource-ledger-edit';
 import { useTaskInputStore } from '../stores/task-input';
@@ -21,11 +21,11 @@ export function useSessionAccess(){
   const gis=useGisWorkspaceStore(),interference=useInterferenceStore(),monitoring=useMonitoringStore();
   const resourceRead=useResourceReadStore();
   const ledger=useResourceLedgerEditStore();
-  const configuration=useDeviceConfigurationStore();
+  const configuration=useDeviceConfigurationAcceptanceStore();
   const taskInput=useTaskInputStore(),planningApi=usePlanningApiStore();
   const release=auth.registerCleaner(()=>{
     // 只清内存，独立回执和待核实请求可在下次进入时恢复。
-    configuration.clearForSession();
+    configuration.cancel(); configuration.visible=false;
     resourceRead.clearForSession();
     ledger.clearForSession();
     planningApi.clearForSession();taskInput.clearForSession();
@@ -35,7 +35,7 @@ export function useSessionAccess(){
   const storage=(event:StorageEvent)=>{if(!event.key||[SYSTEM_STORAGE_KEY,SESSION_STORAGE_KEY].includes(event.key))check();};
   // 失效只停止异步工作，保留本地抽屉和未保存输入，待用户明确处理。
   watch(()=>auth.generation,()=>{
-    configuration.stop();
+    configuration.cancel();
     ledger.stop();
     // 只停止读取；明确退出/丢弃时才清除已显示的资源现场。
     if(!resourceRead.readable)resourceRead.stop();

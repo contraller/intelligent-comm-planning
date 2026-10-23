@@ -12,6 +12,10 @@ export function subscribeAccess(fn:(n:AccessNotice)=>void){listeners.add(fn);ret
 const emit=(n:AccessNotice)=>listeners.forEach(fn=>fn(n));
 const publicMethods=['getLoginCatalog','login','logout','getSession','recoverSystemWorkspace'] as const;
 export const operationActions:Record<string,string> = {
+  changeOwnPassword:'维护本人密码',
+  maintainSystemAccountPassword:'维护账号密码',
+  resetSystemParameters:'恢复系统参数新版本',
+  archiveSystemLogs:'归档日志视图',
   saveKnowledgeReceipt:'保存知识草稿',
   submitKnowledgeReceipt:'知识送审',
   withdrawKnowledgeReceipt:'撤回知识',

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import hashlib
+import os
 import secrets
 import time
 
@@ -16,7 +17,7 @@ READ = ["planning.view", "resources.view", "situation.view", "diagnosis.view", "
 CATALOG = {
     "integration-planner": ("联调规划员", "PLANNER", baseline.session_identity()["permissions"]),
     # 频点停用使用专项权限，不开放整库编辑。
-    "integration-editor": ("联调编辑者", "EDITOR", READ + ["resources.device.edit", "resources.device.availability", "resources.frequency.disable", "resources.import", "resources.create", "resources.workspace.edit", "diagnosis.scenario", "diagnosis.execute", "diagnosis.export", "knowledge.edit"]),
+    "integration-editor": ("联调编辑者", "EDITOR", READ + ["resources.device.edit", "resources.device.availability", "resources.frequency.disable", "resources.frequency.maintain", "resources.spectrum.edit", "resources.device.status.import", "situation.observation.import", "resources.import", "resources.create", "resources.workspace.edit", "diagnosis.scenario", "diagnosis.execute", "diagnosis.export", "knowledge.edit"]),
     "integration-reviewer": ("联调审核者", "REVIEWER", READ + ["diagnosis.export", "knowledge.review", "knowledge.publish", "knowledge.rollback"]),
 }
 
@@ -27,8 +28,27 @@ class IdentityError(ValueError):
         self.code, self.status = code, status
 
 
+def _local_adapter(request):
+    application = request.scope.get("app")
+    adapter = getattr(getattr(application, "state", None), "local_identity_adapter", None)
+    if adapter is not None and baseline.integration_enabled():
+        raise IdentityError("正式本地身份与联调模式不能同时启用", 5001, 503)
+    return adapter
+
+
+def _local_call(adapter, method, request, *args, **kwargs):
+    from sqlalchemy.exc import SQLAlchemyError
+    from .system_management_schemas import SystemManagementError
+    try:
+        return getattr(adapter, method)(request, *args, **kwargs)
+    except SystemManagementError as error:
+        raise IdentityError(str(error), error.code, error.status) from error
+    except SQLAlchemyError as error:
+        raise IdentityError("本地身份数据库不可用", 5002, 503) from error
+
+
 def enabled() -> None:
-    if not baseline.integration_enabled():
+    if os.environ.get("AUTH_MODE") not in (None, "INTEGRATION") or not baseline.integration_enabled():
         raise IdentityError("联调模式未开启", 1101, 401)
 
 
@@ -36,7 +56,9 @@ def _digest(value: str) -> str:
     return hashlib.sha256(value.encode()).hexdigest()
 
 
-def current(request: Request) -> dict:
+def current(request: Request) -> dict | None:
+    if (adapter := _local_adapter(request)) is not None:
+        return _local_call(adapter, "current", request)
     enabled()
     token = request.cookies.get(COOKIE)
     if not token:
@@ -50,7 +72,7 @@ def current(request: Request) -> dict:
         return {"session_id": row.session_id, "account_id": account, "username": account,
                 "display_name": name, "role_id": "integration-" + role.lower(),
                 "role_name": name, "permissions": permissions,
-                "identity_revision": "integration-workflow-v2",
+                "identity_revision": "integration-workflow-v3",
                 "session_generation": row.session_id, "integration_mode": True}
 
 
@@ -65,6 +87,8 @@ def challenge(request: Request) -> dict:
 
 
 def require(request: Request, permission: str | None = None, *, writing=False) -> dict:
+    if (adapter := _local_adapter(request)) is not None:
+        return _local_call(adapter, "require", request, permission, writing=writing)
     identity = current(request)
     supplied = request.headers.get("x-session-id")
     if writing or supplied:
@@ -78,12 +102,14 @@ def require(request: Request, permission: str | None = None, *, writing=False) -
 
 
 def catalog(request: Request) -> dict:
+    enabled()
     identity = current(request)
     return {"accounts": [{"id": key, "name": value[0], "role": value[1]} for key, value in CATALOG.items()],
             "currentId": identity["account_id"], "dataOrigin": "SYNTHETIC_INTEGRATION"}
 
 
 def switch(request: Request, response: Response, account_id: str) -> dict:
+    enabled()
     require(request, writing=True)
     if account_id not in CATALOG:
         raise IdentityError("未知联调身份", 1001, 422)
@@ -98,5 +124,5 @@ def switch(request: Request, response: Response, account_id: str) -> dict:
     name, role, permissions = CATALOG[account_id]
     return {"session_id": sid, "account_id": account_id, "username": account_id,
             "display_name": name, "role_id": "integration-" + role.lower(), "role_name": name,
-            "permissions": permissions, "identity_revision": "integration-workflow-v2",
+            "permissions": permissions, "identity_revision": "integration-workflow-v3",
             "session_generation": sid, "integration_mode": True}

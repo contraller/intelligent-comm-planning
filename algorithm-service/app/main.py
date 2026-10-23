@@ -2,11 +2,13 @@
 from __future__ import annotations
 
 import os
+from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import Any
 
 from .candidate_sites import filter_candidate_sites
 from .coverage import query_coverage, read_cache, submit_coverage
-from .database import DatabaseConfigurationError, check_database_connection
+from .database import DatabaseConfigurationError, check_database_connection, get_session_factory
 from .deployment import query_deployment, submit_deployment
 from .fault import (archive_scenario, create_report, create_scenario, delete_scenario, export_impact,
                     get_analysis_view, get_impact_nodes, get_scenario, get_suggestions,
@@ -21,18 +23,25 @@ from . import resource_maintenance_service
 from .resource_export_router import router as resource_export_router
 from .resource_import_router import router as resource_import_router
 from .resource_workspace_router import router as resource_workspace_router
+from .resource_reset_router import router as resource_reset_router
 from .gis_plan_router import router as gis_plan_router
 from .interference_frontend_router import router as interference_frontend_router
+from .interference_workbench_router import router as interference_workbench_router
 from .frequency_resource_router import router as frequency_resource_router
 from .device_configuration_router import router as device_configuration_router
 from .device_status_router import router as device_status_router
+from .device_trace_router import router as device_trace_router
 from .observation_routes import router as observation_router
 from .spectrum_source_routes import router as spectrum_source_router
-from .resource_export_schemas import ResourceDeviceQuery
+from . import resource_read_projection
+from .resource_read_query_schemas import (ResourceDeviceReadQuery, ResourceNodeQuery,
+    ResourceInterferenceQuery, ResourceMapQuery, ResourceObjectQuery)
 from .resource_maintenance_schemas import (AvailabilityChange, AvailabilityPreview,
     ResourceDeviceChanges, ResourceMaintenanceQuery)
 from . import gis_frontend_service
 from . import integration_identity_service as integration_identity
+from .application_identity import install_local_identity
+from .local_frontend_boundary import authorize_local_request
 from . import fault_frontend_service, kg_frontend_service
 from .fault_frontend_schemas import FaultDraft, FaultMutation, FaultPage
 from .kg_frontend_schemas import KnowledgeMutation, KnowledgePage
@@ -81,16 +90,55 @@ except ImportError as exc:  # pragma: no cover - exercised only without runtime 
     ) from exc
 
 
-app = FastAPI(title="短波/超短波智能规划算法服务", version="0.1.0")
+@asynccontextmanager
+async def application_lifespan(application):
+    worker = None
+    enabled = os.environ.get("INTERFERENCE_WORKBENCH_ENABLED", "0")
+    if enabled not in ("0", "1"):
+        raise RuntimeError("INTERFERENCE_WORKBENCH_ENABLED只能为0或1")
+    if enabled == "1":
+        from .interference_workbench_service import (InterferenceWorkbenchService,
+            start_interference_worker, stop_interference_worker)
+        from .interference_replan_service import FrozenPlanningReplanner
+        from .interference_workbench_models import InterferenceWorkbenchRun
+        from sqlalchemy import select
+        if not resource_dataset.database_mode():
+            raise RuntimeError("干扰工作流要求显式数据库资源模式")
+        factory = get_session_factory()
+        root = Path(__file__).resolve().parents[2] / "data/runtime/r2"
+        bridge = FrozenPlanningReplanner(factory, runtime_root=root)
+        service = InterferenceWorkbenchService(factory, runtime_root=root, replanner=bridge)
+        # 先验证表及实际隔离路径，禁止启动时自动建表或落到旧运行库。
+        with service.transaction() as session:
+            session.execute(select(InterferenceWorkbenchRun).limit(0))
+        application.state.interference_workbench = service
+        worker = start_interference_worker(service)
+        application.state.interference_worker = worker
+    try:
+        yield
+    finally:
+        if worker is not None:
+            dispatcher_stopped = stop_interference_worker(worker, timeout=5)
+            children_stopped = worker.service.replanner.bridge.shutdown(timeout=5)
+            if not dispatcher_stopped or not children_stopped:
+                raise RuntimeError("干扰调度或重算子线程未在检查点停止，不能宣称已安全关服")
+
+
+app = FastAPI(title="短波/超短波智能规划算法服务", version="0.1.0", lifespan=application_lifespan)
+# 正式身份在旧联调路由注册前显式安装，配置错误不降级为演示身份。
+local_identity_adapter = install_local_identity(app)
 app.include_router(resource_export_router)
 app.include_router(resource_import_router)
 app.include_router(resource_workspace_router)
+app.include_router(resource_reset_router)
 # 并行模块在此统一挂载；各模块保留自己的严格契约和错误包络。
 app.include_router(gis_plan_router)
 app.include_router(interference_frontend_router)
+app.include_router(interference_workbench_router)
 app.include_router(frequency_resource_router)
 app.include_router(device_configuration_router)
 app.include_router(device_status_router)
+app.include_router(device_trace_router)
 app.include_router(observation_router)
 app.include_router(spectrum_source_router)
 
@@ -134,6 +182,14 @@ async def resource_dataset_error(request: Request, exc):
 
 @app.middleware("http")
 async def integration_workflow_boundary(request: Request, call_next):
+    # 本地模式先校验所有新版及遗留入口；业务handler仍保留专项权限检查。
+    from .system_management_schemas import SystemManagementError
+    try:
+        authorize_local_request(request)
+    except SystemManagementError as exc:
+        return JSONResponse(status_code=exc.status, content={"code": exc.code, "message": str(exc), "data": exc.data})
+    except SQLAlchemyError:
+        return JSONResponse(status_code=503, content={"code": 5002, "message": "身份数据库不可用", "data": None})
     # 联调模式不能通过旧写入口冒充其他操作者；非联调算法接口保持兼容。
     path = request.url.path
     module = "diagnosis" if path.startswith("/api/v1/fault/") else "knowledge" if path.startswith("/api/v1/kg/") else None
@@ -261,7 +317,8 @@ def fault_workbench_export(run_id: str, kind: str, format: str, request: Request
 
 @app.get("/api/v1/kg/workbench")
 def knowledge_workbench(request: Request, response: Response):
-    return _frontend_workbench_call(response, lambda: (integration_identity.require(request, "knowledge.view"), kg_frontend_service.metadata())[1])
+    return _frontend_workbench_call(response, lambda: kg_frontend_service.metadata(
+        identity=integration_identity.require(request, "knowledge.view")))
 
 
 @app.get("/api/v1/kg/workbench/browse/{kind}")
@@ -334,7 +391,18 @@ def health() -> dict[str, Any]:
     return {"code": 0, "message": "success", "data": {"status": "ok"}}
 
 
-@app.get("/api/v1/auth/session")
+@app.get("/health/workers")
+def worker_health(response: Response):
+    worker = getattr(app.state, "interference_worker", None)
+    if worker is None:
+        return {"code": 0, "message": "success", "data": {"interference": "disabled"}}
+    healthy = worker.thread.is_alive() and worker.error is None
+    if not healthy:
+        response.status_code = 503
+    return {"code": 0 if healthy else 5002, "message": "success" if healthy else "干扰调度线程不可用",
+            "data": {"interference": "running" if healthy else "failed"}}
+
+
 def frontend_auth_session(response: Response, request: Request) -> dict[str, Any]:
     """返回显式开启的固定联调身份；不作为正式认证实现。"""
     if not frontend_integration.integration_enabled():
@@ -343,13 +411,17 @@ def frontend_auth_session(response: Response, request: Request) -> dict[str, Any
     return _frontend_workbench_call(response, lambda: integration_identity.current(request))
 
 
-@app.get("/api/v1/auth/csrf")
 def frontend_auth_csrf(response: Response, request: Request) -> dict[str, Any]:
     """为首个任务写接口提供同会话的联调 CSRF 挑战。"""
     if not frontend_integration.integration_enabled():
         response.status_code = 401
         return {"code": 1101, "message": "前端联调身份未启用", "data": None}
     return _frontend_workbench_call(response, lambda: integration_identity.challenge(request))
+
+
+if local_identity_adapter is None:
+    app.add_api_route("/api/v1/auth/session", frontend_auth_session, methods=["GET"])
+    app.add_api_route("/api/v1/auth/csrf", frontend_auth_csrf, methods=["GET"])
 
 
 @app.get("/health/database")
@@ -718,108 +790,55 @@ def frontend_device_availability(request: Request, response: Response, payload: 
 
 
 @app.get("/api/v1/resource/map")
-def frontend_resource_map(revision: str, bbox: str, zoom: float,
-                          show_nodes: bool = True,
-                          show_interferences: bool = True,
-                          context: str = "planning") -> dict[str, Any]:
-    """按当前视口返回节点及干扰源；首个联调版本不做聚类。"""
-    if context not in {"ledger", "gis", "planning"}:
-        raise HTTPException(status_code=422, detail="invalid resource context")
-    try:
-        bounds = [float(value) for value in bbox.split(",")]
-        return frontend_integration.resource_map(
-            revision, bounds, zoom, show_nodes, show_interferences)
-    except ValueError as exc:
-        status = 409 if str(exc).startswith("资源版本已变化") else 422
-        raise HTTPException(status_code=status, detail=str(exc)) from exc
+def frontend_resource_map(request: Request, response: Response):
+    """视口筛选和聚合基于同一资源版本，拒绝静默忽略查询条件。"""
+    return _resource_read_call(request, response, ResourceMapQuery, resource_read_projection.query_map)
+
+
+def _resource_read_call(request, response, schema, action):
+    def operation():
+        if len(request.query_params) != len(request.query_params.multi_items()):
+            raise ValueError("资源查询参数不能重复")
+        query = schema.model_validate(dict(request.query_params))
+        permission = {"ledger": "resources.view", "gis": "situation.view", "planning": "planning.view"}[query.context]
+        integration_identity.require(request, permission)
+        return action(query)
+    return _frontend_workbench_call(response, operation)
 
 
 @app.get("/api/v1/resource/nodes")
-def frontend_resource_nodes(revision: str, page: int = 1, page_size: int = 10,
-                            search: str = "", parent_id: str | None = None,
-                            context: str = "planning") -> dict[str, Any]:
-    """返回资源树使用的节点分页。"""
-    if context not in {"ledger", "gis", "planning"}:
-        raise HTTPException(status_code=422, detail="invalid resource context")
-    try:
-        return frontend_integration.resource_page(
-            "node", revision, page, page_size, search, parent_id=parent_id)
-    except ValueError as exc:
-        raise HTTPException(status_code=409, detail=str(exc)) from exc
+def frontend_resource_nodes(request: Request, response: Response):
+    """节点关联筛选完成后分页；聚合成员号不得跨版本使用。"""
+    return _resource_read_call(request, response, ResourceNodeQuery, resource_read_projection.query_nodes)
 
 
 @app.get("/api/v1/resource/devices")
 def frontend_resource_devices(request: Request, response: Response):
     """完整集合先筛选排序再分页；不再静默忽略页面传入条件。"""
-    def operation():
-        if len(request.query_params) != len(request.query_params.multi_items()):
-            raise ValueError("设备查询参数不能重复")
-        query = ResourceDeviceQuery.model_validate(dict(request.query_params))
-        if query.context == "ledger":
-            integration_identity.require(request, "resources.view")
-        if query.revision != frontend_integration.resource_revision():
-            raise resource_dataset.ResourceDatasetError("资源版本已变化，请刷新后继续浏览", 1205, 409)
-        return frontend_integration.resource_page(
-            "device", query.revision, query.page, query.page_size, query.search,
-            node_id=query.node_id, availability=query.availability, device_filter=query.device_filter(),
-            sort=query.sort, order=query.order)["data"]
-    return _frontend_workbench_call(response, operation)
+    return _resource_read_call(request, response, ResourceDeviceReadQuery, resource_read_projection.query_devices)
 
 
 @app.get("/api/v1/resource/interference-sources")
-def frontend_resource_interferences(revision: str, page: int = 1,
-                                    page_size: int = 10, search: str = "",
-                                    context: str = "planning") -> dict[str, Any]:
-    """返回地图资源树使用的干扰源分页。"""
-    if context not in {"ledger", "gis", "planning"}:
-        raise HTTPException(status_code=422, detail="invalid resource context")
-    try:
-        return frontend_integration.resource_page(
-            "interference", revision, page, page_size, search)
-    except ValueError as exc:
-        raise HTTPException(status_code=409, detail=str(exc)) from exc
+def frontend_resource_interferences(request: Request, response: Response):
+    return _resource_read_call(request, response, ResourceInterferenceQuery, resource_read_projection.query_interferences)
 
 
 @app.get("/api/v1/resource/nodes/{node_id}")
-def frontend_resource_node(node_id: str, revision: str,
-                           context: str = "planning") -> dict[str, Any]:
-    """读取任务输入引用的单个节点。"""
-    if context not in {"ledger", "gis", "planning"}:
-        raise HTTPException(status_code=422, detail="invalid resource context")
-    try:
-        return frontend_integration.resource_object("node", node_id, revision)
-    except KeyError as exc:
-        raise HTTPException(status_code=404, detail="resource node not found") from exc
-    except ValueError as exc:
-        raise HTTPException(status_code=409, detail=str(exc)) from exc
+def frontend_resource_node(node_id: str, request: Request, response: Response):
+    return _resource_read_call(request, response, ResourceObjectQuery,
+        lambda query: resource_read_projection.query_object("node", node_id, query))
 
 
 @app.get("/api/v1/resource/devices/{device_id}")
-def frontend_resource_device(device_id: str, revision: str,
-                             context: str = "planning") -> dict[str, Any]:
-    """读取任务输入引用的单个设备及其显示关联。"""
-    if context not in {"ledger", "gis", "planning"}:
-        raise HTTPException(status_code=422, detail="invalid resource context")
-    try:
-        return frontend_integration.resource_object("device", device_id, revision)
-    except KeyError as exc:
-        raise HTTPException(status_code=404, detail="resource device not found") from exc
-    except ValueError as exc:
-        raise HTTPException(status_code=409, detail=str(exc)) from exc
+def frontend_resource_device(device_id: str, request: Request, response: Response):
+    return _resource_read_call(request, response, ResourceObjectQuery,
+        lambda query: resource_read_projection.query_object("device", device_id, query))
 
 
 @app.get("/api/v1/resource/interference-sources/{interference_id}")
-def frontend_resource_interference(interference_id: str, revision: str,
-                                   context: str = "planning") -> dict[str, Any]:
-    """读取地图或任务引用的单个干扰源。"""
-    if context not in {"ledger", "gis", "planning"}:
-        raise HTTPException(status_code=422, detail="invalid resource context")
-    try:
-        return frontend_integration.resource_object("interference", interference_id, revision)
-    except KeyError as exc:
-        raise HTTPException(status_code=404, detail="interference source not found") from exc
-    except ValueError as exc:
-        raise HTTPException(status_code=409, detail=str(exc)) from exc
+def frontend_resource_interference(interference_id: str, request: Request, response: Response):
+    return _resource_read_call(request, response, ResourceObjectQuery,
+        lambda query: resource_read_projection.query_object("interference", interference_id, query))
 
 
 @app.get("/api/v1/resource/device-models")
@@ -987,13 +1006,15 @@ def plans_save(payload: dict[str, Any], response: Response) -> dict[str, Any]:
 
 
 @app.get("/api/v1/plan/saved-plans")
-def saved_plan_history(response: Response, context: str | None = None,
+def saved_plan_history(response: Response, request: Request, context: str | None = None,
                        page: int = 1, page_size: int = 10,
                        search: str | None = None, state: str | None = None) -> dict[str, Any]:
-    """全局目录仅供显式构造联调，不能代替正式的用户数据隔离。"""
-    if not frontend_integration.integration_enabled():
-        response.status_code = 401
-        return {"code": 1101, "message": "前端联调身份未启用", "data": None}
+    """项目方案目录由服务端规划查看权限约束，不冒充按个人隔离。"""
+    try:
+        integration_identity.require(request, "planning.view")
+    except integration_identity.IdentityError as exc:
+        response.status_code = exc.status
+        return {"code": exc.code, "message": str(exc), "data": None}
     if context != "planning":
         response.status_code = 422
         return {"code": 1001, "message": "context 只能是 planning", "data": None}
