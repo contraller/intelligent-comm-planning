@@ -181,10 +181,12 @@ def test_cancellation_waits_for_worker_checkpoint_not_runtime_request(wb, monkey
     assert jobs.query_planning_job("CHILD-JOB", "T1", wb[0][1])["data"]["status"] == "RUNNING"
     with wb[0][1]() as session:
         assert session.scalar(select(PlanningJobCancellation)).outcome_status == "CANCEL_REQUESTED"
+    assert jobs.stop_frozen_planning_jobs(wb[0][1], timeout=0) is False
     jobs._update_interference_job(wb[0][1], "CHILD-JOB", runtime)
     assert jobs.query_planning_job("CHILD-JOB", "T1", wb[0][1])["data"]["status"] == "CANCELLED"
     with wb[0][1]() as session:
         assert session.scalar(select(PlanningJobCancellation)).outcome_status == "CANCELLED"
+    assert jobs.stop_frozen_planning_jobs(wb[0][1], timeout=0) is True
 
 
 def test_native_dispatch_creates_one_real_frozen_child(scene_api, frozen_sample, monkeypatch):

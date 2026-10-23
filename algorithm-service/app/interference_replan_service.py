@@ -74,6 +74,10 @@ class FrozenPlanningReplanner:
             expected_revision=job.revision_id), self.factory, actor_id=request["actor_id"],
             runtime_root=self.runtime_root)
 
+    def shutdown(self, timeout=5.0) -> bool:
+        from .planning_job_service import stop_frozen_planning_jobs
+        return stop_frozen_planning_jobs(self.factory, runtime_root=self.runtime_root, timeout=timeout)
+
 
 class InterferenceReplanService:
     def __init__(self, workbench, bridge=None):

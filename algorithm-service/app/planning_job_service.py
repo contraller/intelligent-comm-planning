@@ -4,6 +4,7 @@ from __future__ import annotations
 import hashlib
 import json
 import threading
+import time
 import uuid
 from copy import deepcopy
 from datetime import datetime, timezone
@@ -575,6 +576,31 @@ def request_interference_cancellation(job_id, payload, factory=None, *, actor_id
             job.stage = "取消已请求，等待算法检查点"
     if cancel_runtime:
         planning_w3.cancel_task(job_id)
+
+
+def stop_frozen_planning_jobs(factory=None, *, runtime_root=None, timeout=5.0) -> bool:
+    """停止派发后用于lifespan；只等数据库检查点确认，不把请求写入当停机。"""
+    factory = factory or get_session_factory()
+    validate_interference_runtime(factory, runtime_root)
+    deadline = time.monotonic() + max(0, timeout)
+    with factory() as session:
+        jobs = [job for job in session.scalars(select(PlanningJob).where(
+            PlanningJob.status.in_(("PENDING", "RUNNING")))) if (job.adjustment or {}).get("interference_origin")]
+    for job in jobs:
+        origin = job.adjustment["interference_origin"]
+        request_interference_cancellation(job.job_id, PlanningJobCancelRequest(context="planning",
+            request_id="interference-shutdown-" + origin["adoption_id"], task_id=job.task_id,
+            expected_revision=job.revision_id), factory, actor_id=origin["actor_id"], runtime_root=runtime_root)
+    while jobs:
+        with factory() as session:
+            active = session.scalar(select(PlanningJob.job_id).where(
+                PlanningJob.job_id.in_([job.job_id for job in jobs]), PlanningJob.status.in_(("PENDING", "RUNNING"))))
+        if active is None:
+            return True
+        if time.monotonic() >= deadline:
+            return False
+        time.sleep(min(.05, max(0, deadline - time.monotonic())))
+    return True
 
 
 def cancel_planning_job(job_id: str, payload: PlanningJobCancelRequest,
