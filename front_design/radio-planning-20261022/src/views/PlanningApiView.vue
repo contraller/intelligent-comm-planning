@@ -20,9 +20,10 @@
         <button
           v-if="auth.can('planning.reset')"
           class="btn"
-          :disabled="planning.busy || planning.running || !!planning.pending || !!task.pendingSave"
-          @click="planning.reset"
-          >重置规划数据</button
+          disabled
+          title="当前 HTTP 环境不提供重置规划草稿能力；后台任务、作业、方案与回执历史均保留"
+          aria-label="重置规划草稿不可用，后台历史保留"
+          >重置规划草稿</button
         >
       </div></div
     >
