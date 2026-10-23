@@ -557,17 +557,17 @@ def exercise(run, client):
         "same observation dataset was imported twice")
     changed_file = deepcopy(file)
     changed_file["dataset"]["provenanceNote"] += " changed"
-    changed_preview = post(client, "preview changed content", OBS + "/import-preview", {"file": changed_file})
-    changed_command = {**command, "file": changed_file, "previewHash": changed_preview["previewHash"],
-        "datasetContentHash": changed_preview["datasetContentHash"]}
-    post(client, "observation same ID changed content", OBS + "/imports", changed_command, (409, 1206))
-    reject_new(client, "observation", "same dataset ID different content", OBS + "/imports",
+    # Existing dataset content/binding conflicts are rejected before new hashes are issued.
+    post(client, "preview changed content", OBS + "/import-preview", {"file": changed_file}, (409, 1206))
+    changed_command = {**command, "file": changed_file}
+    post(client, "changed content with original preview hashes", OBS + "/imports", changed_command, (409, 1206))
+    reject_new(client, "observation", "new ID changed content with original preview hashes", OBS + "/imports",
         {**changed_command, "requestId": rid("dataset-conflict")}, (409, 1206))
     v1_file = {key: deepcopy(value) for key, value in file.items() if key != "deviceStatusRef"}
     v1_file["schemaVersion"] = 1
-    stripped_preview = post(client, "V1 preview without binding", OBS + "/import-preview", {"file": v1_file})
+    post(client, "V1 preview cannot strip binding", OBS + "/import-preview", {"file": v1_file}, (409, 1206))
     reject_new(client, "observation", "cannot strip frozen binding", OBS + "/imports",
-        {"requestId": rid("strip-binding"), "previewHash": stripped_preview["previewHash"], "file": v1_file}, (409, 1206))
+        {"requestId": rid("strip-binding"), "previewHash": command["datasetContentHash"], "file": v1_file}, (409, 1206))
     receipt = run.frozen(client, "observation V2 receipt", OBS + "/imports/" + command["requestId"],
         {"include_device_status_ref": "true"})
     require(receipt == imported, "observation receipt/ref changed")
