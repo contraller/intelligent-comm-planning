@@ -5,6 +5,7 @@ import hashlib
 import json
 import threading
 import uuid
+from copy import deepcopy
 from datetime import datetime, timezone
 from typing import Any
 
@@ -90,6 +91,11 @@ def list_planning_jobs(query: TaskListQuery,
 
 def _digest(payload: PlanningJobSubmitRequest | PlanningJobCancelRequest) -> str:
     body = payload.model_dump(mode="json", exclude_none=False)
+    # 可选干扰字段缺省时保持既有手工请求摘要，升级不能破坏旧幂等键。
+    if body.get("adjustment") is not None:
+        for key in ("interference_origin", "interference"):
+            if body["adjustment"].get(key) is None:
+                body["adjustment"].pop(key, None)
     raw = json.dumps(body, ensure_ascii=False, sort_keys=True,
                      separators=(",", ":")).encode("utf-8")
     return hashlib.sha256(raw).hexdigest()
@@ -136,7 +142,7 @@ def _dto(job: PlanningJob, revision: PlanningTaskRevision) -> dict[str, Any]:
 
 def _validate_supported_input(input_data: dict[str, Any]) -> None:
     unsupported = [key for key in (
-        "frequencyConstraints", "deploymentSolve", "deploymentConstraints"
+        "deploymentSolve", "deploymentConstraints"
     ) if input_data.get(key) is not None]
     if unsupported:
         raise PlanningJobError(
@@ -166,13 +172,31 @@ def _validate_resources(input_data: dict[str, Any], revision: str) -> None:
 
 
 def _algorithm_payload(payload: PlanningJobSubmitRequest,
-                       revision: PlanningTaskRevision) -> dict[str, Any]:
+                       revision: PlanningTaskRevision, *, frozen_rows=None) -> dict[str, Any]:
     input_data = revision.input_snapshot
     _validate_supported_input(input_data)
-    _validate_resources(input_data, revision.resource_revision)
+    if frozen_rows is None:
+        _validate_resources(input_data, revision.resource_revision)
     # 在提交线程中冻结输入，工作线程不得再查询“当前”资源或回退文件。
-    frozen_rows = (resource_dataset.algorithm_tables(revision.resource_revision)
-                   if resource_dataset.database_mode() else None)
+    if frozen_rows is None:
+        frozen_rows = (resource_dataset.algorithm_tables(revision.resource_revision)
+                       if resource_dataset.database_mode() else None)
+    frequency_constraints = input_data.get("frequencyConstraints")
+    if frequency_constraints is not None:
+        from .task_input_schemas import FrequencyConstraints
+        frequency_constraints = FrequencyConstraints.model_validate(frequency_constraints).model_dump(mode="json")
+        if frozen_rows is None:
+            raise PlanningJobError(1001, "高级频率条件要求数据库冻结资源，不能回退CSV", 422)
+        by_id = {row["freq_id"]: row for row in frozen_rows["frequency_resource.csv"]}
+        for index, entry in enumerate(frequency_constraints["filters"]):
+            for freq_id in entry["excludeFreqIds"]:
+                field = f"input.frequencyConstraints.filters[{index}].excludeFreqIds"
+                if freq_id not in by_id:
+                    raise PlanningJobError(1002, "排除频点不存在于冻结资源", 404,
+                        [{"objectId": freq_id, "field": field, "message": "未知频点编号"}])
+                if by_id[freq_id]["device_class"] != entry["deviceClass"]:
+                    raise PlanningJobError(1001, "排除频点类别与筛选类别不一致", 422,
+                        [{"objectId": freq_id, "field": field, "message": "频段类别不一致"}])
     existing_demands = {row["demand_id"]: row
                         for row in (frozen_rows["comm_demand.csv"] if frozen_rows is not None
                                     else planning_w4._load("comm_demand.csv"))}
@@ -219,7 +243,11 @@ def _algorithm_payload(payload: PlanningJobSubmitRequest,
         "demand_rows": demands,
     }
     if frozen_rows is not None:
-        algorithm_payload["resource_rows"] = frozen_rows
+        algorithm_payload["resource_rows"] = deepcopy(frozen_rows)
+        # W4既有转交完整资源容器；此内部元数据不替换任何CSV原表。
+        algorithm_payload["resource_rows"]["frequency_constraints"] = (None if frequency_constraints is None else {
+            "filters": [{"device_class": row["deviceClass"], "range_khz": row["rangeKhz"],
+                         "exclude_freq_ids": list(row["excludeFreqIds"])} for row in frequency_constraints["filters"]]})
         algorithm_payload["resource_revision"] = revision.resource_revision
     return algorithm_payload
 
@@ -264,6 +292,8 @@ def _reserve(factory: sessionmaker[Session], payload: PlanningJobSubmitRequest,
                  PlanningJob, PlanningTaskRevision, bool, dict[str, Any] | None
              ]:
     with _SUBMIT_LOCK, factory() as session, session.begin():
+        if session.get_bind().dialect.name == "sqlite":
+            session.connection().exec_driver_sql("BEGIN IMMEDIATE")
         replay = _existing_by_request(session, payload.request_id, digest)
         if replay is not None:
             return replay[0], replay[1], False, None
@@ -347,6 +377,8 @@ def _reserve(factory: sessionmaker[Session], payload: PlanningJobSubmitRequest,
 def submit_planning_job(payload: PlanningJobSubmitRequest,
                         factory: sessionmaker[Session] | None = None) -> dict[str, Any]:
     factory = factory or get_session_factory()
+    if payload.adjustment is not None and payload.adjustment.interference_origin is not None:
+        raise PlanningJobError(1001, "干扰绑定仅允许已受理工作台的服务端专用入口", 422)
     digest = _digest(payload)
     try:
         job, revision, created, algorithm_payload = _reserve(factory, payload, digest)
@@ -382,11 +414,182 @@ def submit_planning_job(payload: PlanningJobSubmitRequest,
         return _dto(current, current_revision)
 
 
+def validate_interference_runtime(factory, runtime_root=None):
+    """检查真实解析目录和数据库位置，不能仅信任启动环境变量。"""
+    from pathlib import Path
+    from .interference_analysis_engine import runtime_path
+    root = runtime_path(runtime_root)
+    base = runtime_path()
+    with factory() as session:
+        bind = session.get_bind()
+        database = Path(bind.url.database or "").resolve()
+        if (bind.dialect.name != "sqlite" or database != base.parent / "r2.sqlite"
+                and not database.is_relative_to(base.parent / "tmp")):
+            raise PlanningJobError(5001, "干扰重算仅允许本树r2或tmp测试库", 503)
+    if any(not Path(path).resolve().is_relative_to(root)
+           for path in (planning_w3.TASK_DIR, planning_w4.PLAN_DIR)):
+        raise PlanningJobError(5001, "算法任务/方案实际目录不在本树指定r2根内", 503)
+    return root
+
+
+def _update_interference_job(factory, job_id, state):
+    """只有算法回调到达检查点才确认取消，保留普通手工作业行为。"""
+    with _SUBMIT_LOCK, factory() as session, session.begin():
+        job = session.get(PlanningJob, job_id)
+        if job is None:
+            return
+        if job.status in _FINAL_STATES:
+            if state.get("status") == job.status:
+                for receipt in session.scalars(select(PlanningJobCancellation).where(
+                        PlanningJobCancellation.job_id == job_id,
+                        PlanningJobCancellation.outcome_status == "CANCEL_REQUESTED")):
+                    receipt.outcome_status = job.status
+            return
+        if state.get("status") not in _FINAL_STATES and state.get("progress", 0) >= .95:
+            expected = job.adjustment["interference"]["terrain_fingerprint"]
+            if planning_adjustment_service.terrain_fingerprint() != expected:
+                raise ValueError("干扰重算期间DEM来源变化，结果未接受")
+        if state.get("status") in _FINAL_STATES:
+            for receipt in session.scalars(select(PlanningJobCancellation).where(
+                    PlanningJobCancellation.job_id == job_id,
+                    PlanningJobCancellation.outcome_status == "CANCEL_REQUESTED")):
+                receipt.outcome_status = state["status"]
+        _apply_runtime_state(job, state)
+
+
+def submit_interference_replan(request: dict[str, Any], factory=None, *, runtime_root=None) -> str:
+    """服务端专用派发：已受理Adoption、子作业和关联在同一数据库中核验。"""
+    from .interference_analysis_engine import digest as canonical_digest
+    from .interference_replan_service import InterferenceReplanService
+    from .interference_workbench_service import InterferenceWorkbenchService
+    from .interference_workbench_models import InterferenceWorkbenchAdoption
+    from .resource_dataset_models import ResourceDatasetVersion
+    factory = factory or get_session_factory()
+    root = validate_interference_runtime(factory, runtime_root)
+    algorithm_payload = None
+    with _SUBMIT_LOCK, factory() as session, session.begin():
+        session.connection().exec_driver_sql("BEGIN IMMEDIATE")
+        adoption = session.get(InterferenceWorkbenchAdoption, request["adoption_id"])
+        if adoption is None:
+            raise PlanningJobError(2001, "没有已受理的干扰采纳", 404)
+        run = InterferenceWorkbenchService._run(session, adoption.run_id, adoption.task_id)
+        origin = InterferenceReplanService.origin(adoption)
+        if (request["planning_request_id"] != adoption.planning_request_id
+                or request["task_id"] != adoption.task_id or request["actor_id"] != adoption.actor_id
+                or request["interference_origin"] != origin or request["source"] != run.source_snapshot
+                or request["change_set"] != adoption.change_set
+                or canonical_digest(adoption.change_set) != adoption.change_hash
+                or adoption.source_hash != run.source_hash or run.state != "SUCCESS"):
+            raise PlanningJobError(1203, "干扰重算绑定与已受理来源不一致", 409)
+        measure = next((row for row in run.result_snapshot["measures"]
+                        if row["measure_id"] == adoption.measure_id), None)
+        if measure is None or measure["change_set"] != adoption.change_set or not measure["available"]:
+            raise PlanningJobError(1203, "采纳措施不是该冻结分析的可用项", 409)
+        job_digest = canonical_digest({"operation": "INTERFERENCE_REPLAN", "origin": origin,
+            "task_id": adoption.task_id, "planning_request_id": adoption.planning_request_id})
+        replay = _existing_by_request(session, adoption.planning_request_id, job_digest)
+        if replay is not None:
+            job = replay[0]
+            if job.adjustment.get("interference_origin") != origin:
+                raise PlanningJobError(5002, "已有子作业来源校验失败", 503)
+        else:
+            if adoption.state not in ("PENDING", "RUNNING", "CANCEL_REQUESTED"):
+                raise PlanningJobError(2002, "终态采纳不能重新派发作业", 409)
+            source = run.source_snapshot
+            scene = source["scene"]
+            frozen = scene["plan_snapshot"]
+            resource = session.get(ResourceDatasetVersion, run.resource_revision)
+            if resource_dataset._decode(resource) != source["resource"]:
+                raise PlanningJobError(5002, "不可变资源与运行冻结内容不一致", 503)
+            revision = session.get(PlanningTaskRevision, frozen["input_version"])
+            parent = session.get(PlanningPlan, run.plan_id)
+            if revision is None:
+                raise PlanningJobError(5002, "冻结输入版本缺失", 503)
+            try:
+                snapshot, refs, adjustment = planning_adjustment_service.prepare_interference_parent(
+                    parent, revision, source, adoption.change_set, origin, runtime_root=root)
+            except planning_adjustment_service.AdjustmentError as exc:
+                raise PlanningJobError(exc.code, str(exc), exc.status, exc.data) from exc
+            payload = PlanningJobSubmitRequest(context="planning", request_id=adoption.planning_request_id,
+                task_id=adoption.task_id, expected_revision=revision.revision_id, input_version=revision.revision_id,
+                condition_version=revision.condition_version, resource_revision=revision.resource_revision,
+                parent_plan_id=run.plan_id, adjustment=adjustment)
+            algorithm_payload = _algorithm_payload(payload, revision, frozen_rows=deepcopy(source["resource"]["tables"]))
+            algorithm_payload.update(parent_snapshot=snapshot, manual_device_refs=refs,
+                adjustment=adjustment.model_dump(mode="json", exclude_unset=True),
+                interference_rows=deepcopy(adjustment.interference.sources))
+            active = session.scalar(select(PlanningJob.job_id).where(PlanningJob.task_id == adoption.task_id,
+                PlanningJob.status.in_(("PENDING", "RUNNING"))))
+            if active is not None:
+                raise PlanningJobError(2002, "该任务已有其他活动规划作业", 409)
+            stamp = datetime.now(timezone.utc)
+            job = PlanningJob(job_id="tsk-" + uuid.uuid4().hex[:12], request_id=adoption.planning_request_id,
+                request_digest=job_digest, task_id=adoption.task_id, revision_id=revision.revision_id,
+                condition_version=revision.condition_version, resource_revision=run.resource_revision,
+                context="planning", parent_plan_id=run.plan_id, adjustment=algorithm_payload["adjustment"],
+                status="PENDING", progress=0, stage="冻结干扰重算已受理", created_at=stamp, updated_at=stamp)
+            session.add(job)
+            session.flush()
+        if adoption.planning_job_id not in (None, job.job_id):
+            raise PlanningJobError(5002, "采纳已经关联其他子作业", 503)
+        if adoption.planning_job_id is None:
+            adoption.planning_job_id = job.job_id
+            adoption.adoption_version += 1
+            adoption.updated_at = datetime.now(timezone.utc)
+        job_id = job.job_id
+    if algorithm_payload is not None:
+        try:
+            response = planning_w4.submit_sr4(algorithm_payload, job_id=job_id,
+                on_update=lambda state: _update_interference_job(factory, job_id, state))
+            if response.get("code") != 0 or response.get("data", {}).get("task_id") != job_id:
+                raise ValueError(response.get("message") or "冻结SR4派发失败")
+        except Exception as exc:
+            _update_interference_job(factory, job_id, {"status": "FAILED", "progress": 1,
+                "stage": "冻结重算启动失败", "error": str(exc)})
+    return job_id
+
+
+def request_interference_cancellation(job_id, payload, factory=None, *, actor_id=None, runtime_root=None):
+    factory = factory or get_session_factory()
+    validate_interference_runtime(factory, runtime_root)
+    raw = {"job_id": job_id, "body": payload.model_dump(), "actor_id": actor_id}
+    from .interference_analysis_engine import digest
+    request_digest = digest(raw)
+    with _SUBMIT_LOCK, factory() as session, session.begin():
+        session.connection().exec_driver_sql("BEGIN IMMEDIATE")
+        job = session.get(PlanningJob, job_id)
+        if job is None or job.task_id != payload.task_id:
+            raise PlanningJobError(2001, "规划作业不存在", 404)
+        if not (job.adjustment or {}).get("interference_origin") or job.revision_id != payload.expected_revision:
+            raise PlanningJobError(1203, "不是指定冻结干扰作业版本", 409)
+        receipt = session.get(PlanningJobCancellation, payload.request_id)
+        if receipt is not None and receipt.request_digest != request_digest:
+            raise PlanningJobError(1204, "取消请求编号对应其他内容", 409)
+        if receipt is None:
+            session.add(PlanningJobCancellation(request_id=payload.request_id, request_digest=request_digest,
+                job_id=job_id, task_id=job.task_id, revision_id=job.revision_id,
+                outcome_status=job.status if job.status in _FINAL_STATES else "CANCEL_REQUESTED",
+                created_at=datetime.now(timezone.utc)))
+        cancel_runtime = job.status not in _FINAL_STATES
+        if cancel_runtime:
+            job.stage = "取消已请求，等待算法检查点"
+    if cancel_runtime:
+        planning_w3.cancel_task(job_id)
+
+
 def cancel_planning_job(job_id: str, payload: PlanningJobCancelRequest,
                         factory: sessionmaker[Session] | None = None
                         ) -> dict[str, Any]:
     """按作业冻结版本取消计算，并保存请求编号供重试识别。"""
     factory = factory or get_session_factory()
+    with factory() as session:
+        source_job = session.get(PlanningJob, job_id)
+        interference_job = source_job is not None and bool((source_job.adjustment or {}).get("interference_origin"))
+    if interference_job:
+        request_interference_cancellation(job_id, payload, factory)
+        result = query_planning_job(job_id, payload.task_id, factory)
+        result.update(code=0, request_id=payload.request_id)
+        return result
     digest = hashlib.sha256(f"{job_id}:{_digest(payload)}".encode("utf-8")).hexdigest()
     with _SUBMIT_LOCK, factory() as session, session.begin():
         receipt = session.get(PlanningJobCancellation, payload.request_id)
@@ -450,7 +653,11 @@ def query_planning_job(job_id: str, task_id: str | None,
 
         runtime = planning_w3.get_task_record(job_id)
         if runtime:
-            _apply_runtime_state(job, runtime)
+            waiting_checkpoint = bool((job.adjustment or {}).get("interference_origin")) and session.scalar(
+                select(PlanningJobCancellation.request_id).where(PlanningJobCancellation.job_id == job_id,
+                    PlanningJobCancellation.outcome_status == "CANCEL_REQUESTED")) is not None
+            if not (waiting_checkpoint and runtime.get("status") == "CANCELLED"):
+                _apply_runtime_state(job, runtime)
         elif job.status in {"PENDING", "RUNNING"}:
             # 线程任务不能跨服务进程恢复，避免重启后永久显示“计算中”。
             job.status = "FAILED"
@@ -464,8 +671,21 @@ def query_planning_job(job_id: str, task_id: str | None,
         ))
         request_id = job.request_id
         status = job.status
+        saved = session.scalar(select(PlanningPlan).where(PlanningPlan.job_id == job_id))
+        saved_data = ((deepcopy(saved.result_snapshot), deepcopy(saved.outcome_snapshot))
+                      if saved is not None and saved.adjustment and saved.adjustment.get("interference_origin")
+                      else None)
+        frozen_result_tables = None
+        if (job.adjustment or {}).get("interference_origin"):
+            from .resource_dataset_models import ResourceDatasetVersion
+            frozen_result_tables = resource_dataset._decode(
+                session.get(ResourceDatasetVersion, job.resource_revision))["tables"]
 
     if status == "SUCCESS":
+        if saved_data is not None:
+            data["result"], data["outcome"] = saved_data
+            return {"code": data["outcome"]["code"], "message": data["outcome"]["message"],
+                    "data": data, "request_id": request_id}
         result_ref = (runtime or {}).get("result") or {}
         solution_id = result_ref.get("solution_id")
         if not solution_id:
@@ -475,12 +695,14 @@ def query_planning_job(job_id: str, task_id: str | None,
         if not isinstance(plan, dict):
             raise PlanningJobError(5001, "SR4 作业对应的方案文件不存在", 500)
         try:
-            result, outcome = planning_result_adapter.adapt_planning_result(
-                plan, data["input"]
-            )
+            if frozen_result_tables is None:
+                result, outcome = planning_result_adapter.adapt_planning_result(plan, data["input"])
+            else:
+                result, outcome = planning_result_adapter.adapt_planning_result(
+                    plan, data["input"], resource_rows=frozen_result_tables)
             if data.get("adjustment") is not None:
                 planning_adjustment_service.verify_adjusted_result(
-                    data["adjustment"], result)
+                    data["adjustment"], result, raw_detail=plan.get("detail"))
         except (KeyError, TypeError, ValueError) as exc:
             raise PlanningJobError(
                 5001, "SR4 方案结果不符合前端数据契约", 500

@@ -12,6 +12,69 @@ from .planning_job_models import PlanningJob
 from .planning_plan_models import PlanningPlan
 
 
+class FrozenPlanningReplanner:
+    """工作线程专用真实SR4桥；不挂接HTTP，不自动确认或改变父方案。"""
+    supported_types = frozenset(MEASURE_TYPES)
+    supports_frozen_sources = True
+
+    def __init__(self, session_factory=None, *, runtime_root=None):
+        from inspect import signature
+        from .database import get_session_factory
+        from .planning_job_service import PlanningJobError, validate_interference_runtime
+        from .planning_result_adapter import adapt_planning_result
+        if "resource_rows" not in signature(adapt_planning_result).parameters:
+            raise PlanningJobError(5001, "冻结结果适配入口尚未集成，不启用重算能力", 503)
+        self.factory = session_factory or get_session_factory()
+        self.runtime_root = validate_interference_runtime(self.factory, runtime_root)
+
+    def _job(self, request):
+        from .planning_job_service import PlanningJobError
+        with self.factory() as session:
+            job = session.get(PlanningJob, request["planning_job_id"])
+            if (job is None or job.request_id != request["planning_request_id"]
+                    or job.task_id != request["task_id"]
+                    or (job.adjustment or {}).get("interference_origin") != request["interference_origin"]):
+                raise PlanningJobError(1203, "真实子作业与采纳绑定不一致", 409)
+            return job
+
+    def submit(self, request):
+        from .planning_job_service import submit_interference_replan
+        return submit_interference_replan(request, self.factory, runtime_root=self.runtime_root)
+
+    def poll(self, request):
+        from . import planning_adjustment_service, planning_job_service, planning_plan_service
+        from .planning_plan_schemas import PlanningPlanSaveRequest
+        job = self._job(request)
+        with self.factory() as session:
+            saved = session.scalar(select(PlanningPlan).where(PlanningPlan.job_id == job.job_id))
+            if saved is not None:
+                return {"state": "SUCCESS", "progress": 100, "plan_id": saved.plan_id, "error": None}
+        response = planning_job_service.query_planning_job(job.job_id, job.task_id, self.factory)
+        data = response["data"]
+        if data["status"] != "SUCCESS":
+            return {"state": data["status"], "progress": data["progress"] * 100,
+                    "plan_id": None, "error": data["error"]}
+        expected = request["source"]["scene"]["plan_snapshot"]["raw_snapshot"]["terrain_fingerprint"]
+        if planning_adjustment_service.terrain_fingerprint() != expected:
+            from .interference_workbench_service import WorkbenchError
+            raise WorkbenchError("保存前DEM指纹已变化，结果未接受", 5002, 503)
+        result = planning_plan_service.save_planning_plan(PlanningPlanSaveRequest(
+            context="planning", request_id="interference-save-" + request["adoption_id"],
+            task_id=job.task_id, expected_revision=job.revision_id, job_id=job.job_id,
+            name="干扰措施重算 " + request["measure"]["type"],
+            note="冻结场景算法预测；非实测。来源采纳：" + request["adoption_id"]), self.factory)
+        return {"state": "SUCCESS", "progress": 100, "plan_id": result["plan_id"], "error": None}
+
+    def cancel(self, request):
+        from .planning_job_schemas import PlanningJobCancelRequest
+        from .planning_job_service import request_interference_cancellation
+        job = self._job(request)
+        request_interference_cancellation(job.job_id, PlanningJobCancelRequest(context="planning",
+            request_id="interference-cancel-" + request["adoption_id"], task_id=job.task_id,
+            expected_revision=job.revision_id), self.factory, actor_id=request["actor_id"],
+            runtime_root=self.runtime_root)
+
+
 class InterferenceReplanService:
     def __init__(self, workbench, bridge=None):
         self.workbench, self.bridge = workbench, bridge
@@ -99,9 +162,15 @@ class InterferenceReplanService:
                 return equal(node["lon"], values["to_lon"]) and equal(node["lat"], values["to_lat"])
             if kind == "ROUTE_REBUILD":
                 routes = {r["demand_id"]: r for r in detail["routes"]["routes"]}
+                def path_equal(actual, expected):
+                    if expected is None:
+                        return actual is None
+                    return isinstance(actual, dict) and all(actual.get(key) == expected.get(key)
+                        for key in ("node_path", "link_path"))
                 return bool(values["rerouted"]) and all(
-                    routes.get(r["demand_id"], {}).get("primary") == r["primary"]
-                    and routes[r["demand_id"]].get("backup") == r.get("backup") for r in values["rerouted"])
+                    path_equal(routes.get(r["demand_id"], {}).get("primary"), r["primary"])
+                    and path_equal(routes[r["demand_id"]].get("backup"), r.get("backup"))
+                    for r in values["rerouted"])
         except (KeyError, TypeError, ValueError, StopIteration):
             return False
         return False
@@ -247,7 +316,8 @@ class InterferenceReplanService:
                     # 传输失败不能证明子作业未受理；保留稳定键，下一轮先回查。
                     row.error = (str(exc) or type(exc).__name__)[:2000]
                     row.lease_until = now() + timedelta(seconds=2)
-                    if isinstance(exc, WorkbenchError) and exc.code == 5002:
+                    if (isinstance(exc, WorkbenchError) and exc.code == 5002
+                            or getattr(exc, "code", None) in (1001, 1002, 1003, 1203, 1205)):
                         row.state, row.lease_owner, row.lease_until = "FAILED", None, None
                     row.adoption_version += 1
                     row.updated_at = now()

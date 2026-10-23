@@ -5,6 +5,7 @@ from datetime import timedelta
 import pytest
 
 from test_interference_workbench_api import BASE, wb, scene_api, data, headers, submit, progress
+from test_interference_analysis_engine import frozen_sample
 from app.interference_analysis_engine import MEASURE_TYPES
 from app.interference_replan_service import InterferenceReplanService
 from app.interference_workbench_models import InterferenceWorkbenchAdoption
@@ -158,3 +159,124 @@ def test_five_change_verifiers_reject_omissions(kind):
         "nodes": [{"node_id": "N1", "lon": 10, "lat": 20}], "routes": {"routes": deepcopy(change["detail"]["rerouted"])}}
     assert InterferenceReplanService.applied(change, detail)
     assert not InterferenceReplanService.applied(change, {})
+
+
+def test_cancellation_waits_for_worker_checkpoint_not_runtime_request(wb, monkeypatch):
+    from sqlalchemy import select
+    from app import planning_job_service as jobs
+    from app.planning_job_models import PlanningJobCancellation
+    from app.planning_job_schemas import PlanningJobCancelRequest
+    bridge = BridgeStub(wb[0][1])
+    receipt = data(adoption(wb, ready(wb, bridge)))
+    wb[1].run_once()
+    with wb[0][1].begin() as session:
+        job = session.get(PlanningJob, "CHILD-JOB")
+        job.status, job.progress = "RUNNING", .25
+        revision = job.revision_id
+    runtime = {"status": "RUNNING", "progress": .25, "stage": "构造计算检查点之前"}
+    monkeypatch.setattr(jobs.planning_w3, "get_task_record", lambda _: deepcopy(runtime))
+    monkeypatch.setattr(jobs.planning_w3, "cancel_task", lambda _: runtime.update(status="CANCELLED", progress=1))
+    payload = PlanningJobCancelRequest(context="planning", request_id="UNIT-CANCEL-CHECKPOINT", task_id="T1", expected_revision=revision)
+    jobs.request_interference_cancellation("CHILD-JOB", payload, wb[0][1])
+    assert jobs.query_planning_job("CHILD-JOB", "T1", wb[0][1])["data"]["status"] == "RUNNING"
+    with wb[0][1]() as session:
+        assert session.scalar(select(PlanningJobCancellation)).outcome_status == "CANCEL_REQUESTED"
+    jobs._update_interference_job(wb[0][1], "CHILD-JOB", runtime)
+    assert jobs.query_planning_job("CHILD-JOB", "T1", wb[0][1])["data"]["status"] == "CANCELLED"
+    with wb[0][1]() as session:
+        assert session.scalar(select(PlanningJobCancellation)).outcome_status == "CANCELLED"
+
+
+def test_native_dispatch_creates_one_real_frozen_child(scene_api, frozen_sample, monkeypatch):
+    """真实W3/W4小样本派发；措施为显式构造，不冒充算法推荐/完整页面验收。"""
+    import importlib
+    import threading
+    from sqlalchemy import select
+    from test_interference_analysis_engine import _prepare_sample
+    from test_interference_frontend_api import body, read, save
+    from app import planning_job_service as jobs
+    from app import resource_dataset_service as resources
+    from app.interference_analysis_engine import digest, _modules
+    from app.interference_workbench_models import InterferenceWorkbenchRun
+    from app.task_input_models import PlanningTaskRevision
+    adjustment, _, _, unit_parent, _, engine = _prepare_sample(frozen_sample, monkeypatch)
+    raw = deepcopy(unit_parent.raw_snapshot)
+    raw["detail"]["devices"] = raw["detail"]["devices"][:2]
+    raw["detail"]["nodes"] = raw["detail"]["nodes"][:2]
+    raw["detail"]["links"] = raw["detail"]["links"][:1]
+    raw["detail"]["params"]["params"] = raw["detail"]["params"]["params"][:2]
+    client, factory, baseline, _, _ = scene_api
+    input_data = {"name": "UNIT真实派发", "presetId": "balanced", "frequencyId": "default",
+        "constraints": {"connectivityPercent": 100, "survivabilityPercent": 0, "maxRelayHops": 2},
+        "demands": [{"id": "UNIT-DEMAND", "sourceId": raw["detail"]["nodes"][0]["node_id"],
+            "targetId": raw["detail"]["nodes"][1]["node_id"], "priority": 1, "mandatory": True,
+            "requiredRateKbps": 1, "maxDelayMs": 1000, "minReliability": .1, "service": "DATA"}]}
+    modules = _modules()
+    fq = modules["frequency"]
+    frozen_tasks = fq.tasks_from_nets(raw["detail"]["links"], raw["detail"]["nodes"], raw["detail"]["devices"], baseline["tables"]["device_model.csv"])
+    fq.fill_ranges_by_node(frozen_tasks, raw["detail"]["links"], raw["detail"]["nodes"], raw["detail"]["devices"], baseline["tables"]["device_model.csv"])
+    raw["detail"]["frequency"] = fq.assign(frozen_tasks, fq.FreqPool(baseline["tables"]["frequency_resource.csv"]))
+    raw["detail"]["frequency"]["link_assignments"] = fq.expand_to_links(raw["detail"]["frequency"], frozen_tasks)
+    raw["detail"]["routes"] = modules["routing"].plan_routes(
+        modules["routing"].graph_from_links(raw["detail"]["links"])[0], [{"demand_id": "UNIT-DEMAND",
+            "src_node_id": input_data["demands"][0]["sourceId"], "dst_node_id": input_data["demands"][0]["targetId"]}])
+    flow = importlib.import_module("sr4_flow")
+    monkeypatch.setattr(flow, "DemTerrain", engine.terrain_provider)
+    monkeypatch.setattr(adjustment, "FrozenInterferenceEngine", lambda **kw: engine)
+    with factory.begin() as session:
+        parent = session.get(PlanningPlan, "P1")
+        parent.raw_snapshot, parent.input_snapshot = raw, deepcopy(input_data)
+        parent.result_snapshot = {"snapshot_id": "SNP-PL-12345678", "devices": unit_parent.result_snapshot["devices"][:2]}
+        session.get(PlanningTaskRevision, "REV-P1").input_snapshot = deepcopy(input_data)
+    data(save(scene_api, body(scene_api, interference_ids=[])))
+    scene = data(read(scene_api))["version"]
+    resource = resources.current(factory)
+    source = {"schema_version": 1, "scene": scene, "resource": resource,
+              "actor": {"account_id": "integration-planner"}}
+    task = modules["frequency"].tasks_from_nets(raw["detail"]["links"], raw["detail"]["nodes"],
+        raw["detail"]["devices"], resource["tables"]["device_model.csv"])[0]
+    modules["frequency"]._prepare([task], modules["frequency"].FreqPool(resource["tables"]["frequency_resource.csv"]))
+    change = {"type": "FREQ_ADJUST", "target": {"link_id": "L1", "net_id": task.task_id},
+        "detail": {"links_in_net": ["L1"], "to_freq_khz": task.allowed[1]["freq_khz"]}}
+    measure = {"measure_id": "CM-UNIT", "type": "FREQ_ADJUST", "available": True, "change_set": change}
+    with factory.begin() as session:
+        session.add(InterferenceWorkbenchRun(run_id="IR-UNIT", request_id="UNIT-RUN", task_id="T1", plan_id="P1",
+            scene_version_id=scene["version_id"], resource_revision=baseline["revision"], run_version=1,
+            state="SUCCESS", progress=100, phase="显式构造措施测试", source_snapshot=source, source_hash=digest(source),
+            result_snapshot={"measures": [measure]}, result_hash=digest({"measures": [measure]}),
+            actor_id="integration-planner", started_at=now(), updated_at=now()))
+        session.flush()
+        row = InterferenceWorkbenchAdoption(adoption_id="IAD-UNIT", task_id="T1", run_id="IR-UNIT", measure_id="CM-UNIT",
+            adoption_version=1, state="RUNNING", source_hash=digest(source), change_set=change, change_hash=digest(change),
+            planning_request_id="UNIT-NATIVE-CHILD", actor_id="integration-planner", created_at=now(), updated_at=now())
+        session.add(row)
+        origin = InterferenceReplanService.origin(row)
+    request = {"adoption_id": "IAD-UNIT", "task_id": "T1", "planning_request_id": "UNIT-NATIVE-CHILD",
+        "actor_id": "integration-planner", "interference_origin": origin, "source": source, "change_set": change}
+    complete = threading.Event()
+    real_submit = jobs.planning_w4.submit_sr4
+    def observed(payload, *, job_id, on_update):
+        def update(state):
+            on_update(state)
+            if state["status"] in ("SUCCESS", "FAILED", "CANCELLED"):
+                complete.set()
+        return real_submit(payload, job_id=job_id, on_update=update)
+    monkeypatch.setattr(jobs.planning_w4, "submit_sr4", observed)
+    job_id = jobs.submit_interference_replan(request, factory)
+    assert complete.wait(120), "真实小样本线程未结束；不能当已通过"
+    with factory() as session:
+        job = session.get(PlanningJob, job_id)
+        assert job.status == "SUCCESS", job.error
+        assert job.request_id == request["planning_request_id"] and job.parent_plan_id == "P1"
+        assert session.get(InterferenceWorkbenchAdoption, "IAD-UNIT").planning_job_id == job_id
+        assert session.get(PlanningCurrentPlan, "T1").plan_id == "P1"
+        assert session.get(PlanningPlan, "P1").raw_snapshot == raw
+    runtime = jobs.planning_w3.get_task_record(job_id)
+    plan = jobs.planning_w4.get_plan(runtime["result"]["solution_id"])["data"]
+    assert InterferenceReplanService.applied(change, plan["detail"])
+    assert plan["detail"]["interference"]["effect"]["origin"] == origin
+    assert plan["detail"]["interference"]["effect"]["sources"] == []
+    assert jobs.submit_interference_replan(request, factory) == job_id
+    with factory() as session:
+        assert len(session.scalars(select(PlanningJob).where(PlanningJob.request_id == "UNIT-NATIVE-CHILD")).all()) == 1
+    assert resources.current(factory) == resource

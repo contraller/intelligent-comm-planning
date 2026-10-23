@@ -22,7 +22,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import echelon as E
 from datapaths import path as dpath
-from terrain import default_terrain, haversine_m
+from terrain import DemTerrain, default_terrain, haversine_m
 from feasibility import stations_from_nodes
 import routing
 import frequency as FQ
@@ -297,6 +297,63 @@ def _candidate_score(objectives, checks, check_result, binding_errors, constrain
             -objectives["e2e_connectivity"], objectives["total_radiated_power_w"])
 
 
+def constrained_frequency_rows(rows, frequency_constraints=None):
+    """两类独立派生可用池，原始冻结行不改写；空集合不回退。"""
+    filters = {row["device_class"]: row for row in (frequency_constraints or {}).get("filters", [])}
+    ids = set()
+    for band in (E.HF, E.VUHF):
+        selected = filters.get(band, {})
+        pool = FQ.FreqPool(rows, device_class=band,
+            freq_range_khz=selected.get("range_khz"),
+            exclude_freq_ids=selected.get("exclude_freq_ids", []))
+        ids.update(row["freq_id"] for row in pool.channels)
+    return [copy.deepcopy(row) for row in rows if row["freq_id"] in ids]
+
+
+def _frozen_frequency_locks(detail, tasks, pool_rows, change):
+    FQ._prepare(tasks, FQ.FreqPool(pool_rows))
+    parent = {row["task_id"]: row for row in detail["frequency"]["assignments"]}
+    if len(parent) != len(detail["frequency"]["assignments"]):
+        raise ValueError("冻结网系频点编号重复")
+    locks = []
+    for task in tasks:
+        if task.task_id not in parent:
+            raise ValueError("父方案缺少网系实际频点：" + task.task_id)
+        frequency = float(parent[task.task_id]["freq_khz"])
+        if change["type"] in ("FREQ_ADJUST", "CHANNEL_SWITCH") and task.task_id == change["target"]["net_id"]:
+            frequency = float(change["detail"]["to_freq_khz"])
+        if not any(abs(row["freq_khz"] - frequency) < 1e-6 for row in task.allowed):
+            raise ValueError("冻结/采纳频点不在任务条件与型号共同可用池：" + task.task_id)
+        locks.append({"link_id": task.task_id, "freq_khz": frequency})
+    return locks
+
+
+def _apply_frozen_routes(routes, graph_links, metrics_rows, change):
+    """按精确物理链路重算主备路径指标，而非复制预览指标。"""
+    by_demand = {row["demand_id"]: row for row in routes["routes"]}
+    banned = set(change["detail"]["banned_links"])
+    for requested in change["detail"]["rerouted"]:
+        actual = by_demand[requested["demand_id"]]
+        for key in ("primary", "backup"):
+            path = requested.get(key)
+            if path is None:
+                actual[key] = None
+                continue
+            ids = set(path["link_path"])
+            if ids & banned:
+                raise ValueError("采纳路径包含排除链路")
+            graph = routing.graph_from_links([row for row in graph_links if row["link_id"] in ids], metrics_rows)[0]
+            calculated, errors = routing.check_manual_path(graph, path["node_path"])
+            if errors or calculated["link_path"] != path["link_path"]:
+                raise ValueError("采纳路径未精确关联冻结物理链路")
+            actual[key] = calculated
+        actual["reachable"] = actual["primary"] is not None
+        actual["backup_type"] = requested.get("backup_type", "NONE")
+        actual["single_point_risks"] = routing.single_point_risks(
+            routing.graph_from_links([row for row in graph_links if row["link_id"] not in banned], metrics_rows)[0],
+            actual["primary"]["node_path"][0], actual["primary"]["node_path"][-1], actual["primary"]) if actual["primary"] else []
+
+
 def run_from_parent(parent_snapshot, adjustment, device_refs, task_id, demand_rows,
                     preset="TERRAIN", strategy="MAX_RELIABILITY", constraints=None,
                     interference_rows=None, progress=None, resource_rows=None):
@@ -307,12 +364,31 @@ def run_from_parent(parent_snapshot, adjustment, device_refs, task_id, demand_ro
     nodes = copy.deepcopy(detail["nodes"])
     devices = copy.deepcopy(detail["devices"])
     links = copy.deepcopy(detail["links"])
+    binding = adjustment.get("interference")
+    change = binding["change_set"] if binding else None
+    if binding and (resource_rows is None or interference_rows != binding["sources"]
+                    or parent_snapshot["terrain_fingerprint"] != binding["terrain_fingerprint"]):
+        raise ValueError("干扰重算缺少精确冻结资源、场景或地形来源")
     inactive = {row["device_id"] for row in read("device.csv") if row.get("availability", "ACTIVE") != "ACTIVE"}
     if any(row["device_id"] in inactive or row.get("availability", "ACTIVE") != "ACTIVE" for row in devices):
         raise ValueError("父方案包含已下架设备，固定拓扑不能静默替换设备")
-    terrain = default_terrain(verbose=False)
+    terrain = DemTerrain() if binding else default_terrain(verbose=False)
+    if change and change["type"] == "NODE_REDEPLOY":
+        node = next(row for row in nodes if row["node_id"] == change["target"]["node_id"])
+        node.update(lon=change["detail"]["to_lon"], lat=change["detail"]["to_lat"])
+        positions = {row["node_id"]: (float(row["lon"]), float(row["lat"])) for row in nodes}
+        for link in links:
+            if node["node_id"] in (link["node_a_id"], link["node_b_id"]):
+                link["distance_m"] = haversine_m(*positions[link["node_a_id"]], *positions[link["node_b_id"]])
+    if binding:
+        for row in [*nodes, *interference_rows]:
+            west, south, east, north = terrain.bbox
+            if not west <= float(row["lon"]) <= east or not south <= float(row["lat"]) <= north:
+                raise ValueError("冻结/迁移对象超出已核验DEM范围")
     models, antennas = read("device_model.csv"), read("antenna_model.csv")
     pool_rows, metrics_rows = read("frequency_resource.csv"), read("link_metric.csv")
+    frequency_constraints = (resource_rows or {}).get("frequency_constraints")
+    pool_rows = constrained_frequency_rows(pool_rows, frequency_constraints)
     jam_rows = (read("interference_source.csv") if interference_rows is None
                 else [dict(row) for row in interference_rows])
     cand_rows = read("candidate_site.csv")
@@ -345,7 +421,9 @@ def run_from_parent(parent_snapshot, adjustment, device_refs, task_id, demand_ro
     if progress:
         progress(0.45, "电台参数与链路余量已重算")
 
-    graph = routing.graph_from_links(links, metrics_rows)[0]
+    route_links = [row for row in links if not change or change["type"] != "ROUTE_REBUILD"
+                   or row["link_id"] not in change["detail"]["banned_links"]]
+    graph = routing.graph_from_links(route_links, metrics_rows)[0]
     routes = routing.plan_routes(graph, demand_rows, default_strategy=strategy,
                                  manual_paths=adjustment["manual_paths"])
     invalid_paths = [row for row in routes["routes"] if row.get("manual_errors")]
@@ -358,8 +436,33 @@ def run_from_parent(parent_snapshot, adjustment, device_refs, task_id, demand_ro
         raise ValueError("；".join(device_path_errors))
     ftasks = FQ.tasks_from_nets(links, nodes, devices, models)
     FQ.fill_ranges_by_node(ftasks, links, nodes, devices, models)
-    frequency = FQ.assign(ftasks, FQ.FreqPool(pool_rows))
+    locks = _frozen_frequency_locks(detail, ftasks, pool_rows, change) if binding else None
+    frequency = FQ.assign(ftasks, FQ.FreqPool(pool_rows), manual=locks)
     frequency["link_assignments"] = FQ.expand_to_links(frequency, ftasks)
+    frequency["constraints"] = copy.deepcopy(frequency_constraints)
+    if binding:
+        scenario = IF.scenario_from_plan(dict(stations=stations, links=links, terrain=terrain,
+            frequency=frequency, freq_tasks=ftasks, params=params, devices=devices,
+            models=models, antennas=antennas), jam_rows)
+        states = {link.link_id: scenario.link_state(link) for link in scenario.links}
+        for row in params["links"]:
+            state = states[row["link_id"]]
+            row.update(margin_before_interference_db=state["margin_before"],
+                       margin_db=state["margin_after"],
+                       meets=state["margin_after"] >= row["required_margin_db"] - 1e-6)
+        params["failed_links"] = [row for row in params["links"] if not row["meets"]]
+        params["summary"].update(failed=len(params["failed_links"]),
+            min_margin_db=min(row["margin_db"] for row in params["links"]))
+        for link in links:
+            if link["link_id"] in states:
+                link["link_margin_db"] = states[link["link_id"]]["margin_after"]
+        graph = routing.graph_from_links(route_links, metrics_rows)[0]
+        routes = routing.plan_routes(graph, demand_rows, default_strategy=strategy,
+                                     manual_paths=adjustment["manual_paths"])
+        if change["type"] == "ROUTE_REBUILD":
+            _apply_frozen_routes(routes, route_links, metrics_rows, change)
+        if endpoint_binding_errors(links, demand_rows, routes):
+            raise ValueError("重算路由端点与精确物理设备绑定不一致")
     check = plan_check.check(freq_result=frequency, freq_tasks=ftasks,
                             param_result=params, route_result=routes,
                             links=links, nodes=nodes, caps=caps,
@@ -392,7 +495,11 @@ def run_from_parent(parent_snapshot, adjustment, device_refs, task_id, demand_ro
         frequency=frequency, freq_tasks=ftasks, params=params,
         devices=devices, models=models, antennas=antennas,
     ), jam_rows)
-    analysis = IF.analyze(scenario, area=True, area_cell_m=3000.0)
+    analysis = IF.analyze(scenario, area=not bool(binding), area_cell_m=3000.0)
+    if binding:
+        analysis["affected_area"] = (IF.affected_area(scenario, cell_m=3000.0, bbox=terrain.bbox)
+            if scenario.jammers else {"type": "FeatureCollection", "features": [],
+                "properties": {"cell_m": 3000.0, "bbox": list(terrain.bbox)}})
     measures, unresolved, review = IF.recommend(
         scenario, analysis, freq_ctx=IF.FreqContext(ftasks, frequency["assignments"]),
         caps=caps, route_ctx=(graph, routes), candidate_rows=cand_rows,
@@ -407,7 +514,12 @@ def run_from_parent(parent_snapshot, adjustment, device_refs, task_id, demand_ro
         params=params, check=check,
         interference=dict(analysis={key: value for key, value in analysis.items()
                                     if key != "_states"},
-                          countermeasures=measures, unresolved=unresolved, review=review),
+                          countermeasures=measures, unresolved=unresolved, review=review,
+                          **({"effect": {"origin": copy.deepcopy(adjustment["interference_origin"]),
+                              "change_set": copy.deepcopy(change), "sources": copy.deepcopy(jam_rows),
+                              "terrain_fingerprint": binding["terrain_fingerprint"],
+                              "parameter_substitutions": copy.deepcopy(binding["parameter_substitutions"]),
+                              "frequency_constraints": copy.deepcopy(frequency_constraints)}} if binding else {})),
         links=links, nodes=nodes, devices=devices,
     )
 
@@ -496,6 +608,8 @@ def run(task_id=None, preset="TERRAIN", strategy="MAX_RELIABILITY",
     if interference_rows is not None:
         jam_rows = [dict(row) for row in interference_rows]
     pool_rows = pool_rows + extra_freq_rows
+    frequency_constraints = (resource_rows or {}).get("frequency_constraints")
+    pool_rows = constrained_frequency_rows(pool_rows, frequency_constraints)
     metrics_rows, cand_rows = read("link_metric.csv"), read("candidate_site.csv")
     stations = stations_from_nodes(nodes, devices, models, antennas)
     steps.append(("1 任务条件输入（需求 %d 条）" % len(demands), time.time() - t0))
@@ -583,6 +697,7 @@ def run(task_id=None, preset="TERRAIN", strategy="MAX_RELIABILITY",
     st2, g, routes = selected["stations"], selected["graph"], selected["routes"]
     binding_errors = selected["binding_errors"]
     ftasks, freq, caps2 = selected["ftasks"], selected["frequency"], selected["caps"]
+    freq["constraints"] = copy.deepcopy(frequency_constraints)
     params, chk = selected["params"], selected["check"]
     steps.append(("5 候选拓扑闭环校验（%d 套）" % checked, time.time() - t0))
     if progress:

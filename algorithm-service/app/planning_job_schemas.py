@@ -1,11 +1,12 @@
 """SR4 规划作业提交接口的请求结构。"""
 from __future__ import annotations
 
-from typing import Annotated, Literal
+from typing import Annotated, Any, Literal
 
-from pydantic import Field, model_validator
+from pydantic import Field, StrictStr, model_validator
 
 from .task_input_schemas import FiniteNumber, Identifier, InputModel
+from .interference_frontend_schemas import Hash, PathIdentifier, VersionId
 
 
 class PlanningDeviceOverride(InputModel):
@@ -32,12 +33,35 @@ class PlanningManualPath(InputModel):
         return self
 
 
+class PlanningInterferenceOrigin(InputModel):
+    adoption_id: VersionId
+    run_id: VersionId
+    measure_id: VersionId
+    source_hash: Hash
+    change_hash: Hash
+    actor_id: PathIdentifier
+
+
+class PlanningInterferenceInput(InputModel):
+    scene_id: PathIdentifier
+    scene_version_id: VersionId
+    scene_snapshot_hash: Hash
+    resource_content_hash: Hash
+    terrain_fingerprint: Hash
+    data_origin: StrictStr
+    change_set: dict[str, Any]
+    sources: list[dict[str, StrictStr]]
+    parameter_substitutions: list[list[Any]]
+
+
 class PlanningAdjustmentInput(InputModel):
     schema_version: Literal[1]
     source_plan_id: Identifier
     source_snapshot_id: Identifier
     manual_override: list[PlanningDeviceOverride]
     manual_paths: list[PlanningManualPath]
+    interference_origin: PlanningInterferenceOrigin | None = None
+    interference: PlanningInterferenceInput | None = None
 
     @model_validator(mode="after")
     def check_unique(self) -> PlanningAdjustmentInput:
@@ -45,6 +69,8 @@ class PlanningAdjustmentInput(InputModel):
             raise ValueError("设备调整编号不能重复")
         if len({row.demand_id for row in self.manual_paths}) != len(self.manual_paths):
             raise ValueError("人工路径的需求编号不能重复")
+        if (self.interference_origin is None) != (self.interference is None):
+            raise ValueError("干扰来源与冻结变化必须成对提供")
         return self
 
 

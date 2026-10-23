@@ -173,7 +173,13 @@ class FrozenInterferenceEngine:
         ftasks = FQ.tasks_from_nets(links, nodes, devices, models)
         FQ.fill_ranges_by_node(ftasks, links, nodes, devices, models)
         # 仅准备候选频点，不重新分配已确认方案的现用频点。
-        FQ._prepare(ftasks, FQ.FreqPool(tables["frequency_resource.csv"]))
+        constrained_frequency_rows = importlib.import_module("sr4_flow").constrained_frequency_rows
+        filters = scene["plan_snapshot"].get("input_snapshot", {}).get("frequencyConstraints")
+        frequency_constraints = (None if filters is None else {"filters": [
+            {"device_class": row["deviceClass"], "range_khz": row["rangeKhz"],
+             "exclude_freq_ids": list(row["excludeFreqIds"])} for row in filters["filters"]]})
+        pool_rows = constrained_frequency_rows(tables["frequency_resource.csv"], frequency_constraints)
+        FQ._prepare(ftasks, FQ.FreqPool(pool_rows))
         graph = routing.graph_from_links(links, tables["link_metric.csv"])[0]
         return modules, scenario, ftasks, RP.capabilities_by_device(stations, devices, models, antennas), graph, filler.substitutions
 
