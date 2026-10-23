@@ -133,25 +133,43 @@ async def _public_body(request, model):
 @router.post("/import-preview")
 async def preview_import(request: Request, actor: dict = Depends(_import_actor)):
     body = await _public_body(request, ObservationImportPreview)
+    if body.file.schemaVersion == 2:
+        identities.require(request, "resources.view")
     return _ok(service.preview_import(body.file, factory=get_session_factory()))
 
 
 @router.post("/imports")
 async def import_dataset(request: Request, actor: dict = Depends(_import_actor)):
     body = await _public_body(request, ObservationImportCommand)
+    if body.file.schemaVersion == 2:
+        identities.require(request, "resources.view")
     return _ok(service.import_file(body, actor_id=actor["account_id"], factory=get_session_factory()))
 
 
 @router.get("/imports/{request_id}")
 def get_import_receipt(request: Request, request_id: str, actor: dict = Depends(_import_actor), session: Session = Depends(get_db)):
-    _query(request, set())
+    values = _query(request, {"include_device_status_ref"})
     request_id = TypeAdapter(Identifier).validate_python(request_id, strict=True)
-    return _ok(service.import_receipt(session, request_id, actor["account_id"]))
+    return _ok(service.import_receipt(session, request_id, actor["account_id"], _include_ref(values)))
+
+
+def _include_ref(values):
+    value = values.get("include_device_status_ref", "false")
+    if value not in ("true", "false"):
+        raise service.ObservationError("关联投影开关须为true或false", 1001, 422)
+    return value == "true"
+
+
+@router.get("/datasets/{dataset_id}/device-status-ref")
+def get_device_status_ref(request: Request, dataset_id: str, session: Session = Depends(get_db)):
+    selected = _selection(dataset_id, _query(request, {"dataset_revision"}))
+    return _ok(service.device_status_ref(session, selected.dataset_id, selected.dataset_revision))
 
 
 @router.get("/datasets/{dataset_id}/export")
 def export_dataset(request: Request, dataset_id: str, session: Session = Depends(get_db)):
-    selected = _selection(dataset_id, _query(request, {"dataset_revision"}))
-    raw = service.export_dataset(session, selected.dataset_id, selected.dataset_revision)
+    values = _query(request, {"dataset_revision", "include_device_status_ref"})
+    selected = _selection(dataset_id, values)
+    raw = service.export_dataset(session, selected.dataset_id, selected.dataset_revision, _include_ref(values))
     return Response(raw, media_type="application/json", headers={"Content-Disposition":
         f'attachment; filename="spectrum-observation-{selected.dataset_revision}.json"', "Cache-Control": "no-store"})

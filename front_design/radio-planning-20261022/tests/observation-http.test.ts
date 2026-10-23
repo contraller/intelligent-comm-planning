@@ -4,7 +4,7 @@ import { assertObservationQuery } from '../src/services/observation-validation';
 import { OBSERVATION_ORIGIN } from '../src/types/observation';
 import type { ObservationFrame, ObservationServices } from '../src/types/observation';
 import type { AuthenticatedRequest } from '../src/services/auth-http';
-import type { ObservationImportFile } from '../src/types/observation';
+import type { ObservationImportFile, ObservationImportFileV2 } from '../src/types/observation';
 
 describe('R2显式导入已认证适配', () => {
   function file(): ObservationImportFile {
@@ -33,6 +33,15 @@ describe('R2显式导入已认证适配', () => {
 const hash = 'a'.repeat(64), revision = 'observation-' + hash;
 const selection = { datasetId: 'obs:A', datasetRevision: revision };
 const stamp = '2026-10-05T01:00:00.000000Z';
+function statusFile(): ObservationImportFileV2 {
+  const { datasetId: _id, datasetRevision: _revision, dataOrigin: _origin, ...raw } = frame();
+  return { schemaVersion: 2, fileKind: 'SPECTRUM_OBSERVATION_DATASET', dataOrigin: OBSERVATION_ORIGIN,
+    dataset: { datasetId: selection.datasetId, provenanceNote: '显式构造，非实测', resourceRevision: 'resource-v1', deviceStatusSnapshotId: null, source: summary().source, frames: [raw] },
+    deviceStatusRef: { snapshotId: 'DSS-' + 'b'.repeat(32), snapshotRevision: 'device-status-' + 'c'.repeat(64), resourceRevision: 'resource-v1', deviceIds: ['device-B', 'device-A'] } };
+}
+function statusWire() { return { ...statusFile().deviceStatusRef, deviceIds: ['device-A', 'device-B'], refRevision: 'OSR-' + 'd'.repeat(64), contentHash: 'd'.repeat(64) }; }
+function statusOperation(requestId: string) { return { schemaVersion: 2, dataOrigin: OBSERVATION_ORIGIN, requestId, operationType: 'OBSERVATION_IMPORT', status: 'COMMITTED',
+  receipt: { requestId, actorId: 'actor', ...selection, dataOrigin: OBSERVATION_ORIGIN, resourceRevision: 'resource-v1', frameCount: 1, changed: true, importedAt: stamp }, deviceStatusRef: statusWire() }; }
 function summary() {
   return { ...selection, schemaVersion: 1, dataOrigin: OBSERVATION_ORIGIN,
     provenanceNote: '显式构造契约测试，非实测', resourceRevision: 'resource-v1', deviceStatusSnapshotId: null,
@@ -67,6 +76,50 @@ function client(data: unknown) {
   return { api: createObservationHttp({ baseUrl: () => '/api/v1', fetcher }), fetcher };
 }
 afterEach(() => { vi.useRealTimers(); });
+
+describe('V2冻结状态关联与V1兼容', () => {
+  it('预检冻结嵌套Ref/成员，返回正文hash不等于预检hash', async () => {
+    let finish!: (value: unknown) => void;
+    const request = vi.fn((_path: string, _init?: RequestInit) => new Promise(done => { finish = done; }));
+    const api = createObservationHttp({ baseUrl: () => '/api/v1', authenticatedRequest: request as AuthenticatedRequest });
+    const input = { file: statusFile(), signal: new AbortController().signal }, original = structuredClone(input.file);
+    const pending = api.previewObservationImport(input); input.file.deviceStatusRef.deviceIds.push('late'); input.file.deviceStatusRef.snapshotId = 'DSS-' + '0'.repeat(32);
+    finish({ schemaVersion: 2, dataOrigin: OBSERVATION_ORIGIN, previewHash: 'e'.repeat(64), datasetContentHash: hash, datasetRevision: revision,
+      datasetId: selection.datasetId, resourceRevision: 'resource-v1', source: original.dataset.source, frameCount: 1, sourceBinding: 'DECLARED_ONLY', warnings: ['构造非实测'], deviceStatusRef: statusWire() });
+    expect((await pending).schemaVersion).toBe(2); expect(JSON.parse(request.mock.calls[0][1]!.body as string).file).toEqual(original); expect(request.mock.calls[0][1]!.signal).toBe(input.signal);
+  });
+  it('提交只把datasetContentHash当正文版本，并精确核对绑定', async () => {
+    const request = vi.fn(async () => statusOperation('v2-request'));
+    const api = createObservationHttp({ baseUrl: () => '/api/v1', authenticatedRequest: request as AuthenticatedRequest });
+    const input = { file: statusFile(), requestId: 'v2-request', previewHash: 'e'.repeat(64), datasetContentHash: hash };
+    expect((await api.importObservation(input)).receipt?.datasetRevision).toBe(revision);
+    request.mockResolvedValueOnce({ ...statusOperation('v2-request'), deviceStatusRef: { ...statusWire(), deviceIds: ['device-A'] } });
+    await expect(api.importObservation(input)).rejects.toMatchObject({ code: 'INVALID_OBSERVATION_RESPONSE' });
+    request.mockResolvedValueOnce({ ...statusOperation('v2-request'), receipt: { ...statusOperation('v2-request').receipt, datasetRevision: 'observation-' + input.previewHash } });
+    await expect(api.importObservation(input)).rejects.toMatchObject({ code: 'INVALID_OBSERVATION_RESPONSE' });
+  });
+  it('回执投影和新GET保持发起查询，跨协议回执拒绝', async () => {
+    let finish!: (value: unknown) => void;
+    const request = vi.fn((_path: string, _init?: RequestInit) => new Promise(done => { finish = done; }));
+    const api = createObservationHttp({ baseUrl: () => '/api/v1', authenticatedRequest: request as AuthenticatedRequest });
+    const input = { requestId: 'original', includeDeviceStatusRef: true, signal: new AbortController().signal };
+    const pending = api.getObservationImportReceipt(input); input.requestId = 'late'; input.includeDeviceStatusRef = false;
+    finish(statusOperation('original')); expect((await pending).schemaVersion).toBe(2); expect(request.mock.calls[0][0]).toContain('/imports/original?include_device_status_ref=true');
+    const query = { ...selection, signal: input.signal }, refRead = api.getObservationDeviceStatusRef(query); query.datasetId = 'late';
+    finish({ ...selection, schemaVersion: 1, dataOrigin: OBSERVATION_ORIGIN, resourceRevision: 'resource-v1', deviceStatusRef: statusWire() });
+    expect((await refRead).datasetId).toBe(selection.datasetId); expect(request.mock.calls[1][1]!.signal).toBe(input.signal);
+    const cross = api.getObservationImportReceipt({ requestId: 'cross', includeDeviceStatusRef: true });
+    const { deviceStatusRef: _ref, ...old } = statusOperation('cross'); finish({ ...old, schemaVersion: 1 });
+    await expect(cross).rejects.toMatchObject({ code: 'INVALID_OBSERVATION_RESPONSE' });
+  });
+  it('导出显式要求完整关联，默认V1不可悄悄变V2', async () => {
+    const request = vi.fn(async (_path: string, _init?: RequestInit, _responseType?: string) => new Blob([JSON.stringify(statusFile())]));
+    const api = createObservationHttp({ baseUrl: () => '/api/v1', authenticatedRequest: request as AuthenticatedRequest });
+    expect((await api.exportObservationDataset({ ...selection, includeDeviceStatusRef: true })).size).toBeGreaterThan(0);
+    expect(request.mock.calls[0][0]).toContain('include_device_status_ref=true');
+    await expect(api.exportObservationDataset(selection)).rejects.toMatchObject({ code: 'INVALID_OBSERVATION_RESPONSE' });
+  });
+});
 
 describe('P07 独立只读频谱适配器', () => {
   it('交付入口只使用已认证请求，保留会话拒绝而不回退裸请求', async () => {

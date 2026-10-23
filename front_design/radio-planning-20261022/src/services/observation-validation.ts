@@ -1,7 +1,7 @@
 import { OBSERVATION_ORIGIN } from '../types/observation';
 import type { ObservationContext, ObservationDataset, ObservationFrame, ObservationFramePage, ObservationFrameQuery, ObservationFrameResult, ObservationIndexQuery, ObservationPage, ObservationPageQuery, ObservationSelection } from '../types/observation';
 import { ApiError } from './types';
-import type { ObservationImportFile, ObservationImportOperation, ObservationImportPreview } from '../types/observation';
+import type { ObservationImportFile, ObservationImportOperation, ObservationImportPreview, ObservationDeviceStatusRefInput, ObservationDeviceStatusRefWire, ObservationDeviceStatusRefResult } from '../types/observation';
 
 type RecordValue = Record<string, unknown>;
 const idPattern = /^[A-Za-z0-9_.:-]{1,120}$/;
@@ -148,7 +148,10 @@ function fileTime(value: unknown): string | null {
 }
 
 export function decodeObservationImportFile(value: unknown): ObservationImportFile {
-  const data = record(value, ['schemaVersion', 'fileKind', 'dataOrigin', 'dataset']); header(data);
+  const version = record(value).schemaVersion;
+  check(version === 1 || version === 2);
+  const data = record(value, ['schemaVersion', 'fileKind', 'dataOrigin', 'dataset', ...(version === 2 ? ['deviceStatusRef'] : [])]);
+  check(data.dataOrigin === OBSERVATION_ORIGIN);
   check(data.fileKind === 'SPECTRUM_OBSERVATION_DATASET');
   const ds = record(data.dataset, ['datasetId', 'provenanceNote', 'resourceRevision', 'deviceStatusSnapshotId', 'source', 'frames']);
   check(identifier(ds.datasetId) && identifier(ds.resourceRevision) && text(ds.provenanceNote, 500) && ds.deviceStatusSnapshotId === null);
@@ -168,29 +171,64 @@ export function decodeObservationImportFile(value: unknown): ObservationImportFi
     check(row.bins.every(bin => bin.minKhz >= (source.minKhz as number) && bin.maxKhz <= (source.maxKhz as number)));
   }
   check(new TextEncoder().encode(JSON.stringify(value)).byteLength <= 2 * 1024 * 1024);
+  if (version === 2) check(decodeObservationStatusRefInput(data.deviceStatusRef).resourceRevision === ds.resourceRevision);
   return value as ObservationImportFile;
 }
 
+export function decodeObservationStatusRefInput(value: unknown): ObservationDeviceStatusRefInput {
+  const data = record(value, ['snapshotId', 'snapshotRevision', 'resourceRevision', 'deviceIds']);
+  check(typeof data.snapshotId === 'string' && /^DSS-[0-9a-f]{32}$/.test(data.snapshotId));
+  check(typeof data.snapshotRevision === 'string' && /^device-status-[0-9a-f]{64}$/.test(data.snapshotRevision) && identifier(data.resourceRevision));
+  check(Array.isArray(data.deviceIds) && data.deviceIds.length >= 1 && data.deviceIds.length <= 1000 && data.deviceIds.every(identifier) && new Set(data.deviceIds).size === data.deviceIds.length);
+  return value as ObservationDeviceStatusRefInput;
+}
+export function observationStatusRefInput(value: ObservationDeviceStatusRefInput): ObservationDeviceStatusRefInput {
+  return { snapshotId: value.snapshotId, snapshotRevision: value.snapshotRevision, resourceRevision: value.resourceRevision, deviceIds: [...value.deviceIds].sort() };
+}
+export function sameObservationStatusRef(left: ObservationDeviceStatusRefInput, right: ObservationDeviceStatusRefInput): boolean {
+  return JSON.stringify(observationStatusRefInput(left)) === JSON.stringify(observationStatusRefInput(right));
+}
+function statusRefWire(value: unknown, resourceRevision: string): ObservationDeviceStatusRefWire {
+  const data = record(value, ['snapshotId', 'snapshotRevision', 'resourceRevision', 'deviceIds', 'refRevision', 'contentHash']);
+  const input = decodeObservationStatusRefInput({ snapshotId: data.snapshotId, snapshotRevision: data.snapshotRevision, resourceRevision: data.resourceRevision, deviceIds: data.deviceIds });
+  check(input.resourceRevision === resourceRevision && input.deviceIds.every((id, index) => !index || input.deviceIds[index - 1] < id));
+  check(typeof data.contentHash === 'string' && /^[0-9a-f]{64}$/.test(data.contentHash) && data.refRevision === 'OSR-' + data.contentHash);
+  return value as ObservationDeviceStatusRefWire;
+}
+export function decodeObservationDeviceStatusRef(value: unknown, input: ObservationSelection): ObservationDeviceStatusRefResult {
+  const data = record(value, ['schemaVersion', 'dataOrigin', 'datasetId', 'datasetRevision', 'resourceRevision', 'deviceStatusRef']); header(data);
+  check(data.datasetId === input.datasetId && data.datasetRevision === input.datasetRevision && identifier(data.resourceRevision));
+  if (data.deviceStatusRef !== null) statusRefWire(data.deviceStatusRef, data.resourceRevision);
+  return value as ObservationDeviceStatusRefResult;
+}
+
 export function decodeObservationImportPreview(value: unknown, file: ObservationImportFile): ObservationImportPreview {
-  const data = record(value, ['schemaVersion', 'dataOrigin', 'previewHash', 'datasetId', 'resourceRevision', 'source', 'frameCount', 'sourceBinding', 'warnings']); header(data);
+  const data = record(value, ['schemaVersion', 'dataOrigin', 'previewHash', 'datasetId', 'resourceRevision', 'source', 'frameCount', 'sourceBinding', 'warnings', ...(file.schemaVersion === 2 ? ['datasetContentHash', 'datasetRevision', 'deviceStatusRef'] : [])]);
+  check(data.schemaVersion === file.schemaVersion && data.dataOrigin === OBSERVATION_ORIGIN);
   check(typeof data.previewHash === 'string' && /^[0-9a-f]{64}$/.test(data.previewHash));
   check(data.datasetId === file.dataset.datasetId && data.resourceRevision === file.dataset.resourceRevision && data.frameCount === file.dataset.frames.length);
   const source = record(data.source, ['sourceId', 'name', 'configRevision', 'minKhz', 'maxKhz', 'intervalSeconds']);
   check(Object.entries(file.dataset.source).every(([key, item]) => source[key] === item));
   check(['REGISTERED_VERSION', 'DECLARED_ONLY'].includes(String(data.sourceBinding)) && reasons(data.warnings) && data.warnings.length > 0);
+  if (file.schemaVersion === 2) {
+    check(typeof data.datasetContentHash === 'string' && /^[0-9a-f]{64}$/.test(data.datasetContentHash) && data.datasetRevision === 'observation-' + data.datasetContentHash);
+    check(sameObservationStatusRef(statusRefWire(data.deviceStatusRef, file.dataset.resourceRevision), file.deviceStatusRef));
+  }
   return value as ObservationImportPreview;
 }
 
-export function decodeObservationImportOperation(value: unknown, requestId: string): ObservationImportOperation {
-  const data = record(value, ['schemaVersion', 'dataOrigin', 'requestId', 'operationType', 'status', 'receipt']); header(data);
+export function decodeObservationImportOperation(value: unknown, requestId: string, includeRef = false): ObservationImportOperation {
+  const data = record(value, ['schemaVersion', 'dataOrigin', 'requestId', 'operationType', 'status', 'receipt', ...(includeRef ? ['deviceStatusRef'] : [])]);
+  check(data.schemaVersion === (includeRef ? 2 : 1) && data.dataOrigin === OBSERVATION_ORIGIN);
   check(data.requestId === requestId && data.operationType === 'OBSERVATION_IMPORT');
-  if (data.status === 'NOT_FOUND') check(data.receipt === null);
+  if (data.status === 'NOT_FOUND') { check(data.receipt === null); if (includeRef) check(data.deviceStatusRef === null); }
   else {
     check(data.status === 'COMMITTED');
     const receipt = record(data.receipt, ['requestId', 'actorId', 'datasetId', 'datasetRevision', 'dataOrigin', 'resourceRevision', 'frameCount', 'changed', 'importedAt']);
     check(receipt.requestId === requestId && identifier(receipt.actorId) && identifier(receipt.datasetId) && revision(receipt.datasetRevision));
     check(receipt.dataOrigin === OBSERVATION_ORIGIN && identifier(receipt.resourceRevision) && integer(receipt.frameCount, 1, 256));
     check(typeof receipt.changed === 'boolean' && time(receipt.importedAt, false));
+    if (includeRef && data.deviceStatusRef !== null) statusRefWire(data.deviceStatusRef, receipt.resourceRevision as string);
   }
   return value as ObservationImportOperation;
 }

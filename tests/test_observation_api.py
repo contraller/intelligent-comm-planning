@@ -63,6 +63,7 @@ def database(tmp_path, monkeypatch):
     OBSERVATION_METADATA.create_all(engine)
     factory = sessionmaker(bind=engine, expire_on_commit=False, autoflush=False)
     monkeypatch.setenv("FRONTEND_INTEGRATION_DEMO", "1")
+    monkeypatch.setenv("AUTH_MODE", "INTEGRATION")
     monkeypatch.setenv("RESOURCE_DATASET_MODE", "database")
     monkeypatch.setattr(identities, "get_session_factory", lambda: factory)
     snapshot = resources.initialize(factory)
@@ -120,7 +121,7 @@ def test_empty_context_and_preserved_four_get_routes(database):
     assert value["replay"]["loop"] is False
     assert get(db, "/datasets").json()["data"]["items"] == []
     assert counts(db) == (0, 0, 0)
-    assert len(router.routes) == 8
+    assert len(router.routes) == 9
     assert sum(route.methods == {"POST"} for route in router.routes) == 2
     assert {PREFIX + path for path in ("/context", "/datasets", "/datasets/{dataset_id}/frames", "/datasets/{dataset_id}/frames/{index}")} <= {route.path for route in router.routes if route.methods == {"GET"}}
 
@@ -393,6 +394,56 @@ def test_authorization_precedes_database_dependency(database, monkeypatch):
     monkeypatch.setenv("FRONTEND_INTEGRATION_DEMO", "0")
     response = get(database, "/context")
     assert response.status_code == 401 and response.json()["code"] == 1101
+
+
+@pytest.mark.parametrize("mode,demo,allowed", [
+    (None, None, False), (None, "1", True), ("INTEGRATION", "1", True), ("INTEGRATION", "0", False),
+    ("LOCAL_PASSWORD", None, True), ("LOCAL_PASSWORD", "0", True), ("LOCAL_PASSWORD", "false", True),
+    ("LOCAL_PASSWORD", "1", False), ("OFF", None, False), ("OFF", "1", False),
+    ("unknown", "1", False), ("local_password", "0", False), ("", "1", False),
+])
+def test_synthetic_workflow_auth_mode_matrix(monkeypatch, mode, demo, allowed):
+    for name, value in (("AUTH_MODE", mode), ("FRONTEND_INTEGRATION_DEMO", demo)):
+        if value is None:
+            monkeypatch.delenv(name, raising=False)
+        else:
+            monkeypatch.setenv(name, value)
+    assert service.synthetic_workflows_enabled() is allowed
+    if not allowed:
+        from app import spectrum_source_service as sources
+        def forbidden_factory():
+            pytest.fail("关闭或冲突模式不得访问业务数据库")
+        for action in (
+            lambda: service.import_synthetic_dataset({}, actor_id="trusted-internal", factory=forbidden_factory),
+            lambda: service.preview_import({}, factory=forbidden_factory),
+            lambda: service.import_file({}, actor_id="trusted-internal", factory=forbidden_factory),
+            lambda: sources.save_source({}, actor_id="trusted-internal", factory=forbidden_factory),
+            lambda: sources.check_source("source:HF", {}, actor_id="trusted-internal", factory=forbidden_factory),
+        ):
+            with pytest.raises(service.ObservationError) as error:
+                action()
+            assert (error.value.status, error.value.code) == (401, 1101)
+
+
+def test_local_synthetic_import_internal_actor_and_uninstalled_identity_fail_closed(public_api, monkeypatch):
+    db = public_api
+    monkeypatch.setenv("AUTH_MODE", "LOCAL_PASSWORD")
+    monkeypatch.setenv("FRONTEND_INTEGRATION_DEMO", "0")
+    # 服务层用显式可信actor验证LOCAL可写，不冒充真实登录或权限集成。
+    file = portable(db)
+    info = service.preview_import(file, factory=db["factory"])
+    result = service.import_file({"file": file, "requestId": "local-import", "previewHash": info["previewHash"]},
+        actor_id="local-service-unit", factory=db["factory"])
+    assert result["receipt"]["actorId"] == "local-service-unit"
+    assert result["receipt"]["dataOrigin"] == "SYNTHETIC_INTEGRATION" and counts(db) == (1, 3, 1)
+    def forbidden_factory():
+        pytest.fail("未安装真实LOCAL身份时不得进入业务factory")
+    monkeypatch.setattr(observation_routes, "get_session_factory", forbidden_factory)
+    db["app"].dependency_overrides[get_db] = forbidden_factory
+    assert get(db, "/context").status_code == 401
+    assert post(db, "/import-preview", {"file": file}).status_code == 401
+    assert post(db, "/imports", {"file": file, "requestId": "must-not-write", "previewHash": info["previewHash"]}).status_code == 401
+    assert counts(db) == (1, 3, 1)
 
 
 def test_get_is_read_only_and_missing_tables_do_not_initialize(database, tmp_path, monkeypatch):

@@ -9,6 +9,8 @@
           <label>观测集编号<input v-model="datasetId" maxlength="120" /></label>
           <label>资源来源版本<input v-model="resourceInput" maxlength="120" /></label>
           <label>导入来源说明<textarea v-model="note" maxlength="500" /></label>
+          <label class="status-toggle"><input v-model="linkStatus" type="checkbox" :disabled="!deviceStatusRef" />关联已选冻结状态快照</label>
+          <small v-if="deviceStatusRef">{{ deviceStatusRef.snapshotId }} · {{ deviceStatusRef.deviceIds.length }} 个声明成员</small>
           <button class="btn" type="button" @click="choosePreset">选择该构造预设</button>
         </div>
       </details>
@@ -21,6 +23,7 @@
       <dt>资源历史来源</dt><dd>{{ store.state.file.dataset.resourceRevision }}</dd>
       <dt>帧数</dt><dd>{{ store.state.file.dataset.frames.length }}</dd>
       <dt>标源说明</dt><dd>{{ store.state.file.dataset.provenanceNote }}</dd>
+      <template v-if="store.state.file.schemaVersion === 2"><dt>冻结状态来源</dt><dd>{{ store.state.file.deviceStatusRef.snapshotId }} · {{ store.state.file.deviceStatusRef.deviceIds.length }} 个声明成员 · 构造资料</dd></template>
     </dl>
     <div v-if="store.state.preview && !store.state.receipt" class="preview">
       <strong>预检通过 · 尚未写入</strong>
@@ -48,28 +51,33 @@ import AppDrawer from './AppDrawer.vue';
 import DecisionDialog from './DecisionDialog.vue';
 import { spectrumObservationPresets } from '../mocks/spectrum-observation-presets';
 import { createObservationImportStore } from '../stores/spectrum-observations';
-import type { ObservationServices, ObservationSource, ObservationImportReceipt } from '../types/observation';
+import type { ObservationServices, ObservationSource, ObservationImportReceipt, ObservationDeviceStatusRefInput } from '../types/observation';
 import type { Decision, DecisionRequest } from '../types/resource-edit';
-const props = defineProps<{ visible: boolean; services: ObservationServices; resourceRevision: string; sourceSelection: ObservationSource | null; canImport: boolean; sessionGeneration: string }>();
+const props = defineProps<{ visible: boolean; services: ObservationServices; resourceRevision: string; sourceSelection: ObservationSource | null; canImport: boolean; sessionGeneration: string; deviceStatusRef?: ObservationDeviceStatusRefInput | null }>();
 const emit = defineEmits<{ 'update:visible': [value: boolean]; 'dirty-change': [value: boolean]; 'busy-change': [value: boolean]; committed: [value: ObservationImportReceipt] }>();
 const store = createObservationImportStore(props.services, () => props.canImport, value => emit('committed', value));
 const presetId = ref(spectrumObservationPresets[0].id), datasetId = ref(''), resourceInput = ref(props.resourceRevision), note = ref('仓库既有频谱观测预设，显式构造导入，非实测');
 const locked = computed(() => store.state.busy || !!store.state.pending), decision = ref<DecisionRequest | null>(null);
+const linkStatus = ref(false), fileSource = ref<'uploaded' | 'preset' | null>(null);
 let resolve: ((value: Decision) => void) | undefined, uploadSerial = 0;
 function answer(value: Decision) { decision.value = null; resolve?.(value); resolve = undefined; }
 async function upload(event: Event) {
   const file = (event.target as HTMLInputElement).files?.[0], serial = ++uploadSerial;
   if (!file || locked.value) return;
   if (file.size > 2 * 1024 * 1024) { store.state.error = '文件超过2MiB，未读取或截断'; return; }
-  try { const text = await file.text(); if (serial !== uploadSerial || !props.visible) return; store.choose(JSON.parse(text.replace(/^\uFEFF/, ''))); }
+  try { const text = await file.text(); if (serial !== uploadSerial || !props.visible) return; fileSource.value = 'uploaded'; store.choose(JSON.parse(text.replace(/^\uFEFF/, ''))); }
   catch { if (serial === uploadSerial) store.state.error = 'JSON文件编码或结构无效'; }
 }
 function choosePreset() {
+  if (locked.value) return;
+  fileSource.value = 'preset';
+  if (linkStatus.value && !props.deviceStatusRef) { store.choose(null); store.state.error = '未选择完整冻结状态引用'; return; }
   const preset = spectrumObservationPresets.find(row => row.id === presetId.value)!;
   const selection = props.sourceSelection;
   const source = selection && selection.minKhz === preset.minKhz && selection.maxKhz === preset.maxKhz ? { ...selection } :
     { sourceId: preset.id, name: preset.label, configRevision: 'existing-preset-v1', minKhz: preset.minKhz, maxKhz: preset.maxKhz, intervalSeconds: null };
-  store.choose({ schemaVersion: 1, fileKind: 'SPECTRUM_OBSERVATION_DATASET', dataOrigin: 'SYNTHETIC_INTEGRATION',
+  store.choose({ schemaVersion: linkStatus.value ? 2 : 1, fileKind: 'SPECTRUM_OBSERVATION_DATASET', dataOrigin: 'SYNTHETIC_INTEGRATION',
+    ...(linkStatus.value ? { deviceStatusRef: JSON.parse(JSON.stringify(props.deviceStatusRef)) } : {}),
     dataset: { datasetId: datasetId.value, provenanceNote: note.value, resourceRevision: resourceInput.value, deviceStatusSnapshotId: null, source,
       frames: preset.frames.map((frame, index) => ({ frameId: frame.id, index, observedAt: frame.observedAt, label: frame.label,
         occupancyPercent: frame.occupancyPercent, abnormalBandCount: frame.abnormalBandCount, unknownReasons: [],
@@ -83,9 +91,13 @@ async function requestLeave() {
   return answer === 'discard';
 }
 async function close() { if (await requestLeave()) { clearForSession(); emit('update:visible', false); } }
-function clearForSession() { uploadSerial++; answer('cancel'); store.clearForSession(); }
+function clearForSession() { uploadSerial++; answer('cancel'); store.clearForSession(); fileSource.value = null; linkStatus.value = false; }
 watch(() => [props.sessionGeneration, props.canImport], () => { clearForSession(); });
 watch(() => props.visible, visible => { if (visible && !store.state.file) resourceInput.value = props.resourceRevision; });
+// 只重新生成显式选择的预设；上传原文永不被宿主R/Ref覆盖。
+watch(() => [linkStatus.value, JSON.stringify(props.deviceStatusRef), resourceInput.value, datasetId.value, note.value, presetId.value], () => {
+  if (fileSource.value === 'preset' && !store.state.pending) { store.invalidatePreview(); choosePreset(); }
+});
 watch(() => store.dirty, value => emit('dirty-change', value), { immediate: true });
 watch(locked, value => emit('busy-change', value), { immediate: true });
 onBeforeUnmount(clearForSession);
@@ -93,4 +105,5 @@ defineExpose({ requestLeave, clearForSession });
 </script>
 <style scoped>
 .origin{color:var(--muted);font-size:12px;line-height:1.7}fieldset{border:0;padding:0;min-width:0}label,.fields{display:grid;gap:8px}.fields{padding:12px 0}.summary{display:grid;grid-template-columns:110px minmax(0,1fr);gap:8px;font-size:12px}.summary dd{margin:0;overflow-wrap:anywhere}.preview,.pending{border-left:3px solid #65b7a0;padding:12px;font-size:12px;overflow-wrap:anywhere}.pending{border-color:#cfb568}.actions{display:flex;flex-wrap:wrap;gap:8px}.error{color:#eeb0aa}details{margin:16px 0}small{overflow-wrap:anywhere}@media(max-width:500px){.summary{grid-template-columns:1fr;gap:4px}.summary dd{margin-bottom:8px}}
+.status-toggle{display:flex;align-items:center;gap:8px}
 </style>

@@ -51,26 +51,50 @@ export interface ObservationServices {
   queryObservationFrames(input: ObservationFrameQuery): Promise<ObservationFramePage>;
   getObservationFrame(input: ObservationIndexQuery): Promise<ObservationFrameResult>;
   previewObservationImport(input: ObservationRead & { file: ObservationImportFile }): Promise<ObservationImportPreview>;
-  importObservation(input: ObservationRead & { requestId: string; previewHash: string; file: ObservationImportFile }): Promise<ObservationImportOperation>;
-  getObservationImportReceipt(input: ObservationRead & { requestId: string }): Promise<ObservationImportOperation>;
-  exportObservationDataset(input: ObservationSelection): Promise<Blob>;
+  importObservation(input: ObservationImportSubmission): Promise<ObservationImportOperation>;
+  getObservationImportReceipt(input: ObservationRead & { requestId: string; includeDeviceStatusRef?: boolean }): Promise<ObservationImportOperation>;
+  getObservationDeviceStatusRef(input: ObservationSelection): Promise<ObservationDeviceStatusRefResult>;
+  exportObservationDataset(input: ObservationSelection & { includeDeviceStatusRef?: boolean }): Promise<Blob>;
 }
 export type ImportedObservationFrame = Omit<ObservationFrame, 'datasetId' | 'datasetRevision' | 'dataOrigin'>;
-export interface ObservationImportFile {
+export interface ObservationImportFileV1 {
   schemaVersion: 1; fileKind: 'SPECTRUM_OBSERVATION_DATASET'; dataOrigin: typeof OBSERVATION_ORIGIN;
   dataset: { datasetId: string; provenanceNote: string; resourceRevision: string; deviceStatusSnapshotId: null;
     source: ObservationSource; frames: ImportedObservationFrame[] };
 }
-export interface ObservationImportPreview {
+export interface ObservationDeviceStatusRefInput {
+  snapshotId: string; snapshotRevision: string; resourceRevision: string; deviceIds: string[];
+}
+export interface ObservationDeviceStatusRefWire extends ObservationDeviceStatusRefInput { refRevision: string; contentHash: string }
+export interface ObservationDeviceStatusRefResult {
+  schemaVersion: 1; dataOrigin: typeof OBSERVATION_ORIGIN; datasetId: string; datasetRevision: string;
+  resourceRevision: string; deviceStatusRef: ObservationDeviceStatusRefWire | null;
+}
+export interface ObservationImportFileV2 extends Omit<ObservationImportFileV1, 'schemaVersion'> {
+  schemaVersion: 2; deviceStatusRef: ObservationDeviceStatusRefInput;
+}
+export type ObservationImportFile = ObservationImportFileV1 | ObservationImportFileV2;
+export type ObservationImportSubmission = ObservationRead & { requestId: string; previewHash: string } & (
+  { file: ObservationImportFileV1; datasetContentHash?: never } | { file: ObservationImportFileV2; datasetContentHash: string }
+);
+export interface ObservationImportPreviewV1 {
   schemaVersion: 1; dataOrigin: typeof OBSERVATION_ORIGIN; previewHash: string; datasetId: string;
   resourceRevision: string; source: ObservationSource; frameCount: number;
   sourceBinding: 'REGISTERED_VERSION' | 'DECLARED_ONLY'; warnings: string[];
 }
+export interface ObservationImportPreviewV2 extends Omit<ObservationImportPreviewV1, 'schemaVersion'> {
+  schemaVersion: 2; datasetContentHash: string; datasetRevision: string; deviceStatusRef: ObservationDeviceStatusRefWire;
+}
+export type ObservationImportPreview = ObservationImportPreviewV1 | ObservationImportPreviewV2;
 export interface ObservationImportReceipt {
   requestId: string; actorId: string; datasetId: string; datasetRevision: string; dataOrigin: typeof OBSERVATION_ORIGIN;
   resourceRevision: string; frameCount: number; changed: boolean; importedAt: string;
 }
-export interface ObservationImportOperation {
+export interface ObservationImportOperationV1 {
   schemaVersion: 1; dataOrigin: typeof OBSERVATION_ORIGIN; requestId: string;
   operationType: 'OBSERVATION_IMPORT'; status: 'COMMITTED' | 'NOT_FOUND'; receipt: ObservationImportReceipt | null;
 }
+export interface ObservationImportOperationV2 extends Omit<ObservationImportOperationV1, 'schemaVersion'> {
+  schemaVersion: 2; deviceStatusRef: ObservationDeviceStatusRefWire | null;
+}
+export type ObservationImportOperation = ObservationImportOperationV1 | ObservationImportOperationV2;

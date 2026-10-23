@@ -17,4 +17,10 @@ describe('频谱展示装配契约审查', () => {
     expect(resolve({ selected }, 'resource-current-next')).toBe('resource-historical');
     expect(selected.resourceRevision).toBe('resource-historical');
   });
+  it('状态关联区分未核实与未关联，导出显式保留V2；宿主只收到冻结ref', () => {
+    for (const text of ['deviceStatusRef?: ObservationDeviceStatusRefInput | null', 'select-status-ref', '未核实', "s.statusRefState === 'unbound'", 'includeDeviceStatusRef: true', ':device-status-ref="deviceStatusRef"']) expect(source).toContain(text);
+    const dialog = readFileSync(new URL('../src/components/SpectrumObservationImportDialog.vue', import.meta.url), 'utf8');
+    expect(dialog).toContain('linkStatus = ref(false)'); expect(dialog).toContain('关联已选冻结状态快照');
+    expect(dialog).toContain("fileSource.value === 'preset'"); expect(dialog).toContain("fileSource.value = 'uploaded'");
+  });
 });

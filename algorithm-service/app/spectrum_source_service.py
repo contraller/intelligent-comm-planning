@@ -5,9 +5,8 @@ from pydantic import ValidationError
 from sqlalchemy import func, or_, select, update
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 
-from . import frontend_integration
 from .observation_schemas import ORIGIN
-from .observation_service import ObservationError, content_hash
+from .observation_service import ObservationError, content_hash, synthetic_workflows_enabled
 from .spectrum_source_models import SpectrumSourceCurrent as Current, SpectrumSourceOperation as Operation, SpectrumSourceVersion as Version
 from .spectrum_source_schemas import OfflineCheck, SourceCheck, SourceReceipt, SourceSave, SourceVersion
 
@@ -74,8 +73,8 @@ def _replay(session, request_id, actor, kind, digest):
 
 
 def _write_gate(actor):
-    if not frontend_integration.integration_enabled():
-        raise ObservationError("构造联调模式未开启", 1101, 401)
+    if not synthetic_workflows_enabled():
+        raise ObservationError("构造来源工作流未启用或认证模式冲突", 1101, 401)
     if not isinstance(actor, str) or not actor.strip() or len(actor) > 120:
         raise ObservationError("须提供可信调用者身份", 1001, 422)
 

@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { createObservationImportStore } from '../src/stores/spectrum-observations';
 import { decodeObservationImportFile } from '../src/services/observation-validation';
-import type { ObservationImportFile, ObservationServices } from '../src/types/observation';
+import type { ObservationImportFile, ObservationImportFileV2, ObservationServices, ObservationImportOperation } from '../src/types/observation';
 import { ApiError } from '../src/services/types';
 function file(): ObservationImportFile { return { schemaVersion: 1, fileKind: 'SPECTRUM_OBSERVATION_DATASET', dataOrigin: 'SYNTHETIC_INTEGRATION', dataset: { datasetId: 'obs-A', provenanceNote: '测试构造导入，非实测', resourceRevision: 'resource-A', deviceStatusSnapshotId: null,
   source: { sourceId: 'source-A', configRevision: 'declared-v1', name: '测试来源', minKhz: 6000, maxKhz: 8000, intervalSeconds: null }, frames: [{ frameId: 'frame-A', index: 0, label: '未知构造帧', observedAt: null, occupancyPercent: null, abnormalBandCount: null, unknownReasons: ['无资料'], bins: [{ binId: 'bin-A', minKhz: 6000, maxKhz: 7000, occupancyPercent: null, powerDbm: null, abnormal: null, reason: null, unknownReasons: ['无资料'] }] }] } }; }
@@ -37,5 +37,37 @@ describe('显式导入预检/确认/回执', () => {
     expect(store.state.file?.dataset.resourceRevision).toBe('resource-uploaded-historical');
     expect(previewObservationImport).toHaveBeenCalledWith(expect.objectContaining({ file: expect.objectContaining({ dataset: expect.objectContaining({ resourceRevision: 'resource-uploaded-historical' }) }) }));
     expect(input.dataset.resourceRevision).toBe('resource-uploaded-historical');
+  });
+  it('V2独立正文hash、完整ref核实；跨协议/错绑定回执不解锁', async () => {
+    const input: ObservationImportFileV2 = { ...file(), schemaVersion: 2, deviceStatusRef: { snapshotId: 'DSS-' + 'a'.repeat(32), snapshotRevision: 'device-status-' + 'b'.repeat(64), resourceRevision: 'resource-A', deviceIds: ['device-B', 'device-A'] } };
+    const wire = { ...input.deviceStatusRef, deviceIds: ['device-A', 'device-B'], refRevision: 'OSR-' + 'c'.repeat(64), contentHash: 'c'.repeat(64) };
+    const api = { previewObservationImport: vi.fn(async () => ({ schemaVersion: 2, datasetId: 'obs-A', previewHash: 'd'.repeat(64), datasetContentHash: 'a'.repeat(64), deviceStatusRef: wire })), importObservation: vi.fn().mockRejectedValue(new Error('timeout')),
+      getObservationImportReceipt: vi.fn() } as unknown as ObservationServices;
+    const store = createObservationImportStore(api, () => true); store.choose(input); await store.preview(); await store.submit();
+    const pending = store.state.pending!; expect(pending.datasetContentHash).toBe('a'.repeat(64)); expect(pending.previewHash).toBe('d'.repeat(64));
+    const receipt = { requestId: pending.requestId, actorId: 'actor', datasetId: 'obs-A', datasetRevision: 'observation-' + 'a'.repeat(64), dataOrigin: 'SYNTHETIC_INTEGRATION' as const, resourceRevision: 'resource-A', frameCount: 1, changed: true, importedAt: '2026-10-05T00:00:00.000000Z' };
+    const operation: ObservationImportOperation = { schemaVersion: 2, dataOrigin: 'SYNTHETIC_INTEGRATION', operationType: 'OBSERVATION_IMPORT', requestId: pending.requestId, status: 'COMMITTED', receipt, deviceStatusRef: wire };
+    vi.mocked(api.getObservationImportReceipt).mockResolvedValueOnce({ ...operation, schemaVersion: 1 } as ObservationImportOperation);
+    await store.verify(); expect(store.state.pending).not.toBeNull(); expect(store.state.receipt).toBeNull();
+    vi.mocked(api.getObservationImportReceipt).mockResolvedValueOnce({ ...operation, deviceStatusRef: { ...wire, deviceIds: ['device-A'] } });
+    await store.verify(); expect(store.state.pending).not.toBeNull();
+    vi.mocked(api.getObservationImportReceipt).mockResolvedValueOnce(operation); await store.verify();
+    expect(api.getObservationImportReceipt).toHaveBeenLastCalledWith({ requestId: pending.requestId, includeDeviceStatusRef: true });
+    expect(store.state.pending).toBeNull(); expect(store.state.receipt?.datasetRevision).toBe(receipt.datasetRevision);
+  });
+  it('V2成员改变使预检失效，上传原R/Ref不被替换', async () => {
+    const input: ObservationImportFileV2 = { ...file(), schemaVersion: 2, deviceStatusRef: { snapshotId: 'DSS-' + 'a'.repeat(32), snapshotRevision: 'device-status-' + 'b'.repeat(64), resourceRevision: 'resource-A', deviceIds: ['device-A'] } };
+    const api = { previewObservationImport: vi.fn(async () => ({ schemaVersion: 2, previewHash: 'a'.repeat(64) })), importObservation: vi.fn() } as unknown as ObservationServices;
+    const store = createObservationImportStore(api, () => true); store.choose(input); await store.preview();
+    expect(store.state.file).toEqual(input); if (store.state.file?.schemaVersion === 2) store.state.file.deviceStatusRef.deviceIds.push('device-B');
+    await store.submit(); expect(api.importObservation).not.toHaveBeenCalled(); expect(store.state.preview).toBeNull(); expect(input.deviceStatusRef.deviceIds).toEqual(['device-A']);
+  });
+  it('预检过程中宿主Ref变化可取消旧预检，不接受晚到hash', async () => {
+    let finish!: (value: Awaited<ReturnType<ObservationServices['previewObservationImport']>>) => void;
+    const api = { previewObservationImport: vi.fn(() => new Promise(done => { finish = done; })) } as unknown as ObservationServices;
+    const store = createObservationImportStore(api, () => true); store.choose(file()); const pending = store.preview();
+    const signal = vi.mocked(api.previewObservationImport).mock.calls[0][0].signal; store.invalidatePreview(); expect(signal?.aborted).toBe(true);
+    finish({ schemaVersion: 1, dataOrigin: 'SYNTHETIC_INTEGRATION', previewHash: 'a'.repeat(64), datasetId: 'obs-A', resourceRevision: 'resource-A', source: file().dataset.source, frameCount: 1, sourceBinding: 'DECLARED_ONLY', warnings: ['构造'] });
+    await pending; expect(store.state.preview).toBeNull(); expect(store.state.busy).toBe(false);
   });
 });

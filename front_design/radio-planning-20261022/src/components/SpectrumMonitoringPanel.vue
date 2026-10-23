@@ -17,7 +17,14 @@
       </div>
       <div class="toolbar pager"><button class="btn" :disabled="s.page <= 1 || s.loading" title="上一页" aria-label="上一页" @click="store.load(s.page - 1)"><i class="pi pi-chevron-left" /></button><span>{{ s.page }} · {{ s.total }} 项</span><button class="btn" :disabled="s.page * s.pageSize >= s.total || s.loading" title="下一页" aria-label="下一页" @click="store.load(s.page + 1)"><i class="pi pi-chevron-right" /></button></div>
       <template v-if="s.selected">
-        <dl class="identity"><dt>历史观测版本</dt><dd>{{ s.selected.datasetRevision }}</dd><dt>资源历史来源</dt><dd>{{ s.selected.resourceRevision }}</dd><dt>来源说明</dt><dd>{{ s.selected.provenanceNote }}</dd><dt>采样周期</dt><dd>{{ s.selected.source.intervalSeconds === null ? '未知' : s.selected.source.intervalSeconds + ' s' }}</dd><dt>设备状态快照</dt><dd>未关联</dd></dl>
+        <dl class="identity"><dt>历史观测版本</dt><dd>{{ s.selected.datasetRevision }}</dd><dt>资源历史来源</dt><dd>{{ s.selected.resourceRevision }}</dd><dt>来源说明</dt><dd>{{ s.selected.provenanceNote }}</dd><dt>采样周期</dt><dd>{{ s.selected.source.intervalSeconds === null ? '未知' : s.selected.source.intervalSeconds + ' s' }}</dd><dt>设备状态快照</dt><dd>
+          <template v-if="s.statusRefState === 'bound' && s.statusRef">{{ s.statusRef.snapshotId }} · {{ s.statusRef.deviceIds.length }} 个声明成员 · 构造资料
+            <button class="btn" @click="viewStatusRef">查看冻结引用</button></template>
+          <span v-else-if="s.statusRefState === 'unbound'">未关联</span>
+          <span v-else-if="s.statusRefState === 'loading'">读取中</span>
+          <span v-else>未核实{{ s.statusRefError ? '：' + s.statusRefError : '' }}</span>
+          <button class="btn" :disabled="s.statusRefState === 'loading'" title="读取冻结引用" aria-label="读取冻结引用" @click="store.readStatusRef()"><i class="pi pi-refresh" /></button>
+        </dd></dl>
         <div class="toolbar">
           <button class="btn" :disabled="!frame || s.playback.busy || s.playback.finished" :title="s.playback.active ? '暂停' : '播放'" :aria-label="s.playback.active ? '暂停' : '播放'" @click="s.playback.active ? store.pause() : store.play()"><i :class="s.playback.active ? 'pi pi-pause' : 'pi pi-play'" /></button>
           <button class="btn" :disabled="!frame || s.playback.busy || s.playback.index <= 0" title="上一帧" aria-label="上一帧" @click="store.seek(s.playback.index - 1)"><i class="pi pi-step-backward" /></button>
@@ -43,7 +50,7 @@
         <div class="toolbar"><button class="btn" :disabled="s.framePage <= 1 || s.frameLoading" title="前页帧" aria-label="前页帧" @click="store.frames(s.framePage - 1)"><i class="pi pi-chevron-left" /></button><span>{{ s.framePage }} · {{ s.frameTotal }} 帧</span><button class="btn" :disabled="s.framePage * s.framePageSize >= s.frameTotal || s.frameLoading" title="后页帧" aria-label="后页帧" @click="store.frames(s.framePage + 1)"><i class="pi pi-chevron-right" /></button></div>
       </template>
     </template>
-    <SpectrumObservationImportDialog ref="importDialog" :visible="importVisible" :services="services" :resource-revision="s.selected?.resourceRevision ?? resourceRevision ?? ''" :source-selection="s.selected?.source ?? null" :can-import="canView && canImport" :session-generation="sessionGeneration" @update:visible="importVisible = $event" @dirty-change="importDirty = $event" @busy-change="importBusy = $event" @committed="imported" />
+    <SpectrumObservationImportDialog ref="importDialog" :visible="importVisible" :services="services" :resource-revision="s.selected?.resourceRevision ?? resourceRevision ?? ''" :source-selection="s.selected?.source ?? null" :device-status-ref="deviceStatusRef" :can-import="canView && canImport" :session-generation="sessionGeneration" @update:visible="importVisible = $event" @dirty-change="importDirty = $event" @busy-change="importBusy = $event" @committed="imported" />
   </section>
 </template>
 <script setup lang="ts">
@@ -51,9 +58,10 @@ import { computed, onBeforeUnmount, ref, watch } from 'vue';
 import ChartCanvas from './ChartCanvas.vue';
 import SpectrumObservationImportDialog from './SpectrumObservationImportDialog.vue';
 import { createSpectrumObservationsStore } from '../stores/spectrum-observations';
-import type { ObservationServices, ObservationSelection, ObservationImportReceipt } from '../types/observation';
-const props = defineProps<{ services: ObservationServices; canView: boolean; canImport: boolean; sessionGeneration: string; initialSelection?: { datasetId: string; datasetRevision: string }; resourceRevision?: string }>();
-const emit = defineEmits<{ 'select-dataset': [value: { datasetId: string; datasetRevision: string }]; 'select-frame': [value: { datasetId: string; datasetRevision: string; index: number }]; 'dirty-change': [value: boolean]; 'busy-change': [value: boolean]; imported: [value: ObservationImportReceipt] }>();
+import type { ObservationServices, ObservationSelection, ObservationImportReceipt, ObservationDeviceStatusRefInput } from '../types/observation';
+import { observationStatusRefInput } from '../services/observation-validation';
+const props = defineProps<{ services: ObservationServices; canView: boolean; canImport: boolean; sessionGeneration: string; initialSelection?: { datasetId: string; datasetRevision: string }; resourceRevision?: string; deviceStatusRef?: ObservationDeviceStatusRefInput | null }>();
+const emit = defineEmits<{ 'select-dataset': [value: { datasetId: string; datasetRevision: string }]; 'select-frame': [value: { datasetId: string; datasetRevision: string; index: number }]; 'select-status-ref': [value: { datasetId: string; datasetRevision: string; ref: ObservationDeviceStatusRefInput }]; 'dirty-change': [value: boolean]; 'busy-change': [value: boolean]; imported: [value: ObservationImportReceipt] }>();
 const store = createSpectrumObservationsStore(props.services, () => props.canView, value => emit('select-frame', { datasetId: value.datasetId, datasetRevision: value.datasetRevision, index: value.index })), s = store.state;
 const importVisible = ref(false), importDirty = ref(false), importBusy = ref(false), exporting = ref(false);
 const importDialog = ref<InstanceType<typeof SpectrumObservationImportDialog> | null>(null);
@@ -65,10 +73,11 @@ const option = computed(() => ({ animation: false, tooltip: { trigger: 'axis' },
     { name: '接收功率', type: 'line', yAxisIndex: 1, connectNulls: false, data: frame.value?.bins.map(row => row.powerDbm) ?? [], itemStyle: { color: '#73b893' } }] }));
 async function select(value: ObservationSelection) { store.pause(); await store.select({ datasetId: value.datasetId, datasetRevision: value.datasetRevision }); if (s.selected) emit('select-dataset', { datasetId: s.selected.datasetId, datasetRevision: s.selected.datasetRevision }); }
 function openImport() { store.pause(); importVisible.value = true; }
+function viewStatusRef() { if (s.selected && s.statusRefState === 'bound' && s.statusRef) emit('select-status-ref', { datasetId: s.selected.datasetId, datasetRevision: s.selected.datasetRevision, ref: observationStatusRefInput(s.statusRef) }); }
 async function imported(value: ObservationImportReceipt) { emit('imported', value); await store.load(1); await select(value); }
 async function download() {
   if (!s.selected || exporting.value) return; const selected = s.selected, generation = props.sessionGeneration; exporting.value = true;
-  try { const blob = await props.services.exportObservationDataset({ datasetId: selected.datasetId, datasetRevision: selected.datasetRevision });
+  try { const blob = await props.services.exportObservationDataset({ datasetId: selected.datasetId, datasetRevision: selected.datasetRevision, includeDeviceStatusRef: true });
     if (generation !== props.sessionGeneration) return;
     const url = URL.createObjectURL(blob), anchor = document.createElement('a'); anchor.href = url; anchor.download = 'spectrum-observation-' + selected.datasetRevision + '.json'; anchor.click(); setTimeout(() => URL.revokeObjectURL(url), 1000);
   } catch (reason) { if (generation === props.sessionGeneration) s.error = reason instanceof Error ? reason.message : '导出失败'; }

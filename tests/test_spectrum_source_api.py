@@ -48,6 +48,7 @@ def source_api(tmp_path, monkeypatch):
     SPECTRUM_SOURCE_METADATA.create_all(engine)
     factory = sessionmaker(bind=engine, expire_on_commit=False, autoflush=False)
     monkeypatch.setenv("FRONTEND_INTEGRATION_DEMO", "1")
+    monkeypatch.setenv("AUTH_MODE", "INTEGRATION")
     monkeypatch.setattr(routes, "get_session_factory", lambda: factory)
     monkeypatch.setattr(identity, "get_session_factory", lambda: factory)
     catalog = deepcopy(identity.CATALOG)
@@ -82,6 +83,27 @@ def get(db, path="/sources", **params):
 def counts(db):
     with db["factory"]() as session:
         return tuple(session.scalar(select(func.count()).select_from(model)) for model in (Version, Current, Operation))
+
+
+def test_local_synthetic_source_internal_actor_and_uninstalled_identity_fail_closed(source_api, monkeypatch):
+    db = source_api
+    monkeypatch.setenv("AUTH_MODE", "LOCAL_PASSWORD")
+    monkeypatch.setenv("FRONTEND_INTEGRATION_DEMO", "0")
+    saved = service.save_source({"schemaVersion": 1, "requestId": "local-source", "sourceId": "source:LOCAL",
+        "baseConfigRevision": None, "draft": draft()}, actor_id="local-service-unit", factory=db["factory"])
+    checked = service.check_source("source:LOCAL", {"schemaVersion": 1, "requestId": "local-check", "configRevision": saved["configRevision"]},
+        actor_id="local-service-unit", factory=db["factory"])
+    assert saved["source"]["dataOrigin"] == "SYNTHETIC_INTEGRATION" and saved["actorId"] == "local-service-unit"
+    assert checked["check"]["connection"] == "NOT_ATTEMPTED" and checked["check"]["validationMode"] == "OFFLINE_ONLY"
+    assert counts(db) == (1, 1, 2)
+    def forbidden_factory():
+        pytest.fail("未安装真实LOCAL身份时不得进入业务factory")
+    monkeypatch.setattr(routes, "get_session_factory", forbidden_factory)
+    db["app"].dependency_overrides[get_db] = forbidden_factory
+    assert get(db).status_code == 401
+    assert post(db).status_code == 401
+    assert post(db, {"schemaVersion": 1, "requestId": "denied-check", "configRevision": saved["configRevision"]}, "/sources/source:LOCAL/checks").status_code == 401
+    assert counts(db) == (1, 1, 2)
 
 
 def test_source_create_detail_history_noop_and_reopen(source_api):

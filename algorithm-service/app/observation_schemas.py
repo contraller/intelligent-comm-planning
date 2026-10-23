@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 import re
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, field_validator, model_validator
 
 ORIGIN = "SYNTHETIC_INTEGRATION"
 MAX_FRAMES = 256
@@ -224,10 +224,50 @@ class ObservationImportFile(ObservationModel):
             "dataOrigin": ORIGIN, **self.dataset.model_dump(mode="json")})
 
 
+class ObservationDeviceStatusRefInput(ObservationModel):
+    snapshotId: str = Field(pattern=r"^DSS-[0-9a-f]{32}$")
+    snapshotRevision: str = Field(pattern=r"^device-status-[0-9a-f]{64}$")
+    resourceRevision: Identifier
+    deviceIds: list[Identifier] = Field(min_length=1, max_length=1000)
+
+    @field_validator("deviceIds")
+    @classmethod
+    def canonical_members(cls, values):
+        if len(set(values)) != len(values):
+            raise ValueError("状态关联成员不得重复")
+        return sorted(values)
+
+
+class ObservationDeviceStatusRefWire(ObservationDeviceStatusRefInput):
+    refRevision: str = Field(pattern=r"^OSR-[0-9a-f]{64}$")
+    contentHash: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+
+class ObservationImportFileV2(ObservationImportFile):
+    schemaVersion: Literal[2]
+    deviceStatusRef: ObservationDeviceStatusRefInput
+
+
+ImportFile = ObservationImportFile | ObservationImportFileV2
+
+
+def parse_import_file(value):
+    return TypeAdapter(ImportFile).validate_python(value.model_dump(mode="json") if isinstance(value, ObservationModel) else value)
+
+
 class ObservationImportPreview(ObservationModel):
-    file: ObservationImportFile
+    file: ImportFile
 
 
 class ObservationImportCommand(ObservationImportPreview):
     requestId: Identifier
     previewHash: str = Field(pattern=r"^[0-9a-f]{64}$")
+    datasetContentHash: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
+
+    @model_validator(mode="after")
+    def version_fields(self):
+        if self.file.schemaVersion == 2 and self.datasetContentHash is None:
+            raise ValueError("V2必须提供独立正文摘要")
+        if self.file.schemaVersion == 1 and "datasetContentHash" in self.model_fields_set:
+            raise ValueError("V1不接受V2摘要字段")
+        return self
