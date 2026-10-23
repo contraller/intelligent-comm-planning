@@ -1066,11 +1066,11 @@ function paint() {
     }
     interferenceGeometryNotice.value = '';
     if (props.interferenceProjection) {
-      const layer = interferenceWorkbenchLayer(props.interferenceProjection, props.selectedId, props.selectedLinkId, props.selectedInterferenceId);
+      const layer = interferenceWorkbenchLayer(props.interferenceProjection, props.selectedId, props.selectedLinkId, props.selectedInterferenceId, { areaVisible: props.showCoverage, areaOpacity: props.opacity, linksVisible: props.showLinks, topologyOpacity: props.topologyOpacity });
       interferenceGeometryNotice.value = layer.get('geometryNotice') ?? '';
       layers.push(layer);
     }
-    else if (props.frozenNetwork) layers.push(gisPlanLayer(props.frozenNetwork, { node: props.selectedId, link: props.selectedLinkId, demand: props.selectedDemandId }));
+    else if (props.frozenNetwork) layers.push(gisPlanLayer(props.frozenNetwork, { node: props.selectedId, link: props.selectedLinkId, demand: props.selectedDemandId }, { linksVisible: props.showLinks, topologyOpacity: props.topologyOpacity }));
     else layers.push(resourceReadLayer(props.resourceFrame, props.selectedId, props.resourceSelectedKind));
     if (props.planningOverlay)
       layers.push(

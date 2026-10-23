@@ -76,6 +76,18 @@ describe('GIS跨组宿主静态边界', () => {
     expect(situation).toContain("import { planStations } from '../services/planning-snapshot'");
     expect(situation).toContain('planStations(fault.network.value)');
   });
+  it('独立分析保留显示控件，地图回调捕获投影身份，冻结入口可返回规划', () => {
+    for (const label of [
+      '显示干扰分析影响区域',
+      '干扰分析影响区域透明度',
+      '显示规划后链路',
+      '拓扑透明度',
+    ])
+      expect(component).toContain(`aria-label="${label}"`);
+    expect(component).toContain('@select-frozen-link="mapSelection.link"');
+    expect(component).toContain('guardedAnalysisMapSelection(');
+    expect(situation).toContain('v-if="frozenView && analysisReturn"');
+  });
   it('刷新保护保留本地输入，明确保留原号关闭后不永远封锁离页', () => {
     expect(component).toContain("window.addEventListener('beforeunload', beforeUnload)");
     expect(component).toContain("window.removeEventListener('beforeunload', beforeUnload)");

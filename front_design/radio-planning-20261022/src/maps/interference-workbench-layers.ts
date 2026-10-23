@@ -4,6 +4,7 @@ import Point from 'ol/geom/Point';
 import LineString from 'ol/geom/LineString';
 import VectorSource from 'ol/source/Vector';
 import VectorLayer from 'ol/layer/Vector';
+import { asArray } from 'ol/color';
 import { Circle, Fill, Stroke, Style, Text } from 'ol/style';
 import type { MapProjection } from '../types/interference-workbench';
 import type { Coordinate } from '../types/domain';
@@ -39,7 +40,17 @@ export function interferenceWorkbenchLayer(
   selectedId = '',
   selectedLink = '',
   selectedSource = '',
+  display: {
+    areaVisible?: boolean;
+    areaOpacity?: number;
+    linksVisible?: boolean;
+    topologyOpacity?: number;
+  } = {},
 ) {
+  const opacity = (value: number | undefined) =>
+    Number.isFinite(value) && value! >= 0 && value! <= 1 ? value! : 1;
+  const areaOpacity = opacity(display.areaOpacity),
+    topologyOpacity = opacity(display.topologyOpacity);
   const features: Feature[] = [],
     positions = new Map<string, Coordinate>(),
     owner = workbenchMapKey(value);
@@ -47,7 +58,12 @@ export function interferenceWorkbenchLayer(
   const links = new Map(value.impact.affected_links.map((row) => [String(row.link_id), row.level]));
   const area = value.impact.affected_area;
   let geometryNotice = '';
-  if (area.type === 'FeatureCollection' && Array.isArray(area.features)) {
+  if (
+    display.areaVisible !== false &&
+    areaOpacity > 0 &&
+    area.type === 'FeatureCollection' &&
+    Array.isArray(area.features)
+  ) {
     try {
       const polygons = new GeoJSON().readFeatures(area, {
         dataProjection: 'EPSG:4326',
@@ -59,8 +75,8 @@ export function interferenceWorkbenchLayer(
         feature.set('owner', owner);
         feature.setStyle(
           new Style({
-            fill: new Fill({ color: '#dc8b5e24' }),
-            stroke: new Stroke({ color: '#dc8b5e', width: 1 }),
+            fill: new Fill({ color: [220, 139, 94, 0.14 * areaOpacity] }),
+            stroke: new Stroke({ color: [220, 139, 94, areaOpacity], width: 1 }),
           }),
         );
         features.push(feature);
@@ -74,11 +90,15 @@ export function interferenceWorkbenchLayer(
     if (typeof row.node_id === 'string' && point) positions.set(row.node_id, point);
   }
   for (const row of value.links) {
+    if (display.linksVisible === false || topologyOpacity === 0) continue;
     if (typeof row.link_id !== 'string') continue;
     const a = positions.get(String(row.node_a_id)),
       b = positions.get(String(row.node_b_id));
     if (!a || !b) continue;
     const active = selectedLink === row.link_id;
+    const color = asArray(
+      active ? '#ffe08a' : (levelColors[links.get(row.link_id) ?? ''] ?? '#5eadd1'),
+    );
     const feature = new Feature({
       geometry: new LineString([projectCoordinate(a), projectCoordinate(b)]),
       kind: 'workbench-link',
@@ -88,7 +108,7 @@ export function interferenceWorkbenchLayer(
     feature.setStyle(
       new Style({
         stroke: new Stroke({
-          color: active ? '#ffe08a' : (levelColors[links.get(row.link_id) ?? ''] ?? '#5eadd1'),
+          color: [color[0], color[1], color[2], (color[3] ?? 1) * topologyOpacity],
           width: active ? 4 : 2,
         }),
       }),

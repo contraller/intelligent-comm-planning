@@ -59,6 +59,28 @@ describe('干扰工作台冻结几何', () => {
         .some((row) => row.get('kind') === 'workbench-link'),
     ).toBe(false);
   });
+  it('区域和拓扑开关/透明度独立，不改变冻结业务值或节点源', () => {
+    const value = sample(),
+      before = structuredClone(value);
+    const kinds = (display: {
+      areaVisible?: boolean;
+      areaOpacity?: number;
+      linksVisible?: boolean;
+      topologyOpacity?: number;
+    }) =>
+      interferenceWorkbenchLayer(value, '', '', '', display)
+        .getSource()!
+        .getFeatures()
+        .map((row) => row.get('kind'));
+    expect(kinds({ linksVisible: false })).toEqual([
+      'workbench-node',
+      'workbench-node',
+      'workbench-source',
+    ]);
+    expect(kinds({ topologyOpacity: 0 })).not.toContain('workbench-link');
+    expect(kinds({ areaOpacity: 0, topologyOpacity: 0.4 })).toContain('workbench-link');
+    expect(value).toEqual(before);
+  });
   it('GeoJSON影响面由标准读取器投影，不代替网络覆盖', () => {
     const value = sample();
     value.impact.affected_area = {
@@ -87,5 +109,17 @@ describe('干扰工作台冻结几何', () => {
       .find((row) => row.get('kind') === 'workbench-area');
     expect(feature?.getGeometry()?.getType()).toBe('Polygon');
     expect(feature?.getGeometry()?.getExtent()[0]).toBeGreaterThan(1000000);
+    expect(
+      interferenceWorkbenchLayer(value, '', '', '', { areaVisible: false })
+        .getSource()!
+        .getFeatures()
+        .some((row) => row.get('kind') === 'workbench-area'),
+    ).toBe(false);
+    expect(
+      interferenceWorkbenchLayer(value, '', '', '', { areaOpacity: 0 })
+        .getSource()!
+        .getFeatures()
+        .some((row) => row.get('kind') === 'workbench-area'),
+    ).toBe(false);
   });
 });

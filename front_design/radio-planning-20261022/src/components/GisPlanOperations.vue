@@ -142,6 +142,42 @@
       v-if="tab === 'interference'"
       class="interference-workbench"
     >
+      <div class="analysis-controls toolbar">
+        <label
+          ><input
+            v-model="analysisAreaVisible"
+            type="checkbox"
+            aria-label="显示干扰分析影响区域"
+          />影响区域</label
+        >
+        <label
+          >影响区透明度<input
+            :value="analysisAreaOpacity"
+            type="range"
+            min="0"
+            max="1"
+            step="0.05"
+            aria-label="干扰分析影响区域透明度"
+            @input="setAnalysisOpacity('area', $event)"
+        /></label>
+        <label
+          ><input
+            v-model="analysisLinksVisible"
+            type="checkbox"
+            aria-label="显示规划后链路"
+          />规划链路</label
+        >
+        <label
+          >拓扑透明度<input
+            :value="analysisTopologyOpacity"
+            type="range"
+            min="0"
+            max="1"
+            step="0.05"
+            aria-label="拓扑透明度"
+            @input="setAnalysisOpacity('topology', $event)"
+        /></label>
+      </div>
       <div class="interference-map">
         <MapCanvas
           :stations="[]"
@@ -154,15 +190,13 @@
           :selected-id="analysisNode"
           :selected-link-id="analysisLink"
           :selected-interference-id="analysisSource"
-          @select-frozen-node="
-            analysisNode = $event;
-            analysisLink = '';
-          "
-          @select-frozen-link="
-            analysisLink = $event;
-            analysisNode = '';
-          "
-          @select-interference="analysisSource = $event"
+          :show-coverage="analysisAreaVisible"
+          :opacity="analysisAreaOpacity"
+          :show-links="analysisLinksVisible"
+          :topology-opacity="analysisTopologyOpacity"
+          @select-frozen-node="mapSelection.node"
+          @select-frozen-link="mapSelection.link"
+          @select-interference="mapSelection.source"
         />
       </div>
       <div class="analysis-details">
@@ -202,6 +236,8 @@ import InterferenceAnalysisPanel from './InterferenceAnalysisPanel.vue';
 import InterferenceHistoryDrawer from './InterferenceHistoryDrawer.vue';
 import InterferenceMeasureDrawer from './InterferenceMeasureDrawer.vue';
 import { useInterferenceStore } from '../stores/interference';
+import { workbenchMapKey } from '../maps/interference-workbench-layers';
+import { guardedAnalysisMapSelection } from '../services/gis-analysis-map-selection';
 import type { TerrainBasemap } from '../services/terrain-basemap';
 import ResourceStatusPanel from './ResourceStatusPanel.vue';
 import DeviceMonitoringPanel from './DeviceMonitoringPanel.vue';
@@ -252,6 +288,43 @@ const analysis = useInterferenceStore(),
   analysisNode = ref(''),
   analysisLink = ref(''),
   analysisSource = ref('');
+const analysisAreaVisible = ref(true),
+  analysisAreaOpacity = ref(0.8),
+  analysisLinksVisible = ref(true),
+  analysisTopologyOpacity = ref(1);
+function setAnalysisOpacity(kind: 'area' | 'topology', event: Event) {
+  const text = (event.target as HTMLInputElement).value;
+  const value = text.trim() ? Number(text) : NaN;
+  if (!Number.isFinite(value) || value < 0 || value > 1) return;
+  if (kind === 'area') analysisAreaOpacity.value = value;
+  else analysisTopologyOpacity.value = value;
+}
+const analysisMapIdentity = computed(() =>
+  analysis.mapProjection
+    ? workbenchMapKey(analysis.mapProjection)
+    : props.network.identity.snapshot_id,
+);
+const mapSelection = computed(() =>
+  guardedAnalysisMapSelection(
+    analysisMapIdentity.value,
+    () => analysisMapIdentity.value,
+    (kind, id) => {
+      if (kind === 'node') {
+        analysisNode.value = id;
+        analysisLink.value = '';
+      } else if (kind === 'link') {
+        analysisLink.value = id;
+        analysisNode.value = '';
+      } else analysisSource.value = id;
+    },
+    () => analysisLinksVisible.value && analysisTopologyOpacity.value > 0,
+  ),
+);
+watch(analysisMapIdentity, () => {
+  analysisNode.value = '';
+  analysisLink.value = '';
+  analysisSource.value = '';
+});
 const taskContext = computed(() =>
   props.planVersion && /^V[1-9][0-9]*$/.test(props.planVersion)
     ? {
@@ -398,6 +471,7 @@ async function viewObservationStatus(input: {
     if (
       status.batch?.snapshot_id !== target.ref.snapshotId ||
       status.batch.snapshot_revision !== target.ref.snapshotRevision ||
+      status.batch.resource_revision !== target.ref.resourceRevision ||
       status.error
     )
       throw new Error(status.error || '冻结状态快照尚未成功读取');
@@ -556,6 +630,9 @@ select {
   overflow: hidden;
   border: 1px solid #2a4055;
   border-radius: 6px;
+}
+.analysis-controls {
+  grid-column: 1 / -1;
 }
 .interference-map :deep(.map-wrap) {
   height: 100%;

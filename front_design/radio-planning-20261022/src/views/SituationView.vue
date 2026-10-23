@@ -13,6 +13,7 @@
         <button v-if="httpMode && auth.can('planning.view')" class="btn small" :disabled="editor.busy || fault.active.value" @click="toggleFrozenPlans">
           {{ frozenView ? '返回当前资源' : '查看已保存方案' }}
         </button>
+        <button v-if="frozenView && analysisReturn" class="btn small" :onClick="analysisReturn.open">返回规划方案</button>
         <!-- 页面标题与导航同名，沿用业务页面共享的标题样式。 -->
         <h1>GIS 态势</h1>
         <span class="divider" /><span class="muted">太行山地区域通信保障</span
