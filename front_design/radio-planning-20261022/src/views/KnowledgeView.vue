@@ -956,4 +956,17 @@ watch(
     max-height: 650px;
   }
 }
+@media (max-width: 600px) {
+  /* 过滤、图谱和详情纵向排列，不再以固定左栏挤压手机画布。 */
+  .knowledge-panel { min-height: 0; }
+  .kg-workspace { grid-template-columns: minmax(0, 1fr); min-height: 0; }
+  .kg-filters,
+  .kg-stage,
+  .kg-detail { min-width: 0; }
+  .kg-filters { max-height: 360px; border-right: 0; border-bottom: 1px solid #283c54; }
+  .kg-detail { grid-column: auto; max-height: none; overflow-y: visible; }
+  .kg-stage > .knowledge-canvas { flex: none; height: auto; }
+  /* 图例和页脚按内容排布，实际绘图区域独立保留稳定高度。 */
+  .kg-stage > .knowledge-canvas :deep(.canvas) { flex: 0 0 360px; height: 360px; min-height: 360px; }
+}
 </style>

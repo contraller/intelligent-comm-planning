@@ -3665,4 +3665,31 @@ const { basemap: terrainBasemap, message: terrainMessage } = useTerrainBasemap(
     display: inline-flex;
   }
 }
+@media (max-width: 600px) {
+  /* 手机地图独占整行，原侧栏开关不变；长资源列表仍在面板内滚动。 */
+  .situation-page { height: auto; min-height: 100%; }
+  .situation-main { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); flex: none; }
+  .situation-center,
+  .situation-left,
+  .situation-right { grid-column: 1 / -1; min-width: 0; width: 100%; }
+  .situation-center { order: 1; flex: none; }
+  .map-frame { flex: none; height: 420px; min-height: 420px; }
+  .situation-left,
+  .situation-right { flex: none; height: 360px; overflow: auto; }
+  .situation-left { order: 2; }
+  .situation-right { order: 3; }
+  .panel-restore {
+    position: static;
+    order: 0;
+    transform: none;
+    flex-direction: row;
+    width: auto;
+    min-height: 36px;
+    padding: 8px 10px;
+    justify-self: start;
+  }
+  .panel-restore span { writing-mode: horizontal-tb; letter-spacing: 0; }
+  .resource-restore { grid-column: 1; }
+  .detail-restore { grid-column: 2; justify-self: end; }
+}
 </style>
