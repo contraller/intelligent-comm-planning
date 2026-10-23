@@ -11,7 +11,7 @@ import { previewService } from '../../src/services';
 import { useInterferenceStore } from '../../src/stores/interference';
 import type { ApiPlan } from '../../src/types/planning-api';
 import type { GisNetwork } from '../../src/types/gis-plan';
-import type { InterferenceSceneServices, InterferenceSceneVersion } from '../../src/types/interference-scene';
+import type { InterferenceSceneServices, InterferenceSceneVersion, SceneJsonObject } from '../../src/types/interference-scene';
 import type { AdoptionDetail, AnalysisResult, InterferenceWorkbenchServices, MeasurePreview, RunDetail, TaskContext, WorkbenchContext } from '../../src/types/interference-workbench';
 import { clientTemplate } from './vue-client';
 
@@ -104,10 +104,13 @@ export async function createWorkbenchFixture(supplied?: ApiPlan) {
       { link_id: 'UNIT-L2', level: 'MINOR', snr_before_db: 19, sinr_after_db: 15 }],
     affected_area: { type: 'FeatureCollection', features: [] },
     summary: { links: 2, jammers: 1, affected_nodes: 1, affected_links: 2, by_level: { SEVERE: 1, MODERATE: 0, MINOR: 1 } },
-    measures: types.map((type, index) => ({ measure_id: `UNIT-CM${index + 1}`, type, title: measureTitles[index]!,
+    measures: types.map((type, index) => {
+      const detail: SceneJsonObject = type === 'NODE_REDEPLOY' ? { to_lon: 116.2, to_lat: 38.8 } : { frequency_khz: 54321 };
+      return { measure_id: `UNIT-CM${index + 1}`, type, title: measureTitles[index]!,
       target_node_id: 'UNIT-N1', target_link_id: 'UNIT-L1', priority: index + 1, detail: 'UNIT_TEST 服务载荷', risk: '构造预测，非实测',
       available: true, unavailable_reasons: [], preview_hash: hash, pre_eval: null, restores: false,
-      change_set: { type, target: { node_id: 'UNIT-N1' }, detail: type === 'NODE_REDEPLOY' ? { to_lon: 116.2, to_lat: 38.8 } : { frequency_khz: 54321 } } })),
+      change_set: { type, target: { node_id: 'UNIT-N1' }, detail } };
+    }),
     unresolved: [], measure_review: [], parameter_substitutions: [], notes: ['UNIT_TEST 构造影响，不是算法验收'],
   };
   const run: RunDetail = {
