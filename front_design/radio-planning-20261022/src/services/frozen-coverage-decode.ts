@@ -31,7 +31,8 @@ function anchor(value:unknown,query:FrozenCoverageQuery):FrozenCoverageAnchor {
   if(row.resource_revision!==query.resourceRevision)return fail();
   for(const key of ['input_version','condition_version','resource_revision'])if(!text(row[key]))return fail();
   for(const key of ['resource_content_hash','plan_input_sha256','raw_snapshot_sha256','frozen_tables_sha256','terrain_fingerprint'])hash(row[key]);
-  if(row.engine_version!=='V01-1')return fail();
+  // 新语义逐设备保留未选带宽，旧版本结果不得作为新缓存读取。
+  if(row.engine_version!=='V01-2')return fail();
   return row as unknown as FrozenCoverageAnchor;
 }
 function coordinate(value:unknown):[number,number] {

@@ -38,6 +38,19 @@ describe('冻结覆盖HTTP契约',()=>{
     expect((await client.getCache(f.query,f.parameters)).result!.devices[0].band).toBe('UNKNOWN_SOURCE');
     for(const state of ['MISS','STALE'] as const){f.cache.state=state;f.cache.result=null;expect((await client.getCache(f.query,f.parameters)).result).toBeNull();}
   });
+  it.each(['anchor','provenance','both'] as const)('拒绝%s含V01-1的旧或混合缓存，不兼容降级',async part=>{
+    const f=coverageCase();
+    if(part!=='provenance')f.anchor.engine_version='V01-1';
+    if(part!=='anchor')f.result.provenance.engine_version='V01-1';
+    const client=createFrozenCoverageHttp(vi.fn(async()=>f.cache) as AuthenticatedRequest);
+    await expect(client.getCache(f.query,f.parameters)).rejects.toMatchObject({code:'INVALID_FROZEN_COVERAGE_RESPONSE'});
+  });
+  it('新夹具只提供V01-2，旧版本作业也不能混入本轮响应',async()=>{
+    const f=coverageCase();expect(f.anchor.engine_version).toBe('V01-2');expect(f.result.provenance.engine_version).toBe('V01-2');
+    f.job.anchor.engine_version='V01-1';
+    const client=createFrozenCoverageHttp(vi.fn(async()=>f.job) as AuthenticatedRequest);
+    await expect(client.getJob(f.query,f.job.job_id)).rejects.toMatchObject({code:'INVALID_FROZEN_COVERAGE_RESPONSE'});
+  });
   it.each([{az_step_deg:7},{cell_m:NaN},{cell_m:6000},{hour:24},{radius_m:250,cell_m:500},{ring_vertices:25},{hf_max_km:1.5},{extra:1}])('拒绝非法参数%j',parameters=>{
     expect(()=>coverageParameters(parameters as never)).toThrow();
   });
