@@ -38,26 +38,43 @@ export const useGisWorkspaceStore=defineStore('gis-workspace',()=>{
     }catch(e){if(serial===linkSerial&&session===auth.generation&&!linkAbort.signal.aborted)linkDetails.value={state:'missing',message:e instanceof Error?e.message:'链路读取失败',snapshotId,source:'',records:[]};}
   }
   let sceneSerial = 0, sceneAbort: AbortController | undefined;
+  let sceneFlight: { key: string; promise: Promise<void> } | null = null;
+  const sceneSource = () => JSON.stringify([auth.generation, auth.identity?.id, auth.identity?.sessionId,
+    read.context, read.workspace?.revision, read.refreshKey, read.viewport, read.mapFilter, read.showNodes, read.showInterferences]);
+  function cancelScene() { sceneSerial++; sceneAbort?.abort(); sceneFlight = null; sceneLoading.value = false; }
+  // 来源变化即取消；同版本手动刷新仍由 refreshKey 区分，不缓存已完成结果。
+  watch([sceneSource, () => read.frozen], cancelScene, { flush: 'sync' });
   async function loadScene() {
     const revision = read.workspace?.revision;
     if (!revision || !auth.can('situation.view') || read.frozen) return;
-    const token = ++sceneSerial, session = auth.generation;
-    sceneAbort?.abort(); sceneAbort = new AbortController(); sceneLoading.value = true; sceneError.value = '';
-    try {
-      const value = validateGisScene(await previewService.loadGisResourceScene({ context: 'gis', revision, signal: sceneAbort.signal }), revision);
-      if (token === sceneSerial && session === auth.generation && revision === read.workspace?.revision && !read.frozen) {
+    const key = sceneSource();
+    // 版本 watcher 与保存后的显式等待共用整条 scene/基线读取，而非相互取消重启。
+    if (sceneFlight?.key === key && !sceneAbort?.signal.aborted) return sceneFlight.promise;
+    const token = ++sceneSerial, controller = new AbortController();
+    sceneAbort?.abort(); sceneAbort = controller; sceneLoading.value = true; sceneError.value = '';
+    const current = () => token === sceneSerial && key === sceneSource() && !controller.signal.aborted
+      && auth.can('situation.view') && !read.frozen;
+    const needsBaseline = () => editor.baselinePending && editor.context === 'gis'
+      && editor.baseRevision === revision && !editor.dirty;
+    const promise = (async () => {
+      try {
+        const value = validateGisScene(await previewService.loadGisResourceScene({ context: 'gis', revision, signal: controller.signal }), revision);
+        if (!current()) return;
         scene.value = value;
-        if(editor.baselinePending && editor.context==='gis') {
-          const baseline=validateGisScene(await previewService.loadGisResourceEditContext({context:'gis',revision,signal:sceneAbort.signal}),revision);
-          if(token===sceneSerial&&session===auth.generation){editor.acceptGisContext(baseline);editor.acceptUnified({resources:baseline.resources,meta:baseline.resourceMeta,changed:false,warnings:[]});}
+        if (needsBaseline()) {
+          const baseline = validateGisScene(await previewService.loadGisResourceEditContext({ context: 'gis', revision, signal: controller.signal }), revision);
+          // 读取期间可能换来源或出现新草稿，旧基线不能覆盖当前输入。
+          if (current() && needsBaseline()) { editor.acceptGisContext(baseline); editor.acceptUnified({ resources: baseline.resources, meta: baseline.resourceMeta, changed: false, warnings: [] }); }
         }
-      }
-    } catch (e) {
-      if (token === sceneSerial && session === auth.generation) {
-        sceneError.value = e instanceof Error ? e.message : 'GIS 展示资料读取失败';
-        if (e instanceof ApiError && e.code === 'RESOURCE_VERSION_CHANGED') read.stale = true;
-      }
-    } finally { if (token === sceneSerial) sceneLoading.value = false; }
+      } catch (e) {
+        if (current()) {
+          sceneError.value = e instanceof Error ? e.message : 'GIS 展示资料读取失败';
+          if (e instanceof ApiError && e.code === 'RESOURCE_VERSION_CHANGED') read.stale = true;
+        }
+      } finally { if (token === sceneSerial) sceneLoading.value = false; }
+    })();
+    const flight = { key, promise }; sceneFlight = flight;
+    try { await promise; } finally { if (sceneFlight === flight) sceneFlight = null; }
   }
   // 保存态版本变化使旧显示资料失效，不能拼接旧目录或冻结网络。
   watch(() => read.workspace?.revision, () => { scene.value = null; if (active.value) void loadScene(); });
@@ -89,7 +106,7 @@ export const useGisWorkspaceStore=defineStore('gis-workspace',()=>{
   // 恢复内部沿用局部函数应用表单，需按外层恢复动作记录一次资源撤销。
   track(editor,['applyForm','applyRestore','confirmImport','settleForm','openForm','closeForm','newForm']);
   function start(){active.value=true;clearHistory();editor.registerGisSave(save);if (read.workspace && !scene.value) void loadScene();}
-  function stop(){active.value=false;editor.registerGisSave(null);sceneSerial++;sceneAbort?.abort();sceneLoading.value=false;linkSerial++;linkAbort?.abort();linkDetails.value=null;}
+  function stop(){active.value=false;editor.registerGisSave(null);cancelScene();linkSerial++;linkAbort?.abort();linkDetails.value=null;}
   function clearHistory(){undoStack.value=[];redoStack.value=[];}
   async function begin(){
     if (busy.value || editor.busy || !canEditResources() || !auth.can('situation.view') || read.frozen) return false;
