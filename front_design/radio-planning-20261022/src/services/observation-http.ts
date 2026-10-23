@@ -6,12 +6,19 @@ import { ApiError } from './types';
 import type { AuthenticatedRequest } from './auth-http';
 import { assertObservationImportKey, decodeObservationImportFile, decodeObservationImportOperation, decodeObservationImportPreview, decodeObservationDeviceStatusRef, sameObservationStatusRef } from './observation-validation';
 
-interface Options { baseUrl: () => string; fetcher?: typeof fetch; origin?: () => string | undefined; timeoutMs?: number; authenticatedRequest?: AuthenticatedRequest }
+interface Options { baseUrl: () => string; fetcher?: typeof fetch; origin?: () => string | undefined; timeoutMs?: number | (() => number); authenticatedRequest?: AuthenticatedRequest }
 const prefix = '/observations/spectrum';
 
 export function createObservationHttp(options: Options): ObservationServices {
-  if (options.timeoutMs !== undefined && (!Number.isFinite(options.timeoutMs) || options.timeoutMs <= 0)) throw new ApiError('观测超时设置无效', 'INVALID_OBSERVATION_QUERY');
+  if (options.timeoutMs !== undefined && typeof options.timeoutMs !== 'function' && (!Number.isFinite(options.timeoutMs) || options.timeoutMs <= 0)) throw new ApiError('观测超时设置无效', 'INVALID_OBSERVATION_QUERY');
   const fetcher = options.fetcher ?? ((input, init) => globalThis.fetch(input, init));
+  function readTimeout() {
+    let value: unknown;
+    try { const configured = options.timeoutMs; value = typeof configured === 'function' ? configured() : configured === undefined ? 15000 : configured; }
+    catch { throw new ApiError('读取观测超时设置失败', 'INVALID_OBSERVATION_QUERY'); }
+    if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) throw new ApiError('观测超时设置无效', 'INVALID_OBSERVATION_QUERY');
+    return value;
+  }
   function importQuery(input: unknown, fields: string[], optional: string[] = []) {
     if (!input || typeof input !== 'object' || Array.isArray(input)) throw new ApiError('导入参数无效', 'INVALID_OBSERVATION_QUERY');
     const value = input as Record<string, unknown>;
@@ -25,6 +32,8 @@ export function createObservationHttp(options: Options): ObservationServices {
   }
   async function get(path: string, params: Record<string, string | number | undefined>, input: ObservationRead): Promise<unknown> {
     if (input.signal?.aborted) throw new ApiError('观测读取已取消', 'REQUEST_ABORTED');
+    // 每次读取只捕获一次运行快照；后续设置变更不调整在途计时。
+    const timeoutMs = readTimeout();
     const base = options.authenticatedRequest ? '' : resolveAuthApiBaseUrl(options.baseUrl(), options.origin?.() ?? globalThis.location?.origin);
     const query = new URLSearchParams();
     for (const [key, value] of Object.entries(params)) if (value !== undefined) query.set(key, String(value));
@@ -34,7 +43,7 @@ export function createObservationHttp(options: Options): ObservationServices {
     const interrupted = new Promise<never>((_, reject) => {
       abort = () => { reject(new ApiError('观测读取已取消', 'REQUEST_ABORTED')); controller.abort(); };
       input.signal?.addEventListener('abort', abort, { once: true });
-      timer = setTimeout(() => { reject(new ApiError('观测读取超时', 'REQUEST_TIMEOUT')); controller.abort(); }, options.timeoutMs ?? 15000);
+      timer = setTimeout(() => { reject(new ApiError('观测读取超时', 'REQUEST_TIMEOUT')); controller.abort(); }, timeoutMs);
     });
     try {
       const url = `${prefix}${path}${query.size ? '?' + query : ''}`;

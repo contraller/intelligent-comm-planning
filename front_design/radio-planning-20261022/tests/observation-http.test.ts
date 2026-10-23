@@ -122,6 +122,66 @@ describe('V2冻结状态关联与V1兼容', () => {
 });
 
 describe('P07 独立只读频谱适配器', () => {
+  it('默认仍为15000ms，且超时终止已认证读取', async () => {
+    vi.useFakeTimers();
+    const request = vi.fn((_path: string, _init?: RequestInit) => new Promise(() => {}));
+    const api = createObservationHttp({ baseUrl: () => '/api/v1', authenticatedRequest: request as AuthenticatedRequest });
+    const pending = expect(api.loadObservationContext()).rejects.toMatchObject({ code: 'REQUEST_TIMEOUT' });
+    await vi.advanceTimersByTimeAsync(14999); expect(request.mock.calls[0][1]!.signal?.aborted).toBe(false);
+    await vi.advanceTimersByTimeAsync(1); await pending;
+    expect(request.mock.calls[0][1]!.signal?.aborted).toBe(true); expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('动态超时按请求捕获一次，大于15秒不截断，后续变更只影响下一请求', async () => {
+    vi.useFakeTimers();
+    let budget = 30000, finish!: (value: unknown) => void;
+    const timeoutMs = vi.fn(() => budget);
+    const request = vi.fn((_path: string, _init?: RequestInit) => new Promise(resolve => { finish = resolve; }));
+    const api = createObservationHttp({ baseUrl: () => '/api/v1', timeoutMs, authenticatedRequest: request as AuthenticatedRequest });
+    expect(timeoutMs).not.toHaveBeenCalled();
+    const first = expect(api.loadObservationContext()).resolves.toEqual(context());
+    expect(timeoutMs).toHaveBeenCalledTimes(1); budget = 10;
+    await vi.advanceTimersByTimeAsync(15001); expect(request.mock.calls[0][1]!.signal?.aborted).toBe(false);
+    finish(context()); await first; expect(vi.getTimerCount()).toBe(0);
+    const second = expect(api.loadObservationContext()).rejects.toMatchObject({ code: 'REQUEST_TIMEOUT' });
+    expect(timeoutMs).toHaveBeenCalledTimes(2); budget = 60000;
+    await vi.advanceTimersByTimeAsync(10); await second;
+    expect(request.mock.calls[1][1]!.signal?.aborted).toBe(true); expect(timeoutMs).toHaveBeenCalledTimes(2); expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('四个只读方法都在请求首次await前取当前超时值', async () => {
+    const values = [context(), { schemaVersion: 1, dataOrigin: OBSERVATION_ORIGIN, items: [summary()], page: 1, pageSize: 20, total: 1 },
+      { ...identity(), items: [frame(0), frame(1)], page: 1, pageSize: 20, total: 2 }, single()];
+    const timeoutMs = vi.fn(() => 25000), request = vi.fn(async () => values.shift());
+    const api = createObservationHttp({ baseUrl: () => '/api/v1', timeoutMs, authenticatedRequest: request as AuthenticatedRequest });
+    const runs = [() => api.loadObservationContext(), () => api.queryObservationDatasets({ page: 1, pageSize: 20 }),
+      () => api.queryObservationFrames({ ...selection, page: 1, pageSize: 20 }), () => api.getObservationFrame({ ...selection, index: 0 })];
+    for (const [index, run] of runs.entries()) {
+      const pending = run(); expect(timeoutMs).toHaveBeenCalledTimes(index + 1); expect(request).toHaveBeenCalledTimes(index + 1); await pending;
+    }
+  });
+
+  it.each([0, -0, -1, Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY, '15000', null, undefined, true])('回调非法超时%j在网络和计时器创建前拒绝', async value => {
+    vi.useFakeTimers();
+    const request = vi.fn(), fetcher = vi.fn(), timeoutMs = vi.fn(() => value as number);
+    const api = createObservationHttp({ baseUrl: () => '/api/v1', timeoutMs, authenticatedRequest: request as AuthenticatedRequest, fetcher });
+    await expect(api.loadObservationContext()).rejects.toMatchObject({ code: 'INVALID_OBSERVATION_QUERY' });
+    expect(timeoutMs).toHaveBeenCalledOnce(); expect(request).not.toHaveBeenCalled(); expect(fetcher).not.toHaveBeenCalled(); expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('回调异常明确失败且不回退默认值，之后请求可读取恢复后的设置', async () => {
+    vi.useFakeTimers();
+    const timeoutMs = vi.fn((): number => { throw new Error('构造运行快照读取异常'); }), request = vi.fn(async () => context());
+    const api = createObservationHttp({ baseUrl: () => '/api/v1', timeoutMs, authenticatedRequest: request as AuthenticatedRequest });
+    await expect(api.loadObservationContext()).rejects.toMatchObject({ code: 'INVALID_OBSERVATION_QUERY', message: '读取观测超时设置失败' });
+    expect(request).not.toHaveBeenCalled(); expect(vi.getTimerCount()).toBe(0);
+    timeoutMs.mockReturnValue(25000); expect(await api.loadObservationContext()).toEqual(context()); expect(timeoutMs).toHaveBeenCalledTimes(2); expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it.each([0, -1, Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY])('数字超时%j保留构造期严格校验', timeoutMs => {
+    expect(() => createObservationHttp({ baseUrl: () => '/api/v1', timeoutMs })).toThrowError(expect.objectContaining({ code: 'INVALID_OBSERVATION_QUERY' }));
+  });
+
   it('交付入口只使用已认证请求，保留会话拒绝而不回退裸请求', async () => {
     const bare = vi.fn();
     const request = vi.fn(async () => context());
