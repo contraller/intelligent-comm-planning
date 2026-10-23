@@ -2,55 +2,55 @@ import { onBeforeUnmount } from 'vue';
 import { onBeforeRouteLeave, useRouter } from 'vue-router';
 import { useAuthStore } from '../stores/auth';
 import { useResourceLedgerEditStore } from '../stores/resource-ledger-edit';
-import { useSpectrumStore } from '../stores/spectrum';
-import { useDeviceConfigurationStore } from '../stores/device-configuration';
+
+export interface ResourceLedgerLeaveCheck {
+  dirty: () => boolean;
+  busy: () => boolean;
+  leave: () => boolean | Promise<boolean>;
+  clear?: () => void;
+}
 
 // 先完成全部决定，退出成功或实际离页后才清理；退出失败保留所有输入。
-export function useResourceLedgerLeaveGuard() {
+export function useResourceLedgerLeaveGuard(checks: () => readonly ResourceLedgerLeaveCheck[] = () => []) {
   const auth = useAuthStore(),
-    editor = useResourceLedgerEditStore(),
-    spectrum = useSpectrumStore(),
-    configuration = useDeviceConfigurationStore();
+    editor = useResourceLedgerEditStore();
   const router = useRouter();
   let leaving = false;
-  const dirty = () =>
-    editor.dirty || spectrum.dirty || configuration.dirty || !!configuration.pending;
+  const dirty = () => editor.dirty || checks().some(check => check.dirty());
+  const busy = () => editor.busy || checks().some(check => check.busy());
+  function clear() {
+    editor.clearForSession();
+    checks().forEach(check => check.clear?.());
+  }
   async function leave(defer = false) {
     const session = auth.generation;
-    if (
-      editor.busy ||
-      spectrum.busy ||
-      !(await configuration.leave(true)) ||
-      !(await editor.leave(true)) ||
-      !(await spectrum.leave(true))
-    )
-      return false;
-    if (session !== auth.generation || auth.blocked) return false;
-    if (!defer) {
-      editor.clearForSession();
-      spectrum.form = null;
-      configuration.clearForSession();
+    if (busy()) return false;
+    for (const check of checks()) {
+      if (!(await check.leave()) || session !== auth.generation || auth.blocked) return false;
     }
+    if (!(await editor.leave(true))) return false;
+    if (session !== auth.generation || auth.blocked) return false;
+    if (!defer) clear();
     return true;
   }
   const release = auth.registerLeave(() => leave(true), dirty);
+  const releaseCleaner = auth.registerCleaner(clear);
   const releaseNavigation = router.afterEach((to, from, failure) => {
     if (!leaving) return;
     leaving = false;
     if (!failure && from.path === '/resources' && to.path !== '/resources') {
-      editor.clearForSession();
-      spectrum.form = null;
-      configuration.clearForSession();
+      clear();
     }
   });
   const unload = (event: BeforeUnloadEvent) => {
-    if (!dirty() && !editor.busy && !spectrum.busy && !configuration.busy) return;
+    if (!dirty() && !busy()) return;
     event.preventDefault();
     event.returnValue = '';
   };
   window.addEventListener('beforeunload', unload);
   onBeforeUnmount(() => {
     release();
+    releaseCleaner();
     releaseNavigation();
     window.removeEventListener('beforeunload', unload);
   });
