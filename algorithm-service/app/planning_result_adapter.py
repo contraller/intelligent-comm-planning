@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import hashlib
 from collections import defaultdict
+from copy import deepcopy
 from typing import Any
 
 from . import planning_w4
@@ -162,15 +163,25 @@ def _outcome(plan: dict[str, Any], checks: list[dict[str, Any]]) -> dict[str, An
     }
 
 
-def adapt_planning_result(plan: dict[str, Any], input_data: dict[str, Any]
+def adapt_planning_result(plan: dict[str, Any], input_data: dict[str, Any], *, resource_rows=None
                           ) -> tuple[dict[str, Any], dict[str, Any]]:
     """生成可直接通过前端 ``readPlanningJob`` 校验的单方案结果。"""
     detail = plan["detail"]
     raw_nodes = detail.get("nodes") or []
     raw_links = detail.get("links") or []
     frequency_by_link = _frequency_by_link(detail)
-    model_rows = planning_w4._load("device_model.csv")
-    source_devices = detail.get("devices") or planning_w4._load("device.csv")
+    if resource_rows is None:
+        model_rows = planning_w4._load("device_model.csv")
+        source_devices = detail.get("devices") or planning_w4._load("device.csv")
+    else:
+        # 冻结作业不能借当前CSV解释型号；显式空设备也不得回退到当前库。
+        if (not isinstance(resource_rows, dict)
+                or not isinstance(resource_rows.get("device_model.csv"), list)
+                or not isinstance(resource_rows.get("device.csv"), list)
+                or not isinstance(detail.get("devices"), list)):
+            raise ValueError("冻结规划结果缺少设备或型号来源")
+        model_rows = deepcopy(resource_rows["device_model.csv"])
+        source_devices = deepcopy(detail["devices"])
     models = {row["model_id"]: row for row in model_rows}
     source_by_id = {row["device_id"]: row for row in source_devices}
     source_by_key: dict[tuple[str, str], list[dict[str, str]]] = defaultdict(list)
