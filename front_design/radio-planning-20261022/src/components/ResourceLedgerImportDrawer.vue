@@ -8,7 +8,7 @@
     <label
       >导入资源类型<select
         v-model="editor.importKind"
-        :disabled="!editor.canEdit || editor.busy || reading"
+        :disabled="!editor.canImport || editor.busy || reading"
         @change="editor.importPreview = null"
         ><option value="nodes">站点</option
         ><option value="devices">设备</option
@@ -18,12 +18,12 @@
     <div class="toolbar section-gap"
       ><button
         class="btn small"
-        :disabled="!editor.canEdit || editor.busy"
+        :disabled="!editor.canImport || editor.busy"
         @click="template('csv')"
         >CSV 模板</button
       ><button
         class="btn small"
-        :disabled="!editor.canEdit || editor.busy"
+        :disabled="!editor.canImport || editor.busy"
         @click="template('xlsx')"
         >XLSX 三表模板</button
       ></div
@@ -35,7 +35,7 @@
       type="file"
       accept=".csv,.xlsx"
       aria-label="选择资源文件"
-      :disabled="!editor.canEdit || editor.busy || reading"
+      :disabled="!editor.canImport || editor.busy || reading"
       @change="choose"
     />
     <p
@@ -52,7 +52,7 @@
     <button
       v-if="editor.importFile?.bytes.length"
       class="btn small"
-      :disabled="!editor.canEdit || editor.busy || reading"
+      :disabled="!editor.canImport || editor.busy || reading"
       @click="editor.previewImport(toRaw(editor.importFile))"
       >重新预检 {{ editor.importFile.name }}</button
     >
@@ -123,7 +123,7 @@
         ><button
           class="btn primary"
           :disabled="
-            !editor.canEdit ||
+            !editor.canImport ||
             editor.busy ||
             reading ||
             !editor.importPreview ||
@@ -197,7 +197,7 @@ async function locateIssue(issue: ResourceIssue) {
 }
 async function choose(event: Event) {
   const file = (event.target as HTMLInputElement).files?.[0];
-  if (!file || !editor.canEdit || editor.busy) return;
+  if (!file || !editor.canImport || editor.busy) return;
   localError.value = '';
   editor.importPreview = null;
   if (file.size > RESOURCE_MAX_FILE_BYTES) {
@@ -225,7 +225,7 @@ async function download(file: ResourceFile, session: number) {
     session !== auth.generation ||
     !(await auth.check()) ||
     session !== auth.generation ||
-    !editor.canEdit
+    !editor.canImport
   )
     return;
   downloadFile(file, 0);

@@ -9,6 +9,8 @@ import { createKnowledgeHttp } from './knowledge-http';
 import { createGisHttp } from './gis-http';
 import { createResourceMaintenanceHttp } from './resource-maintenance-http';
 import { createResourceExportHttp } from './resource-export-http';
+import { createResourceImportHttp } from './resource-import-http';
+import { createResourceWorkspaceHttp } from './resource-workspace-http';
 import { createGisPlanHttp } from './gis-plan-http';
 import { createInterferenceSceneHttp } from './interference-scene-http';
 import { createFrequencyResourceHttp } from './frequency-resource-http';
@@ -18,6 +20,8 @@ import { createObservationHttp } from './observation-http';
 // 保留既有导出路径；认证、传输与页面会话分别维护，不在入口堆叠实现。
 export { createHttpClient } from './http-client';
 const authentication = createAuthHttp({ baseUrl: () => env.apiBaseUrl });
+const resourceWorkspace = createResourceWorkspaceHttp(authentication.authenticatedRequest);
+const resourceMaintenance = createResourceMaintenanceHttp(authentication.authenticatedRequest);
 export const releaseHttpSessionBinding = () => authentication.releaseSessionBinding();
 export const loadIntegrationIdentities = () => authentication.integrationIdentities();
 export const switchIntegrationIdentity = (accountId: string) => authentication.switchIntegrationIdentity(accountId);
@@ -35,8 +39,20 @@ export const httpService: PreviewService = {
   ...createDiagnosisHttp(authentication.authenticatedRequest),
   ...createKnowledgeHttp(authentication.authenticatedRequest),
   ...createGisHttp(authentication.authenticatedRequest),
-  ...createResourceMaintenanceHttp(authentication.authenticatedRequest),
+  ...resourceMaintenance,
   ...createResourceExportHttp(authentication.authenticatedRequest),
+  ...createResourceImportHttp(authentication.authenticatedRequest),
+  loadGisResourceEditContext: resourceWorkspace.loadGisResourceEditContext,
+  commitResources: resourceWorkspace.commitResources,
+  // 公共入口按操作分流，旧单设备工厂继续保持三参数窄契约。
+  loadResourceMaintenanceContext(input) {
+    return input && input.deviceId === undefined && input.ids === undefined
+      ? resourceWorkspace.loadResourceMaintenanceContext(input) : resourceMaintenance.loadResourceMaintenanceContext(input);
+  },
+  saveResourceChanges(input) {
+    return input && (input.context === 'gis' || input.stations?.length || input.newDevices?.length || input.newStations?.length || input.newInterferences?.length || input.interferences?.length)
+      ? resourceWorkspace.saveResourceChanges(input) : resourceMaintenance.saveResourceChanges(input);
+  },
   async getDeviceNetworkDetail() { throw new ApiError('HTTP 同快照网络下钻协议尚未接入', 'NOT_IMPLEMENTED'); },
   // 实例维护协议待确认，不猜端点、不回退教学成功。
   async getDeviceMaintenance() { throw new ApiError('HTTP 实例端口维护尚未接入', 'NOT_IMPLEMENTED'); },
@@ -73,11 +89,8 @@ export const httpService: PreviewService = {
   async cancelInterferenceReceipt() { throw new ApiError('HTTP 干扰读取及回执协议尚未接入', 'NOT_IMPLEMENTED'); },
   async adoptInterferenceReceipt() { throw new ApiError('HTTP 干扰读取及回执协议尚未接入', 'NOT_IMPLEMENTED'); },
   async getGisLinkDetails() { throw new ApiError('HTTP 链路详情协议尚未接入', 'NOT_IMPLEMENTED'); },
-  async applyResourceImport() { throw new ApiError('HTTP 资源导入尚未接入', 'NOT_IMPLEMENTED'); },
   async resetResourceData() { throw new ApiError('HTTP 资源重置尚未接入', 'NOT_IMPLEMENTED'); },
   // 轻目录遵循统一契约；真实传输映射待确认，不猜地址或回退其他来源。
-  // 待确认的完整 GIS 契约独立报错，不影响已接入的资源分页与地图读取。
-  async loadGisResourceEditContext() { throw new ApiError('GIS 编辑上下文服务尚未接入', 'NOT_IMPLEMENTED'); },
   // 正式配置协议未确认；占位不发真实控制请求，不回落教学成功。
   async loadDeviceConfigurationContext() { throw new ApiError('HTTP 设备配置协议尚未接入', 'NOT_IMPLEMENTED'); },
   async validateDeviceConfiguration() { throw new ApiError('HTTP 设备配置协议尚未接入', 'NOT_IMPLEMENTED'); },
@@ -112,9 +125,6 @@ export const httpService: PreviewService = {
   async previewTaskImport(){throw new ApiError('HTTP 任务与方案导出适配尚未接入','NOT_IMPLEMENTED');},
   async exportPlanVersion(){throw new ApiError('HTTP 任务与方案导出适配尚未接入','NOT_IMPLEMENTED');},
   // 资源导入/频谱正式协议待对齐，不向配置 URL 发出采集请求。
-  async getResourceTemplate() { throw new ApiError('HTTP 资源及频谱适配尚未接入','NOT_IMPLEMENTED'); },
-  async previewResourceImport() { throw new ApiError('HTTP 资源及频谱适配尚未接入','NOT_IMPLEMENTED'); },
-  async commitResourceImport() { throw new ApiError('HTTP 资源及频谱适配尚未接入','NOT_IMPLEMENTED'); },
   async setDeviceAvailability() { throw new ApiError('HTTP 资源及频谱适配尚未接入','NOT_IMPLEMENTED'); },
   async loadSpectrumWorkspace() { throw new ApiError('HTTP 资源及频谱适配尚未接入','NOT_IMPLEMENTED'); },
   async saveSpectrumSource() { throw new ApiError('HTTP 资源及频谱适配尚未接入','NOT_IMPLEMENTED'); },
@@ -163,10 +173,6 @@ export const httpService: PreviewService = {
   },
   async resetPlanningWorkspace() {
     throw new ApiError('HTTP 模式不支持本地规划重置', 'NOT_IMPLEMENTED');
-  },
-  async commitResources() {
-    // 批次保存与版本冲突语义待甲方确认，不请求猜测的写入端点。
-    throw new ApiError('HTTP 资源保存尚未接入，不会回退到 Mock。', 'NOT_IMPLEMENTED');
   },
   async resetResources() {
     throw new ApiError('HTTP 资源重置尚未接入，不会回退到 Mock。', 'NOT_IMPLEMENTED');

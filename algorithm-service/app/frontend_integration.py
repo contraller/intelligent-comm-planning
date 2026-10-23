@@ -82,6 +82,11 @@ def _boolean(value: str | None) -> bool:
     return str(value or "").strip().lower() == "true"
 
 
+def _status(value: str | None) -> str | None:
+    # 导入的显式 UNKNOWN 与空状态都不构造告警或正常结论。
+    return None if value in (None, "", "UNKNOWN") else value
+
+
 def _envelope(data: Any, code: int = 0, message: str = "success") -> dict[str, Any]:
     return {"code": code, "message": message, "data": data}
 
@@ -131,8 +136,9 @@ def _node_item(row: dict[str, str], nodes: list[dict[str, str]],
         "elevation_m": _optional_number(row.get("elevation_m")),
         "relay_capable": _boolean(row.get("relay_capable")),
         "is_key": _boolean(row.get("is_key")),
-        "alert": row.get("status") != "NORMAL",
-        "origin": "SOURCE",
+        "status": _status(row.get("status")),
+        "alert": None if _status(row.get("status")) is None else row["status"] != "NORMAL",
+        "origin": row.get("origin", "SOURCE"),
         "child_count": sum(1 for item in nodes if node_id in item.get("parent_node_id", "").split(";")),
         "device_count": sum(1 for item in devices if item.get("node_id") == node_id),
     }
@@ -151,7 +157,7 @@ def _device_item(row: dict[str, str], nodes: list[dict[str, str]],
         "model_name": model["model_name"],
         "antenna_name": antenna["antenna_name"],
         "device_class": model["device_class"],
-        "status": row.get("status") or None,
+        "status": _status(row.get("status")),
         "region": node.get("region"),
         "mobility": node.get("mobility") or None,
         "node_role": node.get("node_role") or None,
@@ -163,8 +169,8 @@ def _device_item(row: dict[str, str], nodes: list[dict[str, str]],
         "work_freq_khz": _optional_number(row.get("work_freq_khz")),
         "tilt_deg": _optional_number(row.get("tilt_deg")),
         "azimuth_deg": _optional_number(row.get("azimuth_deg")),
-        "alert": None if not row.get("status") else row["status"] != "NORMAL",
-        "origin": "SOURCE",
+        "alert": None if _status(row.get("status")) is None else row["status"] != "NORMAL",
+        "origin": row.get("origin", "SOURCE"),
         "availability": row.get("availability", "ACTIVE"),
     }
 
@@ -184,7 +190,7 @@ def _interference_item(row: dict[str, str]) -> dict[str, Any]:
         "azimuth_deg": _optional_number(row.get("azimuth_deg")),
         "duty_cycle": _optional_number(row.get("duty_cycle")),
         "active": _boolean(row.get("active")),
-        "origin": "SOURCE",
+        "origin": row.get("origin", "SOURCE"),
     }
 
 
@@ -204,7 +210,14 @@ def resource_context() -> dict[str, Any]:
     classes = Counter(next(model["device_class"] for model in models
                            if model["model_id"] == device["model_id"])
                       for device in devices)
-    device_alerts = sum(device.get("status") != "NORMAL" for device in devices)
+    device_alerts = sum(_status(device.get("status")) not in (None, "NORMAL") for device in devices)
+    nodes_by_id = {node["node_id"]: node for node in nodes}
+    classes_by_model = {model["model_id"]: model["device_class"] for model in models}
+    deployments = {kind: {mode: 0 for mode in ("FIXED", "VEHICLE", "MANPACK", "UNKNOWN")} for kind in ("HF", "VUHF")}
+    for device in devices:
+        kind = classes_by_model[device["model_id"]]
+        mode = nodes_by_id[device["node_id"]].get("mobility", "UNKNOWN")
+        deployments[kind][mode if mode in ("FIXED", "VEHICLE", "MANPACK") else "UNKNOWN"] += 1
     return _envelope({
         "revision": resource_revision(),
         "bounds": _bounds(nodes),
@@ -218,8 +231,9 @@ def resource_context() -> dict[str, Any]:
             "interferences": len(_rows("interferences")),
             "hf": classes["HF"],
             "vuhf": classes["VUHF"],
+            "deployments": deployments,
             "alerts": device_alerts,
-            "unknown_alerts": 0,
+            "unknown_alerts": sum(_status(device.get("status")) is None for device in devices),
             "active": sum(row.get("availability", "ACTIVE") == "ACTIVE" for row in devices),
             "off_shelf": sum(row.get("availability", "ACTIVE") == "OFF_SHELF" for row in devices),
             "unknown_availability": 0,
@@ -249,8 +263,8 @@ def resource_map(revision: str, bbox: list[float], zoom: float,
             if inside(lon, lat):
                 points.append({
                     "kind": "node", "id": row["node_id"], "name": row["node_name"],
-                    "lon": lon, "lat": lat, "status": row["status"],
-                    "alert": row.get("status") != "NORMAL",
+                    "lon": lon, "lat": lat, "status": _status(row.get("status")),
+                    "alert": None if _status(row.get("status")) is None else row["status"] != "NORMAL",
                 })
     if show_interferences:
         for row in _rows("interferences"):

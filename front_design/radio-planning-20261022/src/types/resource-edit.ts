@@ -26,7 +26,8 @@ export interface ResourceCommit extends ResourceChanges {
   context?: 'gis' | 'ledger';
 }
 export interface ResourceIssue {
-  sheet?: ResourceKind;
+  // 错误可来自文件级或未知工作表，不能伪装成某一资源类型。
+  sheet?: string;
   row?: number;
   objectId: string;
   field: string;
@@ -127,6 +128,9 @@ export interface ResourceExportRequest {
 export interface ResourceMaintenanceRequest { context: 'ledger'; revision: string; deviceId?: string; ids?: string[] }
 export interface ResourceMaintenanceContext {
   revision: string; baseRevision: string; device: Device | null;
+  // 仅完整编辑接口提供；单设备上下文不能被当作整库。
+  resources?: ResourcesData;
+  meta?: ResourceMeta;
   // 批量上下架预览回显已核验清单，不把单条详情当作整批预览。
   selectedIds?: string[];
   stations: Station[]; models: DeviceModel[]; antennas: Antenna[];

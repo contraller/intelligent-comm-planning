@@ -62,7 +62,16 @@ function check(actor:AuthIdentity|null,name:string){
 // 同一读取契约可用于台账/GIS，但不能伪造上下文绕过对应页面权限。
 function checkReadContext(actor:AuthIdentity|null,name:string,input:Record<string,unknown>|undefined){
   // 单设备维护权限不能借通用保存方法开放 GIS、导入或其他字段。
-  if (['loadResourceMaintenanceContext','saveResourceChanges'].includes(name) && !actor?.permissions.includes('resources.edit')) {
+  const workspaceEditor = actor?.permissions.includes('resources.workspace.edit');
+  const createsResources = actor?.permissions.includes('resources.create');
+  const fullContext = name === 'loadResourceMaintenanceContext' && input?.context === 'ledger'
+    && input.deviceId === undefined && input.ids === undefined
+    && (workspaceEditor || createsResources || actor?.permissions.includes('resources.import'));
+  const workspaceSave = name === 'saveResourceChanges' && !!input && ['ledger','gis'].includes(String(input.context))
+    && (workspaceEditor || createsResources && ['newStations','newDevices','newInterferences'].some(key=>Array.isArray(input[key])&&(input[key] as unknown[]).length)
+      && ['stations','devices','interferences'].every(key=>input[key]===undefined||Array.isArray(input[key])&&!(input[key] as unknown[]).length));
+  // 新增/导入的完整上下文不要求先选设备；窄权限仍不能借此维护其他资源。
+  if (['loadResourceMaintenanceContext','saveResourceChanges'].includes(name) && !actor?.permissions.includes('resources.edit') && !fullContext && !workspaceSave) {
     if (input?.context !== 'ledger') throw new ApiError('仅允许台账单设备参数维护','FORBIDDEN');
     if (name === 'loadResourceMaintenanceContext') {
       if (input.ids !== undefined) {
@@ -71,7 +80,7 @@ function checkReadContext(actor:AuthIdentity|null,name:string,input:Record<strin
       } else if (!actor?.permissions.includes('resources.device.edit') || typeof input.deviceId !== 'string' || !input.deviceId)
         throw new ApiError('必须有单设备参数维护权限并选择设备','FORBIDDEN');
     }
-    if (name === 'saveResourceChanges' && (Object.keys(input).some(k => !['context','baseRevision','requestId','stations','devices'].includes(k))
+    if (name === 'saveResourceChanges' && (!actor?.permissions.includes('resources.device.edit') || Object.keys(input).some(k => !['context','baseRevision','requestId','stations','devices'].includes(k))
       || !Array.isArray(input.stations) || input.stations.length || !Array.isArray(input.devices) || input.devices.length !== 1
       || !input.devices[0] || Object.keys(input.devices[0]).some(k => !['id','antennaHeightM','txPowerDbm','workFreqKhz'].includes(k))))
       throw new ApiError('本次权限不包含其他资源维护','FORBIDDEN');

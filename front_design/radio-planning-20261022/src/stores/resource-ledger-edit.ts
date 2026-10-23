@@ -58,9 +58,12 @@ export const useResourceLedgerEditStore = defineStore('resource-ledger-edit', ()
   const dirty = computed(() => formDirty.value || !!importFile.value);
   const busy = computed(() => loading.value || saving.value || importing.value);
   const canMaintainAll = computed(() => auth.can('resources.edit'));
+  const writable = computed(() => auth.can('resources.view') && !auth.blocked && !!read.workspace && !read.frozen);
+  const canCreate = computed(() => writable.value && (canMaintainAll.value || auth.can('resources.create')));
+  const canImport = computed(() => writable.value && (canMaintainAll.value || auth.can('resources.import')));
   const canEdit = computed(
     () =>
-      (canMaintainAll.value || auth.can('resources.device.edit')) &&
+      (canMaintainAll.value || auth.can('resources.device.edit') || auth.can('resources.workspace.edit') || auth.can('resources.create')) &&
       auth.can('resources.view') &&
       !auth.blocked &&
       !!read.workspace &&
@@ -112,6 +115,7 @@ export const useResourceLedgerEditStore = defineStore('resource-ledger-edit', ()
     return token === generation && session === auth.generation && !auth.blocked;
   }
   function references(value: ResourceMaintenanceContext): ResourcesData {
+    if (value.resources) return value.resources;
     return {
       source: '设备维护选项',
       version: value.revision,
@@ -182,7 +186,8 @@ export const useResourceLedgerEditStore = defineStore('resource-ledger-edit', ()
   }
   async function openForm(id = '', portEntry=false) {
     const session = auth.generation;
-    if (!canMaintainAll.value && (!id || portEntry)) return false;
+    if ((!id && !canCreate.value) || (portEntry && !canMaintainAll.value)
+      || (id && !canMaintainAll.value && !auth.can('resources.device.edit') && !auth.can('resources.workspace.edit'))) return false;
     if (!canEdit.value || busy.value || !(await closeImport()) || !(await closeForm()))
       return false;
     if (session !== auth.generation || !canEdit.value) return false;
@@ -219,8 +224,9 @@ export const useResourceLedgerEditStore = defineStore('resource-ledger-edit', ()
       editing = form.value;
     try {
       let changes = formChanges(editing);
-      if (!canMaintainAll.value) {
-        if (editing.creating || editing.restoreFrom || portsEditing.value) throw new ApiError('仅允许修改已有设备基础参数','FORBIDDEN');
+      if (editing.creating && !canCreate.value) throw new ApiError('无新增资源权限','FORBIDDEN');
+      if (!canMaintainAll.value && !editing.creating) {
+        if (editing.restoreFrom || portsEditing.value) throw new ApiError('仅允许修改已有设备基础参数','FORBIDDEN');
         const row = changes.devices[0]!;
         changes = {stations:[],devices:[{id:row.id,antennaHeightM:row.antennaHeightM,txPowerDbm:row.txPowerDbm,workFreqKhz:row.workFreqKhz}]};
       }
@@ -247,6 +253,7 @@ export const useResourceLedgerEditStore = defineStore('resource-ledger-edit', ()
       };
       form.value = result.device ? createForm(references(context.value), 'device', result.device.id)
         : { ...editing, initial: { ...editing.fields } };
+      if (result.device) targetId = result.device.id;
       message.value = result.changed ? '设备已保存' : '没有需要保存的修改';
       return await acceptSaved(result);
     } catch (reason) {
@@ -258,9 +265,9 @@ export const useResourceLedgerEditStore = defineStore('resource-ledger-edit', ()
   }
   async function openImport() {
     const session = auth.generation;
-    if (!canMaintainAll.value || !canEdit.value || busy.value || !(await closeForm()) || !(await closeImport()))
+    if (!canImport.value || busy.value || !(await closeForm()) || !(await closeImport()))
       return false;
-    if (session !== auth.generation || !canEdit.value) return false;
+    if (session !== auth.generation || !canImport.value) return false;
     importOpen.value = true;
     clearFeedback();
     return true;
@@ -285,7 +292,7 @@ export const useResourceLedgerEditStore = defineStore('resource-ledger-edit', ()
     return true;
   }
   async function previewImport(file: { name: string; bytes: Uint8Array }) {
-    if (!canEdit.value || busy.value || !importOpen.value) return;
+    if (!canImport.value || busy.value || !importOpen.value) return;
     const token = generation,
       serial = ++importSerial,
       session = auth.generation;
@@ -315,7 +322,7 @@ export const useResourceLedgerEditStore = defineStore('resource-ledger-edit', ()
     }
   }
   async function confirmImport() {
-    if (!canEdit.value || busy.value || !importPreview.value || importPreview.value.issues.length)
+    if (!canImport.value || busy.value || !importPreview.value || importPreview.value.issues.length)
       return false;
     const token = generation,
       session = auth.generation,
@@ -491,6 +498,8 @@ export const useResourceLedgerEditStore = defineStore('resource-ledger-edit', ()
     busy,
     canEdit,
     canMaintainAll,
+    canCreate,
+    canImport,
     canChangeAvailability,
     dirty,
     formDirty,

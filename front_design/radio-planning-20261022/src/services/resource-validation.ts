@@ -103,7 +103,7 @@ export function validateResources(
         ? ['id','name','echelon','parentIds','coordinate','elevationM','region','classes','status','alert','relayCapable','key','mobility','subtype','role','remark','origin']
         : ['id','stationId','modelId','antennaId','status','alert','antennaHeightM','txPowerDbm','workFreqKhz','installedAt','tiltDeg','azimuthDeg','availability','origin','currentWorkMode','ports'];
       if(Object.keys(record).some(key=>!supported.includes(key)))issue(row.id,'structure','包含未知资源字段');
-      if(!['SOURCE','MANUAL','IMPORT'].includes(String(record.origin))||!['NORMAL','FAULT','OFFLINE'].includes(String(record.status))||typeof record.alert!=='boolean')
+      if(!['SOURCE','MANUAL','IMPORT'].includes(String(record.origin))||(record.status!==null&&!['NORMAL','FAULT','OFFLINE'].includes(String(record.status)))||(record.alert!==null&&typeof record.alert!=='boolean'))
         issue(row.id,'status','来源、运行状态或告警格式无效');
       if(!original)continue;
       for (const key of new Set([...Object.keys(original), ...Object.keys(record)])) {
@@ -452,13 +452,13 @@ export function formChanges(form: EditForm): ResourceChanges {
       if(!definition||!['I_FIXED','II_FIXED'].includes(f.subtype))throw new ApiError('请选择固定站类型','VALIDATION_ERROR');
       const station:Station={id:form.id,name:f.name,coordinate:[number('longitude')!,number('latitude')!],elevationM:number('elevationM',true),region:f.region,
         ...structuredClone(definition),subtype:f.subtype,role:'FIXED_STATION',parentIds:f.parentIds.split(';').map(v=>v.trim()).filter(Boolean),
-        key:f.key==='true',relayCapable:f.relayCapable==='true',status:'OFFLINE',alert:false,remark:f.remark,origin:'MANUAL'};
+        key:f.key==='true',relayCapable:f.relayCapable==='true',status:null,alert:null,remark:f.remark,origin:'MANUAL'};
       return {stations:[],devices:[],newStations:[station]};
     }
     if(form.kind==='device'){
       const device:Device={id:form.id,stationId:f.stationId,modelId:f.modelId,antennaId:f.antennaId,antennaHeightM:number('antennaHeightM'),txPowerDbm:number('txPowerDbm'),
         workFreqKhz:number('workFreqKhz',true),tiltDeg:number('tiltDeg',true),azimuthDeg:number('azimuthDeg',true),installedAt:f.installedAt,
-        status:'OFFLINE',alert:false,origin:'MANUAL',availability:'ACTIVE',...(f.currentWorkMode?{currentWorkMode:f.currentWorkMode}:{})};
+        status:null,alert:null,origin:'MANUAL',availability:'ACTIVE',...(f.currentWorkMode?{currentWorkMode:f.currentWorkMode}:{})};
       return {stations:[],devices:[],newDevices:[device]};
     }
   }

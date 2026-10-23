@@ -30,7 +30,7 @@ export const useResourceEditStore = defineStore('resource-edit', () => {
   const preview = usePreviewStore(),auth=useAuthStore();
   const baselinePending = ref(false);
   // 本地应用要求资源已加载且有当前权限；失权保留现有草稿。
-  const canEdit=computed(()=>!baselinePending.value&&auth.can('resources.edit')&&auth.can('situation.view'));
+  const canEdit=computed(()=>!baselinePending.value&&(auth.can('resources.edit')||auth.can('resources.workspace.edit'))&&auth.can('situation.view'));
   // 本 Store 只持有 GIS 完整编辑基线与草稿，台账维护由独立 Store 负责。
   const saved = ref<GisResourceEditContext | null>(null), saving = ref(false);
   const savedMeta = computed(() => saved.value?.resourceMeta);
@@ -347,13 +347,13 @@ export const useResourceEditStore = defineStore('resource-edit', () => {
   }
   async function previewImport(file:{name:string;bytes:Uint8Array}){
     if(!canEdit.value||busy.value||context.value!=='gis'||!base.value)return;
+    if(draftDirty.value){error.value='请先保存或放弃资源草稿，再预检导入文件';return;}
     const serial=++importSerial,session=auth.generation;
     importFile.value=file;importPreview.value=null;importing.value=true;clearFeedback();
     importBaseline=resourceSignature(resources.value);
     try{
-      // 导入预检始终绑定当前 GIS 草稿，不提交台账即时保存请求。
-      const result=await previewService.previewResourceImport({file,kind:importKind.value,baseRevision:baseRevision.value,context:'gis',
-        draftChanges:diffResources(base.value,clone(resources.value))});
+      // 导入绑定已保存资源，提交时后端按原文件重验，不借手工草稿绕过校验。
+      const result=await previewService.previewResourceImport({file,kind:importKind.value,baseRevision:baseRevision.value,context:'gis'});
       if(serial===importSerial&&session===auth.generation){importPreview.value=result;issues.value=result.issues;}
     }catch(e){if(serial===importSerial&&session===auth.generation)report(e);}
     finally{if(serial===importSerial)importing.value=false;}
@@ -366,19 +366,29 @@ export const useResourceEditStore = defineStore('resource-edit', () => {
     if(savedMeta.value?.revision!==baseRevision.value||read.workspace&&(read.stale||read.workspace.revision!==saved.value?.revision)||importBaseline!==resourceSignature(resources.value)){
       error.value='资源或草稿已变化，请重新预检';return false;
     }
+    importing.value=true;
     try{
-      const next=applyChanges(clone(resources.value),view.changes);
-      assertValid(next,clone(resources.value),clone(saved.value!.validationSource));
-      if(changesPresent(diffResources(clone(resources.value),next))){undoStack.value.push(clone(resources.value));redoStack.value=[];draft.value=next;}
-      message.value='整批导入已应用到 GIS 草稿，请统一保存';
-      importOpen.value=false;importFile.value=null;importPreview.value=null;issues.value=[];return true;
+      const key='gis-import:'+view.signature;
+      if(saveSignature!==key){saveSignature=key;saveId=randomUuid();}
+      const result=await previewService.commitResourceImport({baseRevision:baseRevision.value,requestId:saveId,preview:structuredClone(view)});
+      if(session!==auth.generation||token!==generation)return false;
+      acceptUnified(result);
+      if(result.changed)preview.invalidateResources();
+      importOpen.value=false;importFile.value=null;importPreview.value=null;issues.value=[];
+      message.value=result.changed?'资源已整批保存':'全部记录无变化';
+      let refreshed=false;
+      try{refreshed=await read.refresh();}catch{/* 保存成功与页面刷新失败分别报告。 */}
+      if(session===auth.generation&&token===generation&&!refreshed)message.value+='；保存成功，列表刷新失败，请刷新资源';
+      return true;
     }catch(e){if(session===auth.generation&&token===generation)report(e);return false;}
     finally{if(token===generation)importing.value=false;}
   }
   // 联合保存成功后才移动基线；失败不动当前表单和历史。
   function acceptUnified(result:import('../types/resource-edit').ResourceSaveResult){
     if(context.value!=='gis')return;
-    if (saved.value) saved.value = { ...saved.value, resources: clone(result.resources), resourceMeta: structuredClone(toRaw(result.meta)), baseRevision: result.meta.revision };
+    if (saved.value) saved.value = { ...saved.value, revision: result.meta.revision, resources: clone(result.resources),
+      validationSource: clone(result.resources), resourceMeta: structuredClone(toRaw(result.meta)), baseRevision: result.meta.revision,
+      situation: {...saved.value.situation,snapshotId:result.meta.revision,updatedAt:result.meta.savedAt??saved.value.situation.updatedAt} };
     base.value=clone(result.resources);baseRevision.value=result.meta.revision;draft.value=clone(result.resources);
     undoStack.value=[];redoStack.value=[];refreshForm();clearFeedback();
   }

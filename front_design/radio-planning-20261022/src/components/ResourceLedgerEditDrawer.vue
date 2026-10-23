@@ -172,7 +172,7 @@ import { useResourceLedgerEditStore } from '../stores/resource-ledger-edit';
 const editor = useResourceLedgerEditStore();
 const formFields = computed<Record<string, string>>(() =>
   Object.fromEntries(Object.entries(editor.form?.fields ?? {}).filter(([key]) =>
-    key !== 'ports' && (editor.canMaintainAll || ['antennaHeightM','txPowerDbm','workFreqKhz'].includes(key)))),
+    key !== 'ports' && key !== 'currentWorkMode' && (editor.form?.creating || editor.canMaintainAll || ['antennaHeightM','txPowerDbm','workFreqKhz'].includes(key)))),
 );
 // 校验问题只定位当前设备表单中的真实字段，不改变输入内容。
 function focusIssue(field: string) {

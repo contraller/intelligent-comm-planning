@@ -16,7 +16,7 @@ READ = ["planning.view", "resources.view", "situation.view", "diagnosis.view", "
 CATALOG = {
     "integration-planner": ("联调规划员", "PLANNER", baseline.session_identity()["permissions"]),
     # 频点停用使用专项权限，不开放整库编辑。
-    "integration-editor": ("联调编辑者", "EDITOR", READ + ["resources.device.edit", "resources.device.availability", "resources.frequency.disable", "diagnosis.scenario", "diagnosis.execute", "diagnosis.export", "knowledge.edit"]),
+    "integration-editor": ("联调编辑者", "EDITOR", READ + ["resources.device.edit", "resources.device.availability", "resources.frequency.disable", "resources.import", "resources.create", "resources.workspace.edit", "diagnosis.scenario", "diagnosis.execute", "diagnosis.export", "knowledge.edit"]),
     "integration-reviewer": ("联调审核者", "REVIEWER", READ + ["diagnosis.export", "knowledge.review", "knowledge.publish", "knowledge.rollback"]),
 }
 

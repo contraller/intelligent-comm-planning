@@ -29,7 +29,7 @@
         >
         <button
           class="btn"
-          :disabled="!canMaintain"
+          :disabled="!editor.canImport || selectionDisabled"
           @click="importResources"
         >
           <i class="pi pi-upload" />导入</button
@@ -47,7 +47,7 @@
           <i class="pi pi-download" />导出</button
         ><button
           class="btn primary"
-          :disabled="!canMaintain"
+          :disabled="!editor.canCreate || selectionDisabled"
           @click="showNewPreview"
         >
           <i class="pi pi-plus" />新增设备
@@ -748,7 +748,7 @@ async function selectDetail(id: string) {
   await read.selectObject('device', id);
 }
 async function showNewPreview() {
-  if (canMaintain.value)
+  if (editor.canCreate && !selectionDisabled.value)
     await configurationAction(async () => {
       const opened = await editor.openForm();
       if (opened) read.closeDetail();
@@ -756,7 +756,7 @@ async function showNewPreview() {
     });
 }
 async function importResources() {
-  if (canMaintain.value)
+  if (editor.canImport && !selectionDisabled.value)
     await configurationAction(async () => {
       if (!(await spectrum.leave())) return false;
       const opened = await editor.openImport();
@@ -834,6 +834,12 @@ const columns = [
 }
 .split {
   grid-template-columns: 260px minmax(0, 1fr);
+}
+@media (max-width: 800px) {
+  /* 小屏顺序排列，不能把业务区压进侧栏右边的窄缝。 */
+  .split {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 .filter-retained {
   margin: 0;

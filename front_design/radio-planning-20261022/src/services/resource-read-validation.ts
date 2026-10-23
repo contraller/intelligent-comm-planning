@@ -16,7 +16,7 @@ const bool = (v: unknown, field: string): boolean => typeof v === 'boolean' ? v 
 const optionalBool = (v: unknown, field: string) => v == null ? null : bool(v, field);
 function choice<const T extends string>(v: unknown, choices: readonly T[], field: string): T { return choices.includes(v as T) ? v as T : fail(field); }
 const origin = (v: unknown): ResourceOrigin | null => v == null || v === '' ? null : choice(v, ['SOURCE', 'MANUAL', 'IMPORT'], 'origin');
-const status = (v: unknown) => choice(v, ['NORMAL', 'FAULT', 'OFFLINE'], 'status');
+const status = (v: unknown) => v === null ? null : choice(v, ['NORMAL', 'FAULT', 'OFFLINE'], 'status');
 const deviceClass = (v: unknown) => choice(v, ['HF', 'VUHF'], 'device_class');
 function strings(v: unknown, field: string): string[] {
   // 兼容来源 CSV 的分号多值，仅在传输边界转换。

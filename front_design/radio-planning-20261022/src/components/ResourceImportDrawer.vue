@@ -137,9 +137,9 @@
         >
       </details>
     </div>
-    <!-- 确认只应用整批草稿，尚未执行统一保存。 -->
+    <!-- 后端按原文件重验并原子提交，不与未保存任务草稿混成一笔事务。 -->
     <template #footer
-      ><p class="readonly-note">确认后应用整批草稿，还需工具栏保存。</p
+      ><p class="readonly-note">确认后整批保存资源；任务草稿不变。</p
       ><div class="toolbar"
         ><button
           class="btn"
@@ -156,7 +156,7 @@
             !!editor.importPreview.issues.length
           "
           @click="editor.confirmImport()"
-          >确认应用到草稿</button
+          >确认整批保存</button
         ></div
       ></template
     >
