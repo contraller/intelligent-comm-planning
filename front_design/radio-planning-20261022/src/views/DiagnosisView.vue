@@ -115,7 +115,7 @@
           : '默认示例采用两路融合；分路缺项、权重与贡献按结果展示。'
       }}</p>
       <button
-        v-if="auth.can('diagnosis.reset')"
+        v-if="diagnosis.demoEnabled && auth.can('diagnosis.reset')"
         class="btn small"
         :disabled="diagnosis.locked"
         @click="reset"
@@ -467,7 +467,7 @@
         >
           <!-- 收起入口放入标题行，避免面板外占行造成顶边错位。 -->
           <template #heading-actions>
-            <button v-if="auth.identity?.integrationMode && auth.can('knowledge.edit') && diagnosis.view?.diagnosisReady" class="text-link" :disabled="diagnosis.locked" @click="feedbackDrawer=true">知识反馈</button>
+            <button v-if="auth.can('knowledge.edit') && diagnosis.view?.diagnosisReady" class="text-link" :disabled="diagnosis.locked" @click="feedbackDrawer=true">知识反馈</button>
             <button
               class="text-link result-toggle result-collapse"
               title="收起诊断结果"

@@ -166,6 +166,15 @@ def surface(plan_id, task_id, snapshot_id, *, factory=None):
         if plan is None or plan.task_id != task_id or (plan.result_snapshot or {}).get("snapshot_id") != snapshot_id:
             raise GisPlanError("冻结方案已不可用，请重新打开方案")
         raw = deepcopy(plan.raw_snapshot)
+        coverage = deepcopy((plan.result_snapshot or {}).get("coverage"))
+    coverage_notice = "该冻结方案未提供覆盖栅格或轮廓。"
+    if coverage is not None:
+        if not isinstance(coverage, dict) or set(coverage) != {"contour", "raster_png"}:
+            raise GisPlanError("冻结覆盖资料结构无效")
+        if coverage["contour"] is None and coverage["raster_png"] is None:
+            coverage = None
+        else:
+            coverage_notice = ""
     # 地形属于同一冻结来源；不因当前资源换版而给历史网络套用另一份DEM。
     from . import planning_adjustment_service
     try:
@@ -183,7 +192,8 @@ def surface(plan_id, task_id, snapshot_id, *, factory=None):
             notice = ""
     except (OSError, ValueError, KeyError, TypeError):
         notice = "当前 DEM 元数据缺失或无效，未显示地形底图。"
-    return {"identity": data["identity"], "terrain": terrain, "terrain_notice": notice}
+    return {"identity": data["identity"], "terrain": terrain, "terrain_notice": notice,
+            "coverage": coverage, "coverage_notice": coverage_notice}
 
 
 def paths(plan_id, task_id, snapshot_id, demand_id=None, *, factory=None):

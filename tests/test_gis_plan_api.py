@@ -139,6 +139,33 @@ def test_surface_requires_exact_snapshot_and_preserves_unknown(api):
     data = response.json()["data"]
     assert data["identity"]["snapshot_id"] == "SNAP-P02"
     assert data["terrain"] is None and data["terrain_notice"]
+    assert data["coverage"] is None and data["coverage_notice"]
+
+
+def test_surface_preserves_frozen_coverage_without_current_resource_fallback(api):
+    client, factory, _ = api
+    coverage = {"contour": {"type": "FeatureCollection", "features": []}, "raster_png": None}
+    edit(factory, "result_snapshot", lambda result: result.update(coverage=coverage))
+    response = query(client, "surface", snapshot_id="SNAP-P02")
+    assert response.status_code == 200, response.text
+    assert response.json()["data"]["coverage"] == coverage
+    assert response.json()["data"]["coverage_notice"] == ""
+    with factory() as session:
+        assert session.get(PlanningPlan, "P1").result_snapshot["coverage"] == coverage
+
+
+@pytest.mark.parametrize("coverage", [{"contour": None, "raster_png": None}, None])
+def test_surface_missing_coverage_is_unknown_not_zero(api, coverage):
+    client, factory, _ = api
+    edit(factory, "result_snapshot", lambda result: result.update(coverage=coverage))
+    data = query(client, "surface", snapshot_id="SNAP-P02").json()["data"]
+    assert data["coverage"] is None and data["coverage_notice"]
+
+
+def test_surface_damaged_coverage_is_rejected(api):
+    client, factory, _ = api
+    edit(factory, "result_snapshot", lambda result: result.update(coverage={"rasterPng": None}))
+    assert query(client, "surface", snapshot_id="SNAP-P02").status_code == 409
 
 
 def test_surface_only_uses_verified_frozen_dem(api, monkeypatch, tmp_path):

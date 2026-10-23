@@ -1,4 +1,5 @@
 import { ApiError } from './types';
+import { readCoverage } from './coverage-validation';
 import type {
   GisFrozenDemand, GisFrozenDevice, GisFrozenLink, GisFrozenNode, GisFrozenRoute,
   GisLinkDetail, GisLinkQuery, GisNetwork, GisPaths, GisPathsQuery, GisPlanIdentity, GisPlanQuery,
@@ -72,7 +73,7 @@ function identity(value: unknown, query: GisPlanQuery): GisPlanIdentity {
   return result;
 }
 export function readGisPlanSurface(value: unknown, query: GisPlanQuery, network: GisNetwork): GisPlanSurface {
-  const row = object(value, ['identity', 'terrain', 'terrain_notice']);
+  const row = object(value, ['identity', 'terrain', 'terrain_notice', 'coverage', 'coverage_notice']);
   const source = identity(row.identity, query), notice = text(row.terrain_notice);
   const { state: _state, source_changed: _changed, ...stable } = source;
   const { state: _networkState, source_changed: _networkChanged, ...expected } = network.identity;
@@ -86,7 +87,9 @@ export function readGisPlanSurface(value: unknown, query: GisPlanQuery, network:
     return { sourceSha256: sha, source: label, bounds: [bounds[0], bounds[1], bounds[2], bounds[3]] as [number, number, number, number] };
   });
   if (terrain === null ? !notice.trim() : notice !== '') throw invalid();
-  return { identity: source, terrain, terrain_notice: notice };
+  const coverage = nullable(row.coverage, readCoverage), coverageNotice = text(row.coverage_notice);
+  if (coverage === null ? !coverageNotice.trim() : coverageNotice !== '' || !coverage.contour && !coverage.rasterPng) throw invalid();
+  return { identity: source, terrain, terrain_notice: notice, coverage, coverage_notice: coverageNotice };
 }
 function node(value: unknown): GisFrozenNode {
   const row = object(value, ['id', 'name', 'coordinate', 'status', 'alert']);

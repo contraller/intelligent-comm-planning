@@ -14,7 +14,7 @@ function setup(empty = false) {
     nodes: [{ id: 'A', name: '冻结节点A', coordinate: [114, 37], status: null, alert: null }], devices: [], links: [], demands: [], routes: [], paths_state: 'missing', paths_message: '未提供路径' };
   const summary = { id: 'P', taskId: 'T', name: '冻结方案', version: 'V1', state: 'CONFIRMED' as const, current: true, sourceChanged: true, savedAt: '2026-10-23T00:00:00Z' };
   const services: GisFrozenPlanServices = { queryPlans: vi.fn(async input => ({ items: empty ? [] : [summary], total: empty ? 0 : 1, pageNum: input.pageNum, pageSize: input.pageSize })),
-    plans: { getNetwork: vi.fn(async () => network), getSurface: vi.fn(async () => ({ identity: network.identity, terrain: null, terrain_notice: '历史地形未提供' })), getLink: vi.fn(), getPaths: vi.fn() } };
+    plans: { getNetwork: vi.fn(async () => network), getSurface: vi.fn(async () => ({ identity: network.identity, terrain: null, terrain_notice: '历史地形未提供', coverage: null, coverage_notice: '覆盖未提供' })), getLink: vi.fn(), getPaths: vi.fn() } };
   const props = reactive({ services, sessionGeneration: 1 }), root = node('root');
   app = renderer.createApp({ render: () => h(GisFrozenPlanPanel, props) }); app.provide(ssrContextKey, {}); app.mount(root);
   return { root, props, services };

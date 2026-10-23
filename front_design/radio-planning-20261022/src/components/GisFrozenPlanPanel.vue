@@ -121,6 +121,9 @@
             resource-read
             gis-surface
             :frozen-network="model.network"
+            :planning-overlay="coverageOverlay"
+            :show-coverage="showCoverage"
+            :coverage-display="coverageDisplay"
             :terrain-basemap="basemap"
             :map-caption="basemap ? '冻结 DEM 地形' : groundMessage"
             :selected-id="model.selectedNodeId"
@@ -132,6 +135,13 @@
           />
         </div>
         <aside class="frozen-details">
+          <div class="coverage-controls">
+            <label><input v-model="showCoverage" type="checkbox" :disabled="!model.surface?.coverage" />覆盖结果</label>
+            <select v-model="coverageDisplay" class="input" aria-label="覆盖显示方式" :disabled="!model.surface?.coverage">
+              <option value="auto">自动</option><option value="raster">场强栅格</option><option value="contour">覆盖轮廓</option>
+            </select>
+            <span v-if="model.surface?.coverage_notice" class="muted">{{ model.surface.coverage_notice }}</span>
+          </div>
           <div class="toolbar"
             ><strong
               >{{ model.network.nodes.length }} 节点 / {{ model.network.links.length }} 链路</strong
@@ -230,11 +240,15 @@ import {
 } from '../stores/gis-frozen-plan';
 import { useTerrainBasemap } from '../composables/useTerrainBasemap';
 import type { ApiPlan } from '../types/planning-api';
+import type { CoverageDisplay } from '../types/coverage';
 const props = defineProps<{ services: GisFrozenPlanServices; sessionGeneration: number }>();
 const model = reactive(createGisFrozenPlanWorkspace(props.services));
 const searchText = ref(''),
   state = ref<ApiPlan['state'] | ''>(''),
   page = ref(1);
+const showCoverage = ref(true), coverageDisplay = ref<CoverageDisplay>('auto');
+// 栅格复用既有安全下载；计划点线只由frozenNetwork绘制，不重复创建节点标签。
+const coverageOverlay = computed(() => model.surface?.coverage ? { nodes: [], coverage: model.surface.coverage, snapshotId: model.surface.identity.snapshot_id } : null);
 const labels = { SAVED: '已保存', REFERENCE: '参考方案', CONFIRMED: '已确认' };
 const node = computed(() => model.network?.nodes.find((row) => row.id === model.selectedNodeId));
 const value = (n: number | null, unit: string) => (n === null ? '未提供' : `${n} ${unit}`);
@@ -346,6 +360,8 @@ small {
   overflow: auto;
   scrollbar-gutter: stable;
 }
+.coverage-controls { display: grid; gap: 8px; }
+.coverage-controls label { display: flex; align-items: center; gap: 6px; }
 dl {
   display: grid;
   gap: 5px;

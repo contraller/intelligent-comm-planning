@@ -11,7 +11,7 @@ function network(id = 'P1'): GisNetwork {
 function fixture() {
   const services: GisFrozenPlanServices = { queryPlans: vi.fn(async input => ({ items: [], total: 0, pageNum: input.pageNum, pageSize: input.pageSize })),
     plans: { getNetwork: vi.fn(async query => network(query.planId)),
-      getSurface: vi.fn(async (_query, source) => ({ identity: source.identity, terrain: null, terrain_notice: '地形未知' })),
+      getSurface: vi.fn(async (_query, source) => ({ identity: source.identity, terrain: null, terrain_notice: '地形未知', coverage: null, coverage_notice: '覆盖未提供' })),
       getLink: vi.fn(async (_query, source): Promise<GisLinkDetail> => ({ identity: source.identity, link: source.links[0], endpoint_devices: [
         { id: 'EA', station_id: 'A', model_id: 'M', device_class: 'HF', frequency_khz: null, tx_power_dbm: null, antenna_height_m: null },
         { id: 'EB', station_id: 'B', model_id: 'M', device_class: 'HF', frequency_khz: null, tx_power_dbm: null, antenna_height_m: null },
@@ -75,7 +75,7 @@ describe('冻结GIS页面工作区', () => {
   });
   it('网络关闭后迟到地形不能重新显示', async () => {
     const { model, services } = fixture(), pending = deferred<GisPlanSurface>(); vi.mocked(services.plans.getSurface).mockReturnValueOnce(pending.promise);
-    const done = model.openPlan({ id: 'P1', taskId: 'T1' }); await Promise.resolve(); model.closeNetwork(); pending.resolve({ identity: network().identity, terrain: null, terrain_notice: 'unknown' }); await done;
+    const done = model.openPlan({ id: 'P1', taskId: 'T1' }); await Promise.resolve(); model.closeNetwork(); pending.resolve({ identity: network().identity, terrain: null, terrain_notice: 'unknown', coverage: null, coverage_notice: '覆盖未提供' }); await done;
     expect(model.surface.value).toBeNull(); expect(model.network.value).toBeNull();
   });
   it('目录失败保留上次结果并标记错误，旧列表迟到不覆盖新列表', async () => {

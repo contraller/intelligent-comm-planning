@@ -41,7 +41,7 @@ function fixture(value: unknown) {
 
 describe('GIS 冻结方案读取适配器', () => {
   it('冻结地形按精确快照读取，缺失必须有明确原因', async () => {
-    const row = { identity: network().identity, terrain: null, terrain_notice: '历史DEM未提供' };
+    const row = { identity: network().identity, terrain: null, terrain_notice: '历史DEM未提供', coverage: null, coverage_notice: '覆盖未提供' };
     const { api, transport } = fixture(row);
     expect(await api.getSurface(query, network())).toEqual(row);
     expect(transport.mock.calls[0][0]).toBe('/gis/plans/P1/surface?context=gis&task_id=T1&snapshot_id=S1');
@@ -49,10 +49,16 @@ describe('GIS 冻结方案读取适配器', () => {
     expect(() => readGisPlanSurface({ ...row, identity: { ...row.identity, resource_revision: 'OTHER' } }, query, network())).toThrowError(ApiError);
   });
   it('已核验地形保留来源/哈希/范围，不接受损坏元数据', () => {
-    const row = { identity: network().identity, terrain: { sourceSha256: 'a'.repeat(64), bounds: [113, 36, 115, 38], source: '冻结DEM' }, terrain_notice: '' };
+    const row = { identity: network().identity, terrain: { sourceSha256: 'a'.repeat(64), bounds: [113, 36, 115, 38], source: '冻结DEM' }, terrain_notice: '', coverage: null, coverage_notice: '覆盖未提供' };
     expect(readGisPlanSurface(row, query, network()).terrain).toEqual(row.terrain);
     expect(() => readGisPlanSurface({ ...row, terrain: { ...row.terrain, bounds: [115, 36, 113, 38] } }, query, network())).toThrowError(ApiError);
     expect(() => readGisPlanSurface({ ...row, terrain: { ...row.terrain, sourceSha256: 'bad' } }, query, network())).toThrowError(ApiError);
+  });
+  it('覆盖仅解码冻结结果，缺少覆盖必须有原因且不表示零覆盖', () => {
+    const row = { identity: network().identity, terrain: null, terrain_notice: '未提供地形', coverage: { contour: { type: 'FeatureCollection', features: [] }, raster_png: null }, coverage_notice: '' };
+    expect(readGisPlanSurface(row, query, network()).coverage).toEqual({ contour: row.coverage.contour, rasterPng: null });
+    expect(() => readGisPlanSurface({ ...row, coverage: null }, query, network())).toThrowError(ApiError);
+    expect(() => readGisPlanSurface({ ...row, coverage: { contour: null, raster_png: null } }, query, network())).toThrowError(ApiError);
   });
   it('携带方案、任务、上下文和可选快照，只发送 GET 并传递取消信号', async () => {
     const { api, transport } = fixture(network()), controller = new AbortController();

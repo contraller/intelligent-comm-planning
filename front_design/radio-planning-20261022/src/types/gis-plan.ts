@@ -93,6 +93,8 @@ export interface GisPlanSurface {
   identity: GisPlanIdentity;
   terrain: import('./resource-read').ResourceTerrain | null;
   terrain_notice: string;
+  coverage: import('./coverage').PlanningCoverage | null;
+  coverage_notice: string;
 }
 export interface GisPlanServices {
   getNetwork(query: GisPlanQuery, signal?: AbortSignal): Promise<GisNetwork>;
