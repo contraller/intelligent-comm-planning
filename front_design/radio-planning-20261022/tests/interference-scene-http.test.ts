@@ -40,14 +40,15 @@ function detail() {
 }
 function service(value: unknown) {
   const request = vi.fn<AuthenticatedRequest>().mockResolvedValue(value);
-  return { request, api: createInterferenceSceneHttp(request) };
+  // Vitest 替身返回 unknown，泛型签名只在构造测试客户端时声明。
+  return { request, api: createInterferenceSceneHttp(request as AuthenticatedRequest) };
 }
 
 function deferredService() {
   let resolve!: (value: unknown) => void;
   const pending = new Promise<unknown>(done => { resolve = done; });
   const request = vi.fn<AuthenticatedRequest>().mockImplementation(() => pending as never);
-  return { request, resolve, api: createInterferenceSceneHttp(request) };
+  return { request, resolve, api: createInterferenceSceneHttp(request as AuthenticatedRequest) };
 }
 
 describe('P03 场景不可变版本 HTTP 适配器', () => {

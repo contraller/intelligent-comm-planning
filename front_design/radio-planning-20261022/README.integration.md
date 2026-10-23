@@ -191,6 +191,28 @@ npm test -- tests/resource-export-live.test.ts --maxWorkers=1
 
 真实 HTTP 3 项通过；Edge 无头页面点击已验证 414 行全量 CSV、174 行 HF 筛选 CSV 和 1 台选中设备 XLSX（补齐 1 节点），截图和文件在 P01 工作树 `data/runtime/browser_export_1792747304085/`。版本变化返回 `RESOURCE_VERSION_CHANGED`，需刷新后重新预检。GIS/观测专用导出、资源导入和新增设备仍未接入，不因台账导出完成而开放。
 
+## 并行首批集成环境
+
+共享集成开发页为 `http://127.0.0.18:5318/#/resources`，代理 API `http://127.0.0.18:8118`；只使用项目内 `data/runtime/collab/integration-20261023-INT-A.sqlite`，新库已迁移至 `0018_observations` 并显式初始化构造资源。原 `5183` 服务、数据库和构建文件保持原样，不能在那里测试新增接口。5318 是 Vite 开发服务，不是最终静态交付包。
+
+P02 冻结 GIS、P03 干扰场景、P04 规划频点、P06 配置系统受理、P07 观测读取已装配在 `services/http.ts` 的 `collaborationHttp`，使用同一认证请求；这些独立 DTO **尚未接入对应业务页面按钮**。已有资源导出页面可以直接测试。配置受理不是下发成功，空观测集不生成假帧，频点停用不是频谱采集源配置；P05 纯身份策略不是正式登录。
+
+```powershell
+npm run typecheck
+npm test -- tests/collaboration-entry.test.ts tests/gis-plan-http.test.ts tests/interference-scene-http.test.ts tests/frequency-resource-http.test.ts tests/device-configuration-http.test.ts tests/observation-http.test.ts --maxWorkers=1 --no-file-parallelism
+$env:COLLABORATION_URL='http://127.0.0.18:5318'
+$env:COLLABORATION_ISOLATED='1'
+npm test -- tests/collaboration-entry.test.ts --maxWorkers=1 --no-file-parallelism
+```
+
+最后一组显式真实 HTTP 测试会创建任务、运行一次真实 SR4、保存/确认方案，再验证冻结 GIS/场景、系统配置受理及频点停用/幂等和旧版拒绝；**停用会使该隔离库旧方案来源过期**，所有构造历史保留，不自动清理或恢复。只能对上述隔离环境执行；未设置环境时该用例跳过，不作为通过证明。当前执行结果以进度台账为准。
+
+本轮真实链路已通过，生成方案 `PLAN-25f88edf2d2749ceb4a8c09e490c4abb`（141 节点/166 链路/2 主备路径）。隔离库保留 FQ-0002 停用后的 `resource-7ffb4c8f6e34fa28`；旧方案来源过期是预期结果，不表示重新满足验收。只重启 8118 后的任务/方案/场景/回执回读也已通过，不是重新运行算法。
+
+重启回读时设置 `COLLABORATION_REOPEN_PLAN_ID`，并一并设置 `COLLABORATION_REOPEN_TASK_ID`、`COLLABORATION_REOPEN_JOB_ID`、`COLLABORATION_REOPEN_SCENE_ID`、`COLLABORATION_REOPEN_CONFIGURATION_REQUEST_ID` 为台账中的原编号，再执行同一测试文件；计算用例自动跳过。清除这些回读变量后才会再次创建并计算新任务。
+
+INT-A 算法文件统一放在 `data/runtime/collab/int-a-runtime-20261023/`。启动 API 时须显式设置 `ALGORITHM_TASK_DIR=.../tasks`、`SR4_PLAN_DIR=.../plans`、`COVERAGE_CACHE_DIR=.../coverage`、`COVERAGE_TASK_DIR=.../coverage_tasks`、`SR4_SNAPSHOT_DIR=.../sr4_snapshots`、`SR5_STORE_PATH=.../fault_scenarios.json`、`SR5_REPORT_DIR=.../reports`、`SR6_STORE_PATH=.../sr6_graph.json`；不要仅隔离 DATABASE_URL 后继续共用默认算法目录。首次本轮随机任务/方案文件已核验复制到该目录，原文件保留，主库未复制或操作。
+
 ## 构建与交付边界
 
 `npm run build -- --mode integration` 生成静态 `dist/`。Vite 开发代理不随静态文件发布，部署时须由 Web 服务将 `/api/v1` 转发到运行中的后端，并提供 `maps/` 等静态资源；直接双击 HTML 无法完成业务调用。构建配置保留已有输出文件，打正式包时应使用新的输出目录，例如 `npm run build -- --mode integration --outDir dist/delivery-20261022`，避免将旧哈希资源一并交付。

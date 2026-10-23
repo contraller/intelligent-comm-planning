@@ -19,6 +19,11 @@ from . import frontend_integration
 from . import resource_dataset_service as resource_dataset
 from . import resource_maintenance_service
 from .resource_export_router import router as resource_export_router
+from .gis_plan_router import router as gis_plan_router
+from .interference_frontend_router import router as interference_frontend_router
+from .frequency_resource_router import router as frequency_resource_router
+from .device_configuration_router import router as device_configuration_router
+from .observation_routes import router as observation_router
 from .resource_export_schemas import ResourceDeviceQuery
 from .resource_maintenance_schemas import (AvailabilityChange, AvailabilityPreview,
     ResourceDeviceChanges, ResourceMaintenanceQuery)
@@ -74,6 +79,12 @@ except ImportError as exc:  # pragma: no cover - exercised only without runtime 
 
 app = FastAPI(title="短波/超短波智能规划算法服务", version="0.1.0")
 app.include_router(resource_export_router)
+# 并行模块在此统一挂载；各模块保留自己的严格契约和错误包络。
+app.include_router(gis_plan_router)
+app.include_router(interference_frontend_router)
+app.include_router(frequency_resource_router)
+app.include_router(device_configuration_router)
+app.include_router(observation_router)
 
 
 def _frontend_workbench_call(response: Response, operation):

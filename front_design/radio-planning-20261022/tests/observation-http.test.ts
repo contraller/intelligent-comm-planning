@@ -3,6 +3,7 @@ import { createObservationHttp } from '../src/services/observation-http';
 import { assertObservationQuery } from '../src/services/observation-validation';
 import { OBSERVATION_ORIGIN } from '../src/types/observation';
 import type { ObservationFrame, ObservationServices } from '../src/types/observation';
+import type { AuthenticatedRequest } from '../src/services/auth-http';
 
 const hash = 'a'.repeat(64), revision = 'observation-' + hash;
 const selection = { datasetId: 'obs:A', datasetRevision: revision };
@@ -43,6 +44,19 @@ function client(data: unknown) {
 afterEach(() => { vi.useRealTimers(); });
 
 describe('P07 独立只读频谱适配器', () => {
+  it('交付入口只使用已认证请求，保留会话拒绝而不回退裸请求', async () => {
+    const bare = vi.fn();
+    const request = vi.fn(async () => context());
+    const api = createObservationHttp({ baseUrl: () => '/api/v1', fetcher: bare, authenticatedRequest: request as AuthenticatedRequest });
+    expect(await api.loadObservationContext()).toEqual(context());
+    expect(request).toHaveBeenCalledWith('/observations/spectrum/context', expect.objectContaining({ method: 'GET', signal: expect.any(AbortSignal) }));
+    expect(bare).not.toHaveBeenCalled();
+    const error = Object.assign(new Error('会话已变化'), { code: 'SESSION_REPLACED' });
+    request.mockRejectedValueOnce(error);
+    await expect(api.loadObservationContext()).rejects.toBe(error);
+    expect(bare).not.toHaveBeenCalled();
+  });
+
   it('空上下文不生成帧；精确 GET 路径和同源选项', async () => {
     const { api, fetcher } = client(context());
     expect(await api.loadObservationContext()).toEqual(context());

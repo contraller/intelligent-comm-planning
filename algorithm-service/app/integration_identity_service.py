@@ -15,7 +15,8 @@ COOKIE = "radio_integration_session"
 READ = ["planning.view", "resources.view", "situation.view", "diagnosis.view", "knowledge.view"]
 CATALOG = {
     "integration-planner": ("联调规划员", "PLANNER", baseline.session_identity()["permissions"]),
-    "integration-editor": ("联调编辑者", "EDITOR", READ + ["resources.device.edit", "resources.device.availability", "diagnosis.scenario", "diagnosis.execute", "diagnosis.export", "knowledge.edit"]),
+    # 频点停用使用专项权限，不开放整库编辑。
+    "integration-editor": ("联调编辑者", "EDITOR", READ + ["resources.device.edit", "resources.device.availability", "resources.frequency.disable", "diagnosis.scenario", "diagnosis.execute", "diagnosis.export", "knowledge.edit"]),
     "integration-reviewer": ("联调审核者", "REVIEWER", READ + ["diagnosis.export", "knowledge.review", "knowledge.publish", "knowledge.rollback"]),
 }
 
@@ -49,7 +50,7 @@ def current(request: Request) -> dict:
         return {"session_id": row.session_id, "account_id": account, "username": account,
                 "display_name": name, "role_id": "integration-" + role.lower(),
                 "role_name": name, "permissions": permissions,
-                "identity_revision": "integration-workflow-v1",
+                "identity_revision": "integration-workflow-v2",
                 "session_generation": row.session_id, "integration_mode": True}
 
 
@@ -97,5 +98,5 @@ def switch(request: Request, response: Response, account_id: str) -> dict:
     name, role, permissions = CATALOG[account_id]
     return {"session_id": sid, "account_id": account_id, "username": account_id,
             "display_name": name, "role_id": "integration-" + role.lower(), "role_name": name,
-            "permissions": permissions, "identity_revision": "integration-workflow-v1",
+            "permissions": permissions, "identity_revision": "integration-workflow-v2",
             "session_generation": sid, "integration_mode": True}

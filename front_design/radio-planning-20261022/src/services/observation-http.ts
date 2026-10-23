@@ -3,8 +3,9 @@ import type { ObservationRead, ObservationServices } from '../types/observation'
 import { createHttpClient } from './http-client';
 import { assertObservationQuery, decodeObservationContext, decodeObservationDatasets, decodeObservationFrame, decodeObservationFrames } from './observation-validation';
 import { ApiError } from './types';
+import type { AuthenticatedRequest } from './auth-http';
 
-interface Options { baseUrl: () => string; fetcher?: typeof fetch; origin?: () => string | undefined; timeoutMs?: number }
+interface Options { baseUrl: () => string; fetcher?: typeof fetch; origin?: () => string | undefined; timeoutMs?: number; authenticatedRequest?: AuthenticatedRequest }
 const prefix = '/observations/spectrum';
 
 export function createObservationHttp(options: Options): ObservationServices {
@@ -12,7 +13,7 @@ export function createObservationHttp(options: Options): ObservationServices {
   const fetcher = options.fetcher ?? ((input, init) => globalThis.fetch(input, init));
   async function get(path: string, params: Record<string, string | number | undefined>, input: ObservationRead): Promise<unknown> {
     if (input.signal?.aborted) throw new ApiError('观测读取已取消', 'REQUEST_ABORTED');
-    const base = resolveAuthApiBaseUrl(options.baseUrl(), options.origin?.() ?? globalThis.location?.origin);
+    const base = options.authenticatedRequest ? '' : resolveAuthApiBaseUrl(options.baseUrl(), options.origin?.() ?? globalThis.location?.origin);
     const query = new URLSearchParams();
     for (const [key, value] of Object.entries(params)) if (value !== undefined) query.set(key, String(value));
     const controller = new AbortController();
@@ -24,12 +25,15 @@ export function createObservationHttp(options: Options): ObservationServices {
       timer = setTimeout(() => { reject(new ApiError('观测读取超时', 'REQUEST_TIMEOUT')); controller.abort(); }, options.timeoutMs ?? 15000);
     });
     try {
-      return await Promise.race([
-        createHttpClient(base, fetcher)(`${prefix}${path}${query.size ? '?' + query : ''}`, {
+      const url = `${prefix}${path}${query.size ? '?' + query : ''}`;
+      // 交付入口注入同一认证客户端，读取也受会话代次和取消保护。
+      const pending = options.authenticatedRequest
+        ? options.authenticatedRequest(url, { method: 'GET', signal: controller.signal })
+        : createHttpClient(base, fetcher)(url, {
           method: 'GET', credentials: 'same-origin', mode: 'same-origin', redirect: 'error', cache: 'no-store',
           headers: { Accept: 'application/json' }, signal: controller.signal,
-        }), interrupted,
-      ]);
+        });
+      return await Promise.race([pending, interrupted]);
     } finally { clearTimeout(timer); input.signal?.removeEventListener('abort', abort); }
   }
   return {

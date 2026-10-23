@@ -43,6 +43,10 @@ def frequency_api(tmp_path, monkeypatch):
     for account in (ACTOR, "p04-test-other"):
         monkeypatch.setitem(identity.CATALOG, account, ("频点测试授权身份", "EDITOR",
             identity.READ + ["resources.frequency.disable"]))
+    # 此模块的拒绝分支显式撤权；主入口编辑者的新授权另由总集成测试验证。
+    name, role, permissions = identity.CATALOG["integration-editor"]
+    monkeypatch.setitem(identity.CATALOG, "integration-editor", (name, role,
+        [value for value in permissions if value != "resources.frequency.disable"]))
     for module in (datasets, identity):
         monkeypatch.setattr(module, "get_session_factory", lambda: factory)
     monkeypatch.setenv("FRONTEND_INTEGRATION_DEMO", "1")

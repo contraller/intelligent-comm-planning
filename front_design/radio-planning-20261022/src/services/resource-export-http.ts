@@ -61,32 +61,35 @@ export function createResourceExportHttp(request: AuthenticatedRequest): Pick<Re
   }
   return {
     async previewResourceExport(input): Promise<ResourceExportPreview> {
-      const payload = body(input), data = await call('/resource/export/preview', payload);
+      const payload = body(input), kinds = [...input.kinds], format = input.format, range = input.ledger!.range;
+      // 响应只核对发起时的值，不能被页面后续修改输入改变解释。
+      const data = await call('/resource/export/preview', payload);
       if (!record(data) || Object.keys(data).some(k => !['revision', 'data_origin', 'source', 'tables', 'added'].includes(k))
         || data.revision !== payload.revision || data.data_origin !== 'SYNTHETIC_INTEGRATION' || typeof data.source !== 'string' || !data.source.trim()
-        || !Array.isArray(data.tables) || data.tables.length !== input.kinds.length || !count(data.added)) throw invalidResponse();
+        || !Array.isArray(data.tables) || data.tables.length !== kinds.length || !count(data.added)) throw invalidResponse();
       const tables = data.tables.map((item: unknown, i: number) => {
-        if (!record(item) || Object.keys(item).some(k => !['kind', 'count'].includes(k)) || item.kind !== input.kinds[i] || !count(item.count)) throw invalidResponse();
-        return { kind: input.kinds[i]!, count: item.count };
+        if (!record(item) || Object.keys(item).some(k => !['kind', 'count'].includes(k)) || item.kind !== kinds[i] || !count(item.count)) throw invalidResponse();
+        return { kind: kinds[i]!, count: item.count };
       });
       if (data.added > (tables.find(t => t.kind === 'nodes')?.count ?? 0)
-        || data.added && (input.format !== 'xlsx' || input.ledger!.range === 'all')) throw invalidResponse();
+        || data.added && (format !== 'xlsx' || range === 'all')) throw invalidResponse();
       return { tables, added: data.added };
     },
     async exportResources(input) {
-      const payload = body(input), blob = await call('/resource/export', payload, true);
-      const mime = input.format === 'csv' ? 'text/csv' : xlsxMime;
+      const payload = body(input), format = input.format, kind = input.kinds[0]!;
+      const blob = await call('/resource/export', payload, true);
+      const mime = format === 'csv' ? 'text/csv' : xlsxMime;
       if (!(blob instanceof Blob) || blob.type.split(';')[0].trim().toLowerCase() !== mime || !blob.size || blob.size > 20 * 1024 * 1024) throw invalidResponse();
       const bytes = new Uint8Array(await blob.arrayBuffer());
-      if (input.format === 'xlsx') {
+      if (format === 'xlsx') {
         if (bytes[0] !== 80 || bytes[1] !== 75 || bytes[2] !== 3 || bytes[3] !== 4) throw invalidResponse();
       } else {
         let text: string;
         try { text = new TextDecoder('utf-8', { fatal: true }).decode(bytes); } catch { throw invalidResponse(); }
         const first = { nodes: 'node_id,', devices: 'device_id,', interference_sources: 'interference_id,' };
-        if (!text.startsWith(first[input.kinds[0] as keyof typeof first])) throw invalidResponse();
+        if (!text.startsWith(first[kind as keyof typeof first])) throw invalidResponse();
       }
-      return { name: `synthetic-resources-${payload.revision}.${input.format}`, mime, bytes };
+      return { name: `synthetic-resources-${payload.revision}.${format}`, mime, bytes };
     },
   };
 }

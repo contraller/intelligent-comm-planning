@@ -13,6 +13,28 @@ function fixture(value: unknown = preview()) {
 }
 
 describe('台账导出 HTTP 适配', () => {
+  it.each([false, true])('预检只按发起值核对，不随调用方突变接受错误类型 %s', async wrong => {
+    let resolve!: (value: unknown) => void;
+    const request = vi.fn().mockImplementation(() => new Promise(done => { resolve = done; }));
+    const q = input(), api = createResourceExportHttp(request);
+    const pending = api.previewResourceExport(q);
+    q.kinds[0] = 'nodes'; q.ledger!.range = 'filtered';
+    resolve({ ...preview(), tables: [{ kind: wrong ? 'nodes' : 'devices', count: 414 }] });
+    if (wrong) await expect(pending).rejects.toMatchObject({ code: 'INVALID_RESOURCE_EXPORT_RESPONSE' });
+    else expect((await pending).tables[0]!.kind).toBe('devices');
+    expect(JSON.parse(request.mock.calls[0]![1].body).kinds).toEqual(['devices']);
+  });
+  it.each([false, true])('文件类型与名称使用发起时格式，拒绝跟随突变的文件 %s', async wrong => {
+    let resolve!: (value: unknown) => void;
+    const request = vi.fn().mockImplementation(() => new Promise(done => { resolve = done; }));
+    const q = input(), api = createResourceExportHttp(request);
+    const pending = api.exportResources(q);
+    q.format = 'xlsx'; q.kinds[0] = 'nodes';
+    resolve(wrong ? new Blob([new Uint8Array([80, 75, 3, 4])], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })
+      : new Blob(['device_id,node_id\r\nDV1,N1\r\n'], { type: 'text/csv' }));
+    if (wrong) await expect(pending).rejects.toMatchObject({ code: 'INVALID_RESOURCE_EXPORT_RESPONSE' });
+    else expect((await pending).name).toBe(`synthetic-resources-${revision}.csv`);
+  });
   it('全部范围为服务端全库预检，不收集分页 ID', async () => {
     const f = fixture();
     expect(await f.api.previewResourceExport(input())).toEqual({ tables: [{ kind: 'devices', count: 414 }], added: 0 });

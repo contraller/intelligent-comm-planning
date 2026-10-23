@@ -3,6 +3,7 @@ const names = {
   'situation.view': '查看 GIS 态势', 'resources.view': '查看资源', 'resources.edit': '维护资源及频谱配置', 'resources.reset': '重置资源',
   'resources.device.edit': '维护已有设备基础参数',
   'resources.device.availability': '维护已有设备上下架',
+  'resources.frequency.disable': '停用已有规划频点',
   'planning.view': '查看规划', 'planning.execute': '维护任务、调整/提交/取消规划', 'planning.save': '保存方案版本', 'planning.confirm': '确认方案', 'planning.reset': '重置规划',
   'diagnosis.view': '查看诊断及报告', 'diagnosis.scenario': '维护/导入场景', 'diagnosis.execute': '提交/取消诊断', 'diagnosis.export': '导出诊断文件', 'diagnosis.reset': '重置诊断',
   'knowledge.view': '查看图谱及型号知识', 'knowledge.edit': '编辑/送审/撤回本人知识', 'knowledge.review': '审核知识', 'knowledge.publish': '发布知识', 'knowledge.rollback': '回滚知识', 'knowledge.reset': '重置知识',

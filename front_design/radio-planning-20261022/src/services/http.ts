@@ -9,6 +9,11 @@ import { createKnowledgeHttp } from './knowledge-http';
 import { createGisHttp } from './gis-http';
 import { createResourceMaintenanceHttp } from './resource-maintenance-http';
 import { createResourceExportHttp } from './resource-export-http';
+import { createGisPlanHttp } from './gis-plan-http';
+import { createInterferenceSceneHttp } from './interference-scene-http';
+import { createFrequencyResourceHttp } from './frequency-resource-http';
+import { createDeviceConfigurationHttp } from './device-configuration-http';
+import { createObservationHttp } from './observation-http';
 
 // 保留既有导出路径；认证、传输与页面会话分别维护，不在入口堆叠实现。
 export { createHttpClient } from './http-client';
@@ -16,6 +21,15 @@ const authentication = createAuthHttp({ baseUrl: () => env.apiBaseUrl });
 export const releaseHttpSessionBinding = () => authentication.releaseSessionBinding();
 export const loadIntegrationIdentities = () => authentication.integrationIdentities();
 export const switchIntegrationIdentity = (accountId: string) => authentication.switchIntegrationIdentity(accountId);
+
+// 新模块使用独立 DTO，先共享真实会话，不伪装为旧页面尚未接入的服务。
+export const collaborationHttp = Object.freeze({
+  gisPlans: createGisPlanHttp(authentication.authenticatedRequest),
+  interferenceScenes: createInterferenceSceneHttp(authentication.authenticatedRequest),
+  frequencies: createFrequencyResourceHttp(authentication.authenticatedRequest),
+  deviceConfigurations: createDeviceConfigurationHttp(authentication.authenticatedRequest),
+  observations: createObservationHttp({ baseUrl: () => env.apiBaseUrl, authenticatedRequest: authentication.authenticatedRequest }),
+});
 
 export const httpService: PreviewService = {
   ...createDiagnosisHttp(authentication.authenticatedRequest),

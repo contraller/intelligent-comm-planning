@@ -37,13 +37,14 @@ function history() {
 }
 function service(value: unknown) {
   const request = vi.fn<AuthenticatedRequest>().mockResolvedValue(value);
-  return { request, api: createDeviceConfigurationHttp(request) };
+  // Vitest 替身返回 unknown，泛型签名只在构造测试客户端时声明。
+  return { request, api: createDeviceConfigurationHttp(request as AuthenticatedRequest) };
 }
 function deferredService() {
   let resolve!: (value: unknown) => void;
   const response = new Promise<unknown>(done => { resolve = done; });
   const request = vi.fn<AuthenticatedRequest>().mockReturnValue(response);
-  return { request, api: createDeviceConfigurationHttp(request), resolve };
+  return { request, api: createDeviceConfigurationHttp(request as AuthenticatedRequest), resolve };
 }
 
 describe('P06 system acceptance HTTP contract', () => {

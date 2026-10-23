@@ -10,6 +10,8 @@ from app.database import Base, get_database_url
 from app import fault_scenario_models, fault_submission_models, kg_models, planning_job_models, planning_plan_models, task_input_models  # noqa: F401  # 注册模型供迁移比较。
 from app import integration_identity_models, fault_frontend_models  # noqa: F401
 from app import resource_dataset_models  # noqa: F401  # 注册资源快照与指针。
+from app import interference_frontend_models, device_configuration_models  # noqa: F401
+from app.observation_models import OBSERVATION_METADATA
 
 
 config = context.config
@@ -17,7 +19,8 @@ if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
 # 后续模型导入完成后，自动生成迁移会读取该元数据。
-target_metadata = Base.metadata
+# 观测模块保留独立模型边界，但迁移仍使用同一库和单一版本链。
+target_metadata = [Base.metadata, OBSERVATION_METADATA]
 
 
 def _configure_url() -> str:
