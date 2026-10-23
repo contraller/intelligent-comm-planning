@@ -35,7 +35,7 @@ async function mount(paged=false,withNode=false,permissions=specific) {
   const auth=useAuthStore();auth.accept({id:'editor',sessionId:'session',username:'editor',name:'编辑者',roleId:'editor',roleName:'编辑者',epoch:'e1',revision:'r1',permissions});
   const resources=initialResources(),device=resources.devices[0],station=resources.stations.find(row=>row.id===device.stationId)!;
   const readNode:ReadNode={...station,origin:station.origin??null,kind:'node',childCount:0,deviceCount:1};
-  const detail:ResourceObjectDetail={revision:'resource-current',object:{...device,origin:device.origin??null,kind:'device',stationName:station.name,stationCoordinate:station.coordinate,modelName:'型号',deviceClass:'HF',antennaName:'天线'},model:resources.models.find(row=>row.id===device.modelId)!,antenna:null,node:withNode?readNode:null};
+  const detail:ResourceObjectDetail={revision:'resource-current',object:{...device,origin:device.origin??null,availability:device.availability??null,kind:'device',stationName:station.name,stationCoordinate:station.coordinate,modelName:'型号',deviceClass:'HF',antennaName:'天线'},model:resources.models.find(row=>row.id===device.modelId)!,antenna:null,node:withNode?readNode:null};
   const client={queryHistory:vi.fn(),getOperation:vi.fn(),previewRestore:vi.fn()},restore=vi.fn(),root=node('root');
   app=renderer.createApp({render:()=>h(GisObjectInfoPanel,{paged,station,resources,references:resources,detail:paged?detail:undefined,selectedDeviceId:device.id,editable:true,traceServices:client,maintenanceBinding:{context:'gis',revision:'resource-current',editable:true},'onRestore-candidate':restore})});
   app.use(pinia);app.provide(ssrContextKey,{});app.mount(root);await nextTick();return {root,client,restore,auth};

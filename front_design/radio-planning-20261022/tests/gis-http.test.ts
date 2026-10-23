@@ -41,9 +41,32 @@ describe('GIS 只读 HTTP', () => {
     if (kind === 'parent') value.nodes[0].parent_node_id = 'absent';
     if (kind === 'model') value.devices[0].model_id = 'absent';
     if (kind === 'station') value.devices[0].node_id = 'absent';
-    if (kind === 'origin') value.nodes[0].origin = 'MANUAL';
+    if (kind === 'origin') value.nodes[0].origin = 'INVALID';
     if (kind === 'coordinate') value.devices[0].node_lon = 115;
     expect(() => decodeGisScene(value, 'r1')).toThrow();
     if (kind !== 'coordinate') expect(() => decodeGisDirectory(value, 'r1')).toThrow();
+  });
+
+  it('手工站点和导入设备保留来源，未知状态不补正常', () => {
+    const initial = dto();
+    const value = { ...initial,
+      nodes: initial.nodes.map(row => ({ ...row, origin: 'MANUAL', status: null, alert: null })),
+      devices: initial.devices.map(row => ({ ...row, origin: 'IMPORT', status: null, alert: null })),
+    };
+    const directory = decodeGisDirectory(value, 'r1'), scene = decodeGisScene(value, 'r1');
+    expect(directory.resources.stations[0]).toMatchObject({ origin: 'MANUAL', status: null, alert: null });
+    expect(directory.resources.devices[0]).toMatchObject({ origin: 'IMPORT', status: null, alert: null });
+    expect(scene.map.stations[0].origin).toBe('MANUAL');
+    expect(scene.map.devices[0]).toMatchObject({ status: null, alert: null });
+    expect(value.devices[0].origin).toBe('IMPORT');
+  });
+
+  it.each(['missing-status', 'invalid-status', 'invalid-alert', 'invalid-origin'])('未知值兼容不放宽非法目录：%s', kind => {
+    const initial = dto(), value = { ...initial, devices: initial.devices.map(row => ({ ...row }) as Record<string, unknown>) };
+    if (kind === 'missing-status') delete value.devices[0].status;
+    if (kind === 'invalid-status') value.devices[0].status = 'unsupported';
+    if (kind === 'invalid-alert') value.devices[0].alert = 'false';
+    if (kind === 'invalid-origin') value.devices[0].origin = 'unsupported';
+    expect(() => decodeGisDirectory(value, 'r1')).toThrow();
   });
 });

@@ -2,17 +2,23 @@ import { ApiError } from './types';
 import { decodeModel, decodeObject, readRecord, readText, requireRevision } from './resource-read-validation';
 import type { GisResourceDirectory, GisResourceScene } from '../types/gis-workspace';
 import type { ReadDevice, ReadInterference, ReadNode } from '../types/resource-read';
+import type { ResourceOrigin } from '../types/domain';
 
 const fail=():never=>{throw new ApiError('GIS 资料字段或关联不符合契约','INVALID_RESOURCE_RESPONSE');};
+// GIS 与资源底座共享三种真实来源，不把人工/导入对象改写为原始资料。
+function sourceOrigin(value: unknown): ResourceOrigin {
+  if (!['SOURCE', 'MANUAL', 'IMPORT'].includes(String(value))) return fail();
+  return value as ResourceOrigin;
+}
 function rows(value:unknown):Record<string,unknown>[]{if(!Array.isArray(value))return fail();return value.map(row=>readRecord(row));}
 function unique(items:{id:string}[]){if(new Set(items.map(x=>x.id)).size!==items.length)fail();}
 function common(value:unknown,expected:string){
   const v=readRecord(value);requireRevision(v.revision,expected);
   if(v.context!=='gis'||v.dataOrigin!=='SYNTHETIC_INTEGRATION')fail();
-  const stations=rows(v.nodes).map(row=>{const node=decodeObject('node',row) as ReadNode;if(node.origin!=='SOURCE')fail();return {...node,origin:'SOURCE' as const};});
+  const stations=rows(v.nodes).map(row=>{const node=decodeObject('node',row) as ReadNode;return {...node,origin:sourceOrigin(node.origin)};});
   unique(stations);const stationIds=new Set(stations.map(row=>row.id));
   if(stations.some(row=>row.parentIds.some(id=>!stationIds.has(id))))fail();
-  const interferences=rows(v.interferences).map(row=>{const source=decodeObject('interference',row) as ReadInterference;if(source.origin!=='SOURCE')fail();return {...source,origin:'SOURCE' as const};});unique(interferences);
+  const interferences=rows(v.interferences).map(row=>{const source=decodeObject('interference',row) as ReadInterference;return {...source,origin:sourceOrigin(source.origin)};});unique(interferences);
   const source=readText(v.source,'source'),updatedAt=readText(v.updatedAt,'updatedAt');
   if(!Number.isFinite(Date.parse(updatedAt)))fail();
   return {v,stations,stationIds,interferences,source,updatedAt};
@@ -22,9 +28,9 @@ export function decodeGisDirectory(value:unknown,revision:string):GisResourceDir
   unique(models);if(models.some(row=>!['HF','VUHF'].includes(String(row.deviceClass))))fail();
   const modelIds=new Set(models.map(row=>row.id));
   const devices=rows(s.v.devices).map(row=>{
-    if(!s.stationIds.has(String(row.node_id))||!modelIds.has(String(row.model_id))||!['NORMAL','FAULT','OFFLINE'].includes(String(row.status))
-      ||typeof row.alert!=='boolean'||!['ACTIVE','OFF_SHELF'].includes(String(row.availability))||row.origin!=='SOURCE')fail();
-    return {id:readText(row.device_id,'device_id'),stationId:readText(row.node_id,'node_id'),modelId:readText(row.model_id,'model_id'),status:row.status,alert:row.alert,availability:row.availability,origin:row.origin};
+    if(!s.stationIds.has(String(row.node_id))||!modelIds.has(String(row.model_id))||(row.status!==null&&!['NORMAL','FAULT','OFFLINE'].includes(String(row.status)))
+      ||(row.alert!==null&&typeof row.alert!=='boolean')||!['ACTIVE','OFF_SHELF'].includes(String(row.availability)))fail();
+    return {id:readText(row.device_id,'device_id'),stationId:readText(row.node_id,'node_id'),modelId:readText(row.model_id,'model_id'),status:row.status,alert:row.alert,availability:row.availability,origin:sourceOrigin(row.origin)};
   });unique(devices);
   return {revision,resources:{stations:s.stations,devices,models,interferences:s.interferences,source:s.source,version:revision}} as GisResourceDirectory;
 }

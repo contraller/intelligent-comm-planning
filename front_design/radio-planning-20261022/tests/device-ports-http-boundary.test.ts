@@ -67,6 +67,7 @@ async function mountPorts() {
   const root = node('root'), load = vi.fn(), edit = vi.fn();
   app = renderer.createApp({ render: () => h(DevicePortsPanel, { ports: [port], observations: [observation], source: 'fixture-source',
     loaded: true, busy: false, error: '旧维护占位错误', editable: true, onLoad: load, onEdit: edit }) });
+  app.provide(ssrContextKey, { modules: new Set<string>() });
   app.mount(root); await settle(); return { root, load, edit };
 }
 async function mountInfo(context: 'ledger' | 'gis', withTraceServices = true) {
