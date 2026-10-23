@@ -189,8 +189,9 @@ def test_cancellation_waits_for_worker_checkpoint_not_runtime_request(wb, monkey
     assert jobs.stop_frozen_planning_jobs(wb[0][1], timeout=0) is True
 
 
-def test_native_dispatch_creates_one_real_frozen_child(scene_api, frozen_sample, monkeypatch):
-    """真实W3/W4小样本派发；措施为显式构造，不冒充算法推荐/完整页面验收。"""
+def _native_dispatch_case(scene_api, frozen_sample, monkeypatch, kind, *, progress_observer=None,
+                          after_submit=None, expected_state="SUCCESS"):
+    """真实W3/W4小样本；措施显式UNIT构造，不冒充推荐/完整页面验收。"""
     import importlib
     import threading
     from sqlalchemy import select
@@ -201,19 +202,47 @@ def test_native_dispatch_creates_one_real_frozen_child(scene_api, frozen_sample,
     from app.interference_analysis_engine import digest, _modules
     from app.interference_workbench_models import InterferenceWorkbenchRun
     from app.task_input_models import PlanningTaskRevision
+    from app.task_input_schemas import PlanningInput
     adjustment, _, _, unit_parent, _, engine = _prepare_sample(frozen_sample, monkeypatch)
     raw = deepcopy(unit_parent.raw_snapshot)
-    raw["detail"]["devices"] = raw["detail"]["devices"][:2]
-    raw["detail"]["nodes"] = raw["detail"]["nodes"][:2]
-    raw["detail"]["links"] = raw["detail"]["links"][:1]
-    raw["detail"]["params"]["params"] = raw["detail"]["params"]["params"][:2]
+    count = 3 if kind == "ROUTE_REBUILD" else 2
+    raw["detail"]["devices"] = raw["detail"]["devices"][:count]
+    raw["detail"]["nodes"] = raw["detail"]["nodes"][:count]
+    raw["detail"]["links"] = raw["detail"]["links"][:3 if count == 3 else 1]
+    raw["detail"]["params"]["params"] = raw["detail"]["params"]["params"][:count]
     client, factory, baseline, _, _ = scene_api
-    input_data = {"name": "UNIT真实派发", "presetId": "balanced", "frequencyId": "default",
-        "constraints": {"connectivityPercent": 100, "survivabilityPercent": 0, "maxRelayHops": 2},
-        "demands": [{"id": "UNIT-DEMAND", "sourceId": raw["detail"]["nodes"][0]["node_id"],
-            "targetId": raw["detail"]["nodes"][1]["node_id"], "priority": 1, "mandatory": True,
-            "requiredRateKbps": 1, "maxDelayMs": 1000, "minReliability": .1, "service": "DATA"}]}
     modules = _modules()
+    if kind == "POWER_OPT":
+        models = {row["model_id"]: row for row in baseline["tables"]["device_model.csv"]}
+        candidates = [row for row in baseline["tables"]["device.csv"] if row.get("availability", "ACTIVE") == "ACTIVE"
+            and models[row["model_id"]]["device_class"] == "VUHF"
+            and len(modules["radio_params"].power_levels_of(models[row["model_id"]])) > 1]
+        first = candidates[0]
+        second = next(row for row in candidates if row["model_id"] == first["model_id"] and row["node_id"] != first["node_id"])
+        raw["detail"]["devices"] = deepcopy([first, second])
+        nodes = {row["node_id"]: row for row in baseline["tables"]["node.csv"]}
+        raw["detail"]["nodes"] = [deepcopy(nodes[row["node_id"]]) for row in (first, second)]
+        for index, node in enumerate(raw["detail"]["nodes"]):
+            node.update(lon=str(114 + index * .01), lat="38")
+        raw["detail"]["links"][0].update(node_a_id=first["node_id"], node_b_id=second["node_id"],
+            device_a_id=first["device_id"], device_b_id=second["device_id"])
+        raw["detail"]["params"]["params"] = [{"device_id": row["device_id"], "tx_power_dbm": float(row["tx_power_dbm"]),
+            "antenna_height_m": float(row["antenna_height_m"])} for row in (first, second)]
+    site = None
+    if kind == "NODE_REDEPLOY":
+        site = next(row for row in baseline["tables"]["candidate_site.csv"] if row["is_deployable"] == "true")
+        lon, lat = float(site["lon"]), float(site["lat"])
+        for index, node in enumerate(raw["detail"]["nodes"]):
+            node.update(lon=str(lon - .002 + index * .005), lat=str(lat + .003))
+        engine.terrain_provider = lambda: modules["terrain"].SyntheticTerrain((lon - .02, lat - .02, lon + .02, lat + .02))
+    input_data = {"name": "UNIT真实派发", "description": "合成小网，仅模块算法与持久化证据，非实测或生产方案",
+        "bbox": list(engine.terrain_provider().bbox), "stationIds": [row["node_id"] for row in raw["detail"]["nodes"]],
+        "presetId": "balanced", "frequencyId": "available-vuhf",
+        "constraints": {"connectivityPercent": 100, "survivabilityPercent": 90, "maxRelayHops": 2},
+        "demands": [{"id": "UNIT-DEMAND", "sourceId": raw["detail"]["nodes"][0]["node_id"],
+            "targetId": raw["detail"]["nodes"][1]["node_id"], "priority": "P1", "mandatory": True, "dataVolumeMb": 1,
+            "requiredRateKbps": 1, "maxDelayMs": 1000, "minReliability": .1, "service": "数据"}]}
+    input_data = PlanningInput.model_validate(input_data).model_dump(mode="json")
     fq = modules["frequency"]
     frozen_tasks = fq.tasks_from_nets(raw["detail"]["links"], raw["detail"]["nodes"], raw["detail"]["devices"], baseline["tables"]["device_model.csv"])
     fq.fill_ranges_by_node(frozen_tasks, raw["detail"]["links"], raw["detail"]["nodes"], raw["detail"]["devices"], baseline["tables"]["device_model.csv"])
@@ -228,19 +257,38 @@ def test_native_dispatch_creates_one_real_frozen_child(scene_api, frozen_sample,
     with factory.begin() as session:
         parent = session.get(PlanningPlan, "P1")
         parent.raw_snapshot, parent.input_snapshot = raw, deepcopy(input_data)
-        parent.result_snapshot = {"snapshot_id": "SNP-PL-12345678", "devices": unit_parent.result_snapshot["devices"][:2]}
+        parent.result_snapshot = {"snapshot_id": "SNP-PL-12345678", "devices": [
+            {"id": row["device_id"], "stationId": row["node_id"], "deviceClass": "VUHF"} for row in raw["detail"]["devices"]]}
         session.get(PlanningTaskRevision, "REV-P1").input_snapshot = deepcopy(input_data)
     data(save(scene_api, body(scene_api, interference_ids=[])))
     scene = data(read(scene_api))["version"]
     resource = resources.current(factory)
     source = {"schema_version": 1, "scene": scene, "resource": resource,
               "actor": {"account_id": "integration-planner"}}
-    task = modules["frequency"].tasks_from_nets(raw["detail"]["links"], raw["detail"]["nodes"],
-        raw["detail"]["devices"], resource["tables"]["device_model.csv"])[0]
+    task = next(row for row in modules["frequency"].tasks_from_nets(raw["detail"]["links"], raw["detail"]["nodes"],
+        raw["detail"]["devices"], resource["tables"]["device_model.csv"]) if "L1" in row.members)
     modules["frequency"]._prepare([task], modules["frequency"].FreqPool(resource["tables"]["frequency_resource.csv"]))
-    change = {"type": "FREQ_ADJUST", "target": {"link_id": "L1", "net_id": task.task_id},
-        "detail": {"links_in_net": ["L1"], "to_freq_khz": task.allowed[1]["freq_khz"]}}
-    measure = {"measure_id": "CM-UNIT", "type": "FREQ_ADJUST", "available": True, "change_set": change}
+    change = {"type": kind, "target": {"link_id": "L1", "net_id": task.task_id}, "detail": {}}
+    if kind in ("FREQ_ADJUST", "CHANNEL_SWITCH"):
+        previous = next(row["freq_khz"] for row in raw["detail"]["frequency"]["assignments"] if row["task_id"] == task.task_id)
+        change["detail"] = {"links_in_net": list(task.members),
+            "to_freq_khz": next(row["freq_khz"] for row in task.allowed if row["freq_khz"] != previous)}
+    elif kind == "POWER_OPT":
+        _, _, _, caps, _, _ = engine._build(source)
+        link = raw["detail"]["links"][0]
+        did = link["device_a_id"]
+        previous = next(row["tx_power_dbm"] for row in raw["detail"]["params"]["params"] if row["device_id"] == did)
+        power = next(level for level in caps[did].levels if abs(level - previous) > .051)
+        change["detail"] = {"tx_changes": [{"node_id": link["node_a_id"], "band": "VUHF", "from_dbm": previous, "to_dbm": power}]}
+        change["device_changes"] = [{"device_id": did, "tx_power_dbm": power}]
+    elif kind == "NODE_REDEPLOY":
+        change["target"]["node_id"] = raw["detail"]["nodes"][0]["node_id"]
+        change["detail"] = {"to_site_id": site["site_id"], "to_lon": float(site["lon"]), "to_lat": float(site["lat"])}
+    else:
+        change["detail"] = {"banned_links": ["L1"], "rerouted": [{"demand_id": "UNIT-DEMAND", "reachable": True,
+            "primary": {"node_path": [raw["detail"]["nodes"][0]["node_id"], "UNIT-N3", raw["detail"]["nodes"][1]["node_id"]],
+                        "link_path": ["L2", "L3"]}, "backup": None, "backup_type": "NONE"}]}
+    measure = {"measure_id": "CM-UNIT", "type": kind, "available": True, "change_set": change}
     with factory.begin() as session:
         session.add(InterferenceWorkbenchRun(run_id="IR-UNIT", request_id="UNIT-RUN", task_id="T1", plan_id="P1",
             scene_version_id=scene["version_id"], resource_revision=baseline["revision"], run_version=1,
@@ -254,31 +302,165 @@ def test_native_dispatch_creates_one_real_frozen_child(scene_api, frozen_sample,
         session.add(row)
         origin = InterferenceReplanService.origin(row)
     request = {"adoption_id": "IAD-UNIT", "task_id": "T1", "planning_request_id": "UNIT-NATIVE-CHILD",
-        "actor_id": "integration-planner", "interference_origin": origin, "source": source, "change_set": change}
+        "actor_id": "integration-planner", "interference_origin": origin, "source": source, "change_set": change, "measure": measure}
     complete = threading.Event()
     real_submit = jobs.planning_w4.submit_sr4
     def observed(payload, *, job_id, on_update):
         def update(state):
             on_update(state)
+            if progress_observer is not None:
+                progress_observer(state)
             if state["status"] in ("SUCCESS", "FAILED", "CANCELLED"):
                 complete.set()
         return real_submit(payload, job_id=job_id, on_update=update)
     monkeypatch.setattr(jobs.planning_w4, "submit_sr4", observed)
+    for patch in ({"actor_id": "UNIT-SPOOF"}, {"task_id": "UNIT-OTHER"},
+                  {"change_set": {**change, "type": "UNIT-UNSUPPORTED"}}):
+        with pytest.raises(jobs.PlanningJobError) as rejected:
+            jobs.submit_interference_replan({**request, **patch}, factory)
+        assert rejected.value.code == 1203
+    with factory() as session:
+        assert session.scalar(select(PlanningJob.job_id).where(PlanningJob.request_id == request["planning_request_id"])) is None
     job_id = jobs.submit_interference_replan(request, factory)
+    request["planning_job_id"] = job_id
+    if after_submit is not None:
+        after_submit(jobs, factory, request)
     assert complete.wait(120), "真实小样本线程未结束；不能当已通过"
     with factory() as session:
         job = session.get(PlanningJob, job_id)
-        assert job.status == "SUCCESS", job.error
+        assert job.status == expected_state, job.error
         assert job.request_id == request["planning_request_id"] and job.parent_plan_id == "P1"
         assert session.get(InterferenceWorkbenchAdoption, "IAD-UNIT").planning_job_id == job_id
         assert session.get(PlanningCurrentPlan, "T1").plan_id == "P1"
         assert session.get(PlanningPlan, "P1").raw_snapshot == raw
     runtime = jobs.planning_w3.get_task_record(job_id)
-    plan = jobs.planning_w4.get_plan(runtime["result"]["solution_id"])["data"]
-    assert InterferenceReplanService.applied(change, plan["detail"])
-    assert plan["detail"]["interference"]["effect"]["origin"] == origin
-    assert plan["detail"]["interference"]["effect"]["sources"] == []
+    if expected_state == "SUCCESS":
+        plan = jobs.planning_w4.get_plan(runtime["result"]["solution_id"])["data"]
+        assert InterferenceReplanService.applied(change, plan["detail"])
+        assert plan["detail"]["interference"]["effect"]["origin"] == origin
+        assert plan["detail"]["interference"]["effect"]["sources"] == []
+    else:
+        assert runtime["status"] == expected_state and not (runtime.get("result") or {}).get("solution_id")
+        with factory() as session:
+            assert session.scalar(select(PlanningPlan.plan_id).where(PlanningPlan.job_id == job_id)) is None
     assert jobs.submit_interference_replan(request, factory) == job_id
     with factory() as session:
         assert len(session.scalars(select(PlanningJob).where(PlanningJob.request_id == "UNIT-NATIVE-CHILD")).all()) == 1
     assert resources.current(factory) == resource
+    return jobs, factory, request, raw, resource, engine
+
+
+@pytest.mark.parametrize("kind", MEASURE_TYPES)
+def test_native_dispatch_creates_one_real_frozen_child(scene_api, frozen_sample, monkeypatch, kind):
+    _native_dispatch_case(scene_api, frozen_sample, monkeypatch, kind)
+
+
+def _has_frozen_adapter():
+    from inspect import signature
+    from app.planning_result_adapter import adapt_planning_result
+    return "resource_rows" in signature(adapt_planning_result).parameters
+
+
+@pytest.mark.skipif(not _has_frozen_adapter(), reason="main冻结adapter已实现，但P03树尚未取得其精确依赖提交；不复制源码")
+@pytest.mark.parametrize("kind", MEASURE_TYPES)
+def test_native_bridge_saves_replays_and_reopens_without_runtime(scene_api, frozen_sample, monkeypatch, kind):
+    from sqlalchemy import create_engine, select
+    from sqlalchemy.orm import sessionmaker
+    from app.interference_replan_service import FrozenPlanningReplanner
+    from app.interference_workbench_schemas import TaskQuery
+    from app.interference_workbench_service import InterferenceWorkbenchService
+    jobs, factory, request, raw, resource, engine = _native_dispatch_case(scene_api, frozen_sample, monkeypatch, kind)
+    bridge = FrozenPlanningReplanner(factory)
+    outcome = bridge.poll(request)
+    with factory() as session:
+        child = session.get(PlanningPlan, outcome["plan_id"])
+        expected = "SAVED" if child.outcome_snapshot["code"] == 0 else "REFERENCE"
+        assert child.state == expected and child.confirmed_at is None
+        assert child.raw_snapshot["detail"]["interference"]["effect"]["origin"] == request["interference_origin"]
+        assert child.raw_snapshot["detail"]["interference"]["effect"]["sources"] == []
+        assert InterferenceReplanService.applied(request["change_set"], child.raw_snapshot["detail"])
+        assert session.get(PlanningCurrentPlan, "T1").plan_id == "P1"
+        assert session.get(PlanningPlan, "P1").raw_snapshot == raw
+        expected_result = deepcopy(child.result_snapshot)
+    service = InterferenceWorkbenchService(factory, engine=engine, replanner=bridge)
+    assert service.run_once()
+    adopted = service.replanner.detail("IAD-UNIT", TaskQuery(task_id="T1"))
+    assert adopted["state"] == "SUCCESS" and adopted["result_plan_id"] == outcome["plan_id"]
+    assert bridge.poll(request) == outcome
+    reopened = create_engine("sqlite:///" + str(scene_api[3]), connect_args={"check_same_thread": False})
+    new_factory = sessionmaker(bind=reopened, expire_on_commit=False)
+    try:
+        monkeypatch.setattr(jobs.planning_w3, "get_task_record", lambda _: None)
+        def no_current_or_plan_file(*args, **kwargs):
+            raise AssertionError("已保存冻结历史不能从运行文件重组")
+        monkeypatch.setattr(jobs.planning_w4, "get_plan", no_current_or_plan_file)
+        rebuilt = FrozenPlanningReplanner(new_factory)
+        assert rebuilt.poll(request) == outcome
+        assert jobs.query_planning_job(request["planning_job_id"], "T1", new_factory)["data"]["result"] == expected_result
+        with new_factory() as session:
+            assert len(session.scalars(select(PlanningPlan).where(PlanningPlan.job_id == request["planning_job_id"])).all()) == 1
+    finally:
+        reopened.dispose()
+
+
+def test_native_child_cooperative_cancel_waits_and_joins_worker(scene_api, frozen_sample, monkeypatch):
+    import threading
+    from sqlalchemy import select
+    from app.planning_job_models import PlanningJobCancellation
+    from app.planning_job_schemas import PlanningJobCancelRequest
+    entered, release = threading.Event(), threading.Event()
+    workers = []
+    def observe(state):
+        if state["status"] == "RUNNING" and state["progress"] == .2:
+            workers.append(threading.current_thread())
+            entered.set()
+            assert release.wait(120), "测试必须释放真实算法线程"
+    def cancel_at_checkpoint(jobs, factory, request):
+        try:
+            assert entered.wait(120), "真实W3/W4未到冻结拓扑检查点"
+            with factory() as session:
+                revision = session.get(PlanningJob, request["planning_job_id"]).revision_id
+            jobs.request_interference_cancellation(request["planning_job_id"], PlanningJobCancelRequest(
+                context="planning", request_id="UNIT-COOPERATIVE-CANCEL", task_id="T1", expected_revision=revision),
+                factory, actor_id=request["actor_id"])
+            assert jobs.planning_w3.get_task_record(request["planning_job_id"])["status"] == "CANCELLED"
+            assert jobs.query_planning_job(request["planning_job_id"], "T1", factory)["data"]["status"] == "RUNNING"
+            assert jobs.stop_frozen_planning_jobs(factory, timeout=0) is False
+        finally:
+            release.set()
+    try:
+        jobs, factory, request, *_ = _native_dispatch_case(scene_api, frozen_sample, monkeypatch, "FREQ_ADJUST",
+            progress_observer=observe, after_submit=cancel_at_checkpoint, expected_state="CANCELLED")
+        assert jobs.stop_frozen_planning_jobs(factory, timeout=0) is True
+        with factory() as session:
+            outcomes = list(session.scalars(select(PlanningJobCancellation.outcome_status).where(
+                PlanningJobCancellation.job_id == request["planning_job_id"])))
+            assert outcomes and set(outcomes) == {"CANCELLED"}
+    finally:
+        release.set()
+        for worker in workers:
+            worker.join(timeout=120)
+            assert not worker.is_alive(), "不能留下仍在运行的本组算法线程"
+
+
+@pytest.mark.skipif(not _has_frozen_adapter(), reason="需要main已审冻结adapter依赖提交")
+def test_native_late_cancel_preserves_real_saved_adoption(scene_api, frozen_sample, monkeypatch):
+    from sqlalchemy import select
+    from app.interference_replan_service import FrozenPlanningReplanner
+    from app.interference_workbench_schemas import TaskQuery
+    from app.interference_workbench_service import InterferenceWorkbenchService
+    from app.planning_job_models import PlanningJobCancellation
+    jobs, factory, request, raw, _, engine = _native_dispatch_case(scene_api, frozen_sample, monkeypatch, "FREQ_ADJUST")
+    bridge = FrozenPlanningReplanner(factory)
+    with factory.begin() as session:
+        session.get(InterferenceWorkbenchAdoption, request["adoption_id"]).state = "CANCEL_REQUESTED"
+    service = InterferenceWorkbenchService(factory, engine=engine, replanner=bridge)
+    assert service.run_once()
+    adopted = service.replanner.detail(request["adoption_id"], TaskQuery(task_id="T1"))
+    assert adopted["state"] == "SUCCESS" and adopted["result_plan_id"]
+    with factory() as session:
+        assert session.get(PlanningJob, request["planning_job_id"]).status == "SUCCESS"
+        assert session.scalar(select(PlanningJobCancellation.outcome_status).where(
+            PlanningJobCancellation.job_id == request["planning_job_id"])) == "SUCCESS"
+        assert session.get(PlanningCurrentPlan, "T1").plan_id == "P1"
+        assert session.get(PlanningPlan, "P1").raw_snapshot == raw
