@@ -126,6 +126,46 @@ describe('本地系统页面状态闭环', () => {
     service.getSystemOperation.mockResolvedValueOnce({ status: 'NOT_FOUND' }); expect(await store.reconcilePending()).toBe(false); expect(store.pendingMutation!.requestId).toBe(requestId);
     service.getSystemOperation.mockResolvedValueOnce({ status: 'FOUND', ...result() }); expect(await store.reconcilePending()).toBe(true); expect(store.pendingMutation).toBeNull(); expect(store.accountForm).toBeNull();
   });
+  it('同身份参数FOUND对三个参数对象独立刷新runtime，核实成功不重复提交', async () => {
+    const { runtime, client, snapshot } = bindRuntime(), refreshing = vi.spyOn(runtime, 'refresh'), store = useSystemStore();
+    const objects = ['PAR-01', 'PAR-02', 'parameters'];
+    for (const [index, objectId] of objects.entries()) {
+      const requestId = 'uncertain-parameter-' + objectId;
+      store.pendingMutation = { requestId, action: 'parameter.save', actorId: identity().id };
+      service.getSystemOperation.mockResolvedValueOnce({ status: 'FOUND', ...result(), objectId });
+      expect(await store.reconcilePending()).toBe(true); await settle();
+      expect(service.getSystemOperation).toHaveBeenLastCalledWith({ requestId });
+      expect(refreshing).toHaveBeenCalledTimes(index + 1); expect(client.getRuntimeParameters).toHaveBeenCalledTimes(index + 1);
+      expect(runtime.snapshot).toEqual(snapshot); expect(runtime.error).toBeNull(); expect(store.pendingMutation).toBeNull();
+      expect(store.notice).toBe('已核实操作提交成功');
+    }
+    expect(service.saveSystemParameter).not.toHaveBeenCalled(); expect(service.resetSystemParameters).not.toHaveBeenCalled();
+  });
+  it('参数回执NOT_FOUND不刷新runtime，不把未找到当失败或自动重提', async () => {
+    const { runtime, client } = bindRuntime(), refreshing = vi.spyOn(runtime, 'refresh'), store = useSystemStore();
+    const pending = { requestId: 'uncertain-parameter-not-found', action: 'parameter.save', actorId: identity().id };
+    store.pendingMutation = pending; service.getSystemOperation.mockResolvedValueOnce({ status: 'NOT_FOUND' });
+    expect(await store.reconcilePending()).toBe(false); await settle();
+    expect(service.getSystemOperation).toHaveBeenCalledWith({ requestId: pending.requestId });
+    expect(refreshing).not.toHaveBeenCalled(); expect(client.getRuntimeParameters).not.toHaveBeenCalled();
+    expect(store.pendingMutation).toEqual(pending); expect(store.error).toContain('不能判定失败'); expect(runtime.snapshot).toBeNull();
+    expect(service.saveSystemParameter).not.toHaveBeenCalled();
+  });
+  it('参数回执迟到FOUND遇同账号换会话不刷新runtime，保留原核实号', async () => {
+    const { runtime, client } = bindRuntime(), refreshing = vi.spyOn(runtime, 'refresh'), store = useSystemStore();
+    const pending = { requestId: 'uncertain-parameter-late', action: 'parameter.save', actorId: identity().id };
+    store.pendingMutation = pending;
+    let resolve!: (value: unknown) => void;
+    service.getSystemOperation.mockReturnValueOnce(new Promise(done => { resolve = done; }));
+    const reading = store.reconcilePending(); await settle();
+    expect(service.getSystemOperation).toHaveBeenCalledWith({ requestId: pending.requestId });
+    useAuthStore().accept({ ...identity(), sessionId: 'SID-new' });
+    resolve({ status: 'FOUND', ...result(), objectId: 'PAR-02' });
+    expect(await reading).toBe(false); await settle();
+    expect(refreshing).not.toHaveBeenCalled(); expect(client.getRuntimeParameters).not.toHaveBeenCalled();
+    expect(store.pendingMutation).toEqual(pending); expect(store.error).toContain('身份已变化'); expect(runtime.snapshot).toBeNull();
+    expect(service.saveSystemParameter).not.toHaveBeenCalled();
+  });
   it('确定的版本拒绝保留普通输入，不挂结果未知状态', async () => {
     const store = useSystemStore(); await store.load(); await store.openAccount({ id: 'ACC-two' }); store.accountForm!.name = '输入';
     service.saveSystemAccount.mockRejectedValueOnce(new ApiError('版本变化', 1203)); expect(await store.save()).toBe(false); expect(store.pendingMutation).toBeNull(); expect(store.accountForm!.name).toBe('输入');
