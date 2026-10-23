@@ -143,13 +143,12 @@ describe('GIS scene 同源在途合并', () => {
     await gis.loadScene(); expect(context).toHaveBeenCalledTimes(2); expect(editor.baselinePending).toBe(false); expect(gis.sceneError).toBe('');
   });
 
-  it.each(['identity', 'revision', 'viewport', 'context', 'refresh'] as const)('%s 来源变化取消旧读取，不把迟到结果写回', async source => {
+  it.each(['identity', 'revision', 'context', 'refresh'] as const)('%s 来源变化取消旧读取，不把迟到结果写回', async source => {
     const { gis, read, auth } = fixture(), pending = deferred<GisResourceScene>();
     const load = vi.mocked(previewService.loadGisResourceScene).mockReturnValueOnce(pending.promise);
     const old = gis.loadScene(), signal = load.mock.calls[0]![0].signal;
     if (source === 'identity') auth.identity = { ...auth.identity!, id: 'actor-2' };
     if (source === 'revision') read.workspace = workspace('R2');
-    if (source === 'viewport') read.setViewport([113.5, 37.5, 114, 38], 12);
     if (source === 'context') read.context = 'planning';
     if (source === 'refresh') read.refreshKey++;
     expect(signal?.aborted).toBe(true);
@@ -160,9 +159,10 @@ describe('GIS scene 同源在途合并', () => {
   });
 
   it('来源 A→B→A 也不能复用已经取消的 A 请求', async () => {
-    const { gis, read } = fixture(), pending = deferred<GisResourceScene>();
+    const { gis, auth } = fixture(), pending = deferred<GisResourceScene>();
     const load = vi.mocked(previewService.loadGisResourceScene).mockReturnValueOnce(pending.promise), old = gis.loadScene();
-    read.setViewport([113.5, 37.5, 114, 38], 12); read.viewport = null;
+    const original = auth.identity!;
+    auth.identity = { ...original, id: 'actor-2' }; auth.identity = original;
     await gis.loadScene(); expect(load).toHaveBeenCalledTimes(2);
     pending.resolve({ ...scene(), situation: { ...situation('R1'), title: 'obsolete' } }); await old;
     expect(gis.scene?.situation.title).toBe('unit-test');
@@ -177,16 +177,27 @@ describe('GIS scene 同源在途合并', () => {
     expect(load).toHaveBeenCalledTimes(1); expect(gis.scene).toBeNull(); expect(gis.sceneError).toBe('');
   });
 
-  it('完整基线在途换视口后取消，旧基线不能覆盖当前编辑来源', async () => {
-    const { gis, read, editor } = fixture(true), edit = deferred<GisResourceEditContext>();
+  it.each([
+    ['scene', 'viewport'], ['scene', 'filter'], ['scene', 'nodes'], ['scene', 'interferences'],
+    ['baseline', 'viewport'], ['baseline', 'filter'], ['baseline', 'nodes'], ['baseline', 'interferences'],
+  ] as const)('%s 在途变更展示态 %s 不取消全场景读取或悬空基线', async (phase, display) => {
+    const { gis, read, editor } = fixture(true), pending = deferred<GisResourceScene>(), edit = deferred<GisResourceEditContext>();
+    const load = vi.mocked(previewService.loadGisResourceScene).mockReturnValueOnce(pending.promise);
     const context = vi.mocked(previewService.loadGisResourceEditContext).mockReturnValueOnce(edit.promise);
-    const accept = vi.spyOn(editor, 'acceptUnified'), old = gis.loadScene();
-    await vi.waitFor(() => expect(context).toHaveBeenCalledTimes(1));
-    read.setViewport([113.5, 37.5, 114, 38], 12);
-    expect(context.mock.calls[0]![0].signal?.aborted).toBe(true);
-    edit.resolve(baseline()); await old;
-    expect(accept).not.toHaveBeenCalled(); expect(editor.baselinePending).toBe(true);
-    await gis.loadScene(); expect(context).toHaveBeenCalledTimes(2); expect(editor.baselinePending).toBe(false);
+    const accept = vi.spyOn(editor, 'acceptUnified'), one = gis.loadScene();
+    if (phase === 'baseline') { pending.resolve(scene()); await vi.waitFor(() => expect(context).toHaveBeenCalledTimes(1)); }
+    if (display === 'viewport') read.setViewport([113.5, 37.5, 114, 38], 12);
+    if (display === 'filter') read.setMapFilter({ search: 'changed' });
+    if (display === 'nodes') read.showNodes = false;
+    if (display === 'interferences') read.showInterferences = false;
+    const signal = load.mock.calls[0]![0].signal;
+    expect(signal?.aborted).toBe(false); expect(gis.sceneLoading).toBe(true); expect(editor.baselinePending).toBe(true);
+    const two = gis.loadScene(); expect(load).toHaveBeenCalledTimes(1);
+    if (phase === 'scene') { pending.resolve(scene()); await vi.waitFor(() => expect(context).toHaveBeenCalledTimes(1)); }
+    expect(context.mock.calls[0]![0].signal).toBe(signal); expect(context).toHaveBeenCalledTimes(1);
+    edit.resolve(baseline()); await Promise.all([one, two]);
+    expect(accept).toHaveBeenCalledTimes(1); expect(editor.baselinePending).toBe(false); expect(gis.sceneLoading).toBe(false);
+    expect(load).toHaveBeenCalledTimes(1); expect(context).toHaveBeenCalledTimes(1); expect(gis.sceneError).toBe('');
   });
 
   it('已有脏输入时仅更新 scene，不读取或重置完整编辑基线', async () => {

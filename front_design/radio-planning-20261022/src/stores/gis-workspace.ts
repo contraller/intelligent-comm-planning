@@ -39,8 +39,9 @@ export const useGisWorkspaceStore=defineStore('gis-workspace',()=>{
   }
   let sceneSerial = 0, sceneAbort: AbortController | undefined;
   let sceneFlight: { key: string; promise: Promise<void> } | null = null;
+  // scene/编辑基线均按版本返回全场景，视口、筛选和图层开关不改变请求来源。
   const sceneSource = () => JSON.stringify([auth.generation, auth.identity?.id, auth.identity?.sessionId,
-    read.context, read.workspace?.revision, read.refreshKey, read.viewport, read.mapFilter, read.showNodes, read.showInterferences]);
+    read.context, read.workspace?.revision, read.refreshKey]);
   function cancelScene() { sceneSerial++; sceneAbort?.abort(); sceneFlight = null; sceneLoading.value = false; }
   // 来源变化即取消；同版本手动刷新仍由 refreshKey 区分，不缓存已完成结果。
   watch([sceneSource, () => read.frozen], cancelScene, { flush: 'sync' });
