@@ -24,7 +24,7 @@
         @click="store.load"
         >重新加载</button
       ><button
-        v-if="auth.can('knowledge.reset') && !auth.identity?.integrationMode"
+        v-if="demoResetEnabled && auth.can('knowledge.reset')"
         class="text-link"
         :disabled="store.locked || !auth.can('knowledge.reset')"
         @click="store.reset"
@@ -463,6 +463,7 @@
 </template>
 <script setup lang="ts">
 import { useAuthStore } from '../stores/auth';
+import { env } from '../config/env';
 import { computed, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import { useKnowledgeStore } from '../stores/knowledge';
@@ -482,6 +483,8 @@ import KnowledgeNetworkRulePanel from '../components/KnowledgeNetworkRulePanel.v
 
 // 当前权限变化时仅禁用操作，保留表单输入。
 const auth = useAuthStore();
+// 教学清空仅适用于本地Mock；HTTP知识历史通过发布/回滚保留，不暴露物理重置。
+const demoResetEnabled = env.mode === 'mock' && env.sampleData;
 const store = useKnowledgeStore();
 const route = useRoute();
 useKnowledgeLeaveGuard();

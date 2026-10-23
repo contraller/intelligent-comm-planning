@@ -55,7 +55,7 @@
           >配置设备<select
             v-model="selectedDevice"
             class="input"
-            :disabled="configurationVisible || config.busy || !!config.pending"
+            :disabled="configurationVisible || config.busy"
             ><option value="">请选择设备</option
             ><option
               v-for="device in network.devices"
@@ -163,7 +163,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onBeforeUnmount, ref, watch } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import MapCanvas from './MapCanvas.vue';
 import InterferenceAnalysisPanel from './InterferenceAnalysisPanel.vue';
 import InterferenceHistoryDrawer from './InterferenceHistoryDrawer.vue';
@@ -290,7 +290,7 @@ const projections = computed(() => {
   return result;
 });
 function selectDevice(id: string) {
-  if (configurationVisible.value || config.busy || config.pending) {
+  if (configurationVisible.value || config.busy) {
     notice.value = '请先处理当前设备配置表单。';
     return;
   }
@@ -301,7 +301,11 @@ function selectDevice(id: string) {
 }
 async function requestLeave() {
   notice.value = '';
-  if (status.pendingImport || config.pending || status.busy || config.busy) {
+  if (
+    status.pendingImport ||
+    status.busy ||
+    (configurationVisible.value && (config.pending || config.busy))
+  ) {
     notice.value = '请先完成正在提交的操作，或核实原请求编号。';
     return false;
   }
@@ -341,24 +345,33 @@ function openAdoptedPlan(id: string) {
   if (value) emit('openPlan', { taskId: value.task_id, planId: id });
   else notice.value = '该采纳尚未生成可打开的真实方案。';
 }
-const release = auth.registerLeave(
-  requestLeave,
-  () =>
-    statusDirty.value ||
-    statusBusy.value ||
-    !!status.pendingImport ||
-    !!config.pending ||
-    configurationVisible.value ||
-    spectrumDirty.value ||
-    spectrumBusy.value ||
-    (analysisAttached.value &&
-      (analysis.dirty || !!analysis.pendingScene || !!analysis.pendingWrites.length)),
-);
+// 明确保留原号并关闭后允许离开；未关闭的输入与写等待仍须阻止刷新丢失。
+const hasPending = () =>
+  statusDirty.value ||
+  statusBusy.value ||
+  !!status.pendingImport ||
+  configurationVisible.value ||
+  spectrumDirty.value ||
+  spectrumBusy.value ||
+  (analysisAttached.value &&
+    (analysis.dirty ||
+      analysis.busy ||
+      !!analysis.pendingScene ||
+      !!analysis.pendingWrites.length));
+const release = auth.registerLeave(requestLeave, hasPending);
+function beforeUnload(event: BeforeUnloadEvent) {
+  if (hasPending()) {
+    event.preventDefault();
+    event.returnValue = '';
+  }
+}
+onMounted(() => window.addEventListener('beforeunload', beforeUnload));
 onBeforeUnmount(() => {
   release();
   status.cancel();
   spectrum.value?.stop();
   if (analysisAttached.value) analysis.stop();
+  window.removeEventListener('beforeunload', beforeUnload);
 });
 defineExpose({ requestLeave });
 </script>

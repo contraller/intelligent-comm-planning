@@ -5,6 +5,7 @@ import { useGisWorkspaceStore } from '../stores/gis-workspace';
 import { useAuthStore } from '../stores/auth';
 import { useResourceEditStore } from '../stores/resource-edit';
 interface GisLeaveOptions {
+  additionalPending?: () => boolean;
   fault: {
     active: () => boolean; dirty: () => boolean; busy: () => boolean;
     leave: (defer?: boolean) => Promise<boolean>;
@@ -23,7 +24,7 @@ export function useGisTaskLeaveGuard(options: GisLeaveOptions){
     if(!await configuration.leave(true)||!await gis.leave(defer))return false;
     if(!defer)configuration.clearForSession();return true;
   }
-  const hasPending=()=>options.fault.active()?options.fault.dirty():(gis.dirty||configuration.dirty||!!configuration.pending);
+  const hasPending=()=>!!options.additionalPending?.()||(options.fault.active()?options.fault.dirty():(gis.dirty||configuration.dirty||!!configuration.pending));
   const release=auth.registerLeave(()=>leave(true),hasPending);
   // 其他守卫拒绝导航时仍保留输入，实际离页后才提交放弃决定。
   const releaseNavigation=router.afterEach((to,from,failure)=>{

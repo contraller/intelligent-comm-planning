@@ -1209,6 +1209,7 @@ import DevicePortsEditDrawer from '../components/DevicePortsEditDrawer.vue';
 import { useRoute, useRouter, onBeforeRouteUpdate, onBeforeRouteLeave } from 'vue-router';
 import { useDeviceConfigurationStore } from '../stores/device-configuration';
 import DeviceConfigurationDrawer from '../components/DeviceConfigurationDrawer.vue';
+import { useDeviceConfigurationAcceptanceStore } from '../stores/device-configuration-acceptance';
 import { useResourceEditStore } from '../stores/resource-edit';
 import { useGisTaskLeaveGuard } from '../composables/useGisTaskLeaveGuard';
 import { useGisWorkspaceStore } from '../stores/gis-workspace';
@@ -1380,6 +1381,7 @@ const gis = useGisWorkspaceStore(),
 // 每次进入先显示资源；明确的任务和报告入口再选择各自上下文。
 gis.mapMode = 'resource';
 useGisTaskLeaveGuard({
+  additionalPending: () => httpMode && !!httpConfiguration.value && (configurationAcceptance.busy || configurationAcceptance.dirty || !!configurationAcceptance.pending),
   fault: {
     active: () => fault.active.value,
     dirty: () => fault.dirty.value,
@@ -1403,6 +1405,7 @@ const editing = computed(() => editor.context === 'gis');
 const configuration = useDeviceConfigurationStore();
 const httpConfiguration = ref<{ deviceId: string; revision: string; editable: boolean } | null>(null);
 const httpConfigurationPanel = ref<InstanceType<typeof DeviceConfigurationDrawer>>();
+const configurationAcceptance = useDeviceConfigurationAcceptanceStore();
 const configurationBlocked = computed(
   () =>
     gis.mapMode !== 'resource' ||
@@ -1510,6 +1513,7 @@ async function openConfiguration(id: string, history = false) {
   }
 }
 const releaseHttpConfiguration = auth.registerLeave(async () => !httpConfigurationPanel.value || await httpConfigurationPanel.value.requestLeave(), () => !!httpConfiguration.value);
+onBeforeRouteLeave(async () => !httpConfigurationPanel.value || await httpConfigurationPanel.value.requestLeave());
 watch(() => auth.generation, () => { httpConfiguration.value = null; });
 onBeforeUnmount(releaseHttpConfiguration);
 onBeforeRouteUpdate(async (to) => {

@@ -27,7 +27,9 @@ describe('GIS跨组宿主静态边界', () => {
     expect(component).not.toContain("can('resources.edit')");
   });
   it('未核实写入/脏频谱保护贯穿方案切换和离页', () => {
-    expect(component).toContain('status.pendingImport || config.pending');
+    expect(component).toMatch(
+      /configurationVisible\.value\s*&&\s*\(config\.pending\s*\|\|\s*config\.busy\)/,
+    );
     expect(component).toMatch(/auth\.registerLeave\(\s*requestLeave/);
     expect(host).toContain('if (await requestLeave()) await model.openPlan(row)');
     expect(host).toContain('if (await requestLeave()) model.closeNetwork()');
@@ -51,5 +53,11 @@ describe('GIS跨组宿主静态边界', () => {
     expect(component).not.toContain("planVersion: 'V1'");
     expect(situation).toContain('frozenPanel.value?.openIdentity({ taskId, planId })');
     expect(situation).not.toContain('analysis.selected.run.network');
+  });
+  it('刷新保护保留本地输入，明确保留原号关闭后不永远封锁离页', () => {
+    expect(component).toContain("window.addEventListener('beforeunload', beforeUnload)");
+    expect(component).toContain("window.removeEventListener('beforeunload', beforeUnload)");
+    expect(component).toContain('auth.registerLeave(requestLeave, hasPending)');
+    expect(situation).toContain('additionalPending: () => httpMode');
   });
 });
