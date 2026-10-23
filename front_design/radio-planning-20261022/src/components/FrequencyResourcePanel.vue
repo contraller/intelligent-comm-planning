@@ -3,9 +3,13 @@
     <div class="frequency-heading">
       <h2>规划频点</h2>
       <div class="toolbar">
-        <button class="btn" :disabled="!session.readable || store.busy || !!store.pending" @click="store.refresh()">
+        <button v-if="session.canMaintain" class="btn" :disabled="!store.canMaintain || store.busy || !!store.editor" @click="store.openEditor('ADD')">
+          <i class="pi pi-plus" aria-hidden="true" />新增构造频点</button>
+        <button v-if="session.canMaintain" class="btn" :disabled="!store.canMaintain || store.busy || !store.selectedIds.length || !!store.editor"
+          @click="store.prepareChanges(store.selectedIds.map(freqId => ({ kind: 'ENABLE', freqId })))"><i class="pi pi-play" aria-hidden="true" />启用所选</button>
+        <button class="btn" :disabled="!session.readable || store.busy || !!store.pending || !!store.editor" @click="store.refresh()">
           <i class="pi pi-refresh" aria-hidden="true" />刷新</button>
-        <button class="btn primary" :disabled="!store.canSelect || !store.selectedIds.length || store.busy" @click="store.prepareDisable()">
+        <button class="btn primary" :disabled="!session.canDisable || !store.canSelect || !store.selectedIds.length || store.busy" @click="store.prepareDisable()">
           <i class="pi pi-ban" aria-hidden="true" />停用所选</button>
       </div>
     </div>
@@ -16,7 +20,7 @@
     <p v-if="store.stale" role="alert">当前保留旧版内容，刷新后才能继续选择和停用。</p>
     <p v-else-if="store.listFailed && store.page" role="alert">当前显示上次成功列表，重新读取成功前不能停用。</p>
     <form class="frequency-filters" @submit.prevent="applyFilters">
-      <fieldset :disabled="!session.readable || store.locked || store.phase === 'SAVING'">
+      <fieldset :disabled="!session.readable || store.locked || !!store.editor || store.phase === 'SAVING'">
         <label>搜索<input v-model="filters.search" maxlength="120" aria-label="频点编号或备注" /></label>
         <label>类别<select v-model="filters.deviceClass"><option value="">全部</option><option value="HF">HF</option><option value="VUHF">VUHF</option></select></label>
         <label>可用性<select v-model="filters.availability"><option value="">全部</option><option value="AVAILABLE">可用</option><option value="DISABLED">已停用</option></select></label>
@@ -40,17 +44,20 @@
         :disabled="!store.canSelect" :checked="store.selectedIds.includes(row.freqId)" @click.stop
         @change="store.select(row.freqId, ($event.target as HTMLInputElement).checked)" /></template>
       <template #isAvailable="{ row }"><span class="chip" :class="{ amber: !row.isAvailable }">{{ row.isAvailable ? '可用' : '已停用' }}</span></template>
-      <template #actions="{ row }"><button class="text-link" @click.stop="store.detail = row">详情</button></template>
+      <template #actions="{ row }"><div class="toolbar"><button class="text-link" @click.stop="store.detail = row">详情</button>
+        <button v-if="session.canMaintain" class="text-link" :disabled="!store.canMaintain || store.busy || !!store.editor" @click.stop="store.openEditor('PATCH', row)">编辑</button>
+        <button v-if="session.canMaintain && !row.isAvailable" class="text-link" :disabled="!store.canMaintain || store.busy || !!store.editor"
+          @click.stop="store.prepareChanges([{ kind: 'ENABLE', freqId: row.freqId }])">启用</button></div></template>
     </AppTable>
     <section v-if="store.pending" class="frequency-pending" aria-label="待核实请求">
       <h3>提交结果待核实</h3><p class="frequency-id">{{ store.pending.requestId }}</p>
       <div class="toolbar">
         <button class="btn" :disabled="store.busy || !session.readable" @click="store.inspectOperation(store.pending!.requestId)">核实原回执</button>
-        <button class="btn" :disabled="store.busy || !session.canDisable" @click="store.retryPending()">重试原请求</button>
+        <button class="btn" :disabled="store.busy || ('changes' in store.pending ? !session.canMaintain : !session.canDisable)" @click="store.retryPending()">重试原请求</button>
       </div>
     </section>
     <section v-if="store.receipt" class="frequency-receipt" aria-label="本次停用回执">
-      <h3>{{ store.receipt.changed ? '停用回执' : '无变化回执' }}</h3>
+      <h3>{{ !store.receipt.changed ? '无变化回执' : store.receipt.objectId === 'resource-frequency-disable' ? '停用回执' : '构造维护回执' }}</h3>
       <p class="frequency-id">{{ store.receipt.requestId }}</p>
       <p>更新 {{ store.receipt.updated.length }} 项，无变化 {{ store.receipt.unchanged.length }} 项。</p>
       <p class="frequency-id">保存版本 {{ store.receipt.revision }}</p>
@@ -69,6 +76,7 @@
         :loading="!!store.loading.history" :total="store.history?.total ?? 0" :page-size="store.history?.pageSize ?? store.historyQuery.pageSize"
         :first="((store.history?.page ?? store.historyQuery.page) - 1) * (store.history?.pageSize ?? store.historyQuery.pageSize)" table-min-width="680px"
         @page="changeHistoryPage" @select="store.inspectOperation($event.requestId)">
+        <template #operation="{ row }">{{ row.operation === 'FREQUENCY_CHANGES' ? '构造维护' : '停用' }}</template>
         <template #changed="{ row }">{{ row.changed ? '已变更' : '无变化' }}</template>
         <template #actions="{ row }"><button class="text-link" @click.stop="store.inspectOperation(row.requestId)">回读</button></template>
       </AppTable>
@@ -88,6 +96,17 @@
         <p>无变化：{{ store.operation.receipt.unchanged.join('、') || '无' }}</p>
       </template>
     </AppDrawer>
+    <section v-if="store.changesPreview" class="frequency-receipt" aria-label="构造维护预检">
+      <h3>构造维护预检</h3>
+      <dl v-for="entry in store.changesPreview.items" :key="entry.freqId" class="frequency-details">
+        <dt>{{ entry.kind }} {{ entry.freqId }}</dt><dd>{{ !entry.before ? '未创建' : entry.before.isAvailable ? '可用' : '已停用' }} → {{ entry.after.isAvailable ? '可用' : '已停用' }}</dd>
+        <template v-for="field in detailColumns" :key="field.field"><dt>{{ field.header }}</dt>
+          <dd>{{ entry.before?.[field.field] ?? '未提供' }} → {{ entry.after[field.field] ?? '未提供' }}</dd></template>
+      </dl>
+    </section>
+    <FrequencyResourceEditDrawer :visible="!!store.editor" :mode="store.editor?.kind ?? 'ADD'" :item="store.editor?.item ?? null"
+      :busy="store.busy || !!store.changesPreview || !!store.pending || store.stale" :editable="session.canMaintain && session.readable"
+      :error="store.error" @close="store.closeEditor()" @preview="store.prepareChanges([$event])" @dirty-change="store.editorDirty = $event" />
     <DecisionDialog :request="store.decision" @answer="store.answer" />
   </section>
 </template>
@@ -96,6 +115,7 @@ import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue';
 import AppTable from './AppTable.vue';
 import AppDrawer from './AppDrawer.vue';
 import DecisionDialog from './DecisionDialog.vue';
+import FrequencyResourceEditDrawer from './FrequencyResourceEditDrawer.vue';
 import { useFrequencyResourceStore } from '../stores/frequency-resource';
 import type { FrequencyResourceChange, FrequencyResourceHostContext, FrequencyResourceItem, FrequencyResourceServices } from '../types/frequency-resource';
 
@@ -116,7 +136,7 @@ const detailColumns: { field: keyof FrequencyResourceItem; header: string }[] = 
   { field: 'freqId', header: '编号' }, { field: 'deviceClass', header: '类别' }, { field: 'centerFreqKhz', header: '中心频率 / kHz' },
   { field: 'bandwidthKhz', header: '带宽 / kHz' }, { field: 'channelNo', header: '信道号' }, { field: 'occupiedBy', header: '占用方' },
   { field: 'reuseMinDistanceM', header: '复用间距 / m' }, { field: 'adjacentGuardKhz', header: '邻道间隔 / kHz' }, { field: 'note', header: '备注' }];
-const historyColumns = [{ field: 'requestId', header: '请求号', minWidth: '180px' }, { field: 'createdAt', header: '时间' },
+const historyColumns = [{ field: 'requestId', header: '请求号', minWidth: '180px' }, { field: 'operation', header: '操作' }, { field: 'createdAt', header: '时间' },
   { field: 'changed', header: '结果' }, { field: 'selectedCount', header: '所选' }, { field: 'updatedCount', header: '更新' }, { field: 'unchangedCount', header: '无变化' }];
 async function applyFilters() {
   await store.applyFilters({ search: filters.search,
@@ -126,13 +146,13 @@ async function applyFilters() {
 }
 async function clearFilters() { Object.assign(filters, { search: '', deviceClass: '', availability: '', minKhz: '', maxKhz: '' }); await applyFilters(); }
 function changePage(value: { first: number; rows: number }) {
-  if (!store.locked) void store.loadPage({ page: Math.floor(value.first / value.rows) + 1, pageSize: value.rows as 5 | 10 | 20 | 50 });
+  if (!store.locked && !store.editor) void store.loadPage({ page: Math.floor(value.first / value.rows) + 1, pageSize: value.rows as 5 | 10 | 20 | 50 });
 }
 function changeHistoryPage(value: { first: number; rows: number }) {
   void store.loadHistory({ page: Math.floor(value.first / value.rows) + 1, pageSize: value.rows as 5 | 10 | 20 | 50 });
 }
 watch(() => [props.active, props.session.accountId, props.session.generation, props.session.readable,
-  props.session.canDisable, props.services, props.loadContext], () => {
+  props.session.canDisable, props.session.canMaintain, props.services, props.loadContext], () => {
   const restoreFilters = !initialized || store.session?.accountId !== props.session.accountId
     || store.session?.generation !== props.session.generation;
   store.configure({ services: props.services, loadContext: props.loadContext, session: props.session,

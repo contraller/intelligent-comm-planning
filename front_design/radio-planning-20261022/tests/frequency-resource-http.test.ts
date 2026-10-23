@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import type { AuthenticatedRequest } from '../src/services/auth-http';
 import { createFrequencyResourceHttp } from '../src/services/frequency-resource-http';
 import { ApiError } from '../src/services/types';
+import type { FrequencyAction } from '../src/types/frequency-resource';
 
 const base = 'resource-1111111111111111', next = 'resource-2222222222222222';
 const origin = { data_origin: 'SYNTHETIC_INTEGRATION', source: '项目构造资源基线，非生产、非实测' };
@@ -11,6 +12,63 @@ const input = () => ({ context: 'ledger' as const, baseRevision: base, requestId
 const item = (id: string, available = true) => ({
   freq_id: id, device_class: 'HF', center_freq_khz: 3000, bandwidth_khz: null, channel_no: null,
   is_available: available, occupied_by: null, reuse_min_distance_m: null, adjacent_guard_khz: null, note: null,
+});
+
+describe('M3 构造频点维护 HTTP', () => {
+  const add = (): FrequencyAction => ({ kind: 'ADD', freqId: 'FQ-M3', item: { deviceClass: 'HF', centerFreqKhz: 3000,
+    bandwidthKhz: null, channelNo: null, reuseMinDistanceM: null, adjacentGuardKhz: null, note: null } });
+  const request = () => ({ context: 'ledger' as const, baseRevision: base, requestId: 'm3-request', changes: [add()] });
+  const saved = () => ({ ...receipt(), object_id: 'resource-frequency-changes', request_id: 'm3-request', selected_ids: ['FQ-M3'],
+    affected_ids: ['FQ-M3'], updated: ['FQ-M3'], unchanged: [], items: [item('FQ-M3', false)] });
+  const checked = () => ({ revision: base, base_revision: base, ...origin, selected_ids: ['FQ-M3'], would_change: ['FQ-M3'], unchanged: [],
+    items: [{ kind: 'ADD', freq_id: 'FQ-M3', before: null, after: item('FQ-M3', false) }], impact: preview().impact });
+  it('精确序列化维护动作，未知值保留null，预检与保存解码一致', async () => {
+    const f = fixture(checked());
+    expect((await f.api.validateFrequencyChanges({ ...query(), changes: [add()] })).items[0].after.isAvailable).toBe(false);
+    expect(JSON.parse(f.request.mock.calls[0][1]!.body as string)).toEqual({ context: 'ledger', revision: base, changes: [{ kind: 'ADD', freq_id: 'FQ-M3',
+      item: { device_class: 'HF', center_freq_khz: 3000, bandwidth_khz: null, channel_no: null, reuse_min_distance_m: null, adjacent_guard_khz: null, note: null } }] });
+    const result = await fixture(saved()).api.commitFrequencyChanges(request());
+    expect(result.objectId).toBe('resource-frequency-changes'); expect(result.items[0].occupiedBy).toBeNull();
+  });
+  it.each([true, false])('冻结发起时嵌套字段和动作清单，等待期间页面可继续修改：预检=%s', async validation => {
+    const f = deferredFixture(), input = request(), action = input.changes[0];
+    const checking = { ...query(), changes: input.changes };
+    const promise = validation ? f.api.validateFrequencyChanges(checking) : f.api.commitFrequencyChanges(input);
+    if (action.kind === 'ADD') action.item.centerFreqKhz = 9000;
+    input.changes.splice(0, 1, { kind: 'ENABLE', freqId: 'other' }); input.baseRevision = next; input.requestId = 'changed'; checking.revision = next;
+    f.complete(validation ? checked() : saved());
+    expect(JSON.parse(f.request.mock.calls[0][1]!.body as string).changes[0].item.center_freq_khz).toBe(3000);
+    await expect(promise).resolves.toBeDefined();
+  });
+  it.each([[], [add(), add()], [{ kind: 'PATCH', freqId: 'FQ-M3', fields: {} }], [{ kind: 'ENABLE', freqId: 'FQ-M3', proof: true }],
+    [{ kind: 'PATCH', freqId: 'FQ-M3', fields: { occupiedBy: 'device' } }], [{ kind: 'PATCH', freqId: 'FQ-M3', fields: { centerFreqKhz: null } }],
+    [{ ...add(), item: { deviceClass: 'HF', centerFreqKhz: 3000 } }], [{ kind: 'PATCH', freqId: 'FQ-M3', fields: { bandwidthKhz: 0 } }]]
+    .map(changes => ({ changes })))('非法维护请求在发送前拒绝 %j', async ({ changes }) => {
+    const f = fixture(saved()); await expect(f.api.commitFrequencyChanges({ ...request(), changes } as never)).rejects.toMatchObject({ code: 'VALIDATION_ERROR' });
+    expect(f.request).not.toHaveBeenCalled();
+  });
+  it.each([{ items: [item('FQ-M3', true)] }, { items: [{ ...item('FQ-M3', false), occupied_by: 'DV-0001' }] },
+    { object_id: 'resource-frequency-disable' }, { updated: [], affected_ids: [], unchanged: ['FQ-M3'], changed: false, revision: base, read_revision: base },
+    { items: [{ ...item('FQ-M3', false), center_freq_khz: 4000 }] }])('维护回执拒绝错动作结果和虚构占用 %j', async patch => {
+    await expect(fixture({ ...saved(), ...patch }).api.commitFrequencyChanges(request())).rejects.toMatchObject({ code: 'INVALID_FREQUENCY_RESOURCE_RESPONSE' });
+  });
+  it('预检拒绝遗漏原值分区及虚假影响', async () => {
+    for (const patch of [{ items: [{ ...checked().items[0], before: item('FQ-M3') }] },
+      { would_change: [], unchanged: ['FQ-M3'] }, { impact: { ...checked().impact, link_impact: 0 } }])
+      await expect(fixture({ ...checked(), ...patch }).api.validateFrequencyChanges({ ...query(), changes: [add()] })).rejects.toMatchObject({ code: 'INVALID_FREQUENCY_RESOURCE_RESPONSE' });
+  });
+  it('修改及启用预检核验未修改字段，历史维护回执不要求当前版本', async () => {
+    const before = item('FQ-M3', false), after = { ...before, center_freq_khz: 4500 };
+    const data = { ...checked(), items: [{ kind: 'PATCH', freq_id: 'FQ-M3', before, after }] };
+    await expect(fixture(data).api.validateFrequencyChanges({ ...query(), changes: [{ kind: 'PATCH', freqId: 'FQ-M3', fields: { centerFreqKhz: 4500 } }] })).resolves.toBeDefined();
+    await expect(fixture({ ...data, items: [{ ...data.items[0], after: { ...after, occupied_by: 'invented' } }] }).api.validateFrequencyChanges({ ...query(),
+      changes: [{ kind: 'PATCH', freqId: 'FQ-M3', fields: { centerFreqKhz: 4500 } }] })).rejects.toMatchObject({ code: 'INVALID_FREQUENCY_RESOURCE_RESPONSE' });
+    const result = await fixture({ operation: 'FREQUENCY_CHANGES', request_id: 'm3-request', created_at: summary().created_at, receipt: saved() })
+      .api.getFrequencyOperation({ context: 'ledger', requestId: 'm3-request' });
+    expect(result.receipt.objectId).toBe('resource-frequency-changes');
+    await expect(fixture({ operation: 'FREQUENCY_DISABLE', request_id: 'm3-request', created_at: summary().created_at, receipt: saved() })
+      .api.getFrequencyOperation({ context: 'ledger', requestId: 'm3-request' })).rejects.toMatchObject({ code: 'INVALID_FREQUENCY_RESOURCE_RESPONSE' });
+  });
 });
 
 const pagedInput = () => ({ context: 'ledger' as const, revision: base, page: 1, pageSize: 5 as const });

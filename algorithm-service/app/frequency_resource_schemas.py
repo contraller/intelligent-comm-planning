@@ -1,4 +1,4 @@
-"""规划频点停用契约；禁止启用、数值编辑及客户端身份字段。"""
+"""规划构造频点维护契约；禁止客户端身份、占用事实和来源覆盖。"""
 from typing import Annotated, Literal
 
 import re
@@ -92,7 +92,7 @@ class FrequencyStoredItem(InputModel):
 
 
 class FrequencyStoredReceipt(InputModel):
-    object_id: Literal["resource-frequency-disable"]
+    object_id: Literal["resource-frequency-disable", "resource-frequency-changes"]
     request_id: Identifier
     base_revision: ResourceRevision
     selected_ids: Annotated[list[Identifier], Field(min_length=1, max_length=50)]
@@ -117,6 +117,71 @@ class FrequencyStoredReceipt(InputModel):
             or self.affected_ids != self.updated or set(self.updated) & set(self.unchanged)
             or sorted(self.updated + self.unchanged) != self.selected_ids
             or [item.freq_id for item in self.items] != self.selected_ids
-            or any(item.is_available for item in self.items)):
+            or self.object_id == "resource-frequency-disable" and any(item.is_available for item in self.items)):
             raise ValueError("回执分区、保存值或版本不一致")
         return self
+
+
+class FrequencyPatchFields(InputModel):
+    center_freq_khz: PositiveNumber | None = None
+    bandwidth_khz: PositiveNumber | None = None
+    channel_no: Annotated[StrictInt, Field(ge=0)] | None = None
+    reuse_min_distance_m: Annotated[FiniteNumber, Field(ge=0)] | None = None
+    adjacent_guard_khz: Annotated[FiniteNumber, Field(ge=0)] | None = None
+    note: Annotated[StrictStr, Field(min_length=1, max_length=2000)] | None = None
+
+    @model_validator(mode="after")
+    def nonempty_patch(self):
+        if not self.model_fields_set or "center_freq_khz" in self.model_fields_set and self.center_freq_khz is None:
+            raise ValueError("修改字段不能为空，中心频率不能清空")
+        return self
+
+
+class FrequencyAddItem(InputModel):
+    device_class: Literal["HF", "VUHF"]
+    center_freq_khz: PositiveNumber
+    bandwidth_khz: PositiveNumber | None
+    channel_no: Annotated[StrictInt, Field(ge=0)] | None
+    reuse_min_distance_m: Annotated[FiniteNumber, Field(ge=0)] | None
+    adjacent_guard_khz: Annotated[FiniteNumber, Field(ge=0)] | None
+    note: Annotated[StrictStr, Field(min_length=1, max_length=2000)] | None
+
+
+class FrequencyAdd(InputModel):
+    kind: Literal["ADD"]
+    freq_id: Identifier
+    item: FrequencyAddItem
+
+
+class FrequencyPatch(InputModel):
+    kind: Literal["PATCH"]
+    freq_id: Identifier
+    fields: FrequencyPatchFields
+
+
+class FrequencyEnable(InputModel):
+    kind: Literal["ENABLE"]
+    freq_id: Identifier
+
+
+FrequencyAction = Annotated[FrequencyAdd | FrequencyPatch | FrequencyEnable, Field(discriminator="kind")]
+
+
+class FrequencyChangesSelection(InputModel):
+    context: Literal["ledger"]
+    changes: Annotated[list[FrequencyAction], Field(min_length=1, max_length=50)]
+
+    @model_validator(mode="after")
+    def unique_actions(self):
+        if len({action.freq_id for action in self.changes}) != len(self.changes):
+            raise ValueError("同一频点不能重复或组合动作")
+        return self
+
+
+class FrequencyChangesValidation(FrequencyChangesSelection):
+    revision: ResourceRevision
+
+
+class FrequencyChangesChange(FrequencyChangesSelection):
+    base_revision: ResourceRevision
+    request_id: Identifier

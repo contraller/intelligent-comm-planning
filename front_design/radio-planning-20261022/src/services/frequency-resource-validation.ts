@@ -3,6 +3,8 @@ import type {
   FrequencyDisableValidationInput, FrequencyResourceItem, FrequencyResourceSnapshot,
   FrequencyPageQuery, FrequencyResourcePage, FrequencyHistoryQuery, FrequencyOperationQuery,
   FrequencyOperation, FrequencyOperationPage, FrequencyOperationSummary,
+  FrequencyAction, FrequencyChangesInput, FrequencyChangeReceipt, FrequencyReceipt,
+  FrequencyChangesValidation, FrequencyChangesValidationInput,
 } from '../types/frequency-resource';
 import { ApiError } from './types';
 
@@ -37,7 +39,7 @@ const equal = (left: string[], right: string[]) => left.length === right.length 
 function ids(value: unknown): string[] {
   if (!Array.isArray(value)) return fail('ids');
   const result = value.map(id);
-  if (new Set(result).size !== result.length || !equal(result, [...result].sort())) fail('ids order/duplicates');
+  if (new Set(result).size !== result.length || !equal(result, [...result].sort(compareFrequencyIds))) fail('ids order/duplicates');
   return result;
 }
 function item(value: unknown): FrequencyResourceItem {
@@ -76,8 +78,8 @@ function snapshot(row: Record<string, unknown>, expectedRevision: string): Frequ
   return { ...source(row), revision: rev, baseRevision: rev, contentHash: row.content_hash, items: items(row.items) };
 }
 function partition(selected: string[], updated: string[], unchanged: string[], expected: string[]) {
-  if (!equal(selected, [...expected].sort()) || updated.some(value => unchanged.includes(value))
-    || !equal([...updated, ...unchanged].sort(), selected)) fail('selection partition');
+  if (!equal(selected, [...expected].sort(compareFrequencyIds)) || updated.some(value => unchanged.includes(value))
+    || !equal([...updated, ...unchanged].sort(compareFrequencyIds), selected)) fail('selection partition');
 }
 
 export function readFrequencyResources(value: unknown, expectedRevision: string): FrequencyResourceSnapshot {
@@ -103,22 +105,78 @@ export function readFrequencyDisableValidation(value: unknown, input: FrequencyD
       savedPlansRequireRecompute: changed, linkImpact: 'UNKNOWN' } };
 }
 
-export function readFrequencyDisableReceipt(value: unknown, input: FrequencyDisableInput): FrequencyDisableReceipt {
+function readReceipt(value: unknown, input: FrequencyDisableInput, objectId: FrequencyReceipt['objectId']): FrequencyReceipt {
   const row = record(value, ['object_id', 'request_id', 'base_revision', 'selected_ids', 'affected_ids', 'updated',
     'unchanged', 'items', 'data_origin', 'source', 'warnings', 'changed', 'revision', 'read_revision']);
   const rev = revision(row.revision), base = revision(row.base_revision);
   const selectedIds = ids(row.selected_ids), updated = ids(row.updated), unchanged = ids(row.unchanged);
   const affectedIds = ids(row.affected_ids), savedItems = items(row.items);
   partition(selectedIds, updated, unchanged, input.ids);
-  if (row.object_id !== 'resource-frequency-disable' || row.request_id !== input.requestId || base !== input.baseRevision
+  if (row.object_id !== objectId || row.request_id !== input.requestId || base !== input.baseRevision
     || row.read_revision !== rev || typeof row.changed !== 'boolean' || row.changed !== (updated.length > 0)
     || row.changed === (rev === base) || !equal(affectedIds, updated)
-    || !equal(savedItems.map(v => v.freqId), selectedIds) || savedItems.some(v => v.isAvailable)
+    || !equal(savedItems.map(v => v.freqId), selectedIds) || objectId === 'resource-frequency-disable' && savedItems.some(v => v.isAvailable)
     || !Array.isArray(row.warnings) || row.warnings.length !== 0) fail('receipt');
   // 回执固定在原提交版本；不将后续当前资源状态混入幂等重放结果。
-  return { ...source(row), objectId: 'resource-frequency-disable', requestId: input.requestId,
+  return { ...source(row), objectId, requestId: input.requestId,
     baseRevision: base, revision: rev, readRevision: rev, changed: row.changed as boolean,
     selectedIds, affectedIds, updated, unchanged, items: savedItems, warnings: [] };
+}
+export function readFrequencyDisableReceipt(value: unknown, input: FrequencyDisableInput): FrequencyDisableReceipt {
+  return readReceipt(value, input, 'resource-frequency-disable') as FrequencyDisableReceipt;
+}
+export const constructedFrequencyNote = (note: string | null) => note === null || note.startsWith('[人工构造规划频点；非正式频率授权] ')
+  ? note : '[人工构造规划频点；非正式频率授权] ' + note;
+const sameItem = (left: FrequencyResourceItem, right: FrequencyResourceItem) =>
+  (Object.keys(left) as (keyof FrequencyResourceItem)[]).every(key => left[key] === right[key]);
+export function assertFrequencyChangesReceipt(value: FrequencyChangeReceipt, changes: FrequencyAction[]) {
+  if (!equal(value.selectedIds, changes.map(action => action.freqId).sort(compareFrequencyIds))) fail('changes association');
+  for (const action of changes) {
+    const saved = value.items.find(item => item.freqId === action.freqId);
+    if (!saved) fail('changes items');
+    if (action.kind === 'ENABLE') { if (!saved.isAvailable) fail('enable result'); }
+    else {
+      const fields = action.kind === 'ADD' ? action.item : action.fields;
+      for (const [key, raw] of Object.entries(fields)) {
+        const expected = action.kind === 'ADD' && key === 'note' ? constructedFrequencyNote(raw as string | null) : raw;
+        if (saved[key as keyof FrequencyResourceItem] !== expected
+          && !(action.kind === 'PATCH' && key === 'note' && saved.note === constructedFrequencyNote(raw as string | null))) fail('changes fields');
+      }
+      if (action.kind === 'ADD' && (saved.isAvailable || saved.occupiedBy !== null || !value.updated.includes(action.freqId))) fail('add result');
+    }
+  }
+}
+export function readFrequencyChangesReceipt(value: unknown, input: FrequencyChangesInput): FrequencyChangeReceipt {
+  const receipt = readReceipt(value, { ...input, ids: input.changes.map(action => action.freqId) }, 'resource-frequency-changes') as FrequencyChangeReceipt;
+  assertFrequencyChangesReceipt(receipt, input.changes); return receipt;
+}
+export function readFrequencyChangesValidation(value: unknown, input: FrequencyChangesValidationInput): FrequencyChangesValidation {
+  const row = record(value, ['revision', 'base_revision', 'data_origin', 'source', 'selected_ids', 'would_change', 'unchanged', 'items', 'impact']);
+  const rev = revision(row.revision);
+  if (rev !== input.revision || row.base_revision !== rev || !Array.isArray(row.items)) fail('changes preview version');
+  const selectedIds = ids(row.selected_ids), wouldChange = ids(row.would_change), unchanged = ids(row.unchanged);
+  partition(selectedIds, wouldChange, unchanged, input.changes.map(action => action.freqId));
+  const values = (row.items as unknown[]).map(value => {
+    const v = record(value, ['kind', 'freq_id', 'before', 'after']), action = input.changes.find(action => action.freqId === v.freq_id);
+    if (!action || v.kind !== action.kind) fail('preview action');
+    const before = v.before === null ? null : item(v.before), after = item(v.after);
+    if (after.freqId !== action.freqId || before && before.freqId !== action.freqId || (action.kind === 'ADD') !== (before === null)) fail('preview identity');
+    let expected: FrequencyResourceItem;
+    if (action.kind === 'ADD') expected = { freqId: action.freqId, ...action.item, note: constructedFrequencyNote(action.item.note), isAvailable: false, occupiedBy: null };
+    else {
+      expected = { ...before!, ...(action.kind === 'PATCH' ? action.fields : { isAvailable: true }) };
+      if (action.kind === 'PATCH' && !sameItem(expected, before!)) expected.note = constructedFrequencyNote(expected.note);
+    }
+    if (!sameItem(after, expected) || wouldChange.includes(action.freqId) !== (!before || !sameItem(before, after))) fail('preview result');
+    return { kind: action.kind, freqId: action.freqId, before, after };
+  });
+  if (!equal(values.map(value => value.freqId), selectedIds)) fail('preview selection');
+  const impact = record(row.impact, ['resource_revision_will_change', 'historical_resources_preserved', 'saved_plans_require_recompute', 'link_impact']);
+  const changed = wouldChange.length > 0;
+  if (impact.resource_revision_will_change !== changed || impact.saved_plans_require_recompute !== changed
+    || impact.historical_resources_preserved !== true || impact.link_impact !== 'UNKNOWN') fail('changes impact');
+  return { ...source(row), revision: rev, baseRevision: rev, selectedIds, wouldChange, unchanged, items: values,
+    impact: { resourceRevisionWillChange: changed, historicalResourcesPreserved: true, savedPlansRequireRecompute: changed, linkImpact: 'UNKNOWN' } };
 }
 
 function integer(value: unknown, field: string, minimum = 0): number {
@@ -156,20 +214,20 @@ function compareOperationTime(left: string, right: string): number {
   const width = Math.max(a.length, b.length), first = a.padEnd(width, '0'), second = b.padEnd(width, '0');
   return first < second ? -1 : first > second ? 1 : 0;
 }
-function compareOperationId(left: string, right: string): number {
+export function compareFrequencyIds(left: string, right: string): number {
   const a = Array.from(left, char => char.codePointAt(0)!), b = Array.from(right, char => char.codePointAt(0)!);
   for (let i = 0; i < Math.min(a.length, b.length); i++) if (a[i] !== b[i]) return a[i]! - b[i]!;
   return a.length - b.length;
 }
 export function readFrequencyOperation(value: unknown, input: FrequencyOperationQuery): FrequencyOperation {
   const row = record(value, ['operation', 'request_id', 'created_at', 'receipt']);
-  if (row.operation !== 'FREQUENCY_DISABLE' || row.request_id !== input.requestId) fail('operation association');
+  if (!['FREQUENCY_DISABLE', 'FREQUENCY_CHANGES'].includes(row.operation as string) || row.request_id !== input.requestId) fail('operation association');
   if (!row.receipt || typeof row.receipt !== 'object' || Array.isArray(row.receipt)) fail('receipt');
   const raw = row.receipt as Record<string, unknown>;
-  const receipt = readFrequencyDisableReceipt(raw, { context: 'ledger', requestId: input.requestId,
-    baseRevision: revision(raw.base_revision), ids: ids(raw.selected_ids) });
+  const receipt = readReceipt(raw, { context: 'ledger', requestId: input.requestId,
+    baseRevision: revision(raw.base_revision), ids: ids(raw.selected_ids) }, row.operation === 'FREQUENCY_DISABLE' ? 'resource-frequency-disable' : 'resource-frequency-changes');
   if (receipt.selectedIds.length < 1 || receipt.selectedIds.length > 50) fail('receipt count');
-  return { operation: 'FREQUENCY_DISABLE', requestId: input.requestId, createdAt: timestamp(row.created_at), receipt };
+  return { operation: row.operation as FrequencyOperation['operation'], requestId: input.requestId, createdAt: timestamp(row.created_at), receipt };
 }
 export function readFrequencyOperations(value: unknown, input: FrequencyHistoryQuery): FrequencyOperationPage {
   const row = record(value, ['page', 'page_size', 'total', 'items']);
@@ -180,17 +238,17 @@ export function readFrequencyOperations(value: unknown, input: FrequencyHistoryQ
     const requestId = id(v.request_id), baseRevision = revision(v.base_revision), rev = revision(v.revision);
     const selectedCount = integer(v.selected_count, 'selected_count', 1), updatedCount = integer(v.updated_count, 'updated_count');
     const unchangedCount = integer(v.unchanged_count, 'unchanged_count');
-    if (v.operation !== 'FREQUENCY_DISABLE' || typeof v.changed !== 'boolean' || selectedCount > 50
+    if (!['FREQUENCY_DISABLE', 'FREQUENCY_CHANGES'].includes(v.operation as string) || typeof v.changed !== 'boolean' || selectedCount > 50
       || selectedCount !== updatedCount + unchangedCount || v.changed !== (updatedCount > 0)
       || v.changed === (rev === baseRevision) || input.search && !requestId.includes(input.search)) fail('history summary');
-    return { operation: 'FREQUENCY_DISABLE', requestId, createdAt: timestamp(v.created_at), baseRevision,
+    return { operation: v.operation as FrequencyOperationSummary['operation'], requestId, createdAt: timestamp(v.created_at), baseRevision,
       revision: rev, changed: v.changed as boolean, selectedCount, updatedCount, unchangedCount };
   });
   if (new Set(values.map(v => v.requestId)).size !== values.length) fail('duplicate operations');
   for (let i = 1; i < values.length; i++) {
     const before = values[i - 1]!, after = values[i]!;
     const time = compareOperationTime(before.createdAt, after.createdAt);
-    if (time < 0 || time === 0 && compareOperationId(before.requestId, after.requestId) > 0) fail('history order');
+    if (time < 0 || time === 0 && compareFrequencyIds(before.requestId, after.requestId) > 0) fail('history order');
   }
   return { ...pageFields(row, input, values.length), items: values };
 }

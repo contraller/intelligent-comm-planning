@@ -1,8 +1,10 @@
 import type { AuthenticatedRequest } from './auth-http';
 import type { FrequencyDisableInput, FrequencyDisableValidationInput, FrequencyResourceQuery,
-  FrequencyPageQuery, FrequencyHistoryQuery, FrequencyOperationQuery, FrequencyResourceServices } from '../types/frequency-resource';
+  FrequencyPageQuery, FrequencyHistoryQuery, FrequencyOperationQuery, FrequencyResourceServices,
+  FrequencyAction, FrequencyChangesInput, FrequencyChangesValidationInput } from '../types/frequency-resource';
 import { readFrequencyDisableReceipt, readFrequencyDisableValidation, readFrequencyResources,
-  readFrequencyPage, readFrequencyOperation, readFrequencyOperations } from './frequency-resource-validation';
+  readFrequencyPage, readFrequencyOperation, readFrequencyOperations, compareFrequencyIds,
+  readFrequencyChangesReceipt, readFrequencyChangesValidation, constructedFrequencyNote } from './frequency-resource-validation';
 import { ApiError } from './types';
 
 function invalid(): never { throw new ApiError('规划频点请求不符合停用契约', 'VALIDATION_ERROR'); }
@@ -26,7 +28,7 @@ function requestSnapshot(value: unknown, mode: 'read' | 'validate' | 'disable') 
     for (const value of input.ids) identifier(value);
     selected = [...input.ids] as string[];
     if (new Set(selected).size !== selected.length) invalid();
-    selected.sort();
+    selected.sort(compareFrequencyIds);
   }
   // 仅冻结本次调用的副本；页面仍可编辑原对象及原 ids，响应只核对发起时的值。
   Object.freeze(selected);
@@ -66,6 +68,52 @@ function queryString(input: FrequencyHistoryQuery | FrequencyPageQuery): string 
   for (const [key, value] of Object.entries(fields)) if (value !== undefined) query.set(key, String(value));
   return query.toString();
 }
+const fieldNames = { deviceClass: 'device_class', centerFreqKhz: 'center_freq_khz', bandwidthKhz: 'bandwidth_khz',
+  channelNo: 'channel_no', reuseMinDistanceM: 'reuse_min_distance_m', adjacentGuardKhz: 'adjacent_guard_khz', note: 'note' };
+function changesSnapshot(input: FrequencyChangesInput, writing: true): FrequencyChangesInput;
+function changesSnapshot(input: FrequencyChangesValidationInput, writing: false): FrequencyChangesValidationInput;
+function changesSnapshot(input: FrequencyChangesInput | FrequencyChangesValidationInput, writing: boolean) {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) invalid();
+  const keys = writing ? ['context', 'baseRevision', 'requestId', 'changes'] : ['context', 'revision', 'changes'];
+  if (Object.keys(input).length !== keys.length || keys.some(key => !Object.hasOwn(input, key))) invalid();
+  const version = writing ? (input as FrequencyChangesInput).baseRevision : (input as FrequencyChangesValidationInput).revision;
+  requestSnapshot({ context: input.context, revision: version }, 'read');
+  if (writing) identifier((input as FrequencyChangesInput).requestId);
+  if (!Array.isArray(input.changes) || input.changes.length < 1 || input.changes.length > 50) invalid();
+  const changes = input.changes.map(action => {
+    if (!action || typeof action !== 'object' || Array.isArray(action)) invalid();
+    identifier(action.freqId);
+    if (!['ADD', 'PATCH', 'ENABLE'].includes(action.kind)) invalid();
+    const key = action.kind === 'ADD' ? 'item' : 'fields';
+    const expected = ['kind', 'freqId', ...(action.kind === 'ENABLE' ? [] : [key])];
+    if (Object.keys(action).length !== expected.length || expected.some(key => !Object.hasOwn(action, key))) invalid();
+    if (action.kind === 'ENABLE') return Object.freeze({ ...action });
+    const values = action.kind === 'ADD' ? action.item : action.fields;
+    if (!values || typeof values !== 'object' || Array.isArray(values)) invalid();
+    const fields = Object.keys(values);
+    if (!fields.length || fields.some(key => !Object.hasOwn(fieldNames, key) || action.kind === 'PATCH' && key === 'deviceClass')
+      || action.kind === 'ADD' && (fields.length !== 7 || Object.keys(fieldNames).some(key => !Object.hasOwn(values, key)))) invalid();
+    for (const field of fields) {
+      const value = (values as Record<string, unknown>)[field];
+      if (field === 'deviceClass') { if (!['HF', 'VUHF'].includes(value as string)) invalid(); }
+      else if (field === 'note') { if (value !== null && (typeof value !== 'string' || !value || constructedFrequencyNote(value)!.length > 2000)) invalid(); }
+      else if (value === null) { if (field === 'centerFreqKhz') invalid(); }
+      else if (typeof value !== 'number' || !Number.isFinite(value) || value < 0
+        || ['centerFreqKhz', 'bandwidthKhz'].includes(field) && value === 0 || field === 'channelNo' && !Number.isSafeInteger(value)) invalid();
+    }
+    return Object.freeze({ ...action, [key]: Object.freeze({ ...values }) }) as FrequencyAction;
+  });
+  if (new Set(changes.map(value => value.freqId)).size !== changes.length) invalid();
+  changes.sort((a, b) => compareFrequencyIds(a.freqId, b.freqId));
+  Object.freeze(changes);
+  return Object.freeze({ ...input, changes });
+}
+function wireChanges(changes: FrequencyAction[]) {
+  return changes.map(action => ({ kind: action.kind, freq_id: action.freqId, ...(action.kind === 'ENABLE' ? {} : {
+    [action.kind === 'ADD' ? 'item' : 'fields']: Object.fromEntries(Object.entries(action.kind === 'ADD' ? action.item : action.fields)
+      .map(([key, value]) => [fieldNames[key as keyof typeof fieldNames], value])),
+  }) }));
+}
 export function createFrequencyResourceHttp(request: AuthenticatedRequest): FrequencyResourceServices {
   const path = '/resource/frequency-resources';
   return {
@@ -103,6 +151,16 @@ export function createFrequencyResourceHttp(request: AuthenticatedRequest): Freq
       identifier(input.requestId);
       const snapshot = Object.freeze({ ...input });
       return readFrequencyOperation(await request(`${path}/operations/${encodeURIComponent(snapshot.requestId)}?context=ledger`, { signal }), snapshot);
+    },
+    async validateFrequencyChanges(input, signal) {
+      const snapshot = changesSnapshot(input, false);
+      return readFrequencyChangesValidation(await request(`${path}/changes/validate`, { method: 'POST', signal,
+        body: JSON.stringify({ context: snapshot.context, revision: snapshot.revision, changes: wireChanges(snapshot.changes) }) }), snapshot);
+    },
+    async commitFrequencyChanges(input, signal) {
+      const snapshot = changesSnapshot(input, true);
+      return readFrequencyChangesReceipt(await request(`${path}/changes`, { method: 'POST', signal,
+        body: JSON.stringify({ context: snapshot.context, base_revision: snapshot.baseRevision, request_id: snapshot.requestId, changes: wireChanges(snapshot.changes) }) }), snapshot);
     },
   };
 }

@@ -45,4 +45,22 @@ describe.skipIf(!configured)('P04 明确隔离的 R2 真实 HTTP', () => {
     expect(await api.disableFrequencyResources(input)).toEqual(receipt);
     expect((await api.getFrequencyOperation({ context: 'ledger', requestId: input.requestId })).receipt).toEqual(receipt);
   }, 30000);
+  it.skipIf(process.env.P04_R2_ALLOW_MAINTAIN !== '1' || !process.env.P04_R2_CSRF)('构造新增、修改、系统新增证明启用和原回执回读', async () => {
+    const { client, api } = fixture(), context = await client<{ revision: string }>('/resource/context?context=ledger');
+    const page = await api.queryFrequencyResources({ context: 'ledger', revision: context.revision, page: 1, pageSize: 5 });
+    if (!page.items.length) throw new Error('R2没有可核验的频点类型/频率，未虚构能力范围');
+    const source = page.items[0], freqId = `FQ-R2-${crypto.randomUUID()}`;
+    const input = { context: 'ledger' as const, baseRevision: context.revision, requestId: `r2-add-${crypto.randomUUID()}`,
+      changes: [{ kind: 'ADD' as const, freqId, item: { deviceClass: source.deviceClass, centerFreqKhz: source.centerFreqKhz,
+        bandwidthKhz: null, channelNo: null, reuseMinDistanceM: null, adjacentGuardKhz: null, note: 'R2显式构造实联' } }] };
+    await api.validateFrequencyChanges({ context: 'ledger', revision: context.revision, changes: input.changes });
+    const added = await api.commitFrequencyChanges(input); expect(added.items[0].isAvailable).toBe(false);
+    expect(await api.commitFrequencyChanges(input)).toEqual(added);
+    const patched = await api.commitFrequencyChanges({ context: 'ledger', baseRevision: added.revision, requestId: `r2-patch-${crypto.randomUUID()}`,
+      changes: [{ kind: 'PATCH', freqId, fields: { channelNo: 0 } }] });
+    const enabled = await api.commitFrequencyChanges({ context: 'ledger', baseRevision: patched.revision, requestId: `r2-enable-${crypto.randomUUID()}`,
+      changes: [{ kind: 'ENABLE', freqId }] });
+    expect(enabled.items[0].isAvailable).toBe(true);
+    expect((await api.getFrequencyOperation({ context: 'ledger', requestId: input.requestId })).receipt).toEqual(added);
+  }, 30000);
 });

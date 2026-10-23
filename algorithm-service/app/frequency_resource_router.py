@@ -12,6 +12,7 @@ from .database import DatabaseConfigurationError
 from .frequency_resource_schemas import (
     FrequencyDisableChange, FrequencyDisableValidation, FrequencyResourceQuery,
     FrequencyHistoryQuery, FrequencyOperationQuery, FrequencyPageQuery,
+    FrequencyChangesChange, FrequencyChangesValidation,
 )
 from sqlalchemy.exc import SQLAlchemyError
 
@@ -44,7 +45,7 @@ async def _body(request):
     return value
 
 
-async def _call(request: Request, model, action, *, writing=False, owned=False, bound=False, request_id=None):
+async def _call(request: Request, model, action, *, writing=False, owned=False, bound=False, request_id=None, permission="resources.frequency.disable"):
     try:
         actor = identity.require(request, "resources.view")
         if (owned or bound) and request.headers.get("x-session-id") != actor["session_id"]:
@@ -52,7 +53,7 @@ async def _call(request: Request, model, action, *, writing=False, owned=False, 
         if writing and not request.headers.get("x-csrf-token", "").isascii():
             raise identity.IdentityError("联调 CSRF 校验失败", 1105, 403)
         if writing:
-            actor = identity.require(request, "resources.frequency.disable", writing=True)
+            actor = identity.require(request, permission, writing=True)
         if writing:
             value = await _body(request)
         else:
@@ -65,7 +66,7 @@ async def _call(request: Request, model, action, *, writing=False, owned=False, 
                     _bad_request()
                 value["request_id"] = request_id
         parsed = model.model_validate(value)
-        data = action(parsed, actor["account_id"]) if owned or model is FrequencyDisableChange else action(parsed)
+        data = action(parsed, actor["account_id"]) if owned or model in (FrequencyDisableChange, FrequencyChangesChange) else action(parsed)
         return {"code": 0, "message": "success", "data": data}
     except ValidationError:
         return JSONResponse(status_code=422, content={"code": 1001, "message": "频点请求字段校验失败", "data": None})
@@ -105,3 +106,13 @@ async def query_frequency_operations(request: Request):
 @router.get("/operations/{request_id:path}")
 async def get_frequency_operation(request: Request, request_id: str):
     return await _call(request, FrequencyOperationQuery, service.get_operation, owned=True, request_id=request_id)
+
+
+@router.post("/changes/validate")
+async def validate_frequency_changes(request: Request):
+    return await _call(request, FrequencyChangesValidation, service.validate_changes, writing=True, permission="resources.frequency.maintain")
+
+
+@router.post("/changes")
+async def commit_frequency_changes(request: Request):
+    return await _call(request, FrequencyChangesChange, service.commit_changes, writing=True, permission="resources.frequency.maintain")

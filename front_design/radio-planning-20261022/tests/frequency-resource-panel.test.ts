@@ -2,6 +2,7 @@ import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { h, nextTick, ssrContextKey, type App } from 'vue';
 import { createPinia, disposePinia, setActivePinia } from 'pinia';
 import FrequencyResourcePanel from '../src/components/FrequencyResourcePanel.vue';
+import FrequencyResourceEditDrawer from '../src/components/FrequencyResourceEditDrawer.vue';
 import { useFrequencyResourceStore } from '../src/stores/frequency-resource';
 import { all, clientTemplate, node, renderer, textOf, type HostNode } from './helpers/vue-client';
 import { ApiError } from '../src/services/types';
@@ -30,13 +31,16 @@ vi.mock('../src/components/DecisionDialog.vue', async () => {
     }, p.request[key])),
   ]) : null }) };
 });
-beforeAll(() => clientTemplate(FrequencyResourcePanel, 'src/components/FrequencyResourcePanel.vue', 'frequency-panel-render.ts'));
+beforeAll(async () => { await clientTemplate(FrequencyResourcePanel, 'src/components/FrequencyResourcePanel.vue', 'frequency-panel-render.ts');
+  await clientTemplate(FrequencyResourceEditDrawer, 'src/components/FrequencyResourceEditDrawer.vue', 'frequency-edit-render.ts'); });
 let app: App<HostNode> | undefined, pinia: ReturnType<typeof createPinia> | undefined;
 afterEach(() => { app?.unmount(); app = undefined; if (pinia) disposePinia(pinia); pinia = undefined; vi.unstubAllGlobals(); });
 async function flush() { for (let i = 0; i < 12; i++) await Promise.resolve(); await nextTick(); }
 const base = 'resource-1111111111111111', next = 'resource-2222222222222222';
-async function fixture(canDisable = true) {
+async function fixture(canDisable = true, canMaintain = false) {
   vi.stubGlobal('document', { activeElement: null });
+  vi.stubGlobal('Document', class {});
+  vi.stubGlobal('ShadowRoot', class {});
   pinia = createPinia(); setActivePinia(pinia);
   const item = { freqId: 'FQ-0002', deviceClass: 'HF', centerFreqKhz: 3195.7, bandwidthKhz: null, channelNo: null,
     isAvailable: true, occupiedBy: null, reuseMinDistanceM: null, adjacentGuardKhz: null, note: null };
@@ -48,12 +52,13 @@ async function fixture(canDisable = true) {
     disableFrequencyResources: vi.fn().mockImplementation(async request => ({ objectId: 'resource-frequency-disable', requestId: request.requestId,
       baseRevision: base, revision: next, readRevision: next, changed: true, selectedIds: ['FQ-0002'], updated: ['FQ-0002'], unchanged: [],
       affectedIds: ['FQ-0002'], items: [{ ...item, isAvailable: false }], dataOrigin: 'SYNTHETIC_INTEGRATION', source: page.source, warnings: [] })),
-    queryFrequencyOperations: vi.fn().mockResolvedValue({ page: 1, pageSize: 10, total: 0, items: [] }), getFrequencyOperation: vi.fn() };
+    queryFrequencyOperations: vi.fn().mockResolvedValue({ page: 1, pageSize: 10, total: 0, items: [] }), getFrequencyOperation: vi.fn(),
+    validateFrequencyChanges: vi.fn(), commitFrequencyChanges: vi.fn() };
   const loadContext = vi.fn().mockResolvedValue({ revision: base }), changed = vi.fn();
   function mount() {
     const root = node('root');
     app = renderer.createApp({ render: () => h(FrequencyResourcePanel, { active: true, services,
-      session: { accountId: 'actor', generation: 1, readable: true, canDisable, canMaintain: false }, loadContext, onResourceChanged: changed }) });
+      session: { accountId: 'actor', generation: 1, readable: true, canDisable, canMaintain }, loadContext, onResourceChanged: changed }) });
     app.use(pinia!); app.provide(ssrContextKey, {}); app.mount(root); return root;
   }
   const root = mount(); await flush();
@@ -102,5 +107,24 @@ describe('规划频点专用管理面板', () => {
     f.store.select('FQ-0002', true); await flush(); await click(f.root, '停用所选'); await click(f.root, '确认停用');
     expect(textOf(f.root)).toContain('提交结果待核实'); expect(button(f.root, '核实原回执')).toBeTruthy();
     expect(button(f.root, '重试原请求')).toBeTruthy(); expect(button(f.root, '停用所选').props.disabled).toBe(true);
+  });
+  it('维护权限接入真实抽屉预检及确认，不把新增标为可用或正式授权', async () => {
+    const f = await fixture(true, true), added = { ...f.store.page!.items[0], freqId: 'FQ-M3', centerFreqKhz: 3000, isAvailable: false };
+    f.services.validateFrequencyChanges.mockResolvedValue({ revision: base, baseRevision: base, dataOrigin: 'SYNTHETIC_INTEGRATION', source: '构造资源',
+      selectedIds: ['FQ-M3'], wouldChange: ['FQ-M3'], unchanged: [], items: [{ kind: 'ADD', freqId: 'FQ-M3', before: null, after: added }],
+      impact: { resourceRevisionWillChange: true, historicalResourcesPreserved: true, savedPlansRequireRecompute: true, linkImpact: 'UNKNOWN' } });
+    f.services.commitFrequencyChanges.mockImplementation(async request => ({ objectId: 'resource-frequency-changes', requestId: request.requestId,
+      baseRevision: base, revision: next, readRevision: next, changed: true, selectedIds: ['FQ-M3'], updated: ['FQ-M3'], unchanged: [], affectedIds: ['FQ-M3'],
+      items: [added], dataOrigin: 'SYNTHETIC_INTEGRATION', source: '构造资源', warnings: [] }));
+    await click(f.root, '新增构造频点');
+    for (const [label, value] of [['构造频点编号', 'FQ-M3'], ['中心频率 / kHz', '3000']]) {
+      const input = all(f.root, n => n.props['aria-label'] === label)[0]; (input.props['onUpdate:modelValue'] as (value: string) => void)(value);
+    }
+    await flush(); const form = all(f.root, n => n.tag === 'form' && n.props.class === 'frequency-edit')[0];
+    await (form.props.onSubmit as (event: unknown) => unknown)({ preventDefault() {} }); await flush();
+    expect(f.services.validateFrequencyChanges).toHaveBeenCalledOnce(); expect(textOf(f.root)).toContain('非正式频率授权');
+    f.loadContext.mockResolvedValue({ revision: next }); await click(f.root, '确认保存');
+    expect(f.services.commitFrequencyChanges).toHaveBeenCalledOnce(); expect(f.services.disableFrequencyResources).not.toHaveBeenCalled();
+    expect(textOf(f.root)).toContain('构造维护回执'); expect(f.changed).toHaveBeenCalledWith(expect.objectContaining({ revision: next }));
   });
 });

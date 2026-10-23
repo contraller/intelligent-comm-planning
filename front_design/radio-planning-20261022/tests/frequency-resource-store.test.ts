@@ -3,7 +3,7 @@ import { createPinia, disposePinia, setActivePinia } from 'pinia';
 import { useFrequencyResourceStore } from '../src/stores/frequency-resource';
 import { ApiError } from '../src/services/types';
 import type { FrequencyDisableReceipt, FrequencyDisableValidation, FrequencyResourceItem,
-  FrequencyResourcePage, FrequencyPageQuery } from '../src/types/frequency-resource';
+  FrequencyResourcePage, FrequencyPageQuery, FrequencyAction, FrequencyChangesValidation, FrequencyChangeReceipt } from '../src/types/frequency-resource';
 
 const base = 'resource-1111111111111111', next = 'resource-2222222222222222', later = 'resource-3333333333333333';
 const item = (id: string, available = true): FrequencyResourceItem => ({ freqId: id, deviceClass: 'HF', centerFreqKhz: 3000,
@@ -25,6 +25,7 @@ async function fixture() {
   const services = { loadFrequencyResources: vi.fn(), queryFrequencyResources: vi.fn().mockImplementation(async input => page(input)),
     validateFrequencyDisable: vi.fn().mockResolvedValue(preview()), disableFrequencyResources: vi.fn().mockResolvedValue(receipt()),
     queryFrequencyOperations: vi.fn().mockResolvedValue({ page: 1, pageSize: 10, total: 0, items: [] }),
+    validateFrequencyChanges: vi.fn(), commitFrequencyChanges: vi.fn(),
     getFrequencyOperation: vi.fn().mockResolvedValue({ operation: 'FREQUENCY_DISABLE', requestId: 'fixed-request', createdAt: '2026-10-23T00:00:00Z', receipt: receipt() }) };
   const options = { services, loadContext: vi.fn().mockResolvedValue({ revision: base }), requestId: () => 'fixed-request',
     session: { accountId: 'actor', generation: 1, readable: true, canDisable: true, canMaintain: false }, onResourceChanged: vi.fn() };
@@ -155,5 +156,65 @@ describe('规划频点独立工作区', () => {
     store.select('FQ-0001', true); await store.prepareDisable(); await store.answer('save');
     expect(store.phase).toBe('RESOLVED'); expect(store.pending).toBeNull(); expect(store.receipt?.requestId).toBe('fixed-request');
     expect(store.error).toContain('保存已确认');
+  });
+});
+
+describe('M3 维护状态和待核实保护', () => {
+  const actions = (): FrequencyAction[] => [{ kind: 'ADD', freqId: 'FQ-M3', item: { deviceClass: 'HF', centerFreqKhz: 3000,
+    bandwidthKhz: null, channelNo: null, reuseMinDistanceM: null, adjacentGuardKhz: null, note: null } }];
+  const checked = (): FrequencyChangesValidation => ({ revision: base, baseRevision: base, dataOrigin: 'SYNTHETIC_INTEGRATION', source: '构造资源',
+    selectedIds: ['FQ-M3'], wouldChange: ['FQ-M3'], unchanged: [], items: [{ kind: 'ADD', freqId: 'FQ-M3', before: null, after: item('FQ-M3', false) }],
+    impact: preview().impact });
+  const saved = (): FrequencyChangeReceipt => ({ ...receipt(), objectId: 'resource-frequency-changes', selectedIds: ['FQ-M3'],
+    updated: ['FQ-M3'], affectedIds: ['FQ-M3'], unchanged: [], items: [item('FQ-M3', false)] });
+  async function maintenanceFixture() {
+    const f = await fixture(), options = { ...f.options, session: { ...f.options.session, canMaintain: true } };
+    f.store.configure(options); f.services.validateFrequencyChanges.mockResolvedValue(checked()); f.services.commitFrequencyChanges.mockResolvedValue(saved());
+    return { ...f, options };
+  }
+  it('仅停用权限不能维护；仅维护权限能选项但不能调用停用', async () => {
+    const f = await fixture(); await f.store.prepareChanges(actions()); f.store.openEditor('ADD');
+    expect(f.services.validateFrequencyChanges).not.toHaveBeenCalled(); expect(f.store.editor).toBeNull();
+    f.store.configure({ ...f.options, session: { ...f.options.session, canDisable: false, canMaintain: true } });
+    f.store.select('FQ-0001', true); await f.store.prepareDisable();
+    expect(f.store.selectedIds).toHaveLength(1); expect(f.services.validateFrequencyDisable).not.toHaveBeenCalled();
+  });
+  it('新增预检取消不保存；确认使用冻结动作并通知当前版本刷新', async () => {
+    const f = await maintenanceFixture(); f.store.openEditor('ADD'); await f.store.prepareChanges(actions()); await f.store.answer('cancel');
+    expect(f.services.commitFrequencyChanges).not.toHaveBeenCalled(); expect(f.store.editor?.kind).toBe('ADD');
+    const input = actions(), pendingPreview = deferred<FrequencyChangesValidation>(); f.services.validateFrequencyChanges.mockReturnValueOnce(pendingPreview.promise);
+    const pending = f.store.prepareChanges(input); if (input[0].kind === 'ADD') input[0].item.centerFreqKhz = 9999;
+    pendingPreview.resolve(checked()); await pending; f.options.loadContext.mockResolvedValue({ revision: later }); await f.store.answer('save');
+    expect(f.services.commitFrequencyChanges.mock.lastCall?.[0].changes[0].item.centerFreqKhz).toBe(3000);
+    expect(f.store.receipt?.objectId).toBe('resource-frequency-changes'); expect(f.store.revision).toBe(later); expect(f.store.editor).toBeNull();
+    expect(f.options.onResourceChanged).toHaveBeenCalledOnce();
+  });
+  it('维护超时同请求重试，不生成新号，也不降级调用停用接口', async () => {
+    const f = await maintenanceFixture(); f.services.commitFrequencyChanges.mockRejectedValueOnce(new ApiError('超时', 'REQUEST_TIMEOUT'));
+    await f.store.prepareChanges(actions()); await f.store.answer('save');
+    expect(f.store.phase).toBe('RESULT_UNKNOWN'); const original = f.store.pending;
+    await f.store.retryPending(); expect(f.services.commitFrequencyChanges.mock.calls[1][0]).toEqual(original);
+    expect(f.services.disableFrequencyResources).not.toHaveBeenCalled(); expect(f.store.pending).toBeNull();
+  });
+  it('权限撤销后不重试写入，仍可核实本人原维护回执', async () => {
+    const f = await maintenanceFixture(); f.services.commitFrequencyChanges.mockRejectedValueOnce(new ApiError('超时', 'REQUEST_TIMEOUT'));
+    await f.store.prepareChanges(actions()); await f.store.answer('save');
+    f.store.configure({ ...f.options, session: { ...f.options.session, canMaintain: false } }); await f.store.retryPending();
+    expect(f.services.commitFrequencyChanges).toHaveBeenCalledOnce();
+    f.services.getFrequencyOperation.mockResolvedValue({ operation: 'FREQUENCY_CHANGES', requestId: 'fixed-request', createdAt: '2026-10-23T00:00:00Z', receipt: saved() } as never);
+    await f.store.inspectOperation('fixed-request'); expect(f.store.phase).toBe('RESOLVED'); expect(f.store.pending).toBeNull();
+  });
+  it('1205保留草稿，可明确放弃后刷新，不锁死关闭', async () => {
+    const f = await maintenanceFixture(); f.store.openEditor('ADD'); f.store.editorDirty = true;
+    f.services.validateFrequencyChanges.mockRejectedValueOnce(new ApiError('版本变化', 1205, null, undefined, 409));
+    await f.store.prepareChanges(actions()); expect(f.store.stale).toBe(true);
+    f.store.closeEditor(); expect(f.store.decision?.title).toBe('关闭构造草稿'); await f.store.answer('discard');
+    expect(f.store.editor).toBeNull(); await f.store.refresh(); expect(f.store.stale).toBe(false);
+  });
+  it('维护草稿离开保护和关闭取消均不写服务', async () => {
+    const f = await maintenanceFixture(); f.store.openEditor('ADD'); f.store.editorDirty = true;
+    f.store.closeEditor(); await f.store.answer('cancel'); expect(f.store.editor).not.toBeNull();
+    const leaving = f.store.requestLeave(); await f.store.answer('discard'); expect(await leaving).toBe(true);
+    expect(f.store.editor).toBeNull(); expect(f.services.commitFrequencyChanges).not.toHaveBeenCalled();
   });
 });
