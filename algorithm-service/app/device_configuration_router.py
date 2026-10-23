@@ -61,6 +61,21 @@ def _identifier(value):
     return TypeAdapter(Identifier).validate_python(value)
 
 
+def _trusted_auth_rejection(exc):
+    if getattr(exc, "code", None) not in (1101, 1102, 1103, 1104, 1105, 1106) or getattr(exc, "status", None) not in (401, 403, 409, 429):
+        return False
+    if isinstance(exc, identity.IdentityError):
+        return True
+    # 旧DEMO部署可没有P05；缺模块不认可未知异常，也不伪造正式类型。
+    try:
+        from .system_management_schemas import SystemManagementError
+    except ModuleNotFoundError as error:
+        if error.name != __package__ + ".system_management_schemas":
+            raise
+        return False
+    return isinstance(exc, SystemManagementError)
+
+
 def _call(request, response, operation, *, writing=False, actor_resolver=None):
     try:
         if actor_resolver is None:
@@ -87,8 +102,7 @@ def _call(request, response, operation, *, writing=False, actor_resolver=None):
         response.status_code = 503
         return {"code": 5002, "message": "联调会话数据库不可用", "data": None}
     except Exception as exc:
-        # 正式身份依赖可提供自己的异常类型；只透传明确的认证拒绝，不吞未知错误。
-        if getattr(exc, "code", None) not in (1101, 1104, 1105, 1106) or getattr(exc, "status", None) not in (401, 403, 409, 429):
+        if not _trusted_auth_rejection(exc):
             raise
         response.status_code = exc.status
         return {"code": exc.code, "message": str(exc), "data": getattr(exc, "data", None)}

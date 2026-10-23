@@ -258,15 +258,57 @@ def test_concurrent_same_request_is_one_immutable_batch(api):
 
 
 def test_injected_principal_error_retains_auth_status():
-    class PrincipalError(ValueError):
-        code, status, data = 1105, 403, {"reason": "CSRF"}
+    from app.system_management_schemas import SystemManagementError
     def reject(*args, **kwargs):
-        raise PrincipalError("csrf rejected")
+        raise SystemManagementError("csrf rejected", 1105, 403, reason="CSRF")
     app = FastAPI()
     app.include_router(create_device_status_router(reject))
     with TestClient(app) as client:
         reply = client.post(PREFIX + "/imports", json={})
         assert reply.status_code == 403 and reply.json()["code"] == 1105
+
+
+@pytest.mark.parametrize("kind", ["identity", "system"])
+@pytest.mark.parametrize("code,status", [(1102, 401), (1103, 401), (1103, 403)])
+@pytest.mark.parametrize("phase", ["read", "write"])
+def test_local_session_rejection_preserves_auth_envelope(monkeypatch, kind, code, status, phase):
+    from app.system_management_schemas import SystemManagementError
+    error = IdentityError("session rejected", code, status) if kind == "identity" else SystemManagementError(
+        "session rejected", code, status, reason="SESSION_REVOKED")
+    calls = []
+    def principal(request, permission, writing=False):
+        calls.append((permission, writing))
+        if writing == (phase == "write"):
+            raise error
+        return {"account_id": "local-fixture"}
+    def no_business(*args, **kwargs):
+        pytest.fail("authentication rejection entered device status business")
+    monkeypatch.setattr(service, "list_snapshots", no_business)
+    monkeypatch.setattr(service, "import_snapshot", no_business)
+    app = FastAPI()
+    app.include_router(create_device_status_router(principal))
+    with TestClient(app) as client:
+        response = client.get(PREFIX + "/snapshots?context=ledger") if phase == "read" else client.post(PREFIX + "/imports", json={})
+    assert response.status_code == status
+    assert response.json() == {"code": code, "message": "session rejected", "data": None if kind == "identity" else {"reason": "SESSION_REVOKED"}}
+    assert calls == [("resources.view", False)] + ([("resources.device.status.import", True)] if phase == "write" else [])
+
+
+@pytest.mark.parametrize("kind", ["runtime", "forged-session", "forged-known", "unknown-code", "unknown-status"])
+def test_unknown_principal_error_is_not_swallowed(kind):
+    from app.system_management_schemas import SystemManagementError
+    class ForgedPrincipalError(ValueError):
+        code, status = (1102 if kind == "forged-session" else 1104), 401
+    error = RuntimeError("unexpected principal") if kind == "runtime" else ForgedPrincipalError("unexpected principal")
+    if kind in ("unknown-code", "unknown-status"):
+        error = SystemManagementError("unexpected principal", 9999 if kind == "unknown-code" else 1102,
+            401 if kind == "unknown-code" else 500)
+    def reject(*args, **kwargs):
+        raise error
+    app = FastAPI()
+    app.include_router(create_device_status_router(reject))
+    with TestClient(app) as client, pytest.raises(type(error), match="unexpected principal"):
+        client.get(PREFIX + "/snapshots?context=ledger")
 
 
 def test_import_checks_read_permission_before_write_and_missing_actor():

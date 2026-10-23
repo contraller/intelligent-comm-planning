@@ -5,7 +5,7 @@ from . import device_trace_service as service
 from .device_trace_schemas import RestorePreviewInput
 from .device_status_router import require_actor, _query, _page
 from .device_status_service import DeviceStatusError
-from .device_configuration_router import _EnvelopeRoute
+from .device_configuration_router import _EnvelopeRoute, _trusted_auth_rejection
 from .device_configuration_schemas import RequestId, check_request_id
 from .task_input_schemas import Identifier
 from .resource_dataset_service import ResourceDatasetError
@@ -30,7 +30,7 @@ def create_device_trace_router(actor_resolver=require_actor):
             response.status_code = 422
             return {"code": 1001, "message": "设备追溯请求无效", "data": None}
         except Exception as exc:
-            if getattr(exc, "code", None) not in (1101, 1104, 1105, 1106) or getattr(exc, "status", None) not in (401, 403, 409, 429):
+            if not _trusted_auth_rejection(exc):
                 raise
             response.status_code = exc.status
             return {"code": exc.code, "message": str(exc), "data": getattr(exc, "data", None)}

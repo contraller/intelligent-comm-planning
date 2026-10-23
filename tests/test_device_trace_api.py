@@ -186,15 +186,58 @@ def test_damaged_parent_or_receipt_does_not_fall_back(api):
 
 
 def test_injected_principal_error_not_misclassified_as_validation():
-    class PrincipalError(ValueError):
-        code, status, data = 1104, 403, {"reason": "PASSWORD_CHANGE_REQUIRED"}
+    from app.system_management_schemas import SystemManagementError
     def reject(*args, **kwargs):
-        raise PrincipalError("password required")
+        raise SystemManagementError("password required", 1104, 403, reason="PASSWORD_CHANGE_REQUIRED")
     app = FastAPI()
     app.include_router(create_device_trace_router(reject))
     with TestClient(app) as client:
         reply = client.get("/api/v1/device-traces/D1/history?context=ledger&resource_revision=R")
         assert reply.status_code == 403 and reply.json()["code"] == 1104
+
+
+@pytest.mark.parametrize("kind", ["identity", "system"])
+@pytest.mark.parametrize("code,status", [(1102, 401), (1103, 401), (1103, 403)])
+@pytest.mark.parametrize("phase", ["read", "write"])
+def test_local_session_rejection_preserves_auth_envelope(monkeypatch, kind, code, status, phase):
+    from app.system_management_schemas import SystemManagementError
+    error = IdentityError("session rejected", code, status) if kind == "identity" else SystemManagementError(
+        "session rejected", code, status, reason="SESSION_REVOKED")
+    calls = []
+    def principal(request, permission, writing=False):
+        calls.append((permission, writing))
+        if writing == (phase == "write"):
+            raise error
+        return {"account_id": "local-fixture"}
+    def no_business(*args, **kwargs):
+        pytest.fail("authentication rejection entered device trace business")
+    monkeypatch.setattr(service, "history", no_business)
+    monkeypatch.setattr(service, "restore_preview", no_business)
+    app = FastAPI()
+    app.include_router(create_device_trace_router(principal))
+    with TestClient(app) as client:
+        response = client.get("/api/v1/device-traces/D1/history?context=ledger&resource_revision=R") if phase == "read" else client.post(
+            "/api/v1/device-traces/D1/restore-preview", json={})
+    assert response.status_code == status
+    assert response.json() == {"code": code, "message": "session rejected", "data": None if kind == "identity" else {"reason": "SESSION_REVOKED"}}
+    assert calls == [("resources.view", False)] + ([("resources.device.edit", True)] if phase == "write" else [])
+
+
+@pytest.mark.parametrize("kind", ["runtime", "forged-session", "forged-known", "unknown-code", "unknown-status"])
+def test_unknown_principal_error_is_not_swallowed(kind):
+    from app.system_management_schemas import SystemManagementError
+    class ForgedPrincipalError(ValueError):
+        code, status = (1102 if kind == "forged-session" else 1104), 401
+    error = RuntimeError("unexpected principal") if kind == "runtime" else ForgedPrincipalError("unexpected principal")
+    if kind in ("unknown-code", "unknown-status"):
+        error = SystemManagementError("unexpected principal", 9999 if kind == "unknown-code" else 1102,
+            401 if kind == "unknown-code" else 500)
+    def reject(*args, **kwargs):
+        raise error
+    app = FastAPI()
+    app.include_router(create_device_trace_router(reject))
+    with TestClient(app) as client, pytest.raises(type(error), match="unexpected principal"):
+        client.get("/api/v1/device-traces/D1/history?context=ledger&resource_revision=R")
 
 
 def test_preview_checks_read_permission_and_rejects_missing_actor():

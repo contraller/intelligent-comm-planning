@@ -9,7 +9,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from . import integration_identity_service as identity
 from .database import DatabaseConfigurationError
 from .resource_dataset_service import ResourceDatasetError
-from .device_configuration_router import _EnvelopeRoute
+from .device_configuration_router import _EnvelopeRoute, _trusted_auth_rejection
 from .device_configuration_schemas import RequestId, check_request_id
 from .task_input_schemas import Identifier
 from . import device_status_service as service
@@ -76,7 +76,7 @@ def create_device_status_router(actor_resolver=require_actor):
             response.status_code = 503
             return {"code": 5002, "message": "数据库操作失败", "data": None}
         except Exception as exc:
-            if getattr(exc, "code", None) not in (1101, 1104, 1105, 1106) or getattr(exc, "status", None) not in (401, 403, 409, 429):
+            if not _trusted_auth_rejection(exc):
                 raise
             response.status_code = exc.status
             return {"code": exc.code, "message": str(exc), "data": getattr(exc, "data", None)}
