@@ -18,7 +18,7 @@ from . import frozen_coverage_engine as algorithm
 
 ROOT = Path(__file__).resolve().parents[2]
 KIND = "FROZEN_COVERAGE_V1"
-ENGINE_VERSION = "V01-1"
+ENGINE_VERSION = "V01-2"
 ACTIVE = {"PENDING", "RUNNING"}
 JOB_ID = re.compile(r"FCJ-[0-9a-f]{32}\Z")
 

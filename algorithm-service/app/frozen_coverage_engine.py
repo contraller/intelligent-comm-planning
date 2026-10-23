@@ -7,6 +7,7 @@ import importlib
 import json
 import math
 from pathlib import Path
+import re
 import sys
 from typing import Any, Callable
 
@@ -186,7 +187,8 @@ class _CheckedRadio(dict):
         return super().__getitem__(key)
 
 
-def _radio(device: dict, plan: dict | None, model: dict | None, antenna: dict | None) -> dict:
+def _radio(device: dict, plan: dict | None, model: dict | None, antenna: dict | None,
+           *, assigned_frequencies=()) -> dict:
     if model is None or antenna is None or plan is None:
         raise _UnknownRadio("缺少对应冻结型号、天线或逐设备计划参数")
     if model.get("device_class") not in ("HF", "VUHF"):
@@ -202,15 +204,35 @@ def _radio(device: dict, plan: dict | None, model: dict | None, antenna: dict | 
               "bw": (model, "bandwidth_khz", 1e-9, 1e9),
               "fmin": (model, "freq_min_khz", 1e-9, 1e9),
               "fmax": (model, "freq_max_khz", 1e-9, 1e9)}
-    missing = [field for row, field, _, _ in fields.values() if row.get(field) in (None, "")]
+    missing, values = [], {}
+    bandwidth_unselected = False
+    for key, (row, field, lo, hi) in fields.items():
+        raw = row.get(field)
+        if raw in (None, ""):
+            missing.append(field)
+            continue
+        if key == "bw" and isinstance(raw, str) and ";" in raw:
+            # 型号选项不代表本次计划选值；只验证合法性，绝不代取某个选项。
+            for part in raw.split(";"):
+                token = part.strip()
+                if not re.fullmatch(r"\+?(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)(?:[eE][+-]?[0-9]+)?", token):
+                    _fail("非法带宽选项集：" + device["device_id"] + "." + field)
+                _number(token, device["device_id"] + "." + field, lo=lo, hi=hi)
+            bandwidth_unselected = True
+        else:
+            values[key] = _number(raw, device["device_id"] + "." + field, lo=lo, hi=hi)
     if not antenna.get("pattern_type"):
         missing.append("pattern_type")
+    if "fmin" in values and "fmax" in values and values["fmin"] > values["fmax"]:
+        _fail("冻结型号频率范围倒置：" + device["device_id"])
+    if "fmin" in values and "fmax" in values:
+        for frequency in assigned_frequencies:
+            if not values["fmin"] <= frequency <= values["fmax"]:
+                _fail("冻结计划频率超出本设备型号范围：" + device["device_id"])
+    if bandwidth_unselected:
+        missing.append("bandwidth_khz为型号支持选项集，计划未冻结本次选定带宽")
     if missing:
         raise _UnknownRadio("必要冻结参数未知：" + ",".join(missing))
-    values = {key: _number(row[field], device["device_id"] + "." + field, lo=lo, hi=hi)
-              for key, (row, field, lo, hi) in fields.items()}
-    if values["fmin"] > values["fmax"]:
-        _fail("冻结型号频率范围倒置：" + device["device_id"])
     values["pattern"] = antenna["pattern_type"]
     return values
 
@@ -402,8 +424,13 @@ def compute_frozen_coverage(raw_snapshot: dict, frozen_tables: dict, *,
                 "status": "UNAVAILABLE", "reasons": [], "planned_parameters": deepcopy(plan),
                 "frozen_model": deepcopy(model), "frozen_antenna": deepcopy(antenna),
                 "radio_parameters": None, "computations": []}
+        if (model or {}).get("device_class") in ("HF", "VUHF"):
+            assigned_links = {lid for group in frequencies[did].values() for lid in group}
+            for link in detail["links"]:
+                if link["link_id"] in assigned_links and link.get("device_class") != model["device_class"]:
+                    _fail("冻结链路频段与设备型号不一致：" + did)
         try:
-            radio = _radio(device, plan, model, antenna)
+            radio = _radio(device, plan, model, antenna, assigned_frequencies=frequencies[did])
         except _UnknownRadio as exc:
             item["reasons"].append(str(exc))
             output.append(item)
@@ -417,9 +444,6 @@ def compute_frozen_coverage(raw_snapshot: dict, frozen_tables: dict, *,
             check()
             if not radio["fmin"] <= freq <= radio["fmax"]:
                 _fail("冻结计划频率超出本设备型号范围：" + did)
-            for link in detail["links"]:
-                if link["link_id"] in link_ids and link.get("device_class") != item["band"]:
-                    _fail("冻结链路频段与设备型号不一致：" + did)
             try:
                 if item["band"] == "VUHF":
                     native = viewshed.vuhf_coverage(checked, station, radius_m=options["radius_m"],
@@ -451,7 +475,7 @@ def compute_frozen_coverage(raw_snapshot: dict, frozen_tables: dict, *,
               "devices": output, "provenance": {"raw_snapshot_sha256": raw_hash, "frozen_tables_sha256": tables_hash,
                   "terrain_fingerprint": expected, "dem_bbox": list(checked.bbox), "parameters": options,
                   "terrain_metadata": {"dem": deepcopy(checked.source._dem.meta), "landcover": deepcopy(checked.source._lc.meta)},
-                  "engine_version": "V01-1",
+                  "engine_version": "V01-2",
                   "algorithms": ["viewshed.vuhf_coverage", "viewshed.hf_coverage_rings"],
                   "receiver_assumptions": {"gain_dbi": 0, "vuhf_height_m": options["rx_height_m"],
                       "bandwidth_and_sensitivity": "same frozen device model", "service": {"HF": "话音", "VUHF": "数据"}},

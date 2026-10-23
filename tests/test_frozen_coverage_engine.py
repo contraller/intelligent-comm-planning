@@ -549,3 +549,97 @@ def test_native_cell_center_outside_dem_is_not_drawn_as_measured(scenario, monke
     comp = result["devices"][0]["computations"][0]
     assert comp["cells"] == [{"gx": 1000, "gy": 1000, "margin_db": 9, "displayable": False}]
     assert comp["geojson"]["features"] == []
+
+
+def _model_with_bandwidth_options(scenario, value="0.5;2.4;2.7;3"):
+    model = deepcopy(scenario.tables["device_model.csv"][0])
+    model.update(model_id="DM0005-UNIT", bandwidth_khz=value)
+    scenario.tables["device_model.csv"].append(model)
+    scenario.raw["detail"]["devices"][0]["model_id"] = model["model_id"]
+    scenario.raw["detail"]["params"]["params"][0]["model_id"] = model["model_id"]
+
+
+def test_bandwidth_options_unavailable_preserves_source_and_other_devices_compute(scenario, monkeypatch):
+    _model_with_bandwidth_options(scenario)
+    before = deepcopy((scenario.raw, scenario.tables))
+
+    def forbidden(*args, **kwargs):
+        pytest.fail("bandwidth options must not invoke SpecFiller")
+
+    monkeypatch.setattr(feasibility, "SpecFiller", forbidden)
+    result = compute(scenario)
+    assert result["status"] == "PARTIAL"
+    unavailable = result["devices"][0]
+    assert unavailable["status"] == "UNAVAILABLE" and unavailable["computations"] == []
+    assert unavailable["radio_parameters"] is None
+    assert unavailable["frozen_model"]["bandwidth_khz"] == "0.5;2.4;2.7;3"
+    assert "bandwidth_khz" in unavailable["reasons"][0]
+    assert "计划未冻结本次选定带宽" in unavailable["reasons"][0]
+    assert all(device["status"] == "COMPLETE" and device["computations"] for device in result["devices"][1:])
+    assert all(comp["cells"] for device in result["devices"][1:] for comp in device["computations"])
+    assert (scenario.raw, scenario.tables) == before
+    json.dumps(result, allow_nan=False)
+
+
+@pytest.mark.parametrize("value", ["0.5;2.4;2.7;3", " 0.5 ; 2.4 ; 3 ", ".5;3e0", "3;3"])
+def test_bandwidth_options_all_devices_unknown_never_choose_first_or_max(scenario, monkeypatch, value):
+    calls = fake_cells(monkeypatch)
+    scenario.tables["device_model.csv"][0]["bandwidth_khz"] = value
+    result = compute(scenario)
+    assert result["status"] == "UNAVAILABLE" and len(result["devices"]) == 3 and not calls
+    assert all(row["frozen_model"]["bandwidth_khz"] == value and row["radio_parameters"] is None
+               and "未冻结本次选定带宽" in row["reasons"][0] for row in result["devices"])
+
+
+@pytest.mark.parametrize("value", [";0.5", "0.5;", "0.5;;3", "0.5;NaN", "0.5;inf", "0.5;-1", "0.5;0",
+    "0.5;2.4/3", "0.5;未明确", "0.5;1e309", "0.5;1000000001", "[0.5,3]", [0.5, 3],
+    {"options": [0.5, 3]}, True, float("nan")])
+def test_bandwidth_options_bad_lists_still_typed_rejected(scenario, monkeypatch, value):
+    _model_with_bandwidth_options(scenario, value)
+    calls = fake_cells(monkeypatch)
+    with pytest.raises(engine.FrozenCoverageError) as error:
+        compute(scenario)
+    assert error.value.code == "COVERAGE_INPUT" and not calls
+
+
+@pytest.mark.parametrize("change", ["plan_power", "plan_height", "param_owner", "link_band", "freq_range", "inverted_range"])
+def test_bandwidth_options_do_not_mask_known_numeric_or_reference_errors(scenario, monkeypatch, change):
+    _model_with_bandwidth_options(scenario)
+    calls = fake_cells(monkeypatch)
+    detail = scenario.raw["detail"]
+    if change == "plan_power":
+        detail["params"]["params"][0]["tx_power_dbm"] = "not-a-number"
+    elif change == "plan_height":
+        detail["params"]["params"][0]["antenna_height_m"] = -1
+    elif change == "param_owner":
+        detail["params"]["params"][0]["node_id"] = "N2"
+    elif change == "link_band":
+        detail["links"][0]["device_class"] = "HF"
+    elif change == "freq_range":
+        detail["frequency"]["link_assignments"][0]["freq_khz"] = 200000
+    else:
+        scenario.tables["device_model.csv"][-1]["freq_min_khz"] = "180000"
+    with pytest.raises(engine.FrozenCoverageError) as error:
+        compute(scenario)
+    assert error.value.code == "COVERAGE_INPUT" and not calls
+
+
+def test_bandwidth_options_engine_and_cache_version_are_v01_2(scenario, tmp_path, monkeypatch):
+    from app import frozen_coverage_service as service_module
+
+    _model_with_bandwidth_options(scenario)
+    fake_cells(monkeypatch)
+    result = compute(scenario)
+    assert result["provenance"]["engine_version"] == service_module.ENGINE_VERSION == "V01-2"
+    source = {"plan_id": "P1", "task_id": "T1", "snapshot_id": "SNP-PL-UNIT", "input_version": "TV1",
+        "condition_version": "TC1", "resource_revision": "UNIT-RES", "resource_content_hash": "b" * 64,
+        "input_snapshot": {"unit_test": True}, "raw_snapshot": scenario.raw, "tables": scenario.tables}
+    service = service_module.create_frozen_coverage_service(runtime_root=tmp_path / "version-cache",
+        source_loader=lambda *args: source, fingerprint_provider=lambda: FINGERPRINT)
+    page = service.cache("P1", "T1", "SNP-PL-UNIT", SMALL)
+    old_anchor = {**page["anchor"], "engine_version": "V01-1"}
+    old_key = "FCC-" + service_module._hash({"anchor": old_anchor, "parameters": page["parameters"]})
+    assert page["state"] == "MISS" and page["cache_key"] != old_key and not service.root.exists()
+    record = {"result": result, "result_sha256": service_module._hash(result),
+              "anchor": page["anchor"], "parameters": page["parameters"]}
+    assert service._result(record) == result
