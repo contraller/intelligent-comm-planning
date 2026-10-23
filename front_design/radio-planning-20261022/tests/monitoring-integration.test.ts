@@ -11,8 +11,8 @@ import { useGisWorkspaceStore } from '../src/stores/gis-workspace';
 import { useResourceReadStore } from '../src/stores/resource-read';
 import { usePreviewStore } from '../src/stores/preview';
 import { useResourceEditStore } from '../src/stores/resource-edit';
-import { useInterferenceStore } from '../src/stores/interference';
 import { previewService } from '../src/services';
+import { collaborationHttp } from '../src/services/http';
 import { createMockService } from '../src/services/mock';
 import { readSystem,writeSystem } from '../src/services/system-storage';
 import { PLANNING_POLL_MS,DIAGNOSIS_POLL_MS } from '../src/config/demo';
@@ -21,6 +21,7 @@ import MonitoringObjectPanel from '../src/components/MonitoringObjectPanel.vue';
 import DeviceMonitoringPanel from '../src/components/DeviceMonitoringPanel.vue';
 import LinkMonitoringPanel from '../src/components/LinkMonitoringPanel.vue';
 import type { GisNetwork } from '../src/types/gis-plan';
+import { createWorkbenchFixture, enterWorkbenchStore } from './helpers/interference-workbench';
 
 let pinia:ReturnType<typeof createPinia>;
 afterEach(()=>{if(pinia)disposePinia(pinia);vi.restoreAllMocks();vi.useRealTimers();});
@@ -31,7 +32,8 @@ async function start(){
   await store.loadNetwork(fixture.plan.taskId);await settleMonitoring();
   return {...fixture,store,gis};
 }
-describe('态势状态与页面集成',()=>{
+// 本组旧回放使用显式 teaching 服务；不作为 HTTP 冻结状态或真实观测验收证据。
+describe('教学回放状态与页面集成',()=>{
   it('首帧只加载一次，网络双页签共享帧，收起和隐藏暂停',async()=>{
     const s=await start();expect(s.store.networkState.index).toBe(0);
     expect(previewService.getMonitoringObservation).toHaveBeenCalledTimes(1);
@@ -68,7 +70,7 @@ describe('态势状态与页面集成',()=>{
     expect(s.store.spectrumResult!.frame.id).not.toBe(old);expect(s.store.spectrumState.index).toBe(0);
     await vi.advanceTimersByTimeAsync(2000);expect(s.store.spectrumState.index).toBe(1);
   });
-  it('监控/分析/资源模式互斥，切换不保存或丢弃 GIS 表单',async()=>{
+  it('监控/资源切换与新版独立分析均不保存或丢弃 GIS 表单',async()=>{
     const s=await start(),raw=createMockService(()=>s.storage);
     for (const key of ['loadResourceReadContext','queryResourceDevices','queryResourceNodes','queryResourceInterferences','getResourceObject','queryResourceMap','loadGisResourceScene','loadGisResourceEditContext'] as const) vi.spyOn(previewService, key).mockImplementation(raw[key].bind(raw) as never);
     await useResourceReadStore().activate('gis'); await s.gis.loadScene();
@@ -77,7 +79,10 @@ describe('态势状态与页面集成',()=>{
     await editor.openForm('device','DV-0001');editor.form!.fields.antennaHeightM='19';
     const before=[...s.storage.entries];
     s.store.selectDevice('DV-0001');expect(s.gis.mapMode).toBe('monitoring');expect(editor.formDirty).toBe(true);
-    const analysis=useInterferenceStore();analysis.select('analysis-selection');expect(s.gis.mapMode).toBe('analysis');
+    const fixture=await createWorkbenchFixture(),analysis=await enterWorkbenchStore(fixture);
+    // 新分析由冻结方案操作面板持有，不再用旧 select() 抢占普通资源/监控地图。
+    expect(analysis.mapProjection?.planId).toBe(fixture.target.planId);
+    expect(s.gis.mapMode).toBe('monitoring');expect(editor.formDirty).toBe(true);fixture.assertNoWrites();
     await s.gis.begin();expect(s.gis.mapMode).toBe('resource');expect(editor.form!.fields.antennaHeightM).toBe('19');
     expect([...s.storage.entries]).toEqual(before);
   });
@@ -102,16 +107,42 @@ describe('态势状态与页面集成',()=>{
     s.store.selectLink(link.linkId); link.snrDb=null; link.throughputKbps=0;
     const app=createSSRApp(MonitoringObjectPanel);app.use(pinia);
     const html=await renderToString(app);
+    // 同时保留未知观测展示及原始零值，不以测试迁移降低来源保护。
     expect(html).toContain('方案等级');expect(html).toContain('未提供链路观测');
     expect(html).not.toContain('链路观测指标');expect(html).not.toContain('metric-state');
+    expect(link.snrDb).toBeNull();expect(link.throughputKbps).toBe(0);
+    expect(html).not.toContain('实时采集');
   });
   it('监控组件可渲染设备状态、采集时间及观测/配置详情',async()=>{
     const s=await start();s.store.selectDevice('DV-0001');
     const app=createSSRApp(SituationMonitoringDrawer);app.use(pinia);
     const html=await renderToString(app);
-    for(const value of ['设备监控态势','通信链路态势','频谱态势','采集时间','网络观测','DV-0001'])expect(html).toContain(value);
+    for(const value of ['设备监控态势','通信链路态势','频谱态势','网络观测','DV-0001'])expect(html).toContain(value);
     const detail=createSSRApp(MonitoringObjectPanel);detail.use(pinia);
-    const rendered=await renderToString(detail);expect(rendered).toContain('观测功率');expect(rendered).toContain('方案配置功率');
+    const rendered=await renderToString(detail);expect(rendered).toContain('方案配置功率');expect(rendered).toContain('未知');
+  });
+});
+
+describe('R2 冻结网络监控契约',()=>{
+  it('旧监控包装未收到显式观测上下文时明确说明，不隐建HTTP客户端或读取默认数据集',async()=>{
+    const s=await start();s.store.tab='spectrum';
+    const read=vi.spyOn(collaborationHttp.observations,'loadObservationContext');
+    const app=createSSRApp(SituationMonitoringDrawer);app.use(pinia);const html=await renderToString(app);
+    expect(html).toContain('未提供观测读取上下文');expect(read).not.toHaveBeenCalled();
+  });
+  it('设备冻结配置的零值保留；没有同版状态快照则不从旧帧推断正常',async()=>{
+    pinia=createPinia();setActivePinia(pinia);authorizeStore();const f=await createWorkbenchFixture();
+    const app=createSSRApp(DeviceMonitoringPanel,{frozenNetwork:f.network,selectedId:'UNIT-D1'});app.use(pinia);
+    const html=await renderToString(app);
+    expect(html).toContain('UNIT-D1');expect(html).toContain('方案配置功率');expect(html).toContain('>0<');
+    expect(html).toContain('未知');expect(html).toContain('未选择或未读取同版状态快照');expect(html).not.toContain('NOT_IMPLEMENTED');
+  });
+  it('链路冻结预测状态与未采集观测分开，null不补成0或实测良好',async()=>{
+    pinia=createPinia();setActivePinia(pinia);authorizeStore();const f=await createWorkbenchFixture();
+    const app=createSSRApp(LinkMonitoringPanel,{frozenNetwork:f.network,selectedId:'UNIT-L1'});app.use(pinia);
+    const html=await renderToString(app);
+    expect(html).toContain('UNIT-L1');expect(html).toContain('方案等级');expect(html).toContain('未知');
+    expect(html).not.toContain('NOT_IMPLEMENTED');expect(html).not.toContain('实时采集成功');
   });
 });
 

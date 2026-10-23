@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { createRenderer, h, nextTick, ssrContextKey, type App } from 'vue';
+import { createRenderer, h, nextTick, ssrContextKey, toRaw, type App } from 'vue';
 import { clientTemplate } from './helpers/vue-client';
 import { createPinia, disposePinia, setActivePinia } from 'pinia';
 import { createMemoryHistory, createRouter, RouterView } from 'vue-router';
@@ -31,13 +31,20 @@ import { authorizeStore } from './helpers/auth';
 import { bindMonitoring, settleMonitoring } from './helpers/monitoring';
 import { interferenceFixture } from './helpers/interference';
 import { TestStorage } from './helpers/storage';
+import { analysisMap, clickWorkbench, compileWorkbenchTemplates, createWorkbenchFixture, openWorkbenchFromPage, settleWorkbench, workbenchNode, workbenchText } from './helpers/interference-workbench';
+
+const transport = vi.hoisted(() => ({ mode: 'mock' }));
+vi.mock('../src/config/env', async importOriginal => {
+  const actual = await importOriginal<typeof import('../src/config/env')>();
+  return { ...actual, env: { ...actual.env, get mode() { return transport.mode; } } };
+});
 
 // 保留真实页面 setup、路由监听和挂载顺序，只替换画布与非入口业务组件。
 vi.mock('../src/components/MapCanvas.vue', async () => {
   const { defineComponent, h } = await import('vue');
   return { default: defineComponent({
     inheritAttrs: false,
-    props: ['gisDeviceFrame', 'stations', 'interferences', 'links', 'candidateWorkset', 'demands', 'regions', 'interferenceImpact', 'selectedId', 'selectedInterferenceId', 'resourceMarkers', 'planningOverlay'],
+    props: ['frozenNetwork', 'interferenceProjection', 'gisDeviceFrame', 'stations', 'interferences', 'links', 'candidateWorkset', 'demands', 'regions', 'interferenceImpact', 'selectedId', 'selectedInterferenceId', 'resourceMarkers', 'planningOverlay'],
     setup(props, { expose }) {
       expose({ locate: () => {}, locateResource: () => {} });
       return () => h('map-probe', { ...props });
@@ -51,17 +58,17 @@ vi.mock('../src/components/ObjectInfoPanel.vue', async () => {
   }) };
 });
 vi.mock('../src/components/DeviceInfoPanel.vue', async () => { const { h } = await import('vue'); return { default: { props: ['device', 'resources', 'detailContext'], setup: (props: any) => () => h('device-probe', { station: props.detailContext?.node, selectedDeviceId: props.device?.id }) } }; });
-vi.mock('../src/components/InterferenceAnalysisPanel.vue', async () => {
-  const { defineComponent, h } = await import('vue');
-  return { default: defineComponent({ inheritAttrs: false, props: ['source'],
-    setup: props => () => h('source-probe', { ...props }),
-  }) };
-});
 vi.mock('../src/components/SituationMonitoringDrawer.vue', () => ({ default: { inheritAttrs: false, render: () => null } }));
 vi.mock('../src/components/MonitoringObjectPanel.vue', () => ({ default: { inheritAttrs: false, render: () => null } }));
 vi.mock('../src/components/GisTaskPanel.vue', () => ({ default: { inheritAttrs: false, render: () => null } }));
-vi.mock('../src/components/InterferenceHistoryDrawer.vue', () => ({ default: { inheritAttrs: false, render: () => null } }));
-vi.mock('../src/components/InterferenceMeasureDrawer.vue', () => ({ default: { inheritAttrs: false, render: () => null } }));
+vi.mock('../src/components/ResourceStatusPanel.vue', async () => {
+  const { defineComponent } = await import('vue');
+  return { default: defineComponent({ setup(_props, { expose }) { expose({ requestLeave: async () => true }); return () => null; } }) };
+});
+vi.mock('../src/components/AppDrawer.vue', async () => {
+  const { defineComponent, h } = await import('vue');
+  return { default: defineComponent({ props: ['visible'], setup: (props, { slots }) => () => props.visible ? h('aside', [slots.default?.(), slots.footer?.()]) : null }) };
+});
 vi.mock('../src/components/InterferenceSourceDrawer.vue', () => ({ default: { inheritAttrs: false, render: () => null } }));
 vi.mock('../src/components/ResourceExportDrawer.vue', async () => {
   const { defineComponent, h } = await import('vue');
@@ -86,16 +93,19 @@ for (const [component, deviceFile] of [
 ] as const) {
   await clientTemplate(component, deviceFile, 'device-entry-render.ts');
 }
+await compileWorkbenchTemplates();
 
 // 内存宿主实际运行 Vue 挂载/更新/卸载；不模拟浏览器布局或 OpenLayers 点击。
 interface HostNode {
   tag: string; tagName: string; text: string; parent: HostNode | null; children: HostNode[];
   props: Record<string, unknown>; style: Record<string, string>; value?: unknown;
+  readonly options: HostNode[];
   addEventListener: () => void; removeEventListener: () => void;
   getRootNode: () => Document;
 }
 const node = (tag: string, text = ''): HostNode => ({
   tag, tagName: tag.toUpperCase(), text, parent: null, children: [], props: {}, style: {},
+  get options() { return this.children.filter(child => child.tag === 'option'); },
   addEventListener: () => {}, removeEventListener: () => {},
   // 原生 v-model 更新时需要根节点的焦点信息；不模拟实际浏览器焦点行为。
   getRootNode: () => document,
@@ -162,12 +172,14 @@ afterEach(() => {
   if (pinia) disposePinia(pinia); pinia = undefined;
   vi.restoreAllMocks(); vi.unstubAllGlobals(); vi.useRealTimers();
 });
-async function mountEntry(url: string, editing = false, confirmedNetwork = false) {
+async function mountEntry(url: string, editing = false, confirmedNetwork = false, frozen = false) {
+  transport.mode = frozen ? 'http' : 'mock';
   vi.useFakeTimers();
   vi.stubGlobal('window', new EventTarget());
   class TestDocument extends EventTarget { hidden = false; activeElement = null; }
   vi.stubGlobal('Document', TestDocument);
   vi.stubGlobal('document', new TestDocument());
+  vi.stubGlobal('ShadowRoot', class {});
   pinia = createPinia(); setActivePinia(pinia); authorizeStore();
   const storage = new TestStorage(), raw = createMockService(() => storage);
   // 公共浏览与完整上下文使用同一夹具，不把 Preview 注入页面。
@@ -200,6 +212,7 @@ async function mountEntry(url: string, editing = false, confirmedNetwork = false
     { path: '/situation', component: MountedSituationView },
     { path: '/planning', component: { render: () => null } },
   ] });
+  const wb = await createWorkbenchFixture(); wb.bind();
   app = renderer.createApp({ render: () => h(RouterView) }); app.use(pinia); app.use(router);
   app.provide(ssrContextKey, {});
   await router.push(url); await router.isReady();
@@ -207,7 +220,7 @@ async function mountEntry(url: string, editing = false, confirmedNetwork = false
   // 原有节点口径场景显式进入站点浏览；设备分类默认入口由专项测试覆盖。
   await click(root, '按站点浏览'); await vi.advanceTimersByTimeAsync(250); await settleMonitoring();
   expect([...storage.entries]).toEqual(before);
-  return { root, gis, editor, browseResources, router, storage, before, raw, monitor: useMonitoringStore(), map: () => find(root, 'map-probe')!.props };
+  return { root, gis, editor, browseResources, router, storage, before, raw, monitor: useMonitoringStore(), map: () => find(root, 'map-probe')!.props, wb };
 }
 
 describe('GIS 入口挂载联动', () => {
@@ -262,25 +275,21 @@ describe('GIS 入口挂载联动', () => {
       expect(analysis.selected).toBeNull();
       await click(s.root, '干扰分析'); await settleMonitoring();
       expect(s.gis.mapMode).toBe('resource'); expect(s.map().resourceMarkers).toBe(true);
-      expect(find(s.root, 'source-probe')).toBeDefined();
+      expect(findWhere(s.root, row => row.tag === 'button' && textOf(row).trim() === '打开方案干扰工作区')).toBeDefined();
       expect(submit).not.toHaveBeenCalled(); expect(s.storage.writes).toBe(0);
     });
   it('已有分析记录时从监控切到选定快照，不自动重新分析', async () => {
-    const s = await mountEntry('/situation');
-    const fixture = await interferenceFixture(), submitted = await fixture.submit(); fixture.advance();
-    const loaded = await fixture.service.loadInterferenceWorkspace(), analysis = useInterferenceStore();
-    analysis.views = loaded.views; analysis.analysisId = submitted.view.run.analysisId; await nextTick();
-    const submit = vi.spyOn(previewService, 'submitInterferenceAnalysis');
-    await click(s.root, '干扰分析'); await settleMonitoring();
-    expect(s.gis.mapMode).toBe('analysis'); expect(s.map().resourceMarkers).toBe(false);
-    expect(find(s.root, 'source-probe')).toBeDefined();
-    expect(textOf(s.root)).toContain(submitted.view.run.analysisId);
-    expect(submit).not.toHaveBeenCalled(); expect(s.storage.writes).toBe(0);
+    const s = await mountEntry('/situation', false, false, true);s.monitor.showNetwork();
+    const analysis = await openWorkbenchFromPage(s.root, s.wb);
+    expect(analysisMap(s.root).interferenceProjection).toEqual(analysis.mapProjection);
+    expect(analysisMap(s.root).gisDeviceFrame).toBeUndefined();expect(textOf(s.root)).toContain(s.wb.run.run_id);
+    expect(s.wb.workbench.listRuns).toHaveBeenCalledWith(expect.objectContaining({task_id:s.wb.target.taskId}),expect.any(AbortSignal));
+    s.wb.assertNoWrites();expect(s.storage.writes).toBe(0);
   });
   it('打开分析面板保留未应用的 GIS 表单', async () => {
     const s = await mountEntry('/situation', true), before = JSON.stringify(s.editor.form);
     await click(s.root, '干扰分析'); await settleMonitoring();
-    expect(find(s.root, 'source-probe')).toBeDefined();
+    expect(findWhere(s.root, row => row.tag === 'button' && textOf(row).trim() === '打开方案干扰工作区')).toBeDefined();
     expect(JSON.stringify(s.editor.form)).toBe(before); expect(s.editor.formDirty).toBe(true);
     expect(s.storage.writes).toBe(0);
   });
@@ -291,7 +300,7 @@ describe('GIS 入口挂载联动', () => {
     await (link.props.onClick as Function)(); await settleMonitoring();
     s.monitor.showNetwork(); await settleMonitoring();
     await click(s.root, '干扰分析'); await settleMonitoring();
-    expect(s.gis.mapMode).toBe('resource'); expect(find(s.root, 'source-probe')).toBeDefined();
+    expect(s.gis.mapMode).toBe('resource'); expect(findWhere(s.root, row => row.tag === 'button' && textOf(row).trim() === '打开方案干扰工作区')).toBeDefined();
     expect(s.storage.writes).toBe(0);
   });
   // 只核对实际模板中的来源说明，切换展示不产生业务保存。
@@ -340,18 +349,21 @@ describe('GIS 入口挂载联动', () => {
       await click(s.root, '资源树'); expect(s.gis.mapMode).toBe('resource'); expect(s.storage.writes).toBe(0);
     },
   );
-  it('干扰快照通过资源树返回，原分析身份与未应用资源表单均保留', async () => {
-    const s = await mountEntry('/situation?stationId=ND-0001', true), form = JSON.stringify(s.editor.form);
-    const fixture = await interferenceFixture(), submitted = await fixture.submit(); fixture.advance();
-    const loaded = await fixture.service.loadInterferenceWorkspace(), analysis = useInterferenceStore();
-    analysis.views = loaded.views; analysis.analysisId = submitted.view.run.analysisId;
-    await click(s.root, '干扰分析'); await settleMonitoring();
-    const frozen = JSON.stringify(analysis.selected); expect(s.gis.mapMode).toBe('analysis');
-    expect(findWhere(s.root, n => n.tag === 'button' && textOf(n).trim() === '返回资源浏览')).toBeUndefined();
-    await click(s.root, '图层管理'); expect(s.gis.mapMode).toBe('analysis');
-    await click(s.root, '资源树'); expect(s.gis.mapMode).toBe('resource');
-    expect(JSON.stringify(analysis.selected)).toBe(frozen); expect(JSON.stringify(s.editor.form)).toBe(form);
-    expect(s.editor.formDirty).toBe(true); expect(s.storage.writes).toBe(0);
+  it('进入冻结干扰前必须处理 GIS 输入；取消不丢表单，返回当前资源不改冻结身份', async () => {
+    const s = await mountEntry('/situation?stationId=ND-0001', true, false, true), form = JSON.stringify(s.editor.form);
+    await click(s.root,'干扰分析');
+    const enter=clickWorkbench(s.root,'打开方案干扰工作区');await settleWorkbench();
+    expect(s.editor.decision).not.toBeNull();s.editor.answer('cancel');await enter;
+    expect(JSON.stringify(s.editor.form)).toBe(form);expect(s.editor.formDirty).toBe(true);
+    expect(workbenchNode(s.root,row=>row.props['aria-label']==='数据库冻结方案')).toBeUndefined();s.wb.assertNoWrites();
+    // 明确放弃以后才进入；不能以直接改 store 模式绕过原离开决定。
+    const next=clickWorkbench(s.root,'打开方案干扰工作区');await settleWorkbench();s.editor.answer('discard');await next;
+    await clickWorkbench(s.root,'打开冻结网络');
+    await clickWorkbench(s.root,row=>workbenchText(row).trim().startsWith('历史 '));
+    await clickWorkbench(s.root,row=>String(row.props.class).includes('history-row'));
+    const analysis=useInterferenceStore(),frozen=JSON.stringify(analysis.selected);
+    await clickWorkbench(s.root,'返回当前资源');expect(s.gis.mapMode).toBe('resource');expect(JSON.stringify(analysis.selected)).toBe(frozen);
+    expect(s.storage.writes).toBe(0);s.wb.assertNoWrites();
   });
   it.each(['顶部按钮', '同页 URL'])(
     '%s 进入故障标绘时配置或资源取消都保留路由与原输入', async entry => {
@@ -424,7 +436,7 @@ describe('GIS 入口挂载联动', () => {
   it('干扰源定位保留资源地图和对应详情', async () => {
     const s = await mountEntry('/situation?interferenceId=IF-0008');
     expect(s.gis.mapMode).toBe('resource'); expect(s.map()).toMatchObject({ selectedInterferenceId: 'IF-0008', resourceMarkers: true });
-    expect(find(s.root, 'source-probe')?.props.source).toMatchObject({ id: 'IF-0008' });
+    expect(useResourceReadStore().detail?.object).toMatchObject({kind:'interference',id:'IF-0008'});
   });
   it.each([
     ['stationId=ND-missing', '地图定位失败'],
@@ -687,7 +699,7 @@ describe('GIS 资源筛选与地图联动', () => {
   it('干扰源定位清除搜索但保留节点类别筛选；隐藏时详情仍在', async () => {
     const s = await mountEntry('/situation?interferenceId=IF-0008');
     await click(s.root, 'HF'); await search(s.root, '不存在的资源');
-    expect(find(s.root, 'source-probe')?.props.source).toMatchObject({ id: 'IF-0008' });
+    expect(useResourceReadStore().detail?.object).toMatchObject({kind:'interference',id:'IF-0008'});
     expect(textOf(s.root)).toContain('当前选中对象不在筛选结果中');
     await s.router.push('/situation?interferenceId=IF-0001'); await settleMonitoring();
     expect((s.map().interferences as InterferenceSource[]).some(row => row.id === 'IF-0001')).toBe(true);
@@ -734,39 +746,29 @@ describe('GIS 资源筛选与地图联动', () => {
     expect(s.map().stations).toEqual([]); expect(s.map().interferences).toEqual([]);
   });
   it('资源筛选不截断干扰分析的冻结节点、链路和干扰源', async () => {
-    const s = await mountEntry('/situation?stationId=ND-0001');
-    const fixture = await interferenceFixture(), submitted = await fixture.submit(); fixture.advance();
-    const loaded = await fixture.service.loadInterferenceWorkspace(), analysis = useInterferenceStore();
-    analysis.views = loaded.views; analysis.analysisId = submitted.view.run.analysisId; s.gis.mapMode = 'analysis';
-    await nextTick();
-    const stations = s.map().stations, links = s.map().links, sources = s.map().interferences, regions = s.map().regions;
-    expect((stations as Station[]).length).toBeGreaterThan(0); expect((sources as InterferenceSource[]).length).toBeGreaterThan(0);
-    await search(s.root, '不存在的资源'); await click(s.root, '告警');
-    expect(s.gis.mapMode).toBe('analysis'); expect(s.map().stations).toEqual(stations); expect(s.map().links).toEqual(links);
-    expect(s.map().interferences).toEqual(sources); expect(s.map().regions).toEqual(regions);
+    const s = await mountEntry('/situation?stationId=ND-0001',false,false,true);
+    await search(s.root,'不存在的资源');await click(s.root,'告警');
+    const analysis=await openWorkbenchFromPage(s.root,s.wb),projection=analysis.mapProjection!;
+    expect(projection.nodes).toHaveLength(s.wb.network.nodes.length);expect(projection.links).toHaveLength(s.wb.network.links.length);
+    expect(projection.sources).toEqual(s.wb.scene.interferenceSources.map(row=>row.sourceRow));
+    expect(analysisMap(s.root).interferenceProjection).toEqual(projection);
+    await clickWorkbench(s.root,'返回当前资源');
+    expect(s.map().stations).toEqual([]);expect(s.map().interferences).toEqual([]);s.wb.assertNoWrites();
   });
   it('措施后地图使用服务快照自身坐标和成套结果，缺失后完整回到措施前',async()=>{
-    const s=await mountEntry('/situation?stationId=ND-0001');
-    const fixture=await interferenceFixture(),submitted=await fixture.submit();fixture.advance();
-    const loaded=await fixture.service.loadInterferenceWorkspace(),analysis=useInterferenceStore();
-    // 自定义服务载荷与预设不同，防止页面偷用原网络坐标或按本地变体取数。
-    const view=loaded.views[0],preview=view.measurePreviews![0].result!;
-    preview.inputSnapshot.stations[0].coordinate=[116.2,38.8];
-    preview.links[0].id='service-preview-link';preview.regions=[];
-    view.result!.measures[0].after!.summary.affectedNodeCount=17;
-    analysis.views=loaded.views;analysis.analysisId=submitted.view.run.analysisId;s.gis.mapMode='analysis';await nextTick();
+    const s=await mountEntry('/situation?stationId=ND-0001',false,false,true);
+    const analysis=await openWorkbenchFromPage(s.root,s.wb);
     const sourceLabel=()=>textOf(findWhere(s.root,n=>n.props['aria-label']==='当前视图数据来源')!);
-    expect(sourceLabel()).toBe(`干扰分析 ${view.run.analysisId} · 网络 ${view.run.network.snapshotId}`);
-    const before={stations:s.map().stations,links:s.map().links,regions:s.map().regions,impact:s.map().interferenceImpact};
-    analysis.inspectMeasure(analysis.selected!.result!.measures[0]);analysis.after=true;await nextTick();
-    expect(sourceLabel()).toBe(`措施预览 ${view.measurePreviews![0].measureId} · 来源方案 ${view.run.network.id}`);
-    expect((s.map().stations as Station[]).find(row=>row.id===preview.inputSnapshot.stations[0].id)!.coordinate).toEqual([116.2,38.8]);
-    expect(s.map().links).toEqual(preview.links);expect(s.map().regions).toEqual([]);
-    expect(s.map().interferenceImpact).toEqual(view.result!.measures[0].after);expect(textOf(s.root)).toContain('措施后预评估');
-    analysis.views=[{...view,measurePreviews:undefined}];await nextTick();
-    expect(sourceLabel()).toBe(`干扰分析 ${view.run.analysisId} · 网络 ${view.run.network.snapshotId}`);
-    expect({stations:s.map().stations,links:s.map().links,regions:s.map().regions,impact:s.map().interferenceImpact}).toEqual(before);
-    expect(textOf(s.root)).toContain('措施前影响');expect(textOf(s.root)).not.toContain('措施后预评估');
-    expect(analysis.canPreviewAfter).toBe(false);expect(s.storage.writes).toBe(0);
+    expect(sourceLabel()).toBe('数据库冻结方案 · 独立历史来源');
+    const before=structuredClone(toRaw(analysis.mapProjection));
+    await clickWorkbench(s.root,row=>workbenchText(row).trim().startsWith('P5 · 节点重部署'));
+    await clickWorkbench(s.root,'措施后预测');
+    expect(analysis.mapProjection?.phase).toBe('PREVIEW');
+    expect(analysis.mapProjection?.nodes.find(row=>row.node_id==='UNIT-N1')).toMatchObject({lon:116.2,lat:38.8});
+    expect(analysisMap(s.root).interferenceProjection).toEqual(analysis.mapProjection);expect(textOf(s.root)).toContain('措施预览');
+    s.wb.workbench.getPreview.mockResolvedValueOnce({...s.wb.preview,measure_id:'UNIT-CM5',impact_after:null});
+    await clickWorkbench(s.root,row=>workbenchText(row).trim().startsWith('P5 · 节点重部署'));
+    expect(analysis.mapProjection).toEqual(before);expect(textOf(s.root)).toContain('措施前影响');
+    expect(analysis.canPreviewAfter).toBe(false);expect(s.storage.writes).toBe(0);s.wb.assertNoWrites();
   });
 });

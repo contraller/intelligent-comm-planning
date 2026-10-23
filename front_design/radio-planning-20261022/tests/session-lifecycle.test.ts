@@ -1,8 +1,8 @@
 import { useMonitoringStore } from '../src/stores/monitoring';
 import { monitoringFixture, settleMonitoring } from './helpers/monitoring';
 import type { MonitoringFrameResult } from '../src/types/monitoring';
-import { useInterferenceStore } from '../src/stores/interference';
-import { interferenceFixture } from './helpers/interference';
+import { createWorkbenchFixture, deferred, enterWorkbenchStore } from './helpers/interference-workbench';
+import { createInterferenceWorkbenchHttp } from '../src/services/interference-workbench-http';
 import { savedRequest,taskMeta } from './helpers/tasks';
 import { afterEach,describe,it,expect,vi } from 'vitest';
 import { createPinia,setActivePinia,disposePinia } from 'pinia';
@@ -155,74 +155,60 @@ describe('独立任务的会话隔离',()=>{
 
 describe('干扰状态会话隔离',()=>{
   it('措施和分析切换重置实际显示，失败保留快照而成功缺省响应清除旧预览',async()=>{
-    const s=await start('planner'),simulation=await interferenceFixture('balanced',s.storage);
-    Object.assign(s.raw,simulation.service,simulation.planning);
-    await simulation.submit();simulation.advance();const store=useInterferenceStore();await store.load();
-    store.inspectMeasure(store.selected!.result!.measures[0]);await store.loadMeasurePreview();store.after=true;
+    await start('planner');const f=await createWorkbenchFixture(),store=await enterWorkbenchStore(f);
+    await store.loadMeasurePreview('UNIT-CM1');store.after=true;
     const preview=JSON.stringify(store.selectedMeasurePreview),impact=JSON.stringify(store.impact);
-    vi.spyOn(previewService,'getInterferenceProgress').mockRejectedValueOnce(new ApiError('读取中断','NETWORK_ERROR'));
+    f.workbench.getContext.mockRejectedValueOnce(new ApiError('读取中断','NETWORK_ERROR'));
     await store.query();expect(store.queryError).toContain('读取中断');expect(store.effectiveAfter).toBe(true);
     expect(JSON.stringify(store.selectedMeasurePreview)).toBe(preview);expect(JSON.stringify(store.impact)).toBe(impact);
-    store.inspectMeasure(store.selected!.result!.measures[1]);await store.loadMeasurePreview();expect(store.after).toBe(false);
-    expect(store.selectedMeasurePreview!.measureId).toBe(store.measureId);store.after=true;
-    const next=await simulation.service.getInterferenceAnalysis(store.analysisId);
-    const missing=await simulation.service.getInterferenceMeasurePreview({analysisId:store.analysisId,measureId:store.measureId});
-    vi.spyOn(previewService,'getInterferenceMeasurePreview').mockResolvedValueOnce({...missing,result:null,impact:null});
-    await store.query();await store.loadMeasurePreview();expect(store.queryError).toBe('');expect(store.canPreviewAfter).toBe(false);
-    expect(store.selectedMeasurePreview!.result).toBeNull();expect(store.effectiveAfter).toBe(false);expect(store.impact).toEqual(next.result!.impact);
-    const writes=s.storage.writes;expect(await store.adopt()).toBeUndefined();expect(s.storage.writes).toBe(writes);
-    expect(store.error).toContain('未提供完整措施预览');
-    await store.query();await store.loadMeasurePreview();store.after=true;expect(store.effectiveAfter).toBe(true);
-    const second=await simulation.submit();simulation.advance();await store.load();
-    store.analysisId=second.view.run.analysisId;
-    expect(store.measureId).toBe('');expect(store.measureOpen).toBe(false);expect(store.effectiveAfter).toBe(false);
+    await store.loadMeasurePreview('UNIT-CM2');expect(store.after).toBe(false);
+    expect(store.selectedMeasurePreview!.measure_id).toBe(store.measureId);store.after=true;
+    f.workbench.getPreview.mockResolvedValueOnce({...f.preview,measure_id:'UNIT-CM2',impact_after:null});
+    await store.query();await store.loadMeasurePreview('UNIT-CM2');expect(store.queryError).toBe('');expect(store.canPreviewAfter).toBe(false);
+    expect(store.selectedMeasurePreview!.impact_after).toBeNull();expect(store.effectiveAfter).toBe(false);expect(store.impact).toEqual(f.run.result);
+    expect(store.previewUnavailableReason).toContain('措施后影响');
+    await store.loadMeasurePreview('UNIT-CM2');store.after=true;expect(store.effectiveAfter).toBe(true);
+    f.workbench.getRun.mockResolvedValueOnce({...f.run,run_id:'UNIT-RUN2'});await store.selectRun('UNIT-RUN2');
+    expect(store.measureId).toBe('');expect(store.preview).toBeNull();expect(store.effectiveAfter).toBe(false);f.assertNoWrites();
   });
   it('预览重复、结构不完整或缺少措施后影响均不能显示后态',async()=>{
-    const s=await start('planner'),simulation=await interferenceFixture('balanced',s.storage);
-    Object.assign(s.raw,simulation.service,simulation.planning);await simulation.submit();simulation.advance();
-    const store=useInterferenceStore();await store.load();store.inspectMeasure(store.selected!.result!.measures[0]);
-    const original=await simulation.service.getInterferenceAnalysis(store.analysisId),entry=original.measurePreviews![0];
-    store.views=[{...original,measurePreviews:[entry,entry]}];expect(store.canPreviewAfter).toBe(false);
-    store.views=[{...original,measurePreviews:[{...entry,result:{...entry.result!,configuration:undefined} as never}]}];
-    expect(store.previewUnavailableReason).toContain('完整措施预览');
-    const noImpact=structuredClone(original);noImpact.result!.measures[0].after=null;store.views=[noImpact];store.after=true;
-    expect(store.canPreviewAfter).toBe(false);expect(store.effectiveAfter).toBe(false);expect(store.impact).toEqual(original.result!.impact);
-    expect(store.previewUnavailableReason).toContain('措施后影响');
+    await start('planner');const f=await createWorkbenchFixture(),store=await enterWorkbenchStore(f);
+    const incomplete={...f.preview,proposed_changes:undefined},duplicate=structuredClone(f.preview);
+    duplicate.impact_after!.affected_nodes.push({...duplicate.impact_after!.affected_nodes[0]!});
+    for(const payload of [incomplete,duplicate]){
+      const http=createInterferenceWorkbenchHttp(async<T>()=>structuredClone(payload) as T);
+      f.workbench.getPreview.mockImplementationOnce(http.getPreview);
+      await store.loadMeasurePreview('UNIT-CM1');store.after=true;
+      expect(store.canPreviewAfter).toBe(false);expect(store.effectiveAfter).toBe(false);expect(store.impact).toEqual(f.run.result);
+      expect(store.queryError).toContain('冻结契约');
+    }
+    f.workbench.getPreview.mockResolvedValueOnce({...f.preview,impact_after:null});await store.loadMeasurePreview('UNIT-CM1');store.after=true;
+    expect(store.canPreviewAfter).toBe(false);expect(store.previewUnavailableReason).toContain('措施后影响');f.assertNoWrites();
   });
   it('退出后的迟到查询不能重新带回完整预览或影响统计',async()=>{
-    const s=await start('planner'),simulation=await interferenceFixture('balanced',s.storage);
-    Object.assign(s.raw,simulation.service,simulation.planning);await simulation.submit();simulation.advance();
-    const store=useInterferenceStore();await store.load();store.inspectMeasure(store.selected!.result!.measures[0]);await store.loadMeasurePreview();store.after=true;
-    const result=await simulation.service.getInterferenceProgress({analysisId:store.analysisId});
-    let resolve!:(view:typeof result)=>void;
-    vi.spyOn(previewService,'getInterferenceProgress').mockImplementationOnce(()=>new Promise(r=>{resolve=r;}));
-    const pending=store.query();store.clearForSession();resolve(result);await pending;
-    expect(store.views).toEqual([]);expect(store.selectedMeasurePreview).toBeNull();expect(store.effectiveAfter).toBe(false);expect(store.impact).toBeNull();
+    await start('planner');const f=await createWorkbenchFixture(),store=await enterWorkbenchStore(f);
+    await store.loadMeasurePreview('UNIT-CM1');store.after=true;
+    const late=deferred<typeof f.preview>();f.workbench.getPreview.mockReturnValueOnce(late.promise);
+    const pending=store.loadMeasurePreview('UNIT-CM1');store.clearForSession();late.resolve(f.preview);await pending;
+    expect(store.selected).toBeNull();expect(store.selectedMeasurePreview).toBeNull();expect(store.effectiveAfter).toBe(false);expect(store.impact).toBeNull();f.assertNoWrites();
   });
   it('离页/换账号不取消已提交分析，迟到加载不能覆盖新缓存',async()=>{
-    const s=await start('planner'),simulation=await interferenceFixture('balanced',s.storage);
-    Object.assign(s.raw,simulation.service,simulation.planning);
-    const submitted=await simulation.submit(),loaded=await simulation.service.loadInterferenceContext();
-    const store=useInterferenceStore();let resolve!:(v:typeof loaded)=>void;
-    vi.spyOn(previewService,'loadInterferenceContext').mockImplementationOnce(()=>new Promise(r=>{resolve=r;}));
-    const pending=store.load();store.clearForSession();await store.load();
-    const revision=store.workspace!.revision;
-    resolve({...loaded,revision:'late-old'});await pending;
-    expect(store.workspace!.revision).toBe(revision);expect(store.error).toBe('');
-    store.stop();simulation.advance();expect((await simulation.service.getInterferenceAnalysis(submitted.view.run.analysisId)).state).toBe('SUCCESS');
-    store.clearForSession();expect(store.workspace).toBeNull();expect(store.views).toEqual([]);expect(store.historyOpen).toBe(false);
+    await start('planner');const f=await createWorkbenchFixture(),store=await enterWorkbenchStore(f);
+    const late=deferred<typeof f.context>();f.workbench.getContext.mockReturnValueOnce(late.promise);
+    const pending=store.load();store.stop();store.clearForSession();
+    const next=await createWorkbenchFixture();next.context.resource_revision='NEW-SESSION';store.bindServices(next);await store.enterPlan(next.target);
+    late.resolve({...f.context,resource_revision:'late-old'});await pending;
+    expect(store.context?.resource_revision).toBe('NEW-SESSION');expect(store.error).toBe('');
+    f.assertNoWrites();next.assertNoWrites();store.clearForSession();expect(store.context).toBeNull();expect(store.selected).toBeNull();expect(store.historyOpen).toBe(false);
   });
   it('查询失败保留已知快照，显式重试恢复；失权后不能提交或采纳',async()=>{
-    const s=await start('planner'),simulation=await interferenceFixture('balanced',s.storage);
-    Object.assign(s.raw,simulation.service,simulation.planning);
-    await simulation.submit();const store=useInterferenceStore();await store.load();
-    const id=store.analysisId;
-    vi.spyOn(previewService,'getInterferenceProgress').mockRejectedValueOnce(new ApiError('查询中断','NETWORK_ERROR'));
-    await store.query();expect(store.queryError).toContain('状态未确认');expect(store.analysisId).toBe(id);
-    simulation.advance();await store.query();expect(store.queryError).toBe('');expect(store.selected!.state).toBe('SUCCESS');
+    const s=await start('planner'),f=await createWorkbenchFixture(),store=await enterWorkbenchStore(f),id=store.analysisId;
+    f.workbench.getContext.mockRejectedValueOnce(new ApiError('查询中断','NETWORK_ERROR'));
+    await store.query();expect(store.queryError).toContain('查询中断');expect(store.analysisId).toBe(id);
+    await store.query();expect(store.queryError).toBe('');expect(store.selected!.state).toBe('SUCCESS');
     const identity=s.auth.identity!;s.auth.accept({...identity,permissions:['situation.view','planning.view']});
-    const writes=s.storage.writes;
-    expect(await store.submit()).toBe(false);expect(await store.adopt()).toBeUndefined();expect(s.storage.writes).toBe(writes);
+    const writes=s.storage.writes;await store.submitAnalysis();await store.adoptMeasure('UNIT-CM1');
+    expect(store.executable).toBe(false);expect(store.adoptable).toBe(false);expect(s.storage.writes).toBe(writes);f.assertNoWrites();
   });
 });
 

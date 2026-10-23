@@ -6,6 +6,7 @@ import { createMemoryHistory, createRouter } from 'vue-router';
 import GisTaskPanel from '../src/components/GisTaskPanel.vue';
 import SituationMonitoringDrawer from '../src/components/SituationMonitoringDrawer.vue';
 import InterferenceAnalysisPanel from '../src/components/InterferenceAnalysisPanel.vue';
+import InterferenceSceneDrawer from '../src/components/InterferenceSceneDrawer.vue';
 import { useGisTaskSelection } from '../src/composables/useGisTaskSelection';
 import { usePreviewStore } from '../src/stores/preview';
 import { useTaskInputStore } from '../src/stores/task-input';
@@ -19,6 +20,7 @@ import { authorizeStore } from './helpers/auth';
 import { TestStorage } from './helpers/storage';
 // 仅复用模板编译，原有宿主、替身和业务交互保持本地。
 import { clientTemplate } from './helpers/vue-client';
+import { createWorkbenchFixture, settleWorkbench } from './helpers/interference-workbench';
 
 // 外壳在关闭时卸载字段，用真实表单验证输入保护；不模拟 CSS 布局。
 vi.mock('../src/components/AppDrawer.vue', () => ({ default: Vue.defineComponent({
@@ -37,6 +39,7 @@ for (const [component, filename] of [
   [GisTaskPanel, 'src/components/GisTaskPanel.vue'], 
   [SituationMonitoringDrawer, 'src/components/SituationMonitoringDrawer.vue'],
   [InterferenceAnalysisPanel, 'src/components/InterferenceAnalysisPanel.vue'],
+  [InterferenceSceneDrawer, 'src/components/InterferenceSceneDrawer.vue'],
 ] as const) {
   await clientTemplate(component, filename, 'gis-layout-render.ts');
 }
@@ -72,6 +75,7 @@ async function mount(component: Component) {
   vi.stubGlobal('window', new EventTarget());
   class TestDocument extends EventTarget { activeElement = null; }
   vi.stubGlobal('document', new TestDocument()); vi.stubGlobal('Document', TestDocument);
+  vi.stubGlobal('ShadowRoot', class {});
   pinia = createPinia(); setActivePinia(pinia); authorizeStore();
   const storage = new TestStorage();
   usePreviewStore().data = await createMockService(() => storage).loadPreview();
@@ -149,23 +153,40 @@ describe('GIS 抽屉与态势分配', () => {
     expect(current()).toBeLessThan(400);
   });
 
-  it('干扰源搜索保留隐藏勾选，定位不改变选择，未生效源仍不可选', async () => {
-    const select = vi.fn();
+  it('新版场景搜索保留隐藏勾选，来源读取不隐式选择；未生效源仍不可选', async () => {
+    const fixture = await createWorkbenchFixture();
     const root = await mount({ setup() {
       const store = useInterferenceStore();
-      store.sources.sources = initialResources().interferences!;
-      store.interferenceIds = ['IF-0008'];
-      return () => h(InterferenceAnalysisPanel, { sourceEditable: false, selectedNodeId: '', selectedLinkId: '', onSelectSource: select });
+      store.bindServices(fixture);
+      return () => h(InterferenceSceneDrawer, { visible: true, taskContext: store.taskContext });
     } });
-    const store = useInterferenceStore(), search = find(root, n => n.props['aria-label'] === '搜索已保存干扰源')!;
-    search.props['onUpdate:modelValue']('if-0001'); await flush();
+    const store = useInterferenceStore(); await store.enterPlan(fixture.target); await settleWorkbench();
+    expect(store.draft.interferenceIds).toEqual([]);
+    store.draft.interferenceIds = ['UNIT-IF2']; await flush();
+    const search = find(root, n => n.tag === 'input' && n.props.type === 'search' && n.props['aria-label'] !== '搜索场景')!;
+    search.props['onUpdate:modelValue']('unit-if1'); await flush();
     expect(all(root, n => n.tag === 'input' && n.props.type === 'checkbox')).toHaveLength(1);
-    expect(store.interferenceIds).toEqual(['IF-0008']);
-    const locate = find(root, n => n.props['aria-label'] === '定位干扰源 IF-0001')!;
-    locate.props.onClick(); expect(select).toHaveBeenCalledWith('IF-0001'); expect(store.interferenceIds).toEqual(['IF-0008']);
+    expect(store.draft.interferenceIds).toEqual(['UNIT-IF2']);
+    await store.load(); expect(store.draft.interferenceIds).toEqual(['UNIT-IF2']);
     search.props['onUpdate:modelValue'](''); await flush();
-    expect(find(root, n => n.tag === 'input' && n.props.value === 'IF-0008')!.checked).toBe(true);
-    expect(find(root, n => n.tag === 'input' && n.props.value === 'IF-0013')!.props.disabled).toBe(true);
+    expect(find(root, n => n.tag === 'input' && n.props.value === 'UNIT-IF2')!.checked).toBe(true);
+    expect(textOf(root)).toContain('未生效');
+    expect(find(root, n => n.tag === 'input' && n.props.value === 'UNIT-IF3')!.props.disabled).toBe(true);
+    expect(fixture.workbench.getContext).toHaveBeenCalledWith({ task_id: fixture.target.taskId }, expect.any(AbortSignal));
+    fixture.assertNoWrites();
+  });
+  it('来源定位意图不改变场景勾选或写入业务', async () => {
+    const fixture = await createWorkbenchFixture(), select = vi.fn();
+    const root = await mount({ setup() {
+      const store = useInterferenceStore(); store.bindServices(fixture);
+      return () => h(InterferenceAnalysisPanel, { source: initialResources().interferences![0], sourceEditable: false,
+        selectedNodeId: '', selectedLinkId: '', onSelectSource: select });
+    } });
+    const store = useInterferenceStore(); await store.enterPlan(fixture.target); store.draft.interferenceIds = ['UNIT-IF2']; await flush();
+    const locate = find(root, n => n.props['aria-label'] === `定位干扰源 ${initialResources().interferences![0]!.id}`);
+    expect(locate, '保留旧定位需求；当前新版面板未提供此入口，需 P03 补接而非删断言').toBeDefined();
+    locate!.props.onClick(); expect(select).toHaveBeenCalledWith(initialResources().interferences![0]!.id);
+    expect(store.draft.interferenceIds).toEqual(['UNIT-IF2']); fixture.assertNoWrites();
   });
 });
 

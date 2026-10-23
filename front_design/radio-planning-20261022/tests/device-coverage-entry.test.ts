@@ -25,21 +25,25 @@ import { usePreviewStore } from '../src/stores/preview';
 import { useResourceEditStore } from '../src/stores/resource-edit';
 import { useGisWorkspaceStore } from '../src/stores/gis-workspace';
 import { useMonitoringStore } from '../src/stores/monitoring';
-import { useInterferenceStore } from '../src/stores/interference';
 import type { DeviceCoverageOverlay } from '../src/types/device-coverage';
 import { authorizeStore } from './helpers/auth';
 import { bindMonitoring, settleMonitoring } from './helpers/monitoring';
-import { interferenceFixture } from './helpers/interference';
+import { analysisMap, clickWorkbench, compileWorkbenchTemplates, createWorkbenchFixture, openWorkbenchFromPage, settleWorkbench, workbenchText } from './helpers/interference-workbench';
 import { TestStorage } from './helpers/storage';
 // 仅复用模板编译，原有特殊宿主和业务交互保持本地。
 import { clientTemplate } from './helpers/vue-client';
 
 const probes = vi.hoisted(() => ({ locate: vi.fn(), retry: vi.fn(), locateResource: vi.fn() }));
+const transport = vi.hoisted(() => ({ mode: 'mock' }));
+vi.mock('../src/config/env', async importOriginal => {
+  const actual = await importOriginal<typeof import('../src/config/env')>();
+  return { ...actual, env: { ...actual.env, get mode() { return transport.mode; } } };
+});
 // 真实页面、设备入口和覆盖面板运行客户端模板；仅用探针替代地图画布。
 vi.mock('../src/components/MapCanvas.vue', async () => {
   const { defineComponent, getCurrentInstance, h } = await import('vue');
   return { default: defineComponent({ inheritAttrs: false,
-    props: ['showNodes', 'gisDeviceFrame', 'gisResultLayers', 'opacity', 'topologyOpacity', 'interferenceImpact', 'deviceCoverageActive', 'deviceCoverages', 'deviceCoverageDisplay', 'selectedId', 'stations', 'regions', 'links', 'showCoverage', 'showLinks', 'highlightLinkIds', 'highlightStationIds', 'demands', 'diagnosisDevices', 'diagnosisFaults', 'diagnosisRegions', 'candidateLinks', 'selectLinks', 'selectedLinkId', 'selectedInterferenceId'],
+    props: ['frozenNetwork', 'interferenceProjection', 'showNodes', 'gisDeviceFrame', 'gisResultLayers', 'opacity', 'topologyOpacity', 'interferenceImpact', 'deviceCoverageActive', 'deviceCoverages', 'deviceCoverageDisplay', 'selectedId', 'stations', 'regions', 'links', 'showCoverage', 'showLinks', 'highlightLinkIds', 'highlightStationIds', 'demands', 'diagnosisDevices', 'diagnosisFaults', 'diagnosisRegions', 'candidateLinks', 'selectLinks', 'selectedLinkId', 'selectedInterferenceId'],
     emits: ['deviceCoverageState', 'select', 'selectLink', 'selectDevice', 'selectDeviceCluster'],
     setup(props, { emit, expose }) {
       const instance = getCurrentInstance()!;
@@ -47,9 +51,10 @@ vi.mock('../src/components/MapCanvas.vue', async () => {
       return () => {
         // 保留本帧真实监听函数，避免旧 emit 自动转发给新上下文掩盖迟到事件。
         const selectLink = instance.vnode.props?.onSelectLink as (id: string) => void;
+        const selectFrozenLink = instance.vnode.props?.onSelectFrozenLink as (id: string) => void;
         return h('map-probe', { ...props,
         selectDevice: (id: string, version: number) => emit('selectDevice', id, version),
-        selectDeviceCluster: (ids: string[], version: number) => emit('selectDeviceCluster', ids, version), report: (id: string, state: string) => emit('deviceCoverageState', id, state), select: (id: string) => emit('select', id), selectLink });
+        selectDeviceCluster: (ids: string[], version: number) => emit('selectDeviceCluster', ids, version), report: (id: string, state: string) => emit('deviceCoverageState', id, state), select: (id: string) => emit('select', id), selectLink, selectFrozenLink });
       };
     },
   }) };
@@ -69,16 +74,14 @@ vi.mock('../src/components/ChartCanvas.vue', async () => {
 vi.mock('../src/components/SituationMonitoringDrawer.vue', () => ({ default: { inheritAttrs: false, render: () => null } }));
 vi.mock('../src/components/MonitoringObjectPanel.vue', () => ({ default: { inheritAttrs: false, render: () => null } }));
 vi.mock('../src/components/GisTaskPanel.vue', () => ({ default: { inheritAttrs: false, render: () => null } }));
-vi.mock('../src/components/InterferenceAnalysisPanel.vue', async () => {
-  const { defineComponent, h } = await import('vue');
-  // 保留清单选择事件，验证隐藏线条不会误拦原分析详情入口。
-  return { default: defineComponent({ inheritAttrs: false, props: ['selectedNodeId', 'selectedLinkId'], emits: ['selectNode', 'selectLink', 'selectSource'],
-    setup(props, { emit }) { return () => h('analysis-probe', { ...props,
-      selectNode: (id: string) => emit('selectNode', id), selectLink: (id: string) => emit('selectLink', id), selectSource: (id: string) => emit('selectSource', id) }); },
-  }) };
+vi.mock('../src/components/ResourceStatusPanel.vue', async () => {
+  const { defineComponent } = await import('vue');
+  return { default: defineComponent({ setup(_props, { expose }) { expose({ requestLeave: async () => true }); return () => null; } }) };
 });
-vi.mock('../src/components/InterferenceHistoryDrawer.vue', () => ({ default: { inheritAttrs: false, render: () => null } }));
-vi.mock('../src/components/InterferenceMeasureDrawer.vue', () => ({ default: { inheritAttrs: false, render: () => null } }));
+vi.mock('../src/components/AppDrawer.vue', async () => {
+  const { defineComponent, h } = await import('vue');
+  return { default: defineComponent({ props: ['visible'], setup: (props, { slots }) => () => props.visible ? h('aside', [slots.default?.(), slots.footer?.()]) : null }) };
+});
 vi.mock('../src/components/InterferenceSourceDrawer.vue', () => ({ default: { inheritAttrs: false, render: () => null } }));
 vi.mock('../src/components/ResourceExportDrawer.vue', async () => {
   const { defineComponent, h } = await import('vue');
@@ -95,13 +98,16 @@ await clientTemplate(GisResultLayerPanel, 'src/components/GisResultLayerPanel.vu
 await Promise.all([clientTemplate(GisDeviceLayerPanel, 'src/components/GisDeviceLayerPanel.vue', 'coverage-render.ts'),
   clientTemplate(GisDeviceClusterPanel, 'src/components/GisDeviceClusterPanel.vue', 'coverage-render.ts')]);
 await Promise.all([clientTemplate(LinkDetailPanel, 'src/components/LinkDetailPanel.vue', 'coverage-render.ts'), clientTemplate(LinkHistoryChart, 'src/components/LinkHistoryChart.vue', 'coverage-render.ts')]);
+await compileWorkbenchTemplates();
 
 interface HostNode {
   tag: string; tagName: string; text: string; parent: HostNode | null; children: HostNode[];
   props: Record<string, unknown>; style: Record<string, string>; value?: unknown;
+  readonly options: HostNode[];
   addEventListener: () => void; removeEventListener: () => void; getRootNode: () => Document;
 }
 const node = (tag: string, text = ''): HostNode => ({ tag, tagName: tag.toUpperCase(), text, parent: null, children: [], props: {}, style: {},
+  get options() { return this.children.filter(child => child.tag === 'option'); },
   addEventListener() {}, removeEventListener() {}, getRootNode: () => document });
 function remove(child: HostNode) { if (child.parent) child.parent.children.splice(child.parent.children.indexOf(child), 1); child.parent = null; }
 function insert(child: HostNode, parent: HostNode, anchor?: HostNode | null) {
@@ -139,10 +145,12 @@ async function change(root: HostNode, label: string, value: string | boolean, ev
 }
 let app: App<HostNode> | undefined, pinia: ReturnType<typeof createPinia> | undefined;
 afterEach(() => { app?.unmount(); app = undefined; if (pinia) disposePinia(pinia); pinia = undefined; vi.restoreAllMocks(); vi.clearAllMocks(); vi.unstubAllGlobals(); vi.useRealTimers(); });
-async function mountEntry(deviceId = 'DV-0001') {
+async function mountEntry(deviceId = 'DV-0001', frozen = false) {
+  transport.mode = frozen ? 'http' : 'mock';
   vi.useFakeTimers(); vi.stubGlobal('window', new EventTarget());
   class TestDocument extends EventTarget { hidden = false; activeElement = null; }
   vi.stubGlobal('Document', TestDocument); vi.stubGlobal('document', new TestDocument());
+  vi.stubGlobal('ShadowRoot', class {});
   pinia = createPinia(); setActivePinia(pinia); authorizeStore();
   const storage = new TestStorage(), raw = createMockService(() => storage);
   // 公共分页与完整 GIS 资料绑定同一存储。
@@ -159,6 +167,7 @@ async function mountEntry(deviceId = 'DV-0001') {
   for (const name of ['loadKnowledgeMetadata', 'searchKnowledgeSummaries', 'getKnowledgeGraph', 'getKnowledgeEntity', 'getDeviceKnowledge','saveResourceChanges'] as const)
     vi.spyOn(previewService, name).mockImplementation(raw[name] as never);
   bindMonitoring(raw); vi.spyOn(previewService,'getMonitoringObservation').mockImplementation(raw.getMonitoringObservation);
+  const wb = await createWorkbenchFixture(); wb.bind();
   const preview = usePreviewStore(); await preview.load();await useResourceReadStore().activate('gis');await useGisWorkspaceStore().loadScene();
   const router = createRouter({ history: createMemoryHistory(), routes: [
     { path: '/situation', component: SituationView }, { path: '/planning', component: { render: () => null } },
@@ -167,8 +176,10 @@ async function mountEntry(deviceId = 'DV-0001') {
   await router.push('/situation?stationId=ND-0001&deviceId=' + deviceId); await router.isReady();
   const root = node('root'); app.mount(root); await settleMonitoring(); await nextTick();
   const map = () => find(root, n => n.tag === 'map-probe')!.props;
-  return { root, map, preview, storage, router, directory: () => directory, gis: useGisWorkspaceStore(), editor: useResourceEditStore(), monitor: useMonitoringStore() };
+  return { root, map, preview, storage, router, directory: () => directory, gis: useGisWorkspaceStore(), editor: useResourceEditStore(), monitor: useMonitoringStore(), wb };
 }
+async function enterAnalysis(s: Awaited<ReturnType<typeof mountEntry>>) { return openWorkbenchFromPage(s.root, s.wb); }
+async function returnFromAnalysis(s: Awaited<ReturnType<typeof mountEntry>>) { await clickWorkbench(s.root, '返回当前资源'); }
 
 describe('GIS 设备覆盖入口和控制', () => {
   it.each(['身份', '失权', '版本', '监控', '离页'] as const)('覆盖读取等待期间改变%s后，迟到结果不能接管地图', async kind => {
@@ -344,14 +355,14 @@ describe('GIS 设备覆盖入口和控制', () => {
     expect((s.map().deviceCoverages as DeviceCoverageOverlay[])[0].sample).toEqual(sample);
   });
   it('干扰冻结网络隔离设备教学层，返回后恢复原样例', async () => {
-    const s = await mountEntry(); await click(s.root, '查看覆盖');
-    const fixture = await interferenceFixture(), submitted = await fixture.submit(); fixture.advance();
-    const loaded = await fixture.service.loadInterferenceWorkspace(), analysis = useInterferenceStore();
-    analysis.views = loaded.views; analysis.analysisId = submitted.view.run.analysisId; s.gis.mapMode = 'analysis'; await nextTick();
-    expect(s.map().deviceCoverageActive).toBe(false); expect(s.map().deviceCoverages).toEqual([]);
-    expect(s.map().regions).toEqual(analysis.selected!.run.network.regions);
-    expect(s.map().highlightLinkIds).toEqual([]);
-    await click(s.root, '返回资源地图'); expect((s.map().deviceCoverages as DeviceCoverageOverlay[])[0].sample.deviceId).toBe('DV-0001');
+    const s = await mountEntry('DV-0001', true); await click(s.root, '查看覆盖');
+    const sample = (s.map().deviceCoverages as DeviceCoverageOverlay[])[0].sample, analysis = await enterAnalysis(s);
+    const map = analysisMap(s.root);
+    expect(map.gisDeviceFrame).toBeUndefined(); expect(map.deviceCoverageActive).not.toBe(true);
+    expect(map.frozenNetwork).toBeNull(); expect(map.interferenceProjection).toEqual(analysis.mapProjection);
+    expect(map.stations).toEqual([]);
+    await returnFromAnalysis(s); expect((s.map().deviceCoverages as DeviceCoverageOverlay[])[0].sample).toEqual(sample);
+    s.wb.assertNoWrites();
   });
   it('离页再进入恢复整网，覆盖选择不写入浏览器存储', async () => {
     const s = await mountEntry(); await click(s.root, '查看覆盖');
@@ -454,18 +465,18 @@ describe('GIS 设备频率入口联动', () => {
     expect(ids(s)).toEqual([]); expect(frame(s)!.selectedDeviceId).toBe('DV-0002'); expect(textOf(s.root)).toContain('当前选中设备未在地图显示');
   });
   it('监控/分析往返保留频率输入但不裁剪冻结网络，换身份重置', async () => {
-    const s = await mountEntry(); await click(s.root, '图层管理'); await frequency(s.root);
+    const s = await mountEntry('DV-0001', true); await click(s.root, '图层管理'); await frequency(s.root);
     await change(s.root, 'GIS 频率下限（kHz）', '7000', 'onInput');
     s.monitor.showNetwork(); await settleMonitoring(); const monitored = JSON.stringify([s.map().stations, s.map().links, s.map().regions]);
     expect(frame(s)).toBeUndefined(); await click(s.root, '清除频率条件');
     expect(JSON.stringify([s.map().stations, s.map().links, s.map().regions])).toBe(monitored);
     await click(s.root, '资源树'); expect(ids(s)).toEqual([]); await click(s.root, '图层管理'); expect(control(s.root, 'GIS 频率下限（kHz）').props.value).toBe('7000');
-    const fixture = await interferenceFixture(), submitted = await fixture.submit(); fixture.advance();
-    const loaded = await fixture.service.loadInterferenceWorkspace(), analysis = useInterferenceStore();
-    analysis.views = loaded.views; analysis.analysisId = submitted.view.run.analysisId; s.gis.mapMode = 'analysis'; await nextTick();
-    const frozen = JSON.stringify(analysis.selected); expect(frame(s)).toBeUndefined();
-    await click(s.root, '清除频率条件'); expect(JSON.stringify(analysis.selected)).toBe(frozen);
-    await click(s.root, '资源树'); expect(ids(s)).toEqual([]); await click(s.root, '图层管理'); expect(control(s.root, 'GIS 频率下限（kHz）').props.value).toBe('7000');
+    const analysis = await enterAnalysis(s), frozen = JSON.stringify(analysis.mapProjection);
+    expect(analysisMap(s.root).gisDeviceFrame).toBeUndefined();
+    expect(analysis.mapProjection?.nodes).toHaveLength(s.wb.network.nodes.length);
+    expect(analysis.mapProjection?.links).toHaveLength(s.wb.network.links.length);
+    expect(JSON.stringify(analysis.mapProjection)).toBe(frozen); s.wb.assertNoWrites();
+    await returnFromAnalysis(s); expect(ids(s)).toEqual([]); await click(s.root, '图层管理'); expect(control(s.root, 'GIS 频率下限（kHz）').props.value).toBe('7000');
     useAuthStore().generation++; await nextTick(); expect(ids(s)).toHaveLength(414); expect(control(s.root, 'GIS 频率下限（kHz）').props.value).toBe('');
     expect(s.storage.writes).toBe(0);
   });
@@ -606,11 +617,10 @@ describe('GIS 目录显式选择保护', () => {
     await select(s.root, '选择链路 PL-001'); expect(close).not.toHaveBeenCalled(); expect(s.map().selectedLinkId).toBeUndefined();
   });
   it('干扰分析目录显式选链路后回到普通资源详情，不修改冻结分析', async () => {
-    const s = await mountEntry(), fixture = await interferenceFixture(), submitted = await fixture.submit(); fixture.advance();
-    const loaded = await fixture.service.loadInterferenceWorkspace(), analysis = useInterferenceStore();
-    analysis.views = loaded.views; analysis.analysisId = submitted.view.run.analysisId; s.gis.mapMode = 'analysis'; await nextTick();
+    const s = await mountEntry('DV-0001', true), analysis = await enterAnalysis(s);
     const before = JSON.stringify(analysis.selected);
-    await search(s.root, 'PL-001'); expect(s.gis.mapMode).toBe('analysis');
+    expect(analysisMap(s.root).interferenceProjection).toEqual(analysis.mapProjection);
+    await returnFromAnalysis(s); await search(s.root, 'PL-001');
     await select(s.root, '选择链路 PL-001'); expect(s.gis.mapMode).toBe('resource'); expect(s.map().selectedLinkId).toBe('PL-001');
     expect(JSON.stringify(analysis.selected)).toBe(before); expect(s.storage.writes).toBe(0);
   });
@@ -688,13 +698,12 @@ describe('普通 GIS 设备点位与聚合清单接入', () => {
     done(true); await settleMonitoring(); expect(frame(s)!.selectedDeviceId).toBe('DV-0001');
   });
   it('模式往返保留显示偏好但关闭清单，冻结网络不接入设备实例层', async () => {
-    const s = await mountEntry(); await click(s.root, '图层管理'); await change(s.root, 'HF设备透明度', '0.3', 'onInput'); await open(s);
+    const s = await mountEntry('DV-0001', true); await click(s.root, '图层管理'); await change(s.root, 'HF设备透明度', '0.3', 'onInput'); await open(s);
     s.monitor.showNetwork(); await settleMonitoring(); expect(frame(s)).toBeUndefined(); expect(list(s.root)).toBeUndefined();
     await click(s.root, '资源树'); expect(frame(s)!.settings.HF.opacity).toBe(0.3);
-    const fixture = await interferenceFixture(), submitted = await fixture.submit(); fixture.advance();
-    const loaded = await fixture.service.loadInterferenceWorkspace(), analysis = useInterferenceStore();
-    analysis.views = loaded.views; analysis.analysisId = submitted.view.run.analysisId; s.gis.mapMode = 'analysis'; await nextTick();
-    expect(frame(s)).toBeUndefined(); await click(s.root, '资源树'); expect(frame(s)!.settings.HF.opacity).toBe(0.3);
+    await enterAnalysis(s);
+    expect(analysisMap(s.root).gisDeviceFrame).toBeUndefined(); expect(list(s.root)).toBeUndefined();
+    await returnFromAnalysis(s); expect(frame(s)!.settings.HF.opacity).toBe(0.3);
     useAuthStore().generation++; await nextTick(); expect(frame(s)!.settings.HF.opacity).toBe(1); expect(s.storage.writes).toBe(0);
   });
   it('新页面恢复默认，聚合清单不写入业务存储', async () => {
@@ -707,10 +716,7 @@ describe('普通 GIS 设备点位与聚合清单接入', () => {
 describe('GIS 三组结果图层页面接入', () => {
   const layers = (s: Awaited<ReturnType<typeof mountEntry>>) => s.map().gisResultLayers as GisResultLayerSettings;
   async function analysisMode(s: Awaited<ReturnType<typeof mountEntry>>) {
-    const fixture = await interferenceFixture(), submitted = await fixture.submit(); fixture.advance();
-    const loaded = await fixture.service.loadInterferenceWorkspace(), analysis = useInterferenceStore();
-    analysis.views = loaded.views; analysis.analysisId = submitted.view.run.analysisId; s.gis.mapMode = 'analysis'; await nextTick();
-    return analysis;
+    return enterAnalysis(s);
   }
   it('独立开关和透明度经过实际面板；设备入口只恢复覆盖，保留选中对象和业务数据', async () => {
     const s = await mountEntry(), before = JSON.stringify(s.preview.data), submit = vi.spyOn(previewService, 'submitPlanning');
@@ -751,21 +757,21 @@ describe('GIS 三组结果图层页面接入', () => {
     expect(layers(s).illustration).toEqual({ visible: true, opacity: 0.2 }); expect(s.map().deviceCoverageActive).toBe(true);
   });
   it('监控不显示区域，分析使用冻结来源和等级筛选，返回设备模式保留各自偏好', async () => {
-    const s = await mountEntry(); await click(s.root, '查看覆盖'); await change(s.root, '信号覆盖透明度', '0.5', 'onInput');
+    const s = await mountEntry('DV-0001', true); await click(s.root, '查看覆盖'); await change(s.root, '信号覆盖透明度', '0.5', 'onInput');
     await change(s.root, '显示原有影响示意区域', false);
     s.monitor.showNetwork(); await settleMonitoring(); expect(Object.values(layers(s)).every(row => !row.visible)).toBe(true);
     expect(s.map().regions).toEqual([]); expect(textOf(s.root)).toContain('监控网络不提供此类区域');
     const analysis = await analysisMode(s), impact = JSON.stringify(analysis.impact);
-    expect(s.map().regions).toEqual(analysis.selected!.run.network.regions); expect(layers(s).coverage.opacity).toBe(0.5);
-    await change(s.root, '显示干扰分析影响区域', false); await change(s.root, '干扰分析影响区域透明度', '0.2', 'onInput');
-    expect(JSON.stringify(analysis.impact)).toBe(impact); expect(s.map().interferenceImpact).toEqual(analysis.filteredImpact);
-    analysis.levels = []; await nextTick(); expect(textOf(s.root)).toContain('当前等级筛选未显示影响区域');
+    expect(analysisMap(s.root).interferenceProjection).toEqual(analysis.mapProjection);
+    expect(analysisMap(s.root).gisResultLayers).toBeUndefined();
+    analysis.levels = []; await nextTick(); expect(analysis.filteredImpact?.affected_links).toEqual([]);
+    expect(analysis.filteredImpact?.affected_nodes).toEqual([]); expect(JSON.stringify(analysis.impact)).toBe(impact);
     s.gis.scene!.resourceMeta.changedDeviceIds.push('DV-0001'); await nextTick();
-    expect(layers(s).coverage.visible).toBe(true); // 冻结分析不受普通资源编辑暂停。
-    s.gis.scene!.resourceMeta.changedDeviceIds = []; await click(s.root, '返回资源地图');
+    expect(analysisMap(s.root).interferenceProjection).toEqual(analysis.mapProjection);
+    s.gis.scene!.resourceMeta.changedDeviceIds = []; await returnFromAnalysis(s);
     expect((s.map().deviceCoverages as DeviceCoverageOverlay[])[0].sample.deviceId).toBe('DV-0001');
-    expect(layers(s).illustration.visible).toBe(false); s.gis.mapMode = 'analysis'; await nextTick();
-    expect(layers(s).interference).toEqual({ visible: false, opacity: 0.2 }); expect(s.storage.writes).toBe(0);
+    expect(layers(s).illustration.visible).toBe(false); expect(layers(s).coverage.opacity).toBe(0.5);
+    expect(s.storage.writes).toBe(0); s.wb.assertNoWrites();
   });
   it('权限丢失暂停区域，身份更换及离页重进恢复默认配置', async () => {
     const s = await mountEntry(); await click(s.root, '图层管理'); await change(s.root, '信号覆盖透明度', '0.2', 'onInput');
@@ -868,17 +874,16 @@ describe('普通 GIS 链路点选详情接入', () => {
     authorizeStore(); await nextTick(); expect(s.map().selectedLinkId).toBe('PL-001'); expect(s.storage.writes).toBe(0);
   });
   it('监控和干扰分析使用自己的网络与选择，返回资源视图恢复原链路', async () => {
-    const s = await mountEntry(); await selectLink(s, 'PL-002');
+    const s = await mountEntry('DV-0001', true); await selectLink(s, 'PL-002');
     const baseline = s.gis.scene!.situation.links;
     s.monitor.showNetwork(); await settleMonitoring(); expect(detail(s.root)).toBeUndefined(); expect(s.map().selectedLinkId).not.toBe('PL-002');
     expect(s.map().links).not.toEqual(baseline); await click(s.root, '资源树'); expect(s.map().selectedLinkId).toBe('PL-002');
-    const fixture = await interferenceFixture(), submitted = await fixture.submit(); fixture.advance();
-    const loaded = await fixture.service.loadInterferenceWorkspace(), analysis = useInterferenceStore();
-    analysis.views = loaded.views; analysis.analysisId = submitted.view.run.analysisId; s.gis.mapMode = 'analysis'; await nextTick();
-    expect(detail(s.root)).toBeUndefined(); expect(s.map().selectedLinkId).not.toBe('PL-002');
-    const analysisId = analysis.selected!.run.network.links[0].id;
-    await selectLink(s, analysisId); expect(s.map().selectedLinkId).toBe(analysisId); expect(s.gis.mapMode).toBe('analysis');
-    await click(s.root, '资源树'); expect(s.map().selectedLinkId).toBe('PL-002'); expect(detail(s.root)).toBeDefined();
+    await enterAnalysis(s);
+    expect(detail(s.root)).toBeUndefined(); expect(analysisMap(s.root).selectedLinkId).not.toBe('PL-002');
+    const analysisId = s.wb.network.links[0]!.id;
+    await clickWorkbench(s.root, row => workbenchText(row).startsWith(`${analysisId} ·`));
+    expect(analysisMap(s.root).selectedLinkId).toBe(analysisId);
+    await returnFromAnalysis(s); expect(s.map().selectedLinkId).toBe('PL-002'); expect(detail(s.root)).toBeDefined();
     expect(s.gis.scene!.situation.links).toEqual(baseline); expect(s.storage.writes).toBe(0);
   });
 });
@@ -891,10 +896,7 @@ describe('GIS 拓扑独立透明度和上下文保护', () => {
   const requests = () => [previewService.loadPreview, previewService.loadInterferenceWorkspace,
     previewService.loadMonitoringContext, previewService.getMonitoringFrame].map(fn => vi.mocked(fn).mock.calls.length);
   async function analysisMode(s: Awaited<ReturnType<typeof mountEntry>>) {
-    const fixture = await interferenceFixture(), submitted = await fixture.submit(); fixture.advance();
-    const loaded = await fixture.service.loadInterferenceWorkspace(), analysis = useInterferenceStore();
-    analysis.views = loaded.views; analysis.analysisId = submitted.view.run.analysisId; s.gis.mapMode = 'analysis'; await nextTick();
-    return analysis;
+    return enterAnalysis(s);
   }
   it('默认 100%，0/中间值/1 只调整拓扑显示；拒绝空白、非数与越界输入', async () => {
     const s = await mountEntry(); await click(s.root, '图层管理');
@@ -999,22 +1001,37 @@ describe('GIS 拓扑独立透明度和上下文保护', () => {
     await opacity(s.root, '0.6'); expect(s.map().topologyOpacity).toBe(0.6);
     expect(previewService.getMonitoringFrame).toHaveBeenCalledTimes(count); expect(s.storage.writes).toBe(0);
   });
-  it('分析措施前后只换冻结网络，旧前态事件失效；隐藏后分析清单仍选链路', async () => {
-    const s = await mountEntry(); await click(s.root, '图层管理'); await opacity(s.root, '0.4'); const analysis = await analysisMode(s);
-    const measure = analysis.selected!.result!.measures.find(row => analysis.selected!.measurePreviews?.some(preview => preview.measureId === row.id && preview.result));
-    expect(measure).toBeDefined(); analysis.measureId = measure!.id; await nextTick();
+  it('新版措施前后只换冻结投影，普通资源旧控件不能改分析；清单仍能选链路', async () => {
+    const s = await mountEntry('DV-0001', true); await click(s.root, '图层管理'); await opacity(s.root, '0.4');
     const oldOpacity = control(s.root).props.onInput as (event: unknown) => void, oldMap = mapLink(s);
-    analysis.after = true; await nextTick(); expect(analysis.effectiveAfter).toBe(true); expect(s.map().links).toEqual(analysis.selectedMeasurePreview!.result!.links);
-    analysis.after = false; await nextTick(); oldOpacity({ target: { value: '0' } }); oldMap((s.map().links as { id: string }[])[0].id); await settleMonitoring();
-    expect(s.map().topologyOpacity).toBe(0.4); expect(s.map().selectedLinkId).toBe('');
-    const id = (s.map().links as { id: string }[])[0].id; mapLink(s)(id); await settleMonitoring();
-    const panel = () => find(s.root, row => row.tag === 'analysis-probe')!;
-    expect(panel()).toBeDefined(); await opacity(s.root, '0'); await change(s.root, '显示规划后链路', false);
-    const second = (s.map().links as { id: string }[])[1].id, frozen = JSON.stringify(analysis.selected), counts = requests();
-    mapLink(s)(second); await settleMonitoring(); expect(s.map().selectedLinkId).toBe(id);
-    (panel().props.selectLink as (id: string) => void)(second); await settleMonitoring(); expect(s.map().selectedLinkId).toBe(second);
-    s.gis.scene!.resourceMeta.changedDeviceIds.push('DV-0001'); await nextTick(); expect(control(s.root).props.disabled).toBe(false);
-    await opacity(s.root, '0.7'); expect(s.map().topologyOpacity).toBe(0.7); expect(s.map().showLinks).toBe(false);
-    expect(JSON.stringify(analysis.selected)).toBe(frozen); expect(requests()).toEqual(counts); expect(s.storage.writes).toBe(0);
+    const analysis = await analysisMode(s), frozen = JSON.stringify(analysis.selected);
+    await clickWorkbench(s.root, row => workbenchText(row).startsWith('P5 · 节点重部署'));
+    await clickWorkbench(s.root, '措施后预测');
+    expect(analysis.effectiveAfter).toBe(true); expect(analysis.mapProjection?.phase).toBe('PREVIEW');
+    expect(analysis.mapProjection?.nodes.find(row => row.node_id === 'UNIT-N1')).toMatchObject({lon:116.2,lat:38.8});
+    oldOpacity({target:{value:'0'}});oldMap('PL-001');await settleWorkbench();
+    expect(analysisMap(s.root).interferenceProjection).toEqual(analysis.mapProjection);expect(analysisMap(s.root).selectedLinkId).toBe('');
+    await clickWorkbench(s.root, row => workbenchText(row).startsWith('UNIT-L2 ·'));
+    expect(analysisMap(s.root).selectedLinkId).toBe('UNIT-L2');
+    const reads = s.wb.workbench.getRun.mock.calls.length;
+    await clickWorkbench(s.root, '措施前');expect(analysis.mapProjection?.phase).toBe('BEFORE');
+    expect(JSON.stringify(analysis.selected)).toBe(frozen);expect(s.wb.workbench.getRun).toHaveBeenCalledTimes(reads);
+    await returnFromAnalysis(s);await click(s.root,'图层管理');expect(s.map().topologyOpacity).toBe(0.4);
+    await opacity(s.root,'0');await change(s.root,'显示规划后链路',false);expect(s.map().showLinks).toBe(false);
+    expect(s.storage.writes).toBe(0);s.wb.assertNoWrites();
+  });
+  it('新版分析宿主仍须保留影响区域开关及透明度，不能因换宿主丢掉原覆盖', async () => {
+    const s=await mountEntry('DV-0001',true);await enterAnalysis(s);
+    for(const label of ['显示干扰分析影响区域','干扰分析影响区域透明度','拓扑透明度','显示规划后链路']) {
+      expect(find(s.root,row=>row.props['aria-label']===label),`${label}：需由新冻结宿主提供，不借旧资源控件替代`).toBeDefined();
+    }
+    s.wb.assertNoWrites();
+  });
+  it('措施前地图的迟到线条事件不能污染措施后选择', async () => {
+    const s=await mountEntry('DV-0001',true);await enterAnalysis(s);
+    const stale=analysisMap(s.root).selectFrozenLink as (id:string)=>void;
+    await clickWorkbench(s.root,row=>workbenchText(row).startsWith('P5 · 节点重部署'));
+    await clickWorkbench(s.root,'措施后预测');stale('UNIT-L1');await settleWorkbench();
+    expect(analysisMap(s.root).selectedLinkId).toBe('');s.wb.assertNoWrites();
   });
 });
