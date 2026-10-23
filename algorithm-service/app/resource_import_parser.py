@@ -19,13 +19,13 @@ from openpyxl.worksheet._writer import WorksheetWriter
 from openpyxl.writer.excel import ExcelWriter
 
 from .resource_export_service import BOOLEANS, HEADERS, NUMERIC, TABLES, XLSX_MIME
+from .resource_geography import valid_bounds
 
 MAX_FILE_BYTES = 5 * 1024 * 1024
 MAX_ROWS = 5000
 MAX_ZIP_BYTES = 32 * 1024 * 1024
 MAX_ZIP_MEMBER_BYTES = 16 * 1024 * 1024
 MAX_ZIP_MEMBERS = 256
-BOUNDS = (114.0465, 36.911, 115.4045, 37.989)
 TABLE_IDS = {
     "node.csv": "node_id", "device.csv": "device_id",
     "device_model.csv": "model_id", "antenna_model.csv": "antenna_id",
@@ -297,7 +297,7 @@ def _xlsx_records(data):
         raise _FileError("XLSX 文件损坏或格式不受支持") from exc
 
 
-def _validate_record(kind, line, row, old, changed, indexes, issues, warnings):
+def _validate_record(kind, line, row, old, changed, indexes, issues, warnings, bounds):
     object_id = row[HEADERS[kind][0]]
 
     def issue(field, message):
@@ -323,9 +323,23 @@ def _validate_record(kind, line, row, old, changed, indexes, issues, warnings):
             issue(field, "文本长度或首尾空白无效")
 
     def coords():
-        for field, low, high in (("lon", BOUNDS[0], BOUNDS[2]), ("lat", BOUNDS[1], BOUNDS[3])):
-            if old is None or field in changed:
-                number(field, low=low, high=high)
+        try:
+            coordinate = [_number(row.get(field, "")) for field in ("lon", "lat")]
+        except ValueError:
+            for field in ("lon", "lat"):
+                number(field)
+            return
+        if old is not None:
+            try:
+                if coordinate == [_number(old.get(field, "")) for field in ("lon", "lat")]:
+                    return
+            except ValueError:
+                pass
+        if not valid_bounds(bounds):
+            issue("coordinate", "当前 DEM 范围缺失或无效，不能新增或修改坐标")
+            return
+        for field, low, high in (("lon", bounds[0], bounds[2]), ("lat", bounds[1], bounds[3])):
+            number(field, low=low, high=high)
 
     if kind == "nodes":
         coords()
@@ -431,7 +445,7 @@ def _validate_record(kind, line, row, old, changed, indexes, issues, warnings):
                 issue("azimuth_deg", "定向干扰源须填写方位角")
 
 
-def parse_import(tables: dict, file_name: str, data: bytes, kind: str) -> dict:
+def parse_import(tables: dict, file_name: str, data: bytes, kind: str, bounds=None) -> dict:
     """返回完整十表深拷贝、文件行差异及逐行问题；任一问题均撤销整批候选。"""
     baseline = deepcopy(tables)
     result = {"tables": baseline, "rows": [], "issues": [], "warnings": []}
@@ -515,7 +529,7 @@ def parse_import(tables: dict, file_name: str, data: bytes, kind: str) -> dict:
     # 先完成三表合并，再校验引用，允许设备引用本批次任意顺序新增的站点。
     for sheet, line, row, old, changed in pending:
         if old is None or changed:
-            _validate_record(sheet, line, row, old, changed, indexes, issues, warnings)
+            _validate_record(sheet, line, row, old, changed, indexes, issues, warnings, bounds)
     if not issues:
         result["tables"] = candidate
     return result

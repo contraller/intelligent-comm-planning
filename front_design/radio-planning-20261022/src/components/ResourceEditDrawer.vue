@@ -34,7 +34,7 @@
           <dd>{{ model?.name }} · {{ device.modelId }}</dd>
           <!-- 观测只用于展示，不写入此配置表单。 -->
           <dt>运行状态（台账基线，只读）</dt>
-          <dd>{{ device.status }}</dd>
+          <dd>{{ device.status ?? '未知' }}</dd>
           <dt>功率上限</dt>
           <dd>{{ model?.txPowerMaxDbm }} dBm</dd>
           <dt>频率范围</dt>
@@ -49,18 +49,18 @@
         超出型号上限，未修改时可保留；新输入须符合上限，原因待甲方确认。
       </p>
       <p
-        v-if="editor.form.kind === 'station'"
+        v-if="editor.form.kind === 'station' && planningBounds"
         class="readonly-note"
       >
-        规划范围：经度 {{ DEMO_BBOX[0] }}–{{ DEMO_BBOX[2] }}，纬度 {{ DEMO_BBOX[1] }}–{{
-          DEMO_BBOX[3]
-        }}；保存六位小数。
+        规划范围：经度 {{ planningBounds[0] }}–{{ planningBounds[2] }}，纬度 {{ planningBounds[1] }}–{{ planningBounds[3] }}。
       </p>
+      <p v-else-if="editor.form.kind === 'station'" class="readonly-note">当前 DEM 范围未提供，不能新增或修改坐标；其他参数仍可编辑。</p>
       <p
         v-if="editor.form.creating && editor.form.kind !== 'candidate'"
         class="notice"
-        >新登记对象初始为离线、无告警；固定站可稍后添加设备。</p
+        >新登记对象的运行状态和告警均未知；固定站可稍后添加设备。</p
       >
+      <p v-if="httpMode && editor.form.kind === 'device'" class="readonly-note">工作模式协议待确认，暂不提供修改。</p>
       <p
         v-if="editor.form.kind === 'candidate'"
         class="notice"
@@ -334,12 +334,18 @@ import AppDrawer from './AppDrawer.vue';
 import { useGisWorkspaceStore } from '../stores/gis-workspace';
 import { useResourceEditStore } from '../stores/resource-edit';
 import { stationTypes } from '../config/resource-options';
-import { DEMO_BBOX } from '../config/demo';
+import { env } from '../config/env';
+import { validPlanningBounds } from '../services/resource-geography';
 import { maintenanceModes } from '../services/device-maintenance';
 const gis = useGisWorkspaceStore();
 const editor = useResourceEditStore();
+const httpMode = computed(() => env.mode === 'http');
+const planningBounds = computed(() => {
+  const bounds = editor.saved?.validationSource?.planningBounds;
+  return validPlanningBounds(bounds) ? bounds : null;
+});
 const formFields = computed<Record<string, string>>(() =>
-  Object.fromEntries(Object.entries(editor.form?.fields ?? {}).filter(([key]) => key !== 'ports')),
+  Object.fromEntries(Object.entries(editor.form?.fields ?? {}).filter(([key]) => key !== 'ports' && !(httpMode.value && key === 'currentWorkMode'))),
 );
 const { fieldRoot, focusIssue, locateField } = useGisIssueFocus(editor);
 // 失权保留字段，阻止应用或保存。

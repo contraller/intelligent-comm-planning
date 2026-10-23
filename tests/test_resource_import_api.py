@@ -23,6 +23,7 @@ sys.path.insert(0, str(ROOT / "algorithm-service"))
 from app import database, integration_identity_service as identity
 from app import resource_dataset_service as datasets, resource_import_service as imports
 from app import resource_import_parser as parser
+from app import resource_geography as geography
 from app.database import Base
 from app.main import app
 from app.integration_identity_models import IntegrationSession
@@ -31,10 +32,12 @@ from app.resource_dataset_models import ResourceDatasetCurrent, ResourceDatasetO
 from app.resource_export_service import HEADERS, TABLES
 
 PREFIX = "/api/v1/resource/import"
+TEST_BOUNDS = (113.14986111114996, 36.27597222221908, 114.9498611111502, 37.72402777777483)
 
 
 @pytest.fixture
 def import_api(monkeypatch, request):
+    monkeypatch.setattr(geography, "read_planning_bounds", lambda: TEST_BOUNDS)
     directory = ROOT / "data/runtime/tmp" / ("import-api-" + uuid4().hex)
     directory.mkdir(parents=True, exist_ok=False)
     path = directory / "import.sqlite"
@@ -217,8 +220,8 @@ def test_xlsx_cross_table_new_records_preserve_unknown_status_and_import_origin(
     node_id, device_id = "IMPORT-NEW-NODE", "IMPORT-NEW-DEVICE"
     book["nodes"]["A2"] = node_id
     book["nodes"]["E2"] = ""
-    book["nodes"]["H2"] = (parser.BOUNDS[0] + parser.BOUNDS[2]) / 2
-    book["nodes"]["I2"] = (parser.BOUNDS[1] + parser.BOUNDS[3]) / 2
+    book["nodes"]["H2"] = (TEST_BOUNDS[0] + TEST_BOUNDS[2]) / 2
+    book["nodes"]["I2"] = (TEST_BOUNDS[1] + TEST_BOUNDS[3]) / 2
     book["nodes"]["N2"] = ""
     device = baseline["tables"]["device.csv"][0]
     model = next(row for row in baseline["tables"]["device_model.csv"] if row["model_id"] == device["model_id"])

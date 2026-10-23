@@ -17,6 +17,9 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "algorithm-service"))
 from app import resource_import_parser as parser
 
+# 仅供旧解析用例显式注入，不是生产默认范围。
+TEST_BOUNDS = (114.0465, 36.911, 115.4045, 37.989)
+
 
 @pytest.fixture
 def tables():
@@ -59,7 +62,7 @@ def csv_bytes(kind, rows, headers=None):
 
 
 def parse(tables, kind, rows, headers=None):
-    return parser.parse_import(tables, "input.csv", csv_bytes(kind, rows, headers), kind)
+    return parser.parse_import(tables, "input.csv", csv_bytes(kind, rows, headers), kind, TEST_BOUNDS)
 
 
 def workbook_bytes(tables, rows=None, mutate=None, order=None):
@@ -82,7 +85,7 @@ def workbook_bytes(tables, rows=None, mutate=None, order=None):
 
 
 def parse_xlsx(tables, **kwargs):
-    return parser.parse_import(tables, "input.xlsx", workbook_bytes(tables, **kwargs), "nodes")
+    return parser.parse_import(tables, "input.xlsx", workbook_bytes(tables, **kwargs), "nodes", TEST_BOUNDS)
 
 
 def assert_atomic_failure(tables, result):
@@ -155,7 +158,7 @@ def test_invalid_long_ids_have_bounded_diagnostics_without_mutating_input(tables
     row = {**tables["node.csv"][0], "node_id": identifier}
     original = deepcopy(tables)
     data = csv_bytes("nodes", [row])
-    result = parser.parse_import(tables, "input.csv", data, "nodes")
+    result = parser.parse_import(tables, "input.csv", data, "nodes", TEST_BOUNDS)
     assert_atomic_failure(tables, result)
     assert tables == original and row["node_id"] == identifier
     assert result["rows"] == []
@@ -179,7 +182,7 @@ def test_sanitized_issues_do_not_rewrite_raw_row_differences_or_candidate(tables
 
 @pytest.mark.parametrize("filename,data", [("bad\x00.xlsm", b"unsupported"), ("bad\n.xlsx", b"bad zip"), ("input.csv", b"")])
 def test_file_level_diagnostics_are_displayable_without_relabeling_business_rows(tables, filename, data):
-    result = parser.parse_import(tables, filename, data, "nodes")
+    result = parser.parse_import(tables, filename, data, "nodes", TEST_BOUNDS)
     assert_atomic_failure(tables, result)
     assert result["rows"] == []
     assert result["issues"][0]["sheet"] == "file" and result["issues"][0]["row"] == 0
@@ -219,7 +222,7 @@ def test_optional_columns_preserve_values_and_unmentioned_rows(tables):
 def test_bom_formula_text_and_multiline_csv_roundtrip(tables, bom):
     raw = '~rp~=SUM(1,2)\n"原文"'
     row = {**tables["node.csv"][0], "remark": "~rp~" + json.dumps(raw, ensure_ascii=False)}
-    result = parser.parse_import(tables, "input.csv", bom + csv_bytes("nodes", [row]), "nodes")
+    result = parser.parse_import(tables, "input.csv", bom + csv_bytes("nodes", [row]), "nodes", TEST_BOUNDS)
     assert not result["issues"]
     assert result["tables"]["node.csv"][0]["remark"] == raw
 
@@ -248,7 +251,7 @@ def test_csv_headers_and_column_count_are_strict(tables, mutation):
         data = data[:-2] + b",extra\r\n"
     elif mutation == "quote":
         data = data.split(b"\r\n")[0] + b'\r\n"unclosed'
-    assert_atomic_failure(tables, parser.parse_import(tables, "input.csv", data, "nodes"))
+    assert_atomic_failure(tables, parser.parse_import(tables, "input.csv", data, "nodes", TEST_BOUNDS))
 
 
 def test_duplicate_id_and_mixed_valid_invalid_batch_are_atomic(tables):
@@ -325,7 +328,7 @@ def test_noop_template_preserves_origin_and_empty_status(tables, origin):
         if origin is not None:
             tables[name][0]["origin"] = origin
     data, _, filename = parser.make_template(tables, "xlsx", "nodes")
-    result = parser.parse_import(tables, filename, data, "nodes")
+    result = parser.parse_import(tables, filename, data, "nodes", TEST_BOUNDS)
     assert not result["issues"]
     assert all(row["action"] == "UNCHANGED" for row in result["rows"])
     assert result["tables"] == tables
@@ -338,7 +341,7 @@ def test_empty_missing_readonly_fields_do_not_create_noop_changes(tables):
     for field in ("status", "install_time", "availability", "tilt_deg", "work_freq_khz"):
         tables["device.csv"][0].pop(field)
     data, _, filename = parser.make_template(tables, "csv", "devices")
-    result = parser.parse_import(tables, filename, data, "devices")
+    result = parser.parse_import(tables, filename, data, "devices", TEST_BOUNDS)
     assert not result["issues"]
     assert result["rows"][0]["action"] == "UNCHANGED"
     assert result["rows"][0]["differences"] == []
@@ -473,7 +476,7 @@ def test_templates_use_current_rows_and_roundtrip_without_invention(tables, kind
     data, mime, filename = parser.make_template(tables, format, kind)
     assert "SYNTHETIC_INTEGRATION" in filename and "非生产非实测" in filename
     assert not data.startswith(b"\xef\xbb\xbf")
-    result = parser.parse_import(tables, filename, data, kind)
+    result = parser.parse_import(tables, filename, data, kind, TEST_BOUNDS)
     assert not result["issues"], result["issues"]
     assert result["tables"] == tables == original
     assert all(row["action"] == "UNCHANGED" for row in result["rows"])
@@ -492,7 +495,7 @@ def test_template_includes_current_device_ancestors(tables):
     tables["node.csv"].append({**tables["node.csv"][0], "node_id": "parent"})
     tables["node.csv"][0]["parent_node_id"] = "parent"
     data, _, filename = parser.make_template(tables, "xlsx", "devices")
-    result = parser.parse_import(tables, filename, data, "devices")
+    result = parser.parse_import(tables, filename, data, "devices", TEST_BOUNDS)
     assert not result["issues"]
     assert {row["id"] for row in result["rows"] if row["sheet"] == "nodes"} == {"N1", "parent"}
 
@@ -558,7 +561,7 @@ def test_hidden_invalid_sheet_names_are_sanitized_only_in_diagnostics(tables, ti
         return ET.tostring(root, encoding="utf-8")
 
     data = rewrite_archive(workbook_bytes(tables), transform)
-    result = parser.parse_import(tables, "input.xlsx", data, "nodes")
+    result = parser.parse_import(tables, "input.xlsx", data, "nodes", TEST_BOUNDS)
     assert_atomic_failure(tables, result)
     assert result["rows"] == []
     issue = result["issues"][0]
@@ -577,7 +580,7 @@ def test_xlsx_row_5002_is_preserved_as_diagnostic_position(tables):
         return raw
 
     data = rewrite_archive(workbook_bytes(tables), transform)
-    result = parser.parse_import(tables, "input.xlsx", data, "nodes")
+    result = parser.parse_import(tables, "input.xlsx", data, "nodes", TEST_BOUNDS)
     assert_atomic_failure(tables, result)
     assert result["rows"] == []
     assert result["issues"][0]["sheet"] == "nodes" and result["issues"][0]["row"] == 5002
@@ -605,7 +608,7 @@ def test_xlsx_zip_and_xml_security(tables, attack):
             return raw.replace(b"</Relationships>", b'<Relationship Type="x" Id="unsafe" Target="https://example.invalid" TargetMode="External"/></Relationships>')
         return raw
     data = rewrite_archive(workbook_bytes(tables), transform, {"xl/vbaProject.bin": b"macro"} if attack == "vba" else None)
-    result = parser.parse_import(tables, "input.xlsx", data, "nodes")
+    result = parser.parse_import(tables, "input.xlsx", data, "nodes", TEST_BOUNDS)
     if attack == "bad_dimension":
         assert not result["issues"]
         assert len(result["rows"]) == 3
@@ -616,13 +619,13 @@ def test_xlsx_zip_and_xml_security(tables, attack):
 def test_zip_expansion_limit_is_checked_before_openpyxl(tables, monkeypatch):
     data = rewrite_archive(workbook_bytes(tables), lambda name, raw: raw, {"padding.bin": b"A" * (parser.MAX_ZIP_BYTES + 1)})
     monkeypatch.setattr(parser, "load_workbook", lambda *args, **kwargs: pytest.fail("must reject before openpyxl"))
-    assert_atomic_failure(tables, parser.parse_import(tables, "input.xlsx", data, "nodes"))
+    assert_atomic_failure(tables, parser.parse_import(tables, "input.xlsx", data, "nodes", TEST_BOUNDS))
 
 
 def test_zip_rejects_case_aliases_before_xml_can_be_shadowed(tables):
     data = rewrite_archive(workbook_bytes(tables), lambda name, raw: raw,
                            {"xl/worksheets/SHEET1.xml": b"<worksheet/>"})
-    assert_atomic_failure(tables, parser.parse_import(tables, "input.xlsx", data, "nodes"))
+    assert_atomic_failure(tables, parser.parse_import(tables, "input.xlsx", data, "nodes", TEST_BOUNDS))
 
 
 def test_file_encoding_extension_size_and_record_limits(tables):
@@ -630,16 +633,16 @@ def test_file_encoding_extension_size_and_record_limits(tables):
                                   ("input.xlsx", b"broken zip", "nodes"), ("input.csv", b"", "nodes"),
                                   ("input.csv", b"x" * (parser.MAX_FILE_BYTES + 1), "nodes"),
                                   ("input.csv", b"x", "topology_links")]:
-        assert_atomic_failure(tables, parser.parse_import(tables, filename, data, kind))
+        assert_atomic_failure(tables, parser.parse_import(tables, filename, data, kind, TEST_BOUNDS))
     row = tables["node.csv"][0]
     data = csv_bytes("nodes", [{**row, "node_id": "N" + str(i)} for i in range(parser.MAX_ROWS + 1)])
-    invalid = parser.parse_import(tables, "input.csv", data, "nodes")
+    invalid = parser.parse_import(tables, "input.csv", data, "nodes", TEST_BOUNDS)
     assert_atomic_failure(tables, invalid)
     assert invalid["rows"] == []
     assert invalid["issues"][0]["sheet"] == "nodes" and invalid["issues"][0]["row"] == 5002
     assert_displayable_issue(invalid["issues"][0])
     data = csv_bytes("nodes", [{**row, "node_id": "N" + str(i)} for i in range(parser.MAX_ROWS)])
-    result = parser.parse_import(tables, "input.csv", data, "nodes")
+    result = parser.parse_import(tables, "input.csv", data, "nodes", TEST_BOUNDS)
     assert not result["issues"], result["issues"][:2]
     assert len(result["rows"]) == parser.MAX_ROWS
 
@@ -669,11 +672,11 @@ def test_parser_has_no_runtime_file_or_network_io(tables, monkeypatch):
     monkeypatch.setattr(builtins, "open", lambda *args, **kwargs: pytest.fail("unexpected file IO"))
     monkeypatch.setattr(socket, "socket", lambda *args, **kwargs: pytest.fail("unexpected network IO"))
     monkeypatch.setattr(_writer, "create_temporary_file", lambda *args, **kwargs: pytest.fail("unexpected temporary file IO"))
-    assert not parser.parse_import(tables, "input.csv", data, "nodes")["issues"]
-    assert not parser.parse_import(tables, "input.xlsx", xlsx, "nodes")["issues"]
+    assert not parser.parse_import(tables, "input.csv", data, "nodes", TEST_BOUNDS)["issues"]
+    assert not parser.parse_import(tables, "input.xlsx", xlsx, "nodes", TEST_BOUNDS)["issues"]
     for format in ("csv", "xlsx"):
         data, _, filename = parser.make_template(tables, format, "nodes")
-        assert not parser.parse_import(tables, filename, data, "nodes")["issues"]
+        assert not parser.parse_import(tables, filename, data, "nodes", TEST_BOUNDS)["issues"]
 
 
 @pytest.mark.parametrize("attack", ["formula", "date", "hidden_row"])

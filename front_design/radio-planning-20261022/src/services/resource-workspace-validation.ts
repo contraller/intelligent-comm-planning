@@ -4,6 +4,7 @@ import type { Antenna, Coordinate, Device, DeviceModel, InterferenceSource, Reso
 import type { GisResourceEditContext } from '../types/gis-workspace';
 import type { ResourceChanges, ResourceCommit, ResourceIssue, ResourceMaintenanceContext, ResourceMeta, ResourceMutationReceipt, ResourceSaveResult } from '../types/resource-edit';
 import { ApiError } from './types';
+import { validPlanningBounds } from './resource-geography';
 
 export const workspaceSource = '项目构造资源基线，非生产、非实测';
 export function workspaceFailure(field: string): never {
@@ -167,13 +168,17 @@ function candidate(value: unknown): CandidateLink {
   return result;
 }
 export function readWorkspaceResources(value: unknown, expectedRevision?: string): ResourcesData {
-  const v = workspaceRecord(value); workspaceKeys(v, ['stations', 'devices', 'models', 'antennas', 'source', 'version'], ['interferences', 'candidateLinks']);
+  const v = workspaceRecord(value); workspaceKeys(v, ['stations', 'devices', 'models', 'antennas', 'source', 'version'], ['interferences', 'candidateLinks', 'planningBounds']);
   const version = workspaceRevision(v.version);
   if (expectedRevision !== undefined && version !== expectedRevision || v.source !== workspaceSource) workspaceFailure('resource version/source');
   const resources: ResourcesData = { stations: unique(array(v.stations, station)), devices: unique(array(v.devices, device)), models: unique(array(v.models, model)),
     antennas: unique(array(v.antennas, antenna)), source: v.source, version };
   if (Object.hasOwn(v, 'interferences')) resources.interferences = unique(array(v.interferences, interference));
   if (Object.hasOwn(v, 'candidateLinks')) resources.candidateLinks = unique(array(v.candidateLinks, candidate));
+  if (Object.hasOwn(v, 'planningBounds')) {
+    if (v.planningBounds !== null && !validPlanningBounds(v.planningBounds)) workspaceFailure('planningBounds');
+    resources.planningBounds = v.planningBounds === null ? null : [...v.planningBounds as NonNullable<ResourcesData['planningBounds']>];
+  }
   const nodes = new Map(resources.stations.map(row => [row.id, row])), devices = new Map(resources.devices.map(row => [row.id, row]));
   const models = new Map(resources.models.map(row => [row.id, row])), antennas = new Set(resources.antennas.map(row => row.id));
   for (const row of resources.stations) if (row.parentIds.some(id => id === row.id || !nodes.has(id))) workspaceFailure('parent reference');
@@ -297,7 +302,16 @@ export function workspaceCommitBody(input: ResourceCommit) {
     const v = workspaceRecord(input); workspaceKeys(v, ['context', 'baseRevision', 'requestId', 'stations', 'devices'], workspaceChangeKeys);
     const context = choice(v.context, ['ledger', 'gis']), baseRevision = workspaceRevision(v.baseRevision), requestId = workspaceId(v.requestId);
     if (context !== 'gis' && ['newCandidateLinks', 'candidateLinks'].some(key => Object.hasOwn(v, key))) workspaceFailure('candidate context');
-    const changes = readWorkspaceChanges(Object.fromEntries(Object.entries(v).filter(([key]) => workspaceChangeKeys.includes(key as typeof workspaceChangeKeys[number]))), 'MANUAL');
+    const submitted = structuredClone(Object.fromEntries(Object.entries(v).filter(([key]) => workspaceChangeKeys.includes(key as typeof workspaceChangeKeys[number]))));
+    for (const key of ['devices', 'newDevices']) {
+      if (!Array.isArray(submitted[key])) continue;
+      for (const value of submitted[key]) {
+        const row = workspaceRecord(value);
+        if (row.currentWorkMode != null) throw new ApiError('工作模式协议待确认，HTTP暂不支持修改', 'VALIDATION_ERROR');
+        delete row.currentWorkMode;
+      }
+    }
+    const changes = readWorkspaceChanges(submitted, 'MANUAL');
     return { context, base_revision: baseRevision, request_id: requestId, changes };
   } catch (error) {
     if (!(error instanceof ApiError) || error.code !== 'INVALID_RESOURCE_RESPONSE') throw error;

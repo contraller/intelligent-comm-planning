@@ -74,6 +74,7 @@ export interface InterferenceSource {
   azimuthDeg: number | null; dutyCycle: number | null; active: boolean; origin: ResourceOrigin;
 }
 export interface ResourcesData {
+  planningBounds?: [number, number, number, number] | null;
   // HTTP 缺失保持缺失；仅 Mock 初始化与旧记录读取补来源目录。
   candidateLinks?: CandidateLink[];
   interferences?: InterferenceSource[];

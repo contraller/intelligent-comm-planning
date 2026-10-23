@@ -15,6 +15,7 @@ import {
 } from '../services/resource-validation';
 import type { GisFieldFocus } from '../services/gis-validation';
 import { ApiError } from '../services/types';
+import { coordinateInBounds } from '../services/resource-geography';
 import { usePreviewStore } from './preview';
 import { useAuthStore } from './auth';
 import { previewService } from '../services';
@@ -320,7 +321,19 @@ export const useResourceEditStore = defineStore('resource-edit', () => {
   }
   function pick(coordinate:Coordinate){
     if(!canEdit.value||busy.value||!picking.value||!form.value)return;
-    form.value.fields.longitude=coordinate[0].toFixed(6);form.value.fields.latitude=coordinate[1].toFixed(6);picking.value=false;
+    const fields=form.value.fields,keys=['longitude','latitude'] as const;
+    const previous=keys.map(key=>fields[key]);
+    keys.forEach((key,index)=>{fields[key]=String(coordinate[index]);});
+    const rounded=coordinate.map(value=>Number(value.toFixed(6))) as Coordinate;
+    const bounds=saved.value?.validationSource?.planningBounds;
+    // 不让舍入掩盖越界，也不把精确边界推到范围外。
+    const safe=rounded.every((value,index)=>value===coordinate[index])
+      ||coordinateInBounds(coordinate,bounds)&&coordinateInBounds(rounded,bounds);
+    keys.forEach((key,index)=>{
+      if(previous[index]?.trim()&&Number(previous[index])===coordinate[index])fields[key]=previous[index]!;
+      else if(safe)fields[key]=coordinate[index]!.toFixed(6);
+    });
+    picking.value=false;
   }
   function pickGis(coordinate:Coordinate,owner:EditForm,target?:GisPickTarget){
     // 新入口按表单实例核对，旧入口继续保持既有取点行为。

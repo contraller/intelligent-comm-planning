@@ -1,6 +1,6 @@
 // 统一生成 UUID，兼容局域网 HTTP 访问。
 import { randomUuid } from './random-uuid';
-import { DEMO_BBOX } from '../config/demo';
+import { env } from '../config/env';
 import type { Device, InterferenceSource, ResourcesData, Station } from '../types/domain';
 import type { EditForm, ResourceChanges, ResourceIssue, ResourceKind } from '../types/resource-edit';
 import { ApiError } from './types';
@@ -8,6 +8,7 @@ import { stationTypes } from '../config/resource-options';
 import type { CandidateLink, CandidateLinkPatch } from '../types/candidate-link';
 import { candidateConfigFields, emptyCandidateAssessment, validateCandidateLinks } from './candidate-link';
 import { maintenanceIssues } from './device-maintenance';
+import { coordinateInBounds, validCoordinate, validPlanningBounds } from './resource-geography';
 
 export const stationFields = ['name', 'coordinate', 'elevationM', 'region', 'remark'] as const;
 export const deviceFields = ['antennaHeightM', 'txPowerDbm', 'workFreqKhz', 'currentWorkMode', 'ports'] as const;
@@ -70,7 +71,8 @@ export function validateResources(
     !same(candidate.models, source.models) ||
     !same(candidate.antennas, source.antennas) ||
     candidate.version !== source.version ||
-    candidate.source !== source.source
+    candidate.source !== source.source ||
+    !same(candidate.planningBounds, source.planningBounds)
   ) {
     issue('resources', 'dictionary', '字典与来源版本不可修改');
   }
@@ -115,6 +117,13 @@ export function validateResources(
   // 结构非法时停止字段访问，避免损坏存储触发不明确的运行时异常。
   if (issues.length) return { issues, warnings };
   const stationIds = new Set(candidate.stations.map((s) => s.id));
+  function checkCoordinate(id: string, value: unknown, original: unknown) {
+    if (!validCoordinate(value)) issue(id, 'coordinate', '经纬度须为有效有限数，经度在前、纬度在后');
+    else if (!same(value, original)) {
+      if (!validPlanningBounds(source.planningBounds)) issue(id, 'coordinate', '当前 DEM 范围缺失或无效，不能新增或修改坐标');
+      else if (!coordinateInBounds(value, source.planningBounds)) issue(id, 'coordinate', '经纬度须位于当前 DEM 覆盖范围内');
+    }
+  }
   sheet='nodes';
   for (const station of candidate.stations) {
     if (
@@ -127,17 +136,7 @@ export function validateResources(
     if (typeof station.region !== 'string' || station.region.length > 60)
       issue(station.id, 'region', '所属区域最多 60 字符');
     const c = station.coordinate;
-    if (
-      !Array.isArray(c) ||
-      c.length !== 2 ||
-      !finite(c[0]) ||
-      !finite(c[1]) ||
-      c[0] < DEMO_BBOX[0] ||
-      c[0] > DEMO_BBOX[2] ||
-      c[1] < DEMO_BBOX[1] ||
-      c[1] > DEMO_BBOX[3]
-    )
-      issue(station.id, 'coordinate', '经纬度须位于规划区域内，经度在前、纬度在后');
+    checkCoordinate(station.id, c, previous.stations.find(row => row.id === station.id)?.coordinate);
     if (station.elevationM !== null && !finite(station.elevationM))
       issue(station.id, 'elevationM', '高程须为有限数或留空');
     if(typeof station.remark!=='string'||station.remark.length>500)issue(station.id,'remark','备注最多 500 字符');
@@ -173,7 +172,11 @@ export function validateResources(
       continue;
     }
     // 端口整批校验，失败不应用部分修改。
-    for (const message of maintenanceIssues(device, previousDevices.get(device.id), model)) issue(device.id, 'maintenance', message);
+    const previousDevice = previousDevices.get(device.id);
+    // HTTP来源中的未改模式只是只读值，不能按Mock教学字典反向限制设备参数。
+    const maintenanceDevice = env.mode === 'http' && same(device.currentWorkMode, previousDevice?.currentWorkMode)
+      ? { ...device, currentWorkMode: null } : device;
+    for (const message of maintenanceIssues(maintenanceDevice, previousDevice, model)) issue(device.id, 'maintenance', message);
     if (
       !candidate.stations
         .find((s) => s.id === device.stationId)!
@@ -220,7 +223,7 @@ export function validateResources(
     if(Object.keys(row).some(k=>!['id','origin',...interferenceFields].includes(k as never))||
       !['SOURCE','MANUAL','IMPORT'].includes(row.origin)||original&&original.origin!==row.origin)issue(row.id,'origin','未知字段或来源不可修改');
     if(typeof row.name!=='string'||!row.name.trim()||row.name!==row.name.trim()||row.name.length>60)issue(row.id,'name','名称需为 1–60 字符');
-    if(!Array.isArray(row.coordinate)||row.coordinate.length!==2||!row.coordinate.every(finite)||row.coordinate[0]<DEMO_BBOX[0]||row.coordinate[0]>DEMO_BBOX[2]||row.coordinate[1]<DEMO_BBOX[1]||row.coordinate[1]>DEMO_BBOX[3])issue(row.id,'coordinate','干扰源坐标须位于规划区域内');
+    checkCoordinate(row.id, row.coordinate, original?.coordinate);
     for(const key of ['centerFreqKhz','bandwidthKhz'] as const)if(!finite(row[key])||row[key]<=0)issue(row.id,key,'必填且须大于 0');
     for(const key of ['txPowerDbm','antennaHeightM'] as const)if(!finite(row[key])||key==='antennaHeightM'&&row[key]<0)issue(row.id,key,'必填有限数，天线高度不得小于 0');
     for(const key of ['elevationM','antennaGainDbi'] as const)if(row[key]!==null&&!finite(row[key]))issue(row.id,key,'须为有限数或空值');
@@ -327,28 +330,16 @@ export function applyChanges(base: ResourcesData, changes: ResourceChanges, allo
       if (kind === 'stations') {
         const station = row as ResourcesData['stations'][number];
         if (typeof station.name === 'string') station.name = station.name.trim();
-        // 先检查原始范围再取六位小数，不能用舍入掩盖越界输入。
-        if (
-          'coordinate' in patch &&
-          Array.isArray(station.coordinate) &&
-          station.coordinate.length === 2 &&
-          station.coordinate.every(finite) &&
-          station.coordinate[0] >= DEMO_BBOX[0] &&
-          station.coordinate[0] <= DEMO_BBOX[2] &&
-          station.coordinate[1] >= DEMO_BBOX[1] &&
-          station.coordinate[1] <= DEMO_BBOX[3]
-        )
-          station.coordinate = station.coordinate.map((n) => Number(n.toFixed(6))) as [
-            number,
-            number,
-          ];
       }
     }
   }
   for(const row of [...candidate.stations,...(candidate.interferences??[])]){
     if(typeof row.name==='string')row.name=row.name.trim();
-    if(Array.isArray(row.coordinate)&&row.coordinate.length===2&&row.coordinate.every(finite)&&row.coordinate[0]>=DEMO_BBOX[0]&&row.coordinate[0]<=DEMO_BBOX[2]&&row.coordinate[1]>=DEMO_BBOX[1]&&row.coordinate[1]<=DEMO_BBOX[3])
-      row.coordinate=row.coordinate.map(v=>Number(v.toFixed(6))) as [number,number];
+    const old = ('echelon' in row ? base.stations : base.interferences ?? []).find(item => item.id === row.id);
+    if (!same(row.coordinate, old?.coordinate) && coordinateInBounds(row.coordinate, base.planningBounds)) {
+      const rounded = row.coordinate.map(value => Number(value.toFixed(6))) as [number, number];
+      if (coordinateInBounds(rounded, base.planningBounds)) row.coordinate = rounded;
+    }
   }
   return candidate;
 }
@@ -412,7 +403,7 @@ export function diffResources(base: ResourcesData, candidate: ResourcesData): Re
               antennaHeightM: row.antennaHeightM,
               txPowerDbm: row.txPowerDbm,
               workFreqKhz: row.workFreqKhz,
-              ...(row.currentWorkMode !== undefined ? { currentWorkMode: row.currentWorkMode } : {}),
+              ...(!same(row.currentWorkMode, original.currentWorkMode) ? { currentWorkMode: row.currentWorkMode } : {}),
               // 草稿可能是 Vue 代理；端口只含标量，逐项复制后再交给服务。
               ...(row.ports !== undefined ? { ports: row.ports?.map(port=>({...port})) ?? null } : {}),
             },

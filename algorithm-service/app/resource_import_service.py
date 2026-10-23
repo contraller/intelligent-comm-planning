@@ -10,6 +10,7 @@ from . import resource_workspace_service as workspace
 from . import resource_candidate_service as candidates
 from .resource_export_service import HEADERS, TABLES
 from .resource_import_parser import make_template, parse_import
+from . import resource_geography as geography
 
 MAX_BYTES = 5 * 1024 * 1024
 
@@ -33,14 +34,14 @@ def signature(request, data):
         "file_sha256": hashlib.sha256(data).hexdigest()})
 
 
-def _parse(snapshot, request, data):
+def _parse(snapshot, request, data, bounds=None):
     if request.kind == "topology_links":
         parsed = candidates.parse_candidate_import(snapshot, request.file.name, data)
         candidate = deepcopy(snapshot)
         if not parsed["issues"]:
             candidate[candidates.SNAPSHOT_KEY] = parsed["links"]
         return parsed, candidate
-    parsed = parse_import(snapshot["tables"], request.file.name, data, request.kind)
+    parsed = parse_import(snapshot["tables"], request.file.name, data, request.kind, bounds)
     candidate = {**deepcopy(snapshot), "tables": parsed["tables"]}
     # 有错误的候选不能投影为可应用资源；差异和逐行错误仍完整返回。
     if parsed["issues"]:
@@ -58,11 +59,12 @@ def _parse(snapshot, request, data):
 def preview(request):
     data = decode_file(request)
     snapshot = workspace.require_snapshot(request.base_revision)
-    parsed, candidate = _parse(snapshot, request, data)
+    bounds = geography.read_planning_bounds()
+    parsed, candidate = _parse(snapshot, request, data, bounds)
     return {"base_revision": request.base_revision, "context": request.context, "kind": request.kind,
         "file_name": request.file.name, "signature": signature(request, data), "valid": not bool(parsed["issues"]),
         "rows": parsed["rows"], "issues": parsed["issues"], "warnings": parsed["warnings"],
-        "candidate": workspace.resources(candidate), "changes": workspace.changes_between(snapshot, candidate)}
+        "candidate": workspace.resources(candidate, bounds), "changes": workspace.changes_between(snapshot, candidate)}
 
 
 def commit(request, actor_id):
@@ -73,7 +75,8 @@ def commit(request, actor_id):
 
     def apply(snapshot):
         # 签名只绑定输入，不代替业务校验；真正写入前始终重新解析。
-        parsed, candidate = _parse({**snapshot, "revision": request.base_revision}, request, data)
+        parsed, candidate = _parse({**snapshot, "revision": request.base_revision}, request, data,
+            geography.read_planning_bounds())
         if parsed["issues"]:
             workspace.fail("导入校验未通过：" + parsed["issues"][0]["message"])
         links_changed = candidates.get_links(candidate) != candidates.get_links(snapshot)

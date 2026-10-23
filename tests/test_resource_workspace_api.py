@@ -20,14 +20,16 @@ from app.main import app
 from app.integration_identity_models import IntegrationSession
 from app.planning_plan_models import PlanningPlan
 from app.resource_dataset_models import ResourceDatasetCurrent, ResourceDatasetOperation, ResourceDatasetVersion
-from app.resource_import_parser import BOUNDS
+from app import resource_geography as geography
 
 CONTEXT = "/api/v1/resource/edit-context"
 SAVE = "/api/v1/resource/workspace/changes"
+TEST_BOUNDS = (113.14986111114996, 36.27597222221908, 114.9498611111502, 37.72402777777483)
 
 
 @pytest.fixture
 def workspace_api(monkeypatch, request):
+    monkeypatch.setattr(geography, "read_planning_bounds", lambda: TEST_BOUNDS)
     directory = ROOT / "data/runtime/tmp" / ("workspace-api-" + uuid4().hex)
     directory.mkdir(parents=True, exist_ok=False)
     path = directory / "workspace.sqlite"
@@ -134,7 +136,7 @@ def seed(baseline, mutate):
 def new_node(identifier="MANUAL-NODE"):
     return {"id": identifier, "name": "手工节点", "echelon": "II", "subtype": "II_FIXED",
             "role": "FIXED_STATION", "parentIds": [], "mobility": "FIXED", "classes": ["HF", "VUHF"],
-            "coordinate": [(BOUNDS[0] + BOUNDS[2]) / 2, (BOUNDS[1] + BOUNDS[3]) / 2],
+            "coordinate": [(TEST_BOUNDS[0] + TEST_BOUNDS[2]) / 2, (TEST_BOUNDS[1] + TEST_BOUNDS[3]) / 2],
             "elevationM": None, "region": "联调区域", "remark": "", "relayCapable": True,
             "key": False, "status": None, "alert": None, "origin": "MANUAL"}
 
@@ -317,7 +319,7 @@ def test_nonempty_imported_candidate_changes_cannot_forge_import_source(workspac
     changes = {"importedCandidateLinks": [{"id": "FORGED-IMPORT", "source": {"kind": "IMPORT"}}]}
     response = save(client, body(baseline, changes))
     assert response.status_code == 422 and response.json()["code"] == 1001, response.text
-    assert "导入候选只能由服务器重新解析原文件产生" in response.json()["message"]
+    assert response.json()["message"] == "资源编辑字段无效"
     assert_unchanged(factory, baseline)
 
 

@@ -13,6 +13,9 @@ from .planning_plan_models import PlanningPlan
 from .resource_dataset_models import ResourceDatasetVersion
 from .resource_export_service import HEADERS, TABLES
 from . import resource_candidate_service as candidates
+from . import resource_geography as geography
+
+_CURRENT_BOUNDS = object()
 
 NODE_FIELDS = {"name": "node_name", "coordinate": None, "elevationM": "elevation_m",
                "region": "region", "remark": "remark"}
@@ -40,7 +43,9 @@ def require_snapshot(revision=None):
     return snapshot
 
 
-def resources(snapshot):
+def resources(snapshot, planning_bounds=_CURRENT_BOUNDS):
+    if planning_bounds is _CURRENT_BOUNDS:
+        planning_bounds = geography.read_planning_bounds()
     tables = snapshot["tables"]
     nodes, devices = tables["node.csv"], tables["device.csv"]
     models, antennas = tables["device_model.csv"], tables["antenna_model.csv"]
@@ -77,7 +82,8 @@ def resources(snapshot):
             "modulation": list(filter(None, row.get("modulation", "").split(";"))),
             "workMode": list(filter(None, row.get("work_mode", "").split(";")))} for row in models],
         "antennas": [{"id": row["antenna_id"], "name": row["antenna_name"]} for row in antennas],
-        "candidateLinks": candidates.get_links(snapshot), "source": datasets.SOURCE, "version": snapshot["revision"]}
+        "candidateLinks": candidates.get_links(snapshot), "source": datasets.SOURCE, "version": snapshot["revision"],
+        "planningBounds": list(planning_bounds) if geography.valid_bounds(planning_bounds) else None}
 
 
 def meta(snapshot):
@@ -120,7 +126,7 @@ def result_for_receipt(receipt):
 
 
 def changes_between(before, after):
-    old, new = resources(before), resources(after)
+    old, new = resources(before, None), resources(after, None)
     changes = {"stations": [], "devices": []}
     for collection, added_key, changed_key, fields in (
         ("stations", "newStations", "stations", NODE_FIELDS),
@@ -168,8 +174,11 @@ def _scalar(key, value):
     return value
 
 
-def apply_changes(snapshot, changes):
+def apply_changes(snapshot, changes, planning_bounds=_CURRENT_BOUNDS):
     from .resource_import_parser import parse_import
+
+    if planning_bounds is _CURRENT_BOUNDS:
+        planning_bounds = geography.read_planning_bounds()
 
     allowed = {"stations", "devices", "interferences", "newStations", "newDevices", "newInterferences",
         "newCandidateLinks", "candidateLinks", "importedCandidateLinks"}
@@ -237,7 +246,7 @@ def apply_changes(snapshot, changes):
             # 内部手工文本不是外部 CSV 转义，避免 ~rp~ 前缀被二次解释。
             writer.writerow({field: "~rp~" + json.dumps(value, ensure_ascii=False) if value.startswith("~rp~") else value
                 for field, value in encoded.items()})
-        parsed = parse_import(parsed_tables, "workspace.csv", output.getvalue().encode("utf-8"), kind)
+        parsed = parse_import(parsed_tables, "workspace.csv", output.getvalue().encode("utf-8"), kind, planning_bounds)
         if parsed["issues"]:
             fail("资源校验失败：" + parsed["issues"][0]["message"])
         parsed_tables = parsed["tables"]
