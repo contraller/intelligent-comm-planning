@@ -23,6 +23,8 @@ import type { AdoptionDetail, AnalysisResult, InterferenceWorkbenchServices, Mea
 import { clientTemplate } from './vue-client';
 
 const hash = 'a'.repeat(64), timestamp = '2026-10-23T08:00:00Z';
+// fakeTimers会替换process.hrtime，模块加载时保留真实单调时钟。
+const hostNow = process.hrtime.bigint.bind(process.hrtime);
 export const measureTitles = ['频率调整', '信道切换', '功率优化', '路由重构', '节点重部署'];
 const types = ['FREQ_ADJUST', 'CHANNEL_SWITCH', 'POWER_OPT', 'ROUTE_REBUILD', 'NODE_REDEPLOY'] as const;
 
@@ -51,6 +53,17 @@ export function traceHostErrors(app: App) {
     console.error('[P04_VUE_HOST_ERROR]', info, reason instanceof Error ? reason.stack : String(reason));
     throw reason;
   };
+}
+
+export async function hostStep<T>(stage: string, action: () => T | Promise<T>): Promise<T> {
+  const started = hostNow();
+  try { return await action(); }
+  finally {
+    if (process.env.P04_HOST_TIMINGS === '1') console.info('[P04_HOST_TIMING]', JSON.stringify({
+      test: expect.getState().currentTestName ?? null, stage,
+      elapsedMs: Number(hostNow() - started) / 1e6,
+    }));
+  }
 }
 
 export function deferred<T>() {

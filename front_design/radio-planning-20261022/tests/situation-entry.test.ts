@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createRenderer, h, nextTick, ssrContextKey, toRaw, type App } from 'vue';
 import { clientTemplate } from './helpers/vue-client';
 import { createPinia, disposePinia, setActivePinia } from 'pinia';
@@ -31,7 +31,7 @@ import { authorizeStore } from './helpers/auth';
 import { bindMonitoring, settleMonitoring } from './helpers/monitoring';
 import { interferenceFixture } from './helpers/interference';
 import { TestStorage } from './helpers/storage';
-import { analysisMap, clickWorkbench, compileWorkbenchTemplates, createWorkbenchFixture, openWorkbenchFromPage, reportHostFailure, settleWorkbench, traceHostErrors, workbenchNode, workbenchText } from './helpers/interference-workbench';
+import { analysisMap, clickWorkbench, compileWorkbenchTemplates, createWorkbenchFixture, hostStep, openWorkbenchFromPage, reportHostFailure, settleWorkbench, traceHostErrors, workbenchNode, workbenchText } from './helpers/interference-workbench';
 
 const transport = vi.hoisted(() => ({ mode: 'mock' }));
 vi.mock('../src/config/env', async importOriginal => {
@@ -145,7 +145,7 @@ function findWhere(root: HostNode, predicate: (entry: HostNode) => boolean): Hos
 async function click(root: HostNode, label: string) {
   const button = findWhere(root, entry => entry.tag === 'button' && textOf(entry).trim() === label);
   expect(button, `未找到按钮：${label}`).toBeDefined();
-  await (button!.props.onClick as () => unknown)();
+  await hostStep('situation.button.' + label, () => (button!.props.onClick as () => unknown)());
   await nextTick();
   if (['HF', 'VUHF', '告警', '全部', '按站点浏览', '按设备分类'].includes(label)) { await vi.advanceTimersByTimeAsync(250); await settleMonitoring(); }
 }
@@ -168,8 +168,10 @@ function treeIds(root: HostNode) {
 
 let app: App<HostNode> | undefined, pinia: ReturnType<typeof createPinia> | undefined;
 let waitingFor = '夹具未启动', waitSnapshot: () => unknown = () => null;
-afterEach(context => {
-  reportHostFailure(context.task, waitingFor, waitSnapshot);
+// 原生 auto fixture 的准备与业务交互分别受默认钩子/测试预算约束。
+beforeEach(() => { waitingFor = app ? '态势入口用例主体' : '夹具未启动'; });
+afterEach(({ task }) => {
+  reportHostFailure(task, waitingFor, waitSnapshot);
   app?.unmount(); app = undefined;
   if (pinia) disposePinia(pinia); pinia = undefined;
   vi.restoreAllMocks(); vi.unstubAllGlobals(); vi.useRealTimers();
@@ -202,13 +204,20 @@ async function mountEntry(url: string, editing = false, confirmedNetwork = false
   vi.spyOn(previewService, 'loadDeviceConfigurationContext').mockImplementation(raw.loadDeviceConfigurationContext);
   vi.spyOn(previewService, 'queryDeviceConfigurationOperations').mockImplementation(raw.queryDeviceConfigurationOperations);
   vi.spyOn(previewService, 'saveResourceChanges').mockImplementation(raw.saveResourceChanges);
+  vi.mocked(previewService.saveResourceChanges).mockImplementation(input => hostStep('situation.service.save', () => raw.saveResourceChanges(input)));
+  vi.mocked(previewService.loadResourceReadContext).mockImplementation(input => hostStep('situation.service.context', () => raw.loadResourceReadContext(input)));
+  vi.mocked(previewService.loadGisResourceScene).mockImplementation(input => hostStep('situation.service.scene', () => raw.loadGisResourceScene(input)));
+  vi.mocked(previewService.loadGisResourceEditContext).mockImplementation(input => hostStep('situation.service.baseline', () => raw.loadGisResourceEditContext(input)));
   for(const name of ['queryDiagnosisScenarios','queryDiagnosisHistory','getDiagnosisSource','getDiagnosisVersion','getDiagnosisPreset','queryTaskSummaries'] as const)vi.spyOn(previewService,name).mockImplementation(raw[name] as never);
-  bindMonitoring(raw); vi.spyOn(previewService,'getMonitoringObservation').mockImplementation(raw.getMonitoringObservation); await usePreviewStore().load(); await useResourceReadStore().activate('gis'); await useGisWorkspaceStore().loadScene();
+  bindMonitoring(raw); vi.spyOn(previewService,'getMonitoringObservation').mockImplementation(raw.getMonitoringObservation);
+  await hostStep('situation.fixture.preview', () => usePreviewStore().load());
+  await hostStep('situation.fixture.read', () => useResourceReadStore().activate('gis'));
+  await hostStep('situation.fixture.scene', () => useGisWorkspaceStore().loadScene());
   const gis = useGisWorkspaceStore(), editor = useResourceEditStore();
   // 浏览预期直接取同版本目录；不借用编辑草稿，也不提前加载完整编辑基线。
-  const browseResources = (await raw.loadGisResourceDirectory({ context: 'gis', revision: gis.scene!.revision })).resources;
+  const browseResources = (await hostStep('situation.fixture.directory', () => raw.loadGisResourceDirectory({ context: 'gis', revision: gis.scene!.revision }))).resources;
   if (editing) {
-    await gis.begin(); await editor.openForm('device', 'DV-0001');
+    await hostStep('situation.fixture.editing', async () => { await gis.begin(); await editor.openForm('device', 'DV-0001'); });
     editor.form!.fields.antennaHeightM = '19';
   }
   const before = [...storage.entries];
@@ -224,14 +233,19 @@ async function mountEntry(url: string, editing = false, confirmedNetwork = false
     mode: gis.mapMode, gisBusy: gis.busy, saveState: gis.saveState, editorBusy: editor.busy, editorDecision: editor.decision,
     formDirty: editor.formDirty, resourceDirty: editor.dirty, editorError: editor.error,
     refreshing: read.refreshing, readPending: read.pending, readErrors: read.errors }; };
-  waitingFor = '态势入口router.push'; await router.push(url); await router.isReady();
-  const root = node('root'); app.mount(root); await settleMonitoring(); await nextTick();
+  waitingFor = '态势入口router.push'; await hostStep('situation.fixture.router', async () => { await router.push(url); await router.isReady(); });
+  const root = node('root'); await hostStep('situation.fixture.mount', async () => { app!.mount(root); await settleMonitoring(); await nextTick(); });
   // 原有节点口径场景显式进入站点浏览；设备分类默认入口由专项测试覆盖。
   await click(root, '按站点浏览'); await vi.advanceTimersByTimeAsync(250); await settleMonitoring();
   waitingFor = '态势入口用例主体';
   expect([...storage.entries]).toEqual(before);
   return { root, gis, editor, browseResources, router, storage, before, raw, monitor: useMonitoringStore(), map: () => find(root, 'map-probe')!.props, wb };
 }
+const editingIt = it.extend<{ page: Awaited<ReturnType<typeof mountEntry>> }>({
+  page: [async ({}, use) => {
+    await use(await mountEntry('/situation?stationId=ND-0001', true));
+  }, { auto: true }],
+});
 
 describe('GIS 入口挂载联动', () => {
   it('轻目录只在进入和刷新读取，正常无技术横栏，失败保留目录并可重试', async () => {
@@ -370,12 +384,19 @@ describe('GIS 入口挂载联动', () => {
   );
   it('进入冻结干扰前必须处理 GIS 输入；取消不丢表单，返回当前资源不改冻结身份', async () => {
     const s = await mountEntry('/situation?stationId=ND-0001', true, false, true), form = JSON.stringify(s.editor.form);
-    const enter=clickWorkbench(s.root,'干扰分析');await settleWorkbench();
-    expect(s.editor.decision).not.toBeNull();s.editor.answer('cancel');await enter;
+    const enter=hostStep('situation.frozen.cancel',()=>clickWorkbench(s.root,'干扰分析'));await settleWorkbench();
+    expect(s.editor.decision).not.toBeNull();s.editor.answer('cancel');await enter;await settleWorkbench();
     expect(JSON.stringify(s.editor.form)).toBe(form);expect(s.editor.formDirty).toBe(true);
     expect(workbenchNode(s.root,row=>row.props['aria-label']==='数据库冻结方案')).toBeUndefined();s.wb.assertNoWrites();
     // 明确放弃以后才进入；不能以直接改 store 模式绕过原离开决定。
-    const next=clickWorkbench(s.root,'干扰分析');await settleWorkbench();s.editor.answer('discard');await next;
+    const next=hostStep('situation.frozen.discard',()=>clickWorkbench(s.root,'干扰分析'));await settleWorkbench();s.editor.answer('discard');await next;await settleWorkbench();
+    if(process.env.P04_HOST_TIMINGS==='1')console.info('[P04_FROZEN_ENTRY]',JSON.stringify({
+      mounted:!!workbenchNode(s.root,row=>row.props['aria-label']==='数据库冻结方案'),
+      catalogCalls:vi.mocked(previewService.querySavedPlanningPlans).mock.calls.length,
+      editorContext:s.editor.context,decision:s.editor.decision,route:s.router.currentRoute.value.fullPath,
+      visibleText:workbenchText(s.root).slice(-6000),
+    }));
+    expect(workbenchNode(s.root,row=>row.props['aria-label']==='数据库冻结方案')).toBeDefined();
     await clickWorkbench(s.root,'打开冻结网络');
     await clickWorkbench(s.root,row=>workbenchText(row).trim().startsWith('历史 '));
     await clickWorkbench(s.root,row=>String(row.props.class).includes('history-row'));
@@ -403,18 +424,18 @@ describe('GIS 入口挂载联动', () => {
       expect(s.editor.context).toBeNull(); expect(previewService.saveResourceChanges).not.toHaveBeenCalled();
     },
   );
-  it.each(['顶部按钮', '同页 URL'])(
-    '%s 进入标绘前保存失败保留现场，重试成功只提交一次且不重复决策', async entry => {
-      const s = await mountEntry('/situation?stationId=ND-0001', true), form = JSON.stringify(s.editor.form);
+  editingIt.for(['顶部按钮', '同页 URL'])(
+    '%s 进入标绘前保存失败保留现场，重试成功只提交一次且不重复决策', async (entry, { page: s }) => {
+      const form = JSON.stringify(s.editor.form);
       const original = s.router.currentRoute.value.fullPath;
       const enter = () => entry === '顶部按钮' ? click(s.root, '故障标绘') : s.router.push('/situation?faultEdit=1');
       vi.mocked(previewService.saveResourceChanges).mockRejectedValueOnce(new Error('资源保存失败'));
       let navigation = enter(); await settleMonitoring(); expect(s.editor.decision).not.toBeNull();
-      s.editor.answer('save'); await navigation;
+      s.editor.answer('save'); await hostStep('situation.save.failed', () => navigation);
       expect(s.router.currentRoute.value.fullPath).toBe(original); expect(JSON.stringify(s.editor.form)).toBe(form);
       expect(s.editor.error).toContain('资源保存失败'); expect(previewService.saveResourceChanges).toHaveBeenCalledTimes(1);
       navigation = enter(); await settleMonitoring(); expect(s.editor.decision).not.toBeNull();
-      s.editor.answer('save'); await navigation; await settleMonitoring();
+      s.editor.answer('save'); await hostStep('situation.save.retry', () => navigation); await settleMonitoring();
       expect(s.router.currentRoute.value.query).toEqual({ faultEdit: '1' }); expect(s.editor.context).toBeNull();
       expect(s.editor.decision).toBeNull(); expect(previewService.saveResourceChanges).toHaveBeenCalledTimes(2);
       expect((await createMockService(()=>s.storage).loadPreview()).resources.devices.find(row => row.id === 'DV-0001')!.antennaHeightM).toBe(19);

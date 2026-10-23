@@ -1,5 +1,5 @@
 import { useResourceReadStore } from '../src/stores/resource-read';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as Vue from 'vue';
 import { createRenderer, h, nextTick, ssrContextKey, type App } from 'vue';
 import { createPinia, disposePinia, setActivePinia } from 'pinia';
@@ -21,6 +21,8 @@ import LinkHistoryChart from '../src/components/LinkHistoryChart.vue';
 import { useAuthStore } from '../src/stores/auth';
 import { previewService } from '../src/services';
 import { createMockService } from '../src/services/mock';
+import { readResources } from '../src/services/resource-storage';
+import { initialResources } from '../src/mocks/resource-presets';
 import { usePreviewStore } from '../src/stores/preview';
 import { useResourceEditStore } from '../src/stores/resource-edit';
 import { useGisWorkspaceStore } from '../src/stores/gis-workspace';
@@ -28,7 +30,7 @@ import { useMonitoringStore } from '../src/stores/monitoring';
 import type { DeviceCoverageOverlay } from '../src/types/device-coverage';
 import { authorizeStore } from './helpers/auth';
 import { bindMonitoring, settleMonitoring } from './helpers/monitoring';
-import { analysisMap, clickWorkbench, compileWorkbenchTemplates, createWorkbenchFixture, openWorkbenchFromPage, reportHostFailure, settleWorkbench, traceHostErrors, workbenchText } from './helpers/interference-workbench';
+import { analysisMap, clickWorkbench, compileWorkbenchTemplates, createWorkbenchFixture, hostStep, openWorkbenchFromPage, reportHostFailure, settleWorkbench, traceHostErrors, workbenchText } from './helpers/interference-workbench';
 import { TestStorage } from './helpers/storage';
 // 仅复用模板编译，原有特殊宿主和业务交互保持本地。
 import { clientTemplate } from './helpers/vue-client';
@@ -128,7 +130,7 @@ function find(root: HostNode, predicate: (n: HostNode) => boolean): HostNode | u
 const textOf = (root: HostNode): string => root.text.replace(/<[^>]+>/g, '') + root.children.map(textOf).join('');
 async function click(root: HostNode, label: string) {
   const el = find(root, n => n.tag === 'button' && textOf(n).trim() === label);
-  expect(el, label).toBeDefined(); waitingFor = '按钮 ' + label; await (el!.props.onClick as () => unknown)(); waitingFor = '按钮后刷新 ' + label; await settleMonitoring();
+  expect(el, label).toBeDefined(); waitingFor = '按钮 ' + label; await hostStep('device.button.' + label, () => (el!.props.onClick as () => unknown)()); waitingFor = '按钮后刷新 ' + label; await hostStep('device.settle.' + label, settleMonitoring);
 }
 // 原生折叠组通过 toggle 展开；原有趋势、图层与输入保护断言不变。
 async function expandHistory(root: HostNode) {
@@ -145,7 +147,9 @@ async function change(root: HostNode, label: string, value: string | boolean, ev
 }
 let app: App<HostNode> | undefined, pinia: ReturnType<typeof createPinia> | undefined;
 let waitingFor = '夹具未启动', waitSnapshot: () => unknown = () => null;
-afterEach(context => { reportHostFailure(context.task, waitingFor, waitSnapshot); app?.unmount(); app = undefined; if (pinia) disposePinia(pinia); pinia = undefined; vi.restoreAllMocks(); vi.clearAllMocks(); vi.unstubAllGlobals(); vi.useRealTimers(); waitingFor = '夹具未启动'; waitSnapshot = () => null; });
+// 原生 auto fixture 先在准备钩子建页，不挤占交互断言的默认 5s 预算。
+beforeEach(() => { waitingFor = app ? '设备入口用例主体' : '夹具未启动'; });
+afterEach(({ task }) => { reportHostFailure(task, waitingFor, waitSnapshot); app?.unmount(); app = undefined; if (pinia) disposePinia(pinia); pinia = undefined; vi.restoreAllMocks(); vi.clearAllMocks(); vi.unstubAllGlobals(); vi.useRealTimers(); waitingFor = '夹具未启动'; waitSnapshot = () => null; });
 async function mountEntry(deviceId = 'DV-0001', frozen = false) {
   waitingFor = '设备入口夹具准备';
   transport.mode = frozen ? 'http' : 'mock';
@@ -168,9 +172,16 @@ async function mountEntry(deviceId = 'DV-0001', frozen = false) {
   // 详情新增发布版知识摘要，只注入读取依赖，不改变覆盖流程与断言。
   for (const name of ['loadKnowledgeMetadata', 'searchKnowledgeSummaries', 'getKnowledgeGraph', 'getKnowledgeEntity', 'getDeviceKnowledge','saveResourceChanges'] as const)
     vi.spyOn(previewService, name).mockImplementation(raw[name] as never);
+  vi.mocked(previewService.saveResourceChanges).mockImplementation(input => hostStep('device.service.save', () => raw.saveResourceChanges(input)));
+  vi.mocked(previewService.loadResourceReadContext).mockImplementation(input => hostStep('device.service.context', () => raw.loadResourceReadContext(input)));
+  vi.mocked(previewService.loadGisResourceScene).mockImplementation(input => hostStep('device.service.scene', () => raw.loadGisResourceScene(input)));
+  vi.mocked(previewService.loadGisResourceEditContext).mockImplementation(input => hostStep('device.service.baseline', () => raw.loadGisResourceEditContext(input)));
   bindMonitoring(raw); vi.spyOn(previewService,'getMonitoringObservation').mockImplementation(raw.getMonitoringObservation);
-  const wb = await createWorkbenchFixture(); wb.bind();
-  const preview = usePreviewStore(); waitingFor = '设备入口预览及GIS读取'; await preview.load();await useResourceReadStore().activate('gis');await useGisWorkspaceStore().loadScene();
+  const wb = await hostStep('device.fixture.frozen', createWorkbenchFixture); wb.bind();
+  const preview = usePreviewStore(); waitingFor = '设备入口预览及GIS读取';
+  await hostStep('device.fixture.preview', () => preview.load());
+  await hostStep('device.fixture.read', () => useResourceReadStore().activate('gis'));
+  await hostStep('device.fixture.scene', () => useGisWorkspaceStore().loadScene());
   const router = createRouter({ history: createMemoryHistory(), routes: [
     { path: '/situation', component: SituationView }, { path: '/planning', component: { render: () => null } },
   ] });
@@ -181,8 +192,8 @@ async function mountEntry(deviceId = 'DV-0001', frozen = false) {
       editorBusy: editor.busy, editorDecision: editor.decision, formDirty: editor.formDirty, resourceDirty: editor.dirty,
       editorError: editor.error, refreshing: read.refreshing, readPending: read.pending, readErrors: read.errors,
       currentResource: read.workspace?.revision }; };
-  waitingFor = '设备入口router.push'; await router.push('/situation?stationId=ND-0001&deviceId=' + deviceId); await router.isReady();
-  const root = node('root'); app.mount(root); await settleMonitoring(); await nextTick();
+  waitingFor = '设备入口router.push'; await hostStep('device.fixture.router', async () => { await router.push('/situation?stationId=ND-0001&deviceId=' + deviceId); await router.isReady(); });
+  const root = node('root'); await hostStep('device.fixture.mount', async () => { app!.mount(root); await settleMonitoring(); await nextTick(); });
   waitingFor = '设备入口用例主体';
   const map = () => find(root, n => n.tag === 'map-probe')!.props;
   return { root, map, preview, storage, router, directory: () => directory, gis: useGisWorkspaceStore(), editor: useResourceEditStore(), monitor: useMonitoringStore(), wb };
@@ -393,6 +404,26 @@ describe('GIS 设备频率入口联动', () => {
     await change(root, 'GIS 频率筛选依据', mode);
     await change(root, 'GIS 频率下限（kHz）', min, 'onInput'); await change(root, 'GIS 频率上限（kHz）', max, 'onInput'); await submit(root);
   }
+  const editingIt = it.extend<{ page: Awaited<ReturnType<typeof mountEntry>> }>({
+    page: [async ({}, use) => {
+      const s = await mountEntry();
+      await hostStep('device.fixture.frequency', async () => { await click(s.root, '图层管理'); await frequency(s.root); });
+      await hostStep('device.fixture.editing', async () => { await s.gis.begin(); await s.editor.openForm('device', 'DV-0001'); });
+      await use(s);
+    }, { auto: true }],
+  });
+  const saveRetryIt = editingIt.extend<{ readySaveRetry: Awaited<ReturnType<typeof mountEntry>> }>({
+    readySaveRetry: [async ({ page: s }, use) => {
+      const raw = createMockService(() => s.storage);
+      vi.spyOn(previewService, 'commitResources').mockImplementation(raw.commitResources);
+      await hostStep('device.fixture.readySaveRetry', async () => {
+        s.editor.form!.fields.workFreqKhz = '6000';
+        expect(s.editor.applyForm(), s.editor.error).toBe(true); await nextTick(); expect(ids(s)).toEqual(['DV-0001']);
+        s.editor.form!.fields.workFreqKhz = '7500';
+      });
+      await use(s);
+    }, { auto: true }],
+  });
   it('频率只改变设备点位，目录/导出/站点/链路/区域和业务数据保持原范围', async () => {
     const s = await mountEntry(), before = JSON.stringify(s.preview.data);
     const outside = () => JSON.stringify([s.map().stations, s.map().links, s.map().regions, s.map().gisResultLayers,
@@ -421,31 +452,24 @@ describe('GIS 设备频率入口联动', () => {
     await change(s.root, 'GIS 频率下限（kHz）', '9000', 'onInput'); await submit(s.root);
     expect(ids(s)).toEqual([]); expect(control(s.root, '查看聚合设备 DV-0002')).toBeUndefined();
   });
-  it('频点只在应用资源草稿后参与筛选，资源撤销/重做及放弃同步恢复，隐藏不清表单', async () => {
-    const s = await mountEntry(); await click(s.root, '图层管理'); await frequency(s.root);
-    await s.gis.begin(); await s.editor.openForm('device', 'DV-0001');
+  editingIt('频点只在应用资源草稿后参与筛选，资源撤销/重做及放弃同步恢复，隐藏不清表单', async ({ page: s }) => {
     s.editor.form!.fields.workFreqKhz = '6000'; await nextTick();
     expect(ids(s)).toEqual([]); expect((await createMockService(()=>s.storage).loadPreview()).resources.devices[0].workFreqKhz).toBeNull();
     expect(s.editor.applyForm(), s.editor.error).toBe(true); await nextTick(); expect(ids(s)).toEqual(['DV-0001']);
-    await s.gis.moveHistory('undo'); await nextTick(); expect(ids(s)).toEqual([]); expect(s.editor.form?.id).toBe('DV-0001');
-    await s.gis.moveHistory('redo'); await nextTick(); expect(ids(s)).toEqual(['DV-0001']);
+    await hostStep('device.edit.undo', () => s.gis.moveHistory('undo')); await nextTick(); expect(ids(s)).toEqual([]); expect(s.editor.form?.id).toBe('DV-0001');
+    await hostStep('device.edit.redo', () => s.gis.moveHistory('redo')); await nextTick(); expect(ids(s)).toEqual(['DV-0001']);
     const pending = s.gis.leave(); expect(s.editor.decision).not.toBeNull(); s.editor.answer('discard');
-    expect(await pending).toBe(true); await nextTick(); expect(ids(s)).toEqual([]);
+    expect(await hostStep('device.edit.discard', () => pending)).toBe(true); await nextTick(); expect(ids(s)).toEqual([]);
     expect(control(s.root, 'GIS 频率下限（kHz）').props.value).toBe('6000'); expect(s.storage.writes).toBe(0);
   });
-  it('资源保存失败保留已应用草稿与未应用输入，成功后用保存结果重新筛选', async () => {
-    const s = await mountEntry(), raw = createMockService(() => s.storage);
-    vi.spyOn(previewService, 'commitResources').mockImplementation(raw.commitResources);
-    await click(s.root, '图层管理'); await frequency(s.root);
-    await s.gis.begin(); await s.editor.openForm('device', 'DV-0001'); s.editor.form!.fields.workFreqKhz = '6000';
-    expect(s.editor.applyForm(), s.editor.error).toBe(true); await nextTick(); expect(ids(s)).toEqual(['DV-0001']);
-    s.editor.form!.fields.workFreqKhz = '7500'; s.storage.failWrite = true;
-    expect(await s.gis.save()).toBe(false); await nextTick();
+  saveRetryIt('资源保存失败保留已应用草稿与未应用输入，成功后用保存结果重新筛选', async ({ readySaveRetry: s }) => {
+    s.storage.failWrite = true;
+    expect(await hostStep('device.save.failed', () => s.gis.save())).toBe(false); await nextTick();
     expect(ids(s)).toEqual(['DV-0001']); expect(s.editor.form!.fields.workFreqKhz).toBe('7500');
     expect(s.preview.data!.resources.devices[0].workFreqKhz).toBeNull(); expect(s.storage.writes).toBe(0);
-    s.storage.failWrite = false; expect(await s.gis.save(), s.editor.error).toBe(true); await nextTick();
-    expect(ids(s)).toEqual([]); expect((await createMockService(()=>s.storage).loadPreview()).resources.devices[0].workFreqKhz).toBe(7500);
-    expect((await createMockService(()=>s.storage).loadPreview()).resources.devices[0].workFreqKhz).toBe(7500); expect(s.storage.writes).toBe(1);
+    s.storage.failWrite = false; expect(await hostStep('device.save.retry', () => s.gis.save()), s.editor.error).toBe(true); await nextTick();
+    expect(ids(s)).toEqual([]); expect((await hostStep('device.saved.read.first', () => readResources(s.storage, initialResources()))).resources.devices[0].workFreqKhz).toBe(7500);
+    expect((await hostStep('device.saved.read.second', () => readResources(s.storage, initialResources()))).resources.devices[0].workFreqKhz).toBe(7500); expect(s.storage.writes).toBe(1);
   });
   it('目录取消保持频率与未保存输入，应用并继续后只解除阻挡目标的频率限制', async () => {
     const s = await mountEntry(); await click(s.root, '图层管理'); await frequency(s.root);
@@ -635,6 +659,13 @@ describe('GIS 目录显式选择保护', () => {
   });
 });
 
+const mountedEntryIt = it.extend<{ page: Awaited<ReturnType<typeof mountEntry>> }>({
+  page: [async ({}, use) => {
+    const s = await mountEntry();
+    await use(s);
+  }, { auto: true }],
+});
+
 describe('普通 GIS 设备点位与聚合清单接入', () => {
   const frame = (s: Awaited<ReturnType<typeof mountEntry>>) => s.map().gisDeviceFrame as GisDeviceMapFrame | undefined;
   const list = (root: HostNode) => find(root, row => row.props['aria-label'] === '聚合设备清单');
@@ -655,8 +686,8 @@ describe('普通 GIS 设备点位与聚合清单接入', () => {
     expect(s.map().highlightLinkIds).toEqual(['PL-001', 'PL-005', 'PL-006', 'PL-007']);
     expect(JSON.stringify(s.preview.data)).toBe(before); expect(s.storage.writes).toBe(0);
   });
-  it('取消切换保留草稿/清单/覆盖，确认应用原表单后可选择仍有效的成员', async () => {
-    const s = await mountEntry(); await click(s.root, '查看覆盖'); await s.gis.begin();
+  mountedEntryIt('取消切换保留草稿/清单/覆盖，确认应用原表单后可选择仍有效的成员', async ({ page: s }) => {
+    await click(s.root, '查看覆盖'); await s.gis.begin();
     await s.editor.openForm('device', 'DV-0001'); s.editor.form!.fields.antennaHeightM = '19'; await nextTick();
     await open(s); const before = JSON.stringify(s.editor.form);
     const button = find(s.root, row => row.props['aria-label'] === '查看聚合设备 DV-0002')!;
@@ -834,8 +865,8 @@ describe('普通 GIS 链路点选详情接入', () => {
     await (button.props.onClick as () => unknown)(); await settleMonitoring();
     expect(s.map().selectedInterferenceId).toBe(source.id); expect(s.map().selectedLinkId).toBeUndefined(); expect(detail(s.root)).toBeUndefined();
   });
-  it('原关闭保护拒绝时保留表单，资源已脏的陈旧链路事件不能再关闭输入', async () => {
-    const s = await mountEntry(); await s.gis.begin(); await s.editor.openForm('device', 'DV-0001');
+  mountedEntryIt('原关闭保护拒绝时保留表单，资源已脏的陈旧链路事件不能再关闭输入', async ({ page: s }) => {
+    await s.gis.begin(); await s.editor.openForm('device', 'DV-0001');
     const before = JSON.stringify(s.editor.form), close = vi.spyOn(s.editor, 'closeForm').mockResolvedValueOnce(false);
     await selectLink(s, 'PL-002'); expect(close).toHaveBeenCalledOnce(); expect(JSON.stringify(s.editor.form)).toBe(before);
     expect(s.map().selectedId).toBe('ND-0001'); expect(s.map().selectedLinkId).toBeUndefined();
@@ -867,8 +898,8 @@ describe('普通 GIS 链路点选详情接入', () => {
     await click(s.root, '清除筛选'); expect(s.map().showLinks).toBe(false); expect(detail(s.root)).toBeDefined();
     await selectLink(s, 'PL-001'); expect(s.map().selectedLinkId).toBe('PL-003'); expect(s.storage.writes).toBe(0);
   });
-  it('资源变更暂停旧指标和高亮，更换快照或移除链路清理过时选择', async () => {
-    const s = await mountEntry(); await selectLink(s, 'PL-002'); await expandHistory(s.root);
+  mountedEntryIt('资源变更暂停旧指标和高亮，更换快照或移除链路清理过时选择', async ({ page: s }) => {
+    await selectLink(s, 'PL-002'); await expandHistory(s.root);
     await s.gis.begin(); s.editor.resources.devices[0].txPowerDbm = 0; await nextTick();
     expect(textOf(detail(s.root)!)).toContain('资源存在未保存修改'); expect(find(s.root, row => row.tag === 'chart-probe')).toBeUndefined();
     expect(s.map().selectedLinkId).toBeUndefined(); expect(s.map().highlightLinkIds).toEqual([]);
