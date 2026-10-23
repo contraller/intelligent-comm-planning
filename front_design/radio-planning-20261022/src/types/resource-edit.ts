@@ -119,7 +119,7 @@ export interface ResourceImportPreview {
 export interface ResourceExportRequest {
   format: ResourceFormat; kinds: ResourceKind[];
   ids?: Partial<Record<ResourceKind, string[]>>; context?: 'gis' | 'ledger';
-  // 台账按查询范围导出，页面无需收集其他分页的设备编号。
+  // 台账按查询范围导出；all/selected 的 filter 仅允许明确的状态来源，不接收业务筛选。
   ledger?: { revision: string; range: 'all' | 'filtered' | 'selected'; filter?: ResourceReadFilter; selectedIds?: string[] };
   // GIS 按保存版本与查询条件导出，目录分页不负责收集全库 ID。
   gis?: { revision: string; range: 'all' | 'filtered' | 'selected'; filter?: ResourceReadFilter;
@@ -136,12 +136,20 @@ export interface ResourceMaintenanceContext {
   stations: Station[]; models: DeviceModel[]; antennas: Antenna[];
   impact: { planIds: string[]; linkIds: string[]; description: string };
 }
-export interface ResourceExportPreview { tables: { kind: ResourceKind; count: number }[]; added: number }
+export interface ResourceExportObservation {
+  snapshotId: string; snapshotRevision: string; resourceRevision: string;
+  dataOrigin: 'SYNTHETIC_INTEGRATION'; sourceLabel: string;
+}
+export interface ResourceExportPreview {
+  tables: { kind: ResourceKind; count: number }[]; added: number;
+  warnings?: string[];
+  statusMode?: 'observed'; observation?: ResourceExportObservation; nodeStatusMode?: 'baseline';
+}
 export interface ResourceServices {
   saveResourceChanges(request: ResourceCommit): Promise<ResourceMutationReceipt>;
   applyResourceImport(request: { baseRevision: string; requestId: string; preview: ResourceImportPreview }): Promise<ResourceMutationReceipt>;
   updateDeviceAvailability(request: { baseRevision: string; requestId: string; ids: string[]; availability: Availability }): Promise<ResourceMutationReceipt & { updated: string[]; unchanged: string[] }>;
-  resetResourceData(request: { baseRevision: string | null }): Promise<ResourceMutationReceipt>;
+  resetResourceData(request: { baseRevision: string | null; requestId?: string }): Promise<ResourceMutationReceipt>;
   loadResourceMaintenanceContext(request: ResourceMaintenanceRequest): Promise<ResourceMaintenanceContext>;
   previewResourceExport(request: ResourceExportRequest): Promise<ResourceExportPreview>;
   getResourceTemplate(format: ResourceFormat, kind?: ResourceKind): Promise<ResourceFile>;

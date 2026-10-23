@@ -386,9 +386,10 @@
     >
     <ResourceLedgerExportDrawer
       v-model:visible="exportOpen"
-      :revision="workspace.read.workspace?.revision ?? ''"
+      :revision="read.ledger?.revision ?? ''"
       :filter="appliedFilter"
       :selected-ids="selectedIds"
+      :query-ready="!!read.ledgerApplied && !!read.ledger && read.ledger.revision === read.workspace?.revision"
     />
     <ResourceLedgerEditDrawer />
     <DevicePortsEditDrawer

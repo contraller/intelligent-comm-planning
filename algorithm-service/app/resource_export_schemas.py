@@ -1,4 +1,4 @@
-"""台账导出及设备全库筛选契约，不接收草稿或观测结果。"""
+"""台账导出及设备全库筛选契约，只接受明确快照引用，不接收观测结果。"""
 from typing import Annotated, Literal
 
 from pydantic import Field, StrictBool, StrictStr, field_validator, model_validator
@@ -54,11 +54,18 @@ class ResourceExportRequest(InputModel):
     range: Literal["all", "filtered", "selected"]
     filter: ResourceDeviceFilter | None = None
     selected_ids: Annotated[list[Identifier], Field(min_length=1, max_length=50)] | None = None
+    status_mode: Literal["baseline", "observed"] = "baseline"
+    observation_snapshot_id: Identifier | None = None
 
     @model_validator(mode="after")
     def check_scope(self):
         if len(set(self.kinds)) != len(self.kinds) or self.format == "csv" and len(self.kinds) != 1:
             raise ValueError("CSV 只能选择一张表，资源类型不能重复")
+        if self.status_mode == "observed":
+            if not self.observation_snapshot_id or "devices" not in self.kinds:
+                raise ValueError("观测导出必须明确状态快照并包含设备表；节点不推断观测状态")
+        elif self.observation_snapshot_id is not None:
+            raise ValueError("基线导出不能携带观测快照")
         if self.range != "filtered" and "filter" in self.model_fields_set:
             raise ValueError("只有筛选范围可以携带 filter")
         if self.range == "filtered" and self.filter is None:

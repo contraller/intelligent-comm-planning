@@ -73,11 +73,33 @@ describe('台账导出 HTTP 适配', () => {
   ])('非法预检响应不能显示为成功 %j', async patch => {
     await expect(fixture({ ...preview(), ...patch }).api.previewResourceExport(input())).rejects.toMatchObject({ code: 'INVALID_RESOURCE_EXPORT_RESPONSE' });
   });
-  it('未接的 GIS 和观测快照明确拒绝，不静默按台账导出', async () => {
+  it('GIS 缺失专用版本上下文时拒绝，不静默按台账导出', async () => {
     const f = fixture();
-    for (const q of [{ ...input(), context: 'gis' }, { ...input(), ledger: { revision, range: 'filtered', filter: { statusMode: 'observed', observationSnapshotId: 'OBS1' } } }])
-      await expect(f.api.previewResourceExport(q as ResourceExportRequest)).rejects.toMatchObject({ code: 'NOT_IMPLEMENTED' });
+    await expect(f.api.previewResourceExport({ ...input(), context: 'gis' })).rejects.toMatchObject({ code: 'VALIDATION_ERROR' });
     expect(f.request).not.toHaveBeenCalled();
+  });
+  it('观测预检绑定明确快照，来源字段只映射请求根级', async () => {
+    const observation = { snapshot_id: 'OBS1', snapshot_revision: 'device-status-' + 'a'.repeat(64),
+      resource_revision: revision, data_origin: 'SYNTHETIC_INTEGRATION', source_label: '已选择的构造来源' };
+    const f = fixture({ ...preview(), status_mode: 'observed', observation, node_status_mode: 'baseline' });
+    const q: ResourceExportRequest = { ...input(), ledger: { revision, range: 'filtered',
+      filter: { statusMode: 'observed', observationSnapshotId: 'OBS1', status: 'UNKNOWN', alert: 'UNKNOWN' } } };
+    expect(await f.api.previewResourceExport(q)).toMatchObject({ statusMode: 'observed', nodeStatusMode: 'baseline',
+      observation: { snapshotId: 'OBS1', snapshotRevision: observation.snapshot_revision, resourceRevision: revision, sourceLabel: observation.source_label } });
+    expect(JSON.parse(f.request.mock.calls[0]![1].body)).toEqual({ context: 'ledger', revision, format: 'csv', kinds: ['devices'],
+      range: 'filtered', status_mode: 'observed', observation_snapshot_id: 'OBS1', filter: { status: 'UNKNOWN', alert: 'UNKNOWN' } });
+  });
+  it('观测下载预检失败时不请求文件，也不退回基线', async () => {
+    const f = fixture();
+    const q: ResourceExportRequest = { ...input(), ledger: { revision, range: 'all',
+      filter: { statusMode: 'observed', observationSnapshotId: 'OBS1' } } };
+    await expect(f.api.exportResources(q)).rejects.toMatchObject({ code: 'INVALID_RESOURCE_EXPORT_RESPONSE' });
+    expect(f.request).toHaveBeenCalledOnce();
+    expect(f.request.mock.calls[0]![0]).toBe('/resource/export/preview');
+    expect(JSON.parse(f.request.mock.calls[0]![1].body)).toMatchObject({ status_mode: 'observed', observation_snapshot_id: 'OBS1' });
+    f.request.mockRejectedValueOnce(new ApiError('快照资源版本已变化', 1205, null, 'observed-trace', 409));
+    await expect(f.api.exportResources(q)).rejects.toMatchObject({ code: 'RESOURCE_VERSION_CHANGED', requestId: 'observed-trace' });
+    expect(f.request.mock.calls.every(call => call[0] === '/resource/export/preview')).toBe(true);
   });
   it('CSV 文件由后端返回，保留 UTF-8 字节', async () => {
     const data = 'device_id,node_id\r\nDV1,N1\r\n';

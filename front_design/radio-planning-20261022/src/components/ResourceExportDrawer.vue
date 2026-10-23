@@ -17,13 +17,13 @@
         ></label
       >
       <label
-        >文件格式<select v-model="format"
+        >文件格式<select v-model="format" :disabled="busy"
           ><option value="xlsx">XLSX 工作簿</option
           ><option value="csv">UTF-8 CSV</option></select
         ></label
       >
       <label v-if="!candidateMode && format === 'csv'"
-        >资源类型<select v-model="kind"
+        >资源类型<select v-model="kind" :disabled="busy"
           ><option value="nodes">站点</option
           ><option value="devices">设备</option
           ><option value="interference_sources">干扰源</option></select
@@ -39,11 +39,12 @@
             v-model="kinds"
             type="checkbox"
             :value="k"
+            :disabled="busy"
           />{{ { nodes: '站点', devices: '设备', interference_sources: '干扰源' }[k] }}</label
         ></div
       >
       <label
-        >数据范围<select v-model="range"
+        >数据范围<select v-model="range" :disabled="busy"
           ><option value="all">全部已保存记录</option
           ><option
             v-if="filteredAvailable"
@@ -56,22 +57,33 @@
           ></select
         ></label
       >
+      <p v-if="context === 'gis'" class="readonly-note">
+        资源版本：{{ gisQuery?.revision || '尚未读取' }}；状态来源：台账基线。
+        <template v-if="range === 'filtered' && candidateMode">候选链路仅支持搜索、设备类别和告警条件，其他条件将拒绝导出。</template>
+        <template v-else-if="range === 'filtered' && gisQuery?.browse === 'stations'">站点浏览：先按站点条件筛选，再取命中站点的全部设备。</template>
+        <template v-else-if="range === 'filtered'">设备浏览：全库筛选设备，节点取命中设备所属站点。</template>
+        <template v-if="range === 'filtered' && !candidateMode">干扰源仅使用自身搜索条件。</template>
+        <template v-if="range === 'selected'">各类仅导出对应选择，未选类别为空。</template>
+      </p>
       <p
         class="notice"
-        v-if="counts"
+        v-if="boundCounts"
         ><span
-          v-for="table in counts.tables"
+          v-for="table in boundCounts.tables"
           :key="table.kind"
           >{{ table.kind === 'topology_links' ? '候选链路' : table.kind }}：{{
             table.count
           }}
           条；</span
         ><template v-if="!candidateMode"
-          ><br />补齐所属站点/上级：{{ counts.added }} 个。</template
+          ><br />补齐所属站点/上级：{{ boundCounts.added }} 个。</template
         ></p
       >
+      <ul v-if="boundCounts?.warnings?.length" class="notice" role="status">
+        <li v-for="(warning, index) in boundCounts.warnings" :key="index">{{ warning }}</li>
+      </ul>
       <p
-        v-else
+        v-if="!boundCounts"
         class="error"
         >请选择至少一类资源及有效范围。</p
       >
@@ -95,6 +107,7 @@
         role="alert"
         >{{ error }}</p
       >
+      <button v-if="!boundCounts" class="btn" :disabled="busy || checking || !canExport" @click="preflight">{{ checking ? '预检中…' : '重试预检' }}</button>
     </div>
     <template #footer
       ><div class="toolbar"
@@ -105,7 +118,7 @@
           >关闭</button
         ><button
           class="btn primary"
-          :disabled="busy || !counts || !auth.can('resources.view')"
+          :disabled="!canDownload"
           @click="download"
           >{{ busy ? '生成中…' : '下载文件' }}</button
         ></div
@@ -139,15 +152,16 @@ const auth = useAuthStore(),
   format = ref<ResourceFormat>('xlsx'),
   kind = ref<ResourceKind>('devices'),
   kinds = ref<ResourceKind[]>(['nodes', 'devices', 'interference_sources']),
-  range = ref('all'),
+  range = ref<'all' | 'filtered' | 'selected'>('all'),
   busy = ref(false),
+  checking = ref(false),
   error = ref('');
 const content = ref<'resources' | 'candidates'>('resources'),
   candidateMode = computed(() => props.context === 'gis' && content.value === 'candidates');
-// 候选使用独立范围，原三类资源的 ID 对象和默认请求保持不变。
+// GIS 的全库筛选只传查询，不把当前分页收集的 ID 当作筛选结果。
 const filteredAvailable = computed(
   () =>
-    !!props.gisQuery || (candidateMode.value ? !!props.candidateFilteredIds : !!props.filteredIds),
+    props.context === 'gis' ? !!props.gisQuery : !!props.filteredIds,
 );
 const selectedAvailable = computed(() =>
   candidateMode.value ? !!props.candidateSelectedIds : !!props.selectedIds,
@@ -167,6 +181,7 @@ watch(
       range.value = 'selected';
     }
   },
+  { immediate: true },
 );
 watch(
   content,
@@ -175,73 +190,75 @@ watch(
   },
   { flush: 'sync' },
 );
-const request = computed<ResourceExportRequest>(() => ({
-  format: format.value,
-  kinds: candidateMode.value
+const request = computed<ResourceExportRequest>(() => {
+  const selectedKinds: ResourceKind[] = candidateMode.value
     ? ['topology_links']
     : format.value === 'csv'
       ? [kind.value]
-      : kinds.value,
-  context: props.context,
-  ...(props.gisQuery
-    ? {
-        gis: {
-          ...props.gisQuery,
-          range: range.value as 'all' | 'filtered' | 'selected',
-          selectedIds: candidateMode.value
-            ? { topology_links: props.candidateSelectedIds ?? [] }
-            : props.selectedIds,
-        },
+      : [...kinds.value];
+  const result: ResourceExportRequest = { format: format.value, kinds: selectedKinds, context: props.context };
+  if (props.context === 'gis') {
+    if (props.gisQuery) {
+      const scope: NonNullable<ResourceExportRequest['gis']> = {
+        revision: props.gisQuery.revision, browse: props.gisQuery.browse, range: range.value,
+      };
+      if (range.value === 'filtered') scope.filter = JSON.parse(JSON.stringify(props.gisQuery.filter ?? {}));
+      if (range.value === 'selected') {
+        const selected = candidateMode.value ? { topology_links: props.candidateSelectedIds ?? [] } : props.selectedIds;
+        scope.selectedIds = Object.fromEntries(selectedKinds.map(key => [key, [...(selected?.[key] ?? [])]]));
       }
-    : range.value === 'filtered'
-      ? {
-          ids: candidateMode.value
-            ? { topology_links: props.candidateFilteredIds ?? [] }
-            : props.filteredIds,
-        }
-      : range.value === 'selected'
-        ? {
-            ids: candidateMode.value
-              ? { topology_links: props.candidateSelectedIds ?? [] }
-              : props.selectedIds,
-          }
-        : {}),
-}));
+      result.gis = scope;
+    }
+  } else if (range.value !== 'all') result.ids = range.value === 'filtered' ? props.filteredIds : props.selectedIds;
+  return result;
+});
 // 数量预检也由共同服务返回，不能从已显示分页推算全库导出范围。
 const counts = ref<ResourceExportPreview | null>(null);
+const signature = computed(() => JSON.stringify(request.value));
+const previewSignature = ref('');
+const previewGeneration = ref(-1);
+const canExport = computed(() => auth.can('resources.view') && (props.context !== 'gis' || auth.can('situation.view')));
+const boundCounts = computed(() => props.visible && canExport.value && previewGeneration.value === auth.generation && previewSignature.value === signature.value ? counts.value : null);
+const canDownload = computed(() => !busy.value && !checking.value && !!boundCounts.value);
 let serial = 0;
-watch(
-  [() => props.visible, request, () => auth.generation],
-  async () => {
-    const token = ++serial,
-      owner = auth.generation;
-    counts.value = null;
-    error.value = '';
-    if (!props.visible || !auth.can('resources.view')) return;
-    try {
-      const value = await previewService.previewResourceExport(
-        JSON.parse(JSON.stringify(request.value)),
-      );
-      if (token === serial && owner === auth.generation && props.visible) counts.value = value;
-    } catch (e) {
-      if (token === serial && owner === auth.generation)
-        error.value = e instanceof Error ? e.message : '导出预检失败';
+let active = true;
+async function preflight() {
+  const token = ++serial, owner = auth.generation, started = signature.value;
+  counts.value = null;
+  previewSignature.value = '';
+  error.value = '';
+  checking.value = false;
+  if (!props.visible || !canExport.value) return;
+  if (props.context === 'gis' && !props.gisQuery) { error.value = '尚无已保存资源版本，不能导出或按当前页替代全库筛选'; return; }
+  checking.value = true;
+  try {
+    const value = await previewService.previewResourceExport(JSON.parse(started));
+    if (active && token === serial && owner === auth.generation && props.visible && canExport.value && started === signature.value) {
+      counts.value = value;
+      previewSignature.value = started;
+      previewGeneration.value = owner;
     }
-  },
+  } catch (e) {
+    if (active && token === serial && owner === auth.generation && started === signature.value)
+      error.value = e instanceof Error ? e.message : '导出预检失败';
+  } finally {
+    if (token === serial) checking.value = false;
+  }
+}
+watch(
+  [() => props.visible, signature, () => auth.generation, canExport],
+  preflight,
   { immediate: true },
 );
 onBeforeUnmount(() => {
+  active = false;
   serial++;
 });
 // 导出只读取已保存数据，下载前再次校验当前会话。
 async function download() {
-  if (
-    busy.value ||
-    !auth.can('resources.view') ||
-    (props.context === 'gis' && !auth.can('situation.view'))
-  )
-    return;
+  if (!canDownload.value) return;
   const session = auth.generation,
+    token = serial,
     context = props.context,
     signature = JSON.stringify(request.value),
     valueRequest = JSON.parse(signature);
@@ -251,18 +268,23 @@ async function download() {
     const value = await previewService.exportResources(valueRequest);
     if (
       session !== auth.generation ||
+      token !== serial || !active ||
       context !== props.context ||
       signature !== JSON.stringify(request.value) ||
       !props.visible ||
       !(await auth.check()) ||
       session !== auth.generation ||
-      !auth.can('resources.view') ||
-      (context === 'gis' && !auth.can('situation.view'))
+      token !== serial || !active || !props.visible || signature !== JSON.stringify(request.value) ||
+      !canExport.value
     )
       return;
     downloadFile(value, 1000);
   } catch (e) {
-    if (session === auth.generation) error.value = e instanceof Error ? e.message : '导出失败';
+    if (active && token === serial && session === auth.generation && signature === JSON.stringify(request.value)) {
+      counts.value = null;
+      previewSignature.value = '';
+      error.value = e instanceof Error ? e.message : '导出失败';
+    }
   } finally {
     busy.value = false;
   }

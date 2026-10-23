@@ -13,13 +13,24 @@ router = APIRouter(prefix="/api/v1/resource/export", tags=["resource-export"])
 def _call(request, payload, download):
     try:
         identity.require(request, "resources.view", writing=True)
-        query = ResourceExportRequest.model_validate(payload)
+        selected_service = service
+        if payload.get("context") == "gis":
+            identity.require(request, "situation.view")
+            from . import resource_gis_export_service
+            from .resource_gis_export_schemas import ResourceGisExportRequest
+
+            query = ResourceGisExportRequest.model_validate(payload)
+            selected_service = resource_gis_export_service
+        else:
+            query = ResourceExportRequest.model_validate(payload)
         if not download:
-            return {"code": 0, "message": "success", "data": service.preview(query)}
-        data, mime, name = service.export_file(query)
+            return {"code": 0, "message": "success", "data": selected_service.preview(query)}
+        data, mime, name = selected_service.export_file(query)
         return Response(data, media_type=mime, headers={"Content-Disposition": 'attachment; filename="' + name + '"',
             "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff", "X-Resource-Revision": query.revision,
-            "X-Data-Origin": "SYNTHETIC_INTEGRATION"})
+            "X-Data-Origin": "SYNTHETIC_INTEGRATION",
+            **({"X-Status-Mode": "observed", "X-Node-Status-Mode": "baseline"}
+               if query.context == "ledger" and query.status_mode == "observed" else {})})
     except (identity.IdentityError, ResourceDatasetError) as exc:
         return JSONResponse({"code": exc.code, "message": str(exc), "data": None}, status_code=exc.status)
     except ValidationError:
