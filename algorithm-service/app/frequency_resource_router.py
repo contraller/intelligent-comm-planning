@@ -11,6 +11,7 @@ from . import resource_dataset_service as datasets
 from .database import DatabaseConfigurationError
 from .frequency_resource_schemas import (
     FrequencyDisableChange, FrequencyDisableValidation, FrequencyResourceQuery,
+    FrequencyHistoryQuery, FrequencyOperationQuery, FrequencyPageQuery,
 )
 from sqlalchemy.exc import SQLAlchemyError
 
@@ -43,12 +44,15 @@ async def _body(request):
     return value
 
 
-async def _call(request: Request, model, action, *, writing=False):
+async def _call(request: Request, model, action, *, writing=False, owned=False, bound=False, request_id=None):
     try:
-        identity.require(request, "resources.view")
+        actor = identity.require(request, "resources.view")
+        if (owned or bound) and request.headers.get("x-session-id") != actor["session_id"]:
+            raise identity.IdentityError("请求会话已变化", 1106, 409)
         if writing and not request.headers.get("x-csrf-token", "").isascii():
             raise identity.IdentityError("联调 CSRF 校验失败", 1105, 403)
-        actor = identity.require(request, "resources.frequency.disable", writing=True) if writing else None
+        if writing:
+            actor = identity.require(request, "resources.frequency.disable", writing=True)
         if writing:
             value = await _body(request)
         else:
@@ -56,8 +60,12 @@ async def _call(request: Request, model, action, *, writing=False):
             if len({key for key, _ in pairs}) != len(pairs) or await request.body():
                 _bad_request()
             value = dict(pairs)
+            if request_id is not None:
+                if "request_id" in value:
+                    _bad_request()
+                value["request_id"] = request_id
         parsed = model.model_validate(value)
-        data = action(parsed, actor["account_id"]) if model is FrequencyDisableChange else action(parsed)
+        data = action(parsed, actor["account_id"]) if owned or model is FrequencyDisableChange else action(parsed)
         return {"code": 0, "message": "success", "data": data}
     except ValidationError:
         return JSONResponse(status_code=422, content={"code": 1001, "message": "频点请求字段校验失败", "data": None})
@@ -82,3 +90,18 @@ async def validate_frequency_disable(request: Request):
 @router.post("/disable")
 async def disable_frequency_resources(request: Request):
     return await _call(request, FrequencyDisableChange, service.disable, writing=True)
+
+
+@router.get("/query")
+async def query_frequency_resources(request: Request):
+    return await _call(request, FrequencyPageQuery, service.query, bound=True)
+
+
+@router.get("/operations")
+async def query_frequency_operations(request: Request):
+    return await _call(request, FrequencyHistoryQuery, service.query_operations, owned=True)
+
+
+@router.get("/operations/{request_id:path}")
+async def get_frequency_operation(request: Request, request_id: str):
+    return await _call(request, FrequencyOperationQuery, service.get_operation, owned=True, request_id=request_id)

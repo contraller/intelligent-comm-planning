@@ -12,6 +12,99 @@ const item = (id: string, available = true) => ({
   freq_id: id, device_class: 'HF', center_freq_khz: 3000, bandwidth_khz: null, channel_no: null,
   is_available: available, occupied_by: null, reuse_min_distance_m: null, adjacent_guard_khz: null, note: null,
 });
+
+const pagedInput = () => ({ context: 'ledger' as const, revision: base, page: 1, pageSize: 5 as const });
+const paged = () => ({ ...snapshot(), page: 1, page_size: 5, total: 2 });
+const summary = () => ({ operation: 'FREQUENCY_DISABLE', request_id: 'disable-1', created_at: '2026-10-23T00:00:00Z',
+  base_revision: base, revision: next, changed: true, selected_count: 2, updated_count: 1, unchanged_count: 1 });
+const operation = () => ({ operation: 'FREQUENCY_DISABLE', request_id: 'disable-1', created_at: '2026-10-23T00:00:00Z', receipt: receipt() });
+describe('R2 频点服务器查询及原回执', () => {
+  it('严格序列化筛选分页，使用服务器总数和同版原值', async () => {
+    const f = fixture(paged());
+    const result = await f.api.queryFrequencyResources({ ...pagedInput(), deviceClass: 'HF', minKhz: 3000, maxKhz: 3000, search: 'FQ' });
+    const url = new URL('http://example.test' + f.request.mock.calls[0][0]);
+    expect(url.pathname).toBe('/resource/frequency-resources/query');
+    expect(Object.fromEntries(url.searchParams)).toEqual({ context: 'ledger', revision: base, page: '1', page_size: '5',
+      device_class: 'HF', min_khz: '3000', max_khz: '3000', search: 'FQ' });
+    expect(result).toMatchObject({ total: 2, page: 1, pageSize: 5, revision: base });
+  });
+  it('空筛选与越界页是有效服务器结果，不补造记录', async () => {
+    const f = fixture({ ...paged(), page: 99, items: [] });
+    expect((await f.api.queryFrequencyResources({ ...pagedInput(), page: 99 })).items).toEqual([]);
+    expect((await fixture({ ...paged(), total: 0, items: [] }).api.queryFrequencyResources(pagedInput())).total).toBe(0);
+  });
+  it.each([{ page: 0 }, { page: 1.5 }, { pageSize: 7 }, { pageSize: '5' }, { search: '\n' }, { search: 'x'.repeat(121) },
+    { minKhz: NaN }, { maxKhz: Infinity }, { minKhz: 5000, maxKhz: 3000 }, { availability: 'ALL' }, { deviceClass: 'OTHER' }, { actorId: 'admin' }])('拒绝非法分页筛选 %j', async patch => {
+    const f = fixture(paged());
+    await expect(f.api.queryFrequencyResources({ ...pagedInput(), ...patch } as never)).rejects.toMatchObject({ code: 'VALIDATION_ERROR' });
+    expect(f.request).not.toHaveBeenCalled();
+  });
+  it.each([{ page: 2 }, { page_size: 10 }, { total: 0 }, { items: [] }, { total: 2.1 }, { total: 8 }, { revision: next }])('分页结果不能错页、错版或伪报数量 %j', async patch => {
+    await expect(fixture({ ...paged(), ...patch }).api.queryFrequencyResources(pagedInput())).rejects.toMatchObject({ code: 'INVALID_FREQUENCY_RESOURCE_RESPONSE' });
+  });
+  it('拒绝返回不符合筛选的行', async () => {
+    for (const filters of [{ availability: 'AVAILABLE' as const }, { deviceClass: 'VUHF' as const }, { minKhz: 4000 }, { maxKhz: 2000 }, { search: 'missing' }])
+      await expect(fixture(paged()).api.queryFrequencyResources({ ...pagedInput(), ...filters })).rejects.toMatchObject({ code: 'INVALID_FREQUENCY_RESOURCE_RESPONSE' });
+  });
+  it('历史分页及原回执不绑定当前资源版本', async () => {
+    const f = fixture({ page: 1, page_size: 5, total: 1, items: [summary()] });
+    const history = await f.api.queryFrequencyOperations({ context: 'ledger', page: 1, pageSize: 5, search: 'disable' });
+    expect(f.request.mock.calls[0][0]).toBe('/resource/frequency-resources/operations?context=ledger&page=1&page_size=5&search=disable');
+    expect(history.items[0]).toMatchObject({ requestId: 'disable-1', selectedCount: 2, updatedCount: 1, unchangedCount: 1 });
+    const value = await fixture(operation()).api.getFrequencyOperation({ context: 'ledger', requestId: 'disable-1' });
+    expect(value.receipt.baseRevision).toBe(base); expect(value.receipt.revision).toBe(next);
+  });
+  it('回执路径编码合法的斜线和百分号编号', async () => {
+    const requestId = 'request/id%_';
+    const f = fixture({ ...operation(), request_id: requestId, receipt: { ...receipt(), request_id: requestId } });
+    await f.api.getFrequencyOperation({ context: 'ledger', requestId });
+    expect(f.request.mock.calls[0][0]).toBe('/resource/frequency-resources/operations/request%2Fid%25_?context=ledger');
+  });
+  it.each([{ updated_count: 3 }, { selected_count: 0 }, { changed: false }, { operation: 'DEVICE' }, { created_at: 'unknown' }])('损坏历史摘要必须拒绝 %j', async patch => {
+    await expect(fixture({ page: 1, page_size: 5, total: 1, items: [{ ...summary(), ...patch }] }).api.queryFrequencyOperations({ context: 'ledger', page: 1, pageSize: 5 }))
+      .rejects.toMatchObject({ code: 'INVALID_FREQUENCY_RESOURCE_RESPONSE' });
+  });
+  it('历史摘要拒绝重复、错序和搜索不匹配', async () => {
+    const data = { page: 1, page_size: 5, total: 2, items: [summary(), summary()] };
+    await expect(fixture(data).api.queryFrequencyOperations({ context: 'ledger', page: 1, pageSize: 5 })).rejects.toMatchObject({ code: 'INVALID_FREQUENCY_RESOURCE_RESPONSE' });
+    data.items[1] = { ...summary(), request_id: 'later', created_at: '2026-10-24T00:00:00Z' };
+    await expect(fixture(data).api.queryFrequencyOperations({ context: 'ledger', page: 1, pageSize: 5 })).rejects.toMatchObject({ code: 'INVALID_FREQUENCY_RESOURCE_RESPONSE' });
+    await expect(fixture({ ...data, total: 1, items: [summary()] }).api.queryFrequencyOperations({ context: 'ledger', page: 1, pageSize: 5, search: 'missing' })).rejects.toMatchObject({ code: 'INVALID_FREQUENCY_RESOURCE_RESPONSE' });
+  });
+  it('历史顺序保留微秒而不在同毫秒错误比较请求号', async () => {
+    const data = { page: 1, page_size: 5, total: 2, items: [
+      { ...summary(), request_id: 'z-first', created_at: '2026-10-23T00:00:00.123456+00:00' },
+      { ...summary(), request_id: 'a-second', created_at: '2026-10-23T00:00:00.123455Z' },
+    ] };
+    await expect(fixture(data).api.queryFrequencyOperations({ context: 'ledger', page: 1, pageSize: 5 })).resolves.toMatchObject({ total: 2 });
+    await expect(fixture({ ...data, items: [...data.items].reverse() }).api.queryFrequencyOperations({ context: 'ledger', page: 1, pageSize: 5 }))
+      .rejects.toMatchObject({ code: 'INVALID_FREQUENCY_RESOURCE_RESPONSE' });
+  });
+  it('同一时刻的不同ISO表示使用真实时刻及后端Unicode编号顺序', async () => {
+    const data = { page: 1, page_size: 5, total: 2, items: [
+      { ...summary(), request_id: '\ue000', created_at: '2026-10-23T08:00:00.1234+08:00' },
+      { ...summary(), request_id: '\u{10000}', created_at: '2026-10-23T00:00:00.123400Z' },
+    ] };
+    await expect(fixture(data).api.queryFrequencyOperations({ context: 'ledger', page: 1, pageSize: 5 })).resolves.toMatchObject({ total: 2 });
+    await expect(fixture({ ...data, items: [...data.items].reverse() }).api.queryFrequencyOperations({ context: 'ledger', page: 1, pageSize: 5 }))
+      .rejects.toMatchObject({ code: 'INVALID_FREQUENCY_RESOURCE_RESPONSE' });
+  });
+  it.each([{ request_id: 'other' }, { operation: 'DEVICE' }, { created_at: 'bad' }, { receipt: { ...receipt(), request_id: 'other' } },
+    { receipt: { ...receipt(), items: [] } }])('读取原回执拒绝错归属或损坏 %j', async patch => {
+    await expect(fixture({ ...operation(), ...patch }).api.getFrequencyOperation({ context: 'ledger', requestId: 'disable-1' })).rejects.toMatchObject({ code: 'INVALID_FREQUENCY_RESOURCE_RESPONSE' });
+  });
+  it('三个新方法冻结等待前的筛选与请求号', async () => {
+    const list = deferredFixture(), q = pagedInput(); const listPromise = list.api.queryFrequencyResources(q);
+    q.page = 99; q.revision = next; list.complete(paged());
+    expect((await listPromise).page).toBe(1);
+    const history = deferredFixture(), h = { context: 'ledger' as const, page: 1, pageSize: 5 as const, search: 'disable' };
+    const historyPromise = history.api.queryFrequencyOperations(h); h.page = 9; h.search = 'other';
+    history.complete({ page: 1, page_size: 5, total: 1, items: [summary()] }); expect((await historyPromise).items[0].requestId).toBe('disable-1');
+    const detail = deferredFixture(), d = { context: 'ledger' as const, requestId: 'disable-1' };
+    const detailPromise = detail.api.getFrequencyOperation(d); d.requestId = 'other'; detail.complete(operation());
+    expect((await detailPromise).requestId).toBe('disable-1');
+  });
+});
 const snapshot = () => ({ ...origin, revision: base, base_revision: base, content_hash: 'a'.repeat(64),
   items: [item('FQ-0001', false), item('FQ-0002')] });
 const preview = () => ({ ...snapshot(), selected_ids: ['FQ-0001', 'FQ-0002'], would_disable: ['FQ-0002'], unchanged: ['FQ-0001'],

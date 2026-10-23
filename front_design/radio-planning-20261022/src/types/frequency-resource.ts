@@ -64,3 +64,70 @@ export interface FrequencyDisableReceipt {
   source: string;
   warnings: [];
 }
+
+export interface FrequencyPageQuery extends FrequencyResourceQuery {
+  page: number;
+  pageSize: 5 | 10 | 20 | 50;
+  search?: string;
+  deviceClass?: 'HF' | 'VUHF';
+  availability?: 'AVAILABLE' | 'DISABLED';
+  minKhz?: number;
+  maxKhz?: number;
+}
+export interface FrequencyResourcePage extends FrequencyResourceSnapshot {
+  page: number;
+  pageSize: number;
+  total: number;
+}
+export interface FrequencyHistoryQuery {
+  context: 'ledger';
+  page: number;
+  pageSize: 5 | 10 | 20 | 50;
+  search?: string;
+}
+export interface FrequencyOperationQuery { context: 'ledger'; requestId: string }
+export interface FrequencyOperation {
+  operation: 'FREQUENCY_DISABLE';
+  requestId: string;
+  createdAt: string;
+  receipt: FrequencyDisableReceipt;
+}
+export interface FrequencyOperationSummary {
+  operation: 'FREQUENCY_DISABLE';
+  requestId: string;
+  createdAt: string;
+  baseRevision: string;
+  revision: string;
+  changed: boolean;
+  selectedCount: number;
+  updatedCount: number;
+  unchangedCount: number;
+}
+export interface FrequencyOperationPage {
+  page: number;
+  pageSize: number;
+  total: number;
+  items: FrequencyOperationSummary[];
+}
+export interface FrequencyResourceServices {
+  loadFrequencyResources(input: FrequencyResourceQuery, signal?: AbortSignal): Promise<FrequencyResourceSnapshot>;
+  queryFrequencyResources(input: FrequencyPageQuery, signal?: AbortSignal): Promise<FrequencyResourcePage>;
+  validateFrequencyDisable(input: FrequencyDisableValidationInput, signal?: AbortSignal): Promise<FrequencyDisableValidation>;
+  disableFrequencyResources(input: FrequencyDisableInput, signal?: AbortSignal): Promise<FrequencyDisableReceipt>;
+  queryFrequencyOperations(input: FrequencyHistoryQuery, signal?: AbortSignal): Promise<FrequencyOperationPage>;
+  getFrequencyOperation(input: FrequencyOperationQuery, signal?: AbortSignal): Promise<FrequencyOperation>;
+}
+export interface FrequencyResourceHostContext {
+  accountId: string;
+  generation: number;
+  readable: boolean;
+  canDisable: boolean;
+  canMaintain: boolean;
+}
+export interface FrequencyResourceChange {
+  previousRevision: string;
+  revision: string;
+  readRevision: string;
+  requestId: string;
+  changed: boolean;
+}

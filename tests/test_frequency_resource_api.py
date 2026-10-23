@@ -12,7 +12,7 @@ import time
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine, func, select
+from sqlalchemy import create_engine, func, select, update
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import sessionmaker
 
@@ -413,3 +413,110 @@ def test_old_task_and_plan_are_rejected_without_rewriting_history(frequency_api)
         assert plan.state == "SAVED" and plan.raw_snapshot == raw and plan.result_snapshot == raw
         revision = session.get(task_input_models.PlanningTaskRevision, task["revision"])
         assert revision.resource_revision == f.baseline["revision"] and revision.input_snapshot == task["input"]
+
+
+def test_r2_query_filters_complete_snapshot_before_paging(frequency_api):
+    f = frequency_api
+    params = {**query(f), "device_class": "HF", "availability": "AVAILABLE", "page_size": 5,
+        "min_khz": 3000, "max_khz": 15000}
+    expected = [row for row in f.baseline["tables"]["frequency_resource.csv"] if row["device_class"] == "HF"
+        and row["is_available"] == "true" and 3000 <= float(row["center_freq_khz"]) <= 15000]
+    expected.sort(key=lambda row: row["freq_id"])
+    headers = authorize(f)
+    for number in (1, 2, 999):
+        response = f.client.get(PREFIX + "/query", params={**params, "page": number}, headers=headers)
+        assert response.status_code == 200, response.text
+        value = response.json()["data"]
+        assert value["page"] == number and value["page_size"] == 5 and value["total"] == len(expected)
+        assert [row["freq_id"] for row in value["items"]] == [row["freq_id"] for row in expected[(number - 1) * 5:number * 5]]
+        assert value["revision"] == value["base_revision"] == f.baseline["revision"]
+        assert value["content_hash"] == f.baseline["content_hash"] and value["data_origin"] == datasets.ORIGIN
+    response = f.client.get(PREFIX + "/query", params={**query(f), "search": "禁用", "availability": "DISABLED"}, headers=headers)
+    assert response.status_code == 200
+    assert all(not row["is_available"] and "禁用" in (row["note"] or "") for row in response.json()["data"]["items"])
+    assert counts(f) == (1, 0)
+
+
+@pytest.mark.parametrize("patch", [{"page": 0}, {"page": "1.0"}, {"page_size": 7}, {"page_size": "true"},
+    {"min_khz": "nan"}, {"max_khz": "inf"}, {"min_khz": 0}, {"min_khz": 5000, "max_khz": 3000},
+    {"device_class": "ALL"}, {"availability": "FAULT"}, {"search": "x" * 121}, {"search": "\n"}, {"extra": 1}])
+def test_r2_invalid_query_has_no_writes(frequency_api, patch):
+    f = frequency_api
+    response = f.client.get(PREFIX + "/query", params={**query(f), **patch}, headers=authorize(f))
+    assert response.status_code == 422 and response.json()["code"] == 1001, response.text
+    assert counts(f) == (1, 0)
+
+
+def test_r2_query_binding_and_stale_version(frequency_api):
+    f = frequency_api
+    assert f.client.get(PREFIX + "/query", params=query(f)).json()["code"] == 1106
+    headers = authorize(f)
+    duplicate = [*query(f).items(), ("page", "1"), ("page", "2")]
+    assert f.client.get(PREFIX + "/query", params=duplicate, headers=headers).json()["code"] == 1001
+    saved = post(f).json()["data"]
+    assert f.client.get(PREFIX + "/query", params=query(f), headers=headers).json()["code"] == 1205
+    response = f.client.get(PREFIX + "/query", params=query(f, revision=saved["revision"]), headers=headers)
+    assert response.status_code == 200
+
+
+def test_r2_original_operation_and_history_do_not_follow_current_revision(frequency_api):
+    f = frequency_api
+    first_body = body(f, request_id="request/原始%_one")
+    first = post(f, first_body).json()["data"]
+    post(f, body(f, base_revision=first["revision"], request_id="requestX_other", ids=["FQ-0004"]))
+    headers = authorize(f)
+    response = f.client.get(PREFIX + "/operations/request%2F%E5%8E%9F%E5%A7%8B%25_one", params={"context": "ledger"}, headers=headers)
+    assert response.status_code == 200, response.text
+    value = response.json()["data"]
+    assert value["request_id"] == first_body["request_id"] and value["receipt"] == first
+    assert value["operation"] == "FREQUENCY_DISABLE" and datetime.fromisoformat(value["created_at"]).tzinfo
+    value = f.client.get(PREFIX + "/operations", params={"context": "ledger", "search": "%_", "page_size": 5}, headers=headers).json()["data"]
+    assert value["total"] == 1 and value["items"][0]["request_id"] == first_body["request_id"]
+    assert value["items"][0]["selected_count"] == value["items"][0]["updated_count"] == 2
+    assert value["items"][0]["unchanged_count"] == 0
+    page = f.client.get(PREFIX + "/operations", params={"context": "ledger", "page": 99}, headers=headers).json()["data"]
+    assert page["items"] == [] and page["total"] == 2
+    assert counts(f) == (3, 2)
+
+
+def test_r2_operations_hide_foreign_and_nonfrequency_receipts(frequency_api):
+    f = frequency_api
+    saved = post(f).json()["data"]
+    device = maintenance.set_availability(AvailabilityChange.model_validate({"context": "ledger",
+        "base_revision": saved["revision"], "request_id": "device-only", "ids": ["DV-0001"], "availability": "OFF_SHELF"}), ACTOR)
+    before = counts(f)
+    for request_id in ("device-only", "missing"):
+        response = f.client.get(PREFIX + "/operations/" + request_id, params={"context": "ledger"}, headers=authorize(f))
+        assert response.status_code == 404 and response.json()["code"] == 1002
+    response = f.client.get(PREFIX + "/operations/" + saved["request_id"], params={"context": "ledger"}, headers=authorize(f, "p04-test-other"))
+    assert response.status_code == 404
+    empty = f.client.get(PREFIX + "/operations", params={"context": "ledger"}, headers=authorize(f, "p04-test-other")).json()["data"]
+    assert empty["total"] == 0 and empty["items"] == []
+    own = f.client.get(PREFIX + "/operations", params={"context": "ledger"}, headers=authorize(f)).json()["data"]
+    assert own["total"] == 1 and own["items"][0]["request_id"] == saved["request_id"]
+    assert counts(f) == before and datasets.current()["revision"] == device["revision"]
+
+
+def test_r2_history_search_is_case_sensitive_literal(frequency_api):
+    f = frequency_api
+    saved = post(f, body(f, request_id="Case%_Only")).json()["data"]
+    for search, expected in (("case", 0), ("Case", 1), ("%_", 1), ("%X", 0)):
+        response = f.client.get(PREFIX + "/operations", params={"context": "ledger", "search": search}, headers=authorize(f))
+        assert response.status_code == 200, response.text
+        page = response.json()["data"]
+        assert page["total"] == len(page["items"]) == expected
+        if expected:
+            assert page["items"][0]["request_id"] == saved["request_id"]
+    assert counts(f) == (2, 1)
+
+
+def test_r2_corrupt_receipt_is_not_empty_success(frequency_api):
+    f = frequency_api
+    saved = post(f).json()["data"]
+    corrupt = {**saved, "updated": [], "affected_ids": []}
+    # 故意绕过 ORM 不可变事件模拟已有存储损坏，不删除或改写有效业务记录。
+    with f.factory.begin() as session:
+        session.execute(update(ResourceDatasetOperation).where(ResourceDatasetOperation.request_id == saved["request_id"]).values(receipt=corrupt))
+    for path in ("/operations", "/operations/" + saved["request_id"]):
+        response = f.client.get(PREFIX + path, params={"context": "ledger"}, headers=authorize(f))
+        assert response.status_code == 503 and response.json()["code"] == 5002

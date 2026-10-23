@@ -1,6 +1,8 @@
 import type { AuthenticatedRequest } from './auth-http';
-import type { FrequencyDisableInput, FrequencyDisableValidationInput, FrequencyResourceQuery } from '../types/frequency-resource';
-import { readFrequencyDisableReceipt, readFrequencyDisableValidation, readFrequencyResources } from './frequency-resource-validation';
+import type { FrequencyDisableInput, FrequencyDisableValidationInput, FrequencyResourceQuery,
+  FrequencyPageQuery, FrequencyHistoryQuery, FrequencyOperationQuery, FrequencyResourceServices } from '../types/frequency-resource';
+import { readFrequencyDisableReceipt, readFrequencyDisableValidation, readFrequencyResources,
+  readFrequencyPage, readFrequencyOperation, readFrequencyOperations } from './frequency-resource-validation';
 import { ApiError } from './types';
 
 function invalid(): never { throw new ApiError('规划频点请求不符合停用契约', 'VALIDATION_ERROR'); }
@@ -37,7 +39,34 @@ function requestSnapshot(value: unknown, mode: 'read' | 'validate' | 'disable') 
   return Object.freeze(mode === 'read' ? snapshot : { ...snapshot, ids: selected });
 }
 
-export function createFrequencyResourceHttp(request: AuthenticatedRequest) {
+function querySnapshot<T extends FrequencyPageQuery | FrequencyHistoryQuery>(input: T, versioned: boolean): Readonly<T> {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) invalid();
+  const required = ['context', 'page', 'pageSize', ...(versioned ? ['revision'] : [])];
+  const keys = [...required, 'search', ...(versioned ? ['deviceClass', 'availability', 'minKhz', 'maxKhz'] : [])];
+  const value = { ...input } as Record<string, unknown>;
+  if (value.context !== 'ledger' || required.some(key => !Object.hasOwn(value, key))
+    || Object.keys(value).some(key => !keys.includes(key)) || !Number.isSafeInteger(value.page) || (value.page as number) < 1
+    || ![5, 10, 20, 50].includes(value.pageSize as number) || value.search !== undefined
+      && (typeof value.search !== 'string' || value.search.length > 120 || /[\u0000-\u001f\u007f]/.test(value.search))) invalid();
+  if (versioned) {
+    requestSnapshot({ context: value.context, revision: value.revision }, 'read');
+    if (value.deviceClass !== undefined && !['HF', 'VUHF'].includes(value.deviceClass as string)
+      || value.availability !== undefined && !['AVAILABLE', 'DISABLED'].includes(value.availability as string)) invalid();
+    for (const key of ['minKhz', 'maxKhz']) if (value[key] !== undefined
+      && (typeof value[key] !== 'number' || !Number.isFinite(value[key]) || (value[key] as number) <= 0)) invalid();
+    if (value.minKhz !== undefined && value.maxKhz !== undefined && (value.minKhz as number) > (value.maxKhz as number)) invalid();
+  }
+  return Object.freeze(value) as Readonly<T>;
+}
+function queryString(input: FrequencyHistoryQuery | FrequencyPageQuery): string {
+  const query = new URLSearchParams();
+  const fields = { context: input.context, page: input.page, page_size: input.pageSize, search: input.search,
+    ...('revision' in input ? { revision: input.revision, device_class: input.deviceClass,
+      availability: input.availability, min_khz: input.minKhz, max_khz: input.maxKhz } : {}) };
+  for (const [key, value] of Object.entries(fields)) if (value !== undefined) query.set(key, String(value));
+  return query.toString();
+}
+export function createFrequencyResourceHttp(request: AuthenticatedRequest): FrequencyResourceServices {
   const path = '/resource/frequency-resources';
   return {
     async loadFrequencyResources(input: FrequencyResourceQuery, signal?: AbortSignal) {
@@ -59,6 +88,21 @@ export function createFrequencyResourceHttp(request: AuthenticatedRequest) {
       return readFrequencyDisableReceipt(await request(`${path}/disable`, {
         method: 'POST', body: JSON.stringify(body), signal,
       }), snapshot);
+    },
+    async queryFrequencyResources(input, signal) {
+      const snapshot = querySnapshot(input, true);
+      return readFrequencyPage(await request(`${path}/query?${queryString(snapshot)}`, { signal }), snapshot);
+    },
+    async queryFrequencyOperations(input, signal) {
+      const snapshot = querySnapshot(input, false);
+      return readFrequencyOperations(await request(`${path}/operations?${queryString(snapshot)}`, { signal }), snapshot);
+    },
+    async getFrequencyOperation(input: FrequencyOperationQuery, signal) {
+      if (!input || typeof input !== 'object' || Array.isArray(input)
+        || input.context !== 'ledger' || Object.keys(input).length !== 2 || !Object.hasOwn(input, 'requestId')) invalid();
+      identifier(input.requestId);
+      const snapshot = Object.freeze({ ...input });
+      return readFrequencyOperation(await request(`${path}/operations/${encodeURIComponent(snapshot.requestId)}?context=ledger`, { signal }), snapshot);
     },
   };
 }

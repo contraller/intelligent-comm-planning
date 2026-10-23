@@ -1,6 +1,8 @@
 import type {
   FrequencyDisableInput, FrequencyDisableReceipt, FrequencyDisableValidation,
   FrequencyDisableValidationInput, FrequencyResourceItem, FrequencyResourceSnapshot,
+  FrequencyPageQuery, FrequencyResourcePage, FrequencyHistoryQuery, FrequencyOperationQuery,
+  FrequencyOperation, FrequencyOperationPage, FrequencyOperationSummary,
 } from '../types/frequency-resource';
 import { ApiError } from './types';
 
@@ -117,4 +119,78 @@ export function readFrequencyDisableReceipt(value: unknown, input: FrequencyDisa
   return { ...source(row), objectId: 'resource-frequency-disable', requestId: input.requestId,
     baseRevision: base, revision: rev, readRevision: rev, changed: row.changed as boolean,
     selectedIds, affectedIds, updated, unchanged, items: savedItems, warnings: [] };
+}
+
+function integer(value: unknown, field: string, minimum = 0): number {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value >= minimum ? value : fail(field);
+}
+function pageFields(row: Record<string, unknown>, input: { page: number; pageSize: number }, count: number) {
+  const page = integer(row.page, 'page', 1), pageSize = integer(row.page_size, 'page_size', 1), total = integer(row.total, 'total');
+  if (page !== input.page || pageSize !== input.pageSize
+    || count !== Math.min(pageSize, Math.max(0, total - (page - 1) * pageSize))) fail('page association');
+  return { page, pageSize, total };
+}
+export function readFrequencyPage(value: unknown, input: FrequencyPageQuery): FrequencyResourcePage {
+  const row = record(value, [...metadataKeys, 'page', 'page_size', 'total']);
+  const result = snapshot(row, input.revision);
+  for (const item of result.items) {
+    if (input.deviceClass && item.deviceClass !== input.deviceClass
+      || input.availability && item.isAvailable !== (input.availability === 'AVAILABLE')
+      || input.minKhz !== undefined && item.centerFreqKhz < input.minKhz
+      || input.maxKhz !== undefined && item.centerFreqKhz > input.maxKhz
+      || input.search && !item.freqId.includes(input.search) && !item.note?.includes(input.search)) fail('filter association');
+  }
+  return { ...result, ...pageFields(row, input, result.items.length) };
+}
+function timestamp(value: unknown): string {
+  const result = text(value, 'created_at');
+  if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/.test(result)
+    || !Number.isFinite(Date.parse(result))) fail('created_at');
+  return result;
+}
+function compareOperationTime(left: string, right: string): number {
+  const milliseconds = Date.parse(left) - Date.parse(right);
+  if (milliseconds) return milliseconds;
+  // 原回执包含微秒；Date.parse 只保留毫秒，不能据此误用请求号排序。
+  const a = left.match(/\.(\d+)/)?.[1]?.slice(3) ?? '', b = right.match(/\.(\d+)/)?.[1]?.slice(3) ?? '';
+  const width = Math.max(a.length, b.length), first = a.padEnd(width, '0'), second = b.padEnd(width, '0');
+  return first < second ? -1 : first > second ? 1 : 0;
+}
+function compareOperationId(left: string, right: string): number {
+  const a = Array.from(left, char => char.codePointAt(0)!), b = Array.from(right, char => char.codePointAt(0)!);
+  for (let i = 0; i < Math.min(a.length, b.length); i++) if (a[i] !== b[i]) return a[i]! - b[i]!;
+  return a.length - b.length;
+}
+export function readFrequencyOperation(value: unknown, input: FrequencyOperationQuery): FrequencyOperation {
+  const row = record(value, ['operation', 'request_id', 'created_at', 'receipt']);
+  if (row.operation !== 'FREQUENCY_DISABLE' || row.request_id !== input.requestId) fail('operation association');
+  if (!row.receipt || typeof row.receipt !== 'object' || Array.isArray(row.receipt)) fail('receipt');
+  const raw = row.receipt as Record<string, unknown>;
+  const receipt = readFrequencyDisableReceipt(raw, { context: 'ledger', requestId: input.requestId,
+    baseRevision: revision(raw.base_revision), ids: ids(raw.selected_ids) });
+  if (receipt.selectedIds.length < 1 || receipt.selectedIds.length > 50) fail('receipt count');
+  return { operation: 'FREQUENCY_DISABLE', requestId: input.requestId, createdAt: timestamp(row.created_at), receipt };
+}
+export function readFrequencyOperations(value: unknown, input: FrequencyHistoryQuery): FrequencyOperationPage {
+  const row = record(value, ['page', 'page_size', 'total', 'items']);
+  if (!Array.isArray(row.items)) fail('history items');
+  const values: FrequencyOperationSummary[] = (row.items as unknown[]).map(value => {
+    const v = record(value, ['operation', 'request_id', 'created_at', 'base_revision', 'revision', 'changed',
+      'selected_count', 'updated_count', 'unchanged_count']);
+    const requestId = id(v.request_id), baseRevision = revision(v.base_revision), rev = revision(v.revision);
+    const selectedCount = integer(v.selected_count, 'selected_count', 1), updatedCount = integer(v.updated_count, 'updated_count');
+    const unchangedCount = integer(v.unchanged_count, 'unchanged_count');
+    if (v.operation !== 'FREQUENCY_DISABLE' || typeof v.changed !== 'boolean' || selectedCount > 50
+      || selectedCount !== updatedCount + unchangedCount || v.changed !== (updatedCount > 0)
+      || v.changed === (rev === baseRevision) || input.search && !requestId.includes(input.search)) fail('history summary');
+    return { operation: 'FREQUENCY_DISABLE', requestId, createdAt: timestamp(v.created_at), baseRevision,
+      revision: rev, changed: v.changed as boolean, selectedCount, updatedCount, unchangedCount };
+  });
+  if (new Set(values.map(v => v.requestId)).size !== values.length) fail('duplicate operations');
+  for (let i = 1; i < values.length; i++) {
+    const before = values[i - 1]!, after = values[i]!;
+    const time = compareOperationTime(before.createdAt, after.createdAt);
+    if (time < 0 || time === 0 && compareOperationId(before.requestId, after.requestId) > 0) fail('history order');
+  }
+  return { ...pageFields(row, input, values.length), items: values };
 }
