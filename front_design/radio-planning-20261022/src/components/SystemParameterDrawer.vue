@@ -34,8 +34,13 @@
       → {{ store.parameterForm.value }} {{ store.parameterForm.unit }}</p
     >
     <p class="notice"
-      >{{ store.parameterForm?.applicationState === 'STORED_ONLY' ? '参数已存储，尚未接入运行消费者。' : store.parameterForm?.applicationState === 'APPLIED' ? '当前参数约定已应用。' : '参数作用域以当前运行配置为准。' }}
+      >{{ store.parameterForm?.applicationState === 'STORED_ONLY' ? '服务端参数已存储；存储不代表本标签或其他标签已应用。' : store.parameterForm?.applicationState === 'APPLIED' ? '当前参数约定已应用。' : '参数作用域以当前运行配置为准。' }}
       {{ store.parameterForm?.appliesTo }}。WGS84 / EPSG:4326 保持只读。</p
+    ><p v-if="localApplication" class="notice" role="status"
+      >本标签状态：{{ localApplication.applied ? '本标签已应用' : '本标签未应用' }}。
+      <template v-if="localApplication.snapshot">运行快照：{{ localApplication.snapshot.epoch }} / {{ localApplication.snapshot.revision }}，实际值 {{ localApplication.value }} {{ store.parameterForm?.unit }}。</template>
+      <template v-else>当前无可核实的运行参数快照。</template>
+      不代表其他标签的应用状态。</p
     ><p
       v-if="store.error"
       role="alert"
@@ -57,9 +62,21 @@
   </AppDrawer>
 </template>
 <script setup lang="ts">
+import { computed } from 'vue';
 import { useSystemStore } from '../stores/system';
+import { useRuntimeParametersStore } from '../stores/runtime-parameters';
 import AppDrawer from './AppDrawer.vue';
 const store = useSystemStore();
+const runtime = useRuntimeParametersStore();
+const localApplication = computed(() => {
+  const id = store.parameterForm?.id;
+  if (id !== 'PAR-01' && id !== 'PAR-02') return null;
+  const snapshot = runtime.snapshot;
+  const consumer = id === 'PAR-01' ? 'gis.device-status-directory' : 'http.request-timeout';
+  const applied = !!snapshot && !runtime.loading && !runtime.error && runtime.applications.some(item =>
+    item.consumer === consumer && item.epoch === snapshot.epoch && item.revision === snapshot.revision);
+  return { snapshot, applied, value: snapshot?.values[id] };
+});
 // 两种数据模式共用参数表单；参数实际生效范围仍以当前说明为准。
 </script>
 <style scoped>

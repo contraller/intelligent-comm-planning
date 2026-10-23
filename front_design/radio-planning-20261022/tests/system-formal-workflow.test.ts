@@ -20,11 +20,13 @@ vi.mock('../src/components/AppTable.vue', async () => {
 });
 vi.mock('../src/components/SystemAccountDrawer.vue', () => ({ default: { render: () => null } }));
 vi.mock('../src/components/SystemRoleDrawer.vue', () => ({ default: { render: () => null } }));
-vi.mock('../src/components/SystemParameterDrawer.vue', () => ({ default: { render: () => null } }));
 vi.mock('../src/components/DecisionDialog.vue', () => ({ default: { render: () => null } }));
 vi.mock('../src/components/RequestState.vue', () => ({ default: { render: () => null } }));
 import { useAuthStore } from '../src/stores/auth';
 import { useSystemStore } from '../src/stores/system';
+import { useRuntimeParametersStore } from '../src/stores/runtime-parameters';
+import type { RuntimeParametersSnapshot } from '../src/types/runtime-parameters';
+import SystemParameterDrawer from '../src/components/SystemParameterDrawer.vue';
 import SystemPasswordDrawer from '../src/components/SystemPasswordDrawer.vue';
 import LoginView from '../src/views/LoginView.vue';
 import SystemView from '../src/views/SystemView.vue';
@@ -32,6 +34,7 @@ import { all, clientTemplate, find, node, renderer, textOf } from './helpers/vue
 let pinia: ReturnType<typeof createPinia>;
 let app: App | undefined;
 beforeAll(async () => {
+  await clientTemplate(SystemParameterDrawer, 'src/components/SystemParameterDrawer.vue', 'r2-p05-parameter-render.ts');
   await clientTemplate(SystemPasswordDrawer, 'src/components/SystemPasswordDrawer.vue', 'r2-p05-password-render.ts');
   await clientTemplate(LoginView, 'src/views/LoginView.vue', 'r2-p05-login-render.ts');
   await clientTemplate(SystemView, 'src/views/SystemView.vue', 'r2-p05-system-render.ts');
@@ -53,7 +56,62 @@ beforeEach(() => {
 });
 afterEach(() => { app?.unmount(); app = undefined; disposePinia(pinia); vi.unstubAllGlobals(); });
 async function settle() { for (let i = 0; i < 8; i++) await nextTick(); }
+function mountParameter(id = 'PAR-02') {
+  useSystemStore().parameterForm = { id, name: '测试参数', value: id === 'PAR-01' ? 30 : 15, unit: 's', description: '当前服务端参数', readonly: false,
+    min: 1, max: id === 'PAR-01' ? 3600 : 120, applicationState: 'STORED_ONLY', appliesTo: '明确消费者' };
+  const root = node('root'); app = renderer.createApp(SystemParameterDrawer); app.use(pinia); app.provide(ssrContextKey, { modules: new Set() }); app.mount(root);
+  return root;
+}
+function bindRuntime() {
+  const snapshot: RuntimeParametersSnapshot = { version: 'runtime-parameters-v1', epoch: 'runtime-one', revision: 'SYS-2', values: { 'PAR-01': 30, 'PAR-02': 15 } };
+  const client = { getRuntimeParameters: vi.fn().mockResolvedValue(snapshot) }, runtime = useRuntimeParametersStore();
+  runtime.bind(client, () => useAuthStore().identity?.sessionId ?? null);
+  return { runtime, client, snapshot };
+}
 describe('本地系统页面状态闭环', () => {
+  it('参数存储不冒称运行生效，无快照不补默认或承诺其他标签', async () => {
+    const root = mountParameter(); await settle();
+    expect(textOf(root)).toContain('服务端参数已存储'); expect(textOf(root)).toContain('本标签未应用');
+    expect(textOf(root)).toContain('当前无可核实的运行参数快照'); expect(textOf(root)).toContain('不代表其他标签');
+    expect(textOf(root)).not.toContain('尚未接入运行消费者'); expect(textOf(root)).not.toContain('实际值');
+  });
+  it.each([['PAR-01', 'gis.device-status-directory', 'http.request-timeout'], ['PAR-02', 'http.request-timeout', 'http.timeout']])(
+    '%s只认准确consumer及同快照版本的本标签反馈', async (id, consumer, wrongConsumer) => {
+      const { runtime, snapshot } = bindRuntime(); await runtime.refresh(); const root = mountParameter(id);
+      expect(runtime.reportApplied(wrongConsumer, snapshot.epoch, snapshot.revision)).toBe(true); await settle();
+      expect(textOf(root)).toContain('本标签未应用');
+      expect(runtime.reportApplied(consumer, 'old-epoch', snapshot.revision)).toBe(false);
+      expect(runtime.reportApplied(consumer, snapshot.epoch, 'SYS-1')).toBe(false); await settle();
+      expect(textOf(root)).toContain('本标签未应用');
+      expect(runtime.reportApplied(consumer, snapshot.epoch, snapshot.revision)).toBe(true); await settle();
+      expect(textOf(root)).toContain('本标签已应用'); expect(textOf(root)).toContain(snapshot.epoch); expect(textOf(root)).toContain(snapshot.revision);
+    });
+  it('新版本未报告应用前清除旧标记，草稿值不充当实际运行值', async () => {
+    const { runtime, snapshot, client } = bindRuntime(); await runtime.refresh(); runtime.reportApplied('http.request-timeout', snapshot.epoch, snapshot.revision);
+    const root = mountParameter(); useSystemStore().parameterForm!.value = 20; await settle();
+    expect(textOf(root)).toContain('实际值 15 s'); expect(textOf(root)).not.toContain('实际值 20');
+    client.getRuntimeParameters.mockResolvedValue({ ...snapshot, revision: 'SYS-3', values: { 'PAR-01': 30, 'PAR-02': 18 } });
+    await runtime.refresh(); await settle(); expect(textOf(root)).toContain('本标签未应用'); expect(textOf(root)).toContain('SYS-3'); expect(textOf(root)).toContain('实际值 18 s');
+  });
+  it('刷新失败没有可核实快照，不回显异常或旧应用状态', async () => {
+    const { runtime, snapshot, client } = bindRuntime(); await runtime.refresh(); runtime.reportApplied('http.request-timeout', snapshot.epoch, snapshot.revision);
+    const root = mountParameter(); client.getRuntimeParameters.mockRejectedValueOnce(new Error('private-runtime-error'));
+    await expect(runtime.refresh()).rejects.toThrow(); await settle();
+    expect(textOf(root)).toContain('本标签未应用'); expect(textOf(root)).toContain('当前无可核实的运行参数快照');
+    expect(textOf(root)).not.toContain('private-runtime-error'); expect(textOf(root)).not.toContain('SYS-2');
+  });
+  it('换会话同步移除旧快照和本标签应用状态', async () => {
+    const { runtime, snapshot } = bindRuntime(); await runtime.refresh(); runtime.reportApplied('http.request-timeout', snapshot.epoch, snapshot.revision);
+    const root = mountParameter(); await settle(); expect(textOf(root)).toContain('本标签已应用');
+    useAuthStore().accept({ ...identity(), sessionId: 'SID-new' }); await settle();
+    expect(textOf(root)).toContain('本标签未应用'); expect(textOf(root)).toContain('当前无可核实的运行参数快照'); expect(textOf(root)).not.toContain('SYS-2');
+  });
+  it('固定WGS84维持只读，不套用运行参数consumer标记', async () => {
+    const root = mountParameter('PAR-03'); useSystemStore().parameterForm = { ...useSystemStore().parameterForm!, readonly: true, value: 'EPSG:4326', unit: '', applicationState: 'APPLIED' }; await settle();
+    expect(textOf(root)).toContain('WGS84 / EPSG:4326 保持只读'); expect(textOf(root)).not.toContain('本标签状态');
+    expect(find(root, n => n.tag === 'input')!.props.readonly).toBeDefined();
+    expect(find(root, n => n.tag === 'button' && textOf(n) === '保存参数')!.props.disabled).toBe(true);
+  });
   it('初始密码不进入 Pinia，资料保存走真实适配签名', async () => {
     const store = useSystemStore(); await store.load(); await store.openAccount(); store.accountForm!.username = 'viewer'; store.accountForm!.name = '查看人员'; store.accountForm!.department = '测试';
     const password = crypto.randomUUID(); expect(await store.save(false, { initialPassword: password })).toBe(true);
