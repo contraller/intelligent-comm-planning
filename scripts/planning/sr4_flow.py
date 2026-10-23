@@ -234,9 +234,84 @@ def _fixed_topology_metrics(links, demands, routes, params, constraints):
     return objectives, checks, len(edges)
 
 
+def _actual_link_margins(stations, links, terrain, frequency, ftasks, params,
+                         devices, models, antennas, jam_rows, caps):
+    """父候选与冻结子方案共用实际频点/物理设备口径，不回退代表频点。"""
+    assigned = {row["link_id"]: row.get("freq_khz")
+                for row in frequency["link_assignments"]}
+    parameter_links = {row["link_id"]: row for row in params["links"]}
+    live = [row for row in links if row["link_id"] in parameter_links
+            and str(row.get("is_available", "true")).lower() != "false"
+            and assigned.get(row["link_id"]) is not None]
+    if any(not math.isfinite(float(assigned[row["link_id"]]))
+           or float(assigned[row["link_id"]]) <= 0 for row in live):
+        raise ValueError("实际分配频点必须为有限正数")
+    scenario = IF.scenario_from_plan(dict(stations=stations, links=live, terrain=terrain,
+        frequency=frequency, freq_tasks=ftasks, params=params, devices=devices,
+        models=models, antennas=antennas), jam_rows)
+    if {row.link_id for row in scenario.links} != {row["link_id"] for row in live}:
+        raise ValueError("实际频点校验未覆盖全部已绑定物理链路")
+    states = {}
+    for link in scenario.links:
+        state = scenario.link_state(link)
+        states[link.link_id] = state
+        row = parameter_links[link.link_id]
+        row.update(freq_khz=link.f, path_loss_db=round(scenario._signal_pl(link), 2),
+            margin_before_interference_db=state["margin_before"], margin_db=state["margin_after"],
+            meets=state["margin_after"] >= row["required_margin_db"] - 1e-6)
+        # 同频点、同干扰下核验最大功率余量；只改临时场景，不改设备实际配置。
+        actual_tx = link.tx
+        try:
+            link.tx = {sid: caps[did].tx_max for sid, did in link.device.items()}
+            row["margin_at_max_power_db"] = scenario.link_state(link)["margin_after"]
+        finally:
+            link.tx = actual_tx
+    for row in params["links"]:
+        if row["link_id"] not in states:
+            row.update(freq_khz=None, path_loss_db=None, margin_before_interference_db=None,
+                margin_db=-999.0, margin_at_max_power_db=None, meets=False)
+    for link in links:
+        if str(link.get("is_available", "true")).lower() != "false":
+            link["link_margin_db"] = states[link["link_id"]]["margin_after"] if link["link_id"] in states else -999.0
+    params["failed_links"] = [row for row in params["links"] if not row["meets"]]
+    params["summary"].update(failed=len(params["failed_links"]),
+        min_margin_db=min((row["margin_db"] for row in params["links"]), default=0.0))
+    params["margin_basis"] = "ASSIGNED_FREQUENCY_WITH_INTERFERENCE"
+    return scenario
+
+
+def _frozen_uplinks(detail):
+    """仅消费真实冻结上行；旧III借道快照不能靠备份标记猜补。"""
+    nodes = {row["node_id"]: row for row in detail["nodes"]}
+    links = [row for row in detail["links"]
+             if str(row.get("is_available", "true")).lower() != "false"]
+    uplinks = detail["optimization"].get("uplinks")
+    if uplinks is None:
+        if any(E.is_peer_pair(nodes[row["node_a_id"]].get("node_subtype"),
+                              nodes[row["node_b_id"]].get("node_subtype")) for row in links):
+            raise ValueError("父方案缺少已冻结的主上行关系，请重新规划后调整")
+        return {}
+    if not isinstance(uplinks, dict):
+        raise ValueError("冻结主上行关系必须为节点映射")
+    edges = {frozenset((row["node_a_id"], row["node_b_id"])) for row in links}
+    for child, parent in uplinks.items():
+        if (not isinstance(child, str) or not isinstance(parent, str) or child == parent
+                or child not in nodes or parent not in nodes
+                or frozenset((child, parent)) not in edges):
+            raise ValueError("冻结主上行关系未精确关联拓扑节点和物理链路")
+    for child in uplinks:
+        seen, current = set(), child
+        while current in uplinks:
+            if current in seen:
+                raise ValueError("冻结主上行关系包含环路")
+            seen.add(current)
+            current = uplinks[current]
+    return dict(uplinks)
+
+
 def _check_candidate(pb, solution, stations, nodes, devices, models, antennas,
                      terrain, demands, opt_demands, strategy, preset, pool_rows,
-                     metrics_rows, constraints):
+                     metrics_rows, constraints, *, interference_rows=None):
     """用实际设备、频点和链路余量复核优化器给出的拓扑。"""
     fm = pb.fm
     links, nodes2, devices2 = rows_from_solution(pb, solution, nodes, devices, models)
@@ -254,10 +329,8 @@ def _check_candidate(pb, solution, stations, nodes, devices, models, antennas,
                                    terrain, preset=preset,
                                    fade_margin_db=solution["m_req"])
     binding_errors.extend(params["manual_errors"])
-    margins = {row["link_id"]: row["margin_db"] for row in params["links"]}
-    for link in links:
-        if link["link_id"] in margins:
-            link["link_margin_db"] = margins[link["link_id"]]
+    scenario = _actual_link_margins(st2, links, terrain, freq, ftasks, params,
+        devices2, models, antennas, [] if interference_rows is None else interference_rows, caps)
     fixed_paths = [dict(demand_id=row["demand_id"],
                         node_path=route["primary"]["node_path"])
                    for row in demands for route in routes["routes"]
@@ -267,18 +340,20 @@ def _check_candidate(pb, solution, stations, nodes, devices, models, antennas,
     routes = routing.plan_routes(graph, demands, default_strategy=strategy,
                                  manual_paths=fixed_paths)
     binding_errors.extend(endpoint_binding_errors(links, demands, routes))
+    uplinks = {fm.stations[c].sid: fm.stations[p].sid for c, p in solution["uplinks"].items()}
+    _frozen_uplinks(dict(nodes=nodes2, links=links, optimization={"uplinks": uplinks}))
     chk = plan_check.check(freq_result=freq, freq_tasks=ftasks, param_result=params,
                            route_result=routes, links=links, nodes=nodes2, caps=caps,
                            devices=devices2, models=models,
-                           uplinks={fm.stations[c].sid: fm.stations[p].sid
-                                    for c, p in solution["uplinks"].items()})
+                           uplinks=uplinks)
     objectives, checks, usable = _fixed_topology_metrics(
         links, opt_demands, routes, params, constraints)
     score = _candidate_score(objectives, checks, chk, binding_errors, constraints)
     return dict(score=score, stations=st2, links=links, nodes=nodes2, devices=devices2,
                 graph=graph, routes=routes, binding_errors=binding_errors,
                 ftasks=ftasks, frequency=freq, caps=caps, params=params, check=chk,
-                objectives=objectives, constraint_check=checks, usable_count=usable)
+                objectives=objectives, constraint_check=checks, usable_count=usable,
+                uplinks=uplinks, scenario=scenario)
 
 
 def _candidate_score(objectives, checks, check_result, binding_errors, constraints):
@@ -364,6 +439,7 @@ def run_from_parent(parent_snapshot, adjustment, device_refs, task_id, demand_ro
     nodes = copy.deepcopy(detail["nodes"])
     devices = copy.deepcopy(detail["devices"])
     links = copy.deepcopy(detail["links"])
+    uplinks = _frozen_uplinks(detail)
     binding = adjustment.get("interference")
     change = binding["change_set"] if binding else None
     if binding and (resource_rows is None or interference_rows != binding["sources"]
@@ -440,33 +516,19 @@ def run_from_parent(parent_snapshot, adjustment, device_refs, task_id, demand_ro
     frequency = FQ.assign(ftasks, FQ.FreqPool(pool_rows), manual=locks)
     frequency["link_assignments"] = FQ.expand_to_links(frequency, ftasks)
     frequency["constraints"] = copy.deepcopy(frequency_constraints)
-    if binding:
-        scenario = IF.scenario_from_plan(dict(stations=stations, links=links, terrain=terrain,
-            frequency=frequency, freq_tasks=ftasks, params=params, devices=devices,
-            models=models, antennas=antennas), jam_rows)
-        states = {link.link_id: scenario.link_state(link) for link in scenario.links}
-        for row in params["links"]:
-            state = states[row["link_id"]]
-            row.update(margin_before_interference_db=state["margin_before"],
-                       margin_db=state["margin_after"],
-                       meets=state["margin_after"] >= row["required_margin_db"] - 1e-6)
-        params["failed_links"] = [row for row in params["links"] if not row["meets"]]
-        params["summary"].update(failed=len(params["failed_links"]),
-            min_margin_db=min(row["margin_db"] for row in params["links"]))
-        for link in links:
-            if link["link_id"] in states:
-                link["link_margin_db"] = states[link["link_id"]]["margin_after"]
-        graph = routing.graph_from_links(route_links, metrics_rows)[0]
-        routes = routing.plan_routes(graph, demand_rows, default_strategy=strategy,
-                                     manual_paths=adjustment["manual_paths"])
-        if change["type"] == "ROUTE_REBUILD":
-            _apply_frozen_routes(routes, route_links, metrics_rows, change)
-        if endpoint_binding_errors(links, demand_rows, routes):
-            raise ValueError("重算路由端点与精确物理设备绑定不一致")
+    scenario = _actual_link_margins(stations, links, terrain, frequency, ftasks, params,
+        devices, models, antennas, jam_rows, caps)
+    graph = routing.graph_from_links(route_links, metrics_rows)[0]
+    routes = routing.plan_routes(graph, demand_rows, default_strategy=strategy,
+                                 manual_paths=adjustment["manual_paths"])
+    if change and change["type"] == "ROUTE_REBUILD":
+        _apply_frozen_routes(routes, route_links, metrics_rows, change)
+    if endpoint_binding_errors(links, demand_rows, routes):
+        raise ValueError("重算路由端点与精确物理设备绑定不一致")
     check = plan_check.check(freq_result=frequency, freq_tasks=ftasks,
                             param_result=params, route_result=routes,
                             links=links, nodes=nodes, caps=caps,
-                            devices=devices, models=models)
+                            devices=devices, models=models, uplinks=uplinks)
     if progress:
         progress(0.75, "路由、频率及方案校验已重算")
 
@@ -476,6 +538,7 @@ def run_from_parent(parent_snapshot, adjustment, device_refs, task_id, demand_ro
         links, all_demands, routes, params, required
     )
     optimization = copy.deepcopy(detail["optimization"])
+    optimization["uplinks"] = uplinks
     optimization["best"]["objectives"] = objectives
     optimization["best"]["constraint_check"] = constraint_check
     optimization["best"]["links_usable"] = usable_count
@@ -490,11 +553,6 @@ def run_from_parent(parent_snapshot, adjustment, device_refs, task_id, demand_ro
                                         if not item["pass"]],
             "suggestions": ["调整人工设备参数或主路径后重新计算"],
         }
-    scenario = IF.scenario_from_plan(dict(
-        stations=stations, links=links, terrain=terrain,
-        frequency=frequency, freq_tasks=ftasks, params=params,
-        devices=devices, models=models, antennas=antennas,
-    ), jam_rows)
     analysis = IF.analyze(scenario, area=not bool(binding), area_cell_m=3000.0)
     if binding:
         analysis["affected_area"] = (IF.affected_area(scenario, cell_m=3000.0, bbox=terrain.bbox)
@@ -665,7 +723,7 @@ def run(task_id=None, preset="TERRAIN", strategy="MAX_RELIABILITY",
             result = _check_candidate(
                 problem, solution, st1, nodes1, devices1, models, antennas,
                 terrain, demands, opt_demands, strategy, preset, pool_rows,
-                metrics_rows, cons)
+                metrics_rows, cons, interference_rows=jam_rows)
             checked += 1
             if selected is None or result["score"] < selected["score"]:
                 selected = dict(result, solution=solution)
@@ -705,10 +763,7 @@ def run(task_id=None, preset="TERRAIN", strategy="MAX_RELIABILITY",
 
     # ── 6 干扰分析 ──
     t0 = time.time()
-    plan = dict(stations=st2, links=links, terrain=terrain, frequency=freq,
-                freq_tasks=ftasks, params=params, devices=devices2,
-                models=models, antennas=antennas)
-    sc = IF.scenario_from_plan(plan, jam_rows)
+    sc = selected["scenario"]
     ana = IF.analyze(sc, area=True, area_cell_m=3000.0)
     cms, unresolved, review = IF.recommend(
         sc, ana, freq_ctx=IF.FreqContext(ftasks, freq["assignments"]), caps=caps2,
@@ -734,7 +789,7 @@ def run(task_id=None, preset="TERRAIN", strategy="MAX_RELIABILITY",
     feasible = not failed_constraints
     out = dict(task_id=task_id, steps=steps, total_s=total, within_limit=total <= TIME_LIMIT_S,
                deployment=dict(added=[fm.stations[i].sid for i, _s in sol.added]),
-               optimization=dict(feasible=feasible,
+               optimization=dict(feasible=feasible, uplinks=copy.deepcopy(selected["uplinks"]),
                                  infeasible=(None if feasible else {
                                      "conflicting_constraints": failed_constraints,
                                      "suggestions": binding_errors or

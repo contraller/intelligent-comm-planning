@@ -360,3 +360,126 @@ def test_small_manual_parent_path_remains_compatible(frozen_sample, monkeypatch)
     assert "effect" not in result["interference"]
     actual = next(row for row in result["params"]["params"] if row["device_id"] == override["device_id"])
     assert actual["tx_power_dbm"] == override["tx_power_dbm"]
+
+
+def _margin_contract_topology():
+    nodes = [{"node_id": "R", "node_subtype": "III_MOBILE"},
+             {"node_id": "A", "node_subtype": "III_MOBILE"},
+             {"node_id": "H", "node_subtype": "II_MOBILE"}]
+    links = [{"link_id": "RA", "node_a_id": "R", "node_b_id": "A", "device_class": "VUHF",
+              "is_available": "true", "is_backup": "true"},
+             {"link_id": "AH", "node_a_id": "A", "node_b_id": "H", "device_class": "HF",
+              "is_available": "true", "is_backup": "false"}]
+    return {"nodes": nodes, "links": links, "optimization": {"uplinks": {"R": "A", "A": "H"}}}
+
+
+def test_margin_contract_explicit_uplink_preserves_real_borrowing_despite_backup_flag():
+    from scripts.planning import sr4_flow as flow
+    detail = _margin_contract_topology()
+    before = deepcopy(detail)
+    actual = flow._frozen_uplinks(detail)
+    check = flow.plan_check.check(nodes=detail["nodes"], links=detail["links"], uplinks=actual)
+    assert not any(row["kind"] == "PEER_CROSS_GROUP" for row in check["issues"])
+    assert actual == {"R": "A", "A": "H"} and detail == before
+    actual["R"] = "H"
+    assert detail == before
+
+
+@pytest.mark.parametrize("mapping", [None, [], {"R": "MISSING"}, {"R": "H"}, {"R": "R"}, {"R": "A", "A": "R"}, {"R": "A", "A": []}])
+def test_margin_contract_missing_or_invalid_uplink_never_guesses_historical_relation(mapping):
+    from scripts.planning import sr4_flow as flow
+    detail = _margin_contract_topology()
+    detail["optimization"]["uplinks"] = mapping
+    before = deepcopy(detail)
+    with pytest.raises(ValueError, match="主上行关系"):
+        flow._frozen_uplinks(detail)
+    assert detail == before
+
+
+def test_margin_contract_non_peer_legacy_snapshot_needs_no_invented_uplink():
+    from scripts.planning import sr4_flow as flow
+    detail = _margin_contract_topology()
+    detail["nodes"][0]["node_subtype"] = "IV_MOBILE"
+    detail["optimization"].pop("uplinks")
+    assert flow._frozen_uplinks(detail) == {}
+
+
+@pytest.mark.parametrize("jammed", [False, True])
+def test_margin_contract_parent_and_child_use_same_actual_frequency_and_frozen_sources(frozen_sample, monkeypatch, jammed):
+    from types import SimpleNamespace
+    flow, source, detail, tables, demands, _ = _parent_flow_sample(frozen_sample, monkeypatch)
+    detail["nodes"] = detail["nodes"][:2]
+    detail["devices"] = detail["devices"][:2]
+    detail["links"] = detail["links"][:1]
+    tables["node.csv"] = deepcopy(detail["nodes"])
+    tables["device.csv"] = deepcopy(detail["devices"])
+    tasks = flow.FQ.tasks_from_nets(detail["links"], detail["nodes"], detail["devices"], tables["device_model.csv"])
+    flow.FQ.fill_ranges_by_node(tasks, detail["links"], detail["nodes"], detail["devices"], tables["device_model.csv"])
+    flow.FQ._prepare(tasks, flow.FQ.FreqPool(tables["frequency_resource.csv"]))
+    selected = tasks[0].allowed[-1]
+    tables["frequency_resource.csv"] = [row for row in tables["frequency_resource.csv"] if row["freq_id"] == selected["freq_id"]]
+    jam_rows = [] if not jammed else [{"interference_id": "UNIT-MARGIN-JAM", "name": "显式构造口径测试源",
+        "lon": "114.005", "lat": "38.001", "center_freq_khz": str(selected["freq_khz"]),
+        "bandwidth_khz": "1000", "tx_power_dbm": "100", "antenna_gain_dbi": "0",
+        "antenna_height_m": "10", "duty_cycle": "1", "active": "true", "pattern_type": "OMNI",
+        "interference_type": "NOISE", "azimuth_deg": ""}]
+    tables["interference_source.csv"] = deepcopy(jam_rows)
+    source["scene"]["interference_sources"] = [{"source_row": deepcopy(row)} for row in jam_rows]
+    stations = flow.stations_from_nodes(detail["nodes"], detail["devices"], tables["device_model.csv"], tables["antenna_model.csv"])
+    problem = SimpleNamespace(fm=SimpleNamespace(stations=stations))
+    solution = {"relays": [], "m_req": 6.0, "uplinks": {0: 1}}
+    frozen_topology = deepcopy((detail["links"], detail["nodes"], detail["devices"]))
+    monkeypatch.setattr(flow, "rows_from_solution", lambda *args: deepcopy(frozen_topology))
+    checked_uplinks = []
+    real_check = flow.plan_check.check
+    def check_with_explicit_uplinks(**kwargs):
+        checked_uplinks.append(deepcopy(kwargs["uplinks"]))
+        return real_check(**kwargs)
+    monkeypatch.setattr(flow.plan_check, "check", check_with_explicit_uplinks)
+    candidate = flow._check_candidate(problem, solution, stations, detail["nodes"], detail["devices"],
+        tables["device_model.csv"], tables["antenna_model.csv"], frozen_sample[0].terrain_provider(),
+        demands, demands, "MAX_RELIABILITY", "TERRAIN", tables["frequency_resource.csv"], [],
+        dict(flow.MO.DEFAULT_CONSTRAINTS), interference_rows=jam_rows)
+    detail.update(nodes=candidate["nodes"], devices=candidate["devices"], links=candidate["links"],
+        params=candidate["params"], frequency=candidate["frequency"], routes=candidate["routes"],
+        optimization={"best": {"fade_margin_db": 6.0}, "uplinks": deepcopy(candidate["uplinks"])})
+    before = digest(source)
+    expected_scenario = frozen_sample[0]._build(source)[1]
+    expected = expected_scenario.link_state(expected_scenario.links[0])
+    overrides = [{key: row[key] for key in ("device_id", "tx_power_dbm", "antenna_height_m")}
+                 for row in candidate["params"]["params"]]
+    refs = [{"device_id": row["device_id"]} for row in detail["devices"]]
+    child = flow.run_from_parent({"detail": detail}, {"manual_override": overrides, "manual_paths": []},
+        refs, "UNIT-TASK", demands, interference_rows=jam_rows, resource_rows=tables)
+    parent_link, child_link = candidate["params"]["links"][0], child["params"]["links"][0]
+    assert parent_link["freq_khz"] == child_link["freq_khz"] == selected["freq_khz"]
+    assert parent_link["margin_db"] == pytest.approx(expected["margin_after"])
+    assert child_link["margin_db"] == pytest.approx(parent_link["margin_db"])
+    assert child_link["margin_before_interference_db"] == pytest.approx(expected["margin_before"])
+    assert child["optimization"]["uplinks"] == candidate["uplinks"]
+    assert checked_uplinks == [candidate["uplinks"], candidate["uplinks"]]
+    assert child["optimization"]["best"]["objectives"] == candidate["objectives"]
+    assert child["optimization"]["best"]["constraint_check"] == candidate["constraint_check"]
+    assert parent_link["required_margin_db"] == child_link["required_margin_db"] == 6.0
+    legacy = flow.RP.plan_bound_devices(stations, detail["links"], detail["devices"], tables["device_model.csv"],
+        tables["antenna_model.csv"], frozen_sample[0].terrain_provider(), fade_margin_db=6.0, manual_override=overrides)
+    assert abs(legacy["links"][0]["margin_db"] - expected["margin_before"]) > .02
+    if jammed:
+        assert parent_link["margin_db"] < 6.0 and not parent_link["meets"] and not child_link["meets"]
+        assert not child["optimization"]["feasible"] and not candidate["check"]["passed"]
+    assert digest(source) == before
+
+
+def test_margin_contract_unassigned_frequency_never_falls_back_to_representative(frozen_sample, monkeypatch):
+    flow, _, detail, tables, _, _ = _parent_flow_sample(frozen_sample, monkeypatch)
+    stations = flow.stations_from_nodes(detail["nodes"], detail["devices"], tables["device_model.csv"], tables["antenna_model.csv"])
+    terrain = frozen_sample[0].terrain_provider()
+    params = flow.RP.plan_bound_devices(stations, detail["links"], detail["devices"], tables["device_model.csv"],
+        tables["antenna_model.csv"], terrain, fade_margin_db=6.0)
+    caps = flow.RP.capabilities_by_device(stations, detail["devices"], tables["device_model.csv"], tables["antenna_model.csv"])
+    frequency = {"link_assignments": [{"link_id": row["link_id"], "freq_khz": None} for row in detail["links"]]}
+    scenario = flow._actual_link_margins(stations, detail["links"], terrain, frequency, [], params,
+        detail["devices"], tables["device_model.csv"], tables["antenna_model.csv"], [], caps)
+    assert not scenario.links and params["summary"]["failed"] == len(params["links"])
+    assert all(row["freq_khz"] is None and not row["meets"] for row in params["links"])
+    assert all(row["margin_before_interference_db"] is None for row in params["links"])
