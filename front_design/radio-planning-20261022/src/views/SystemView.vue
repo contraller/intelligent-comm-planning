@@ -5,7 +5,7 @@
       <div class="toolbar"
         ><span class="chip">账号与权限</span><button v-if="formal" class="btn" :disabled="store.busy" @click="store.openPassword()"><i class="pi pi-key" />修改本人密码</button
         ><button
-          v-if="auth.can('system.reset')"
+          v-if="auth.can('system.reset') && (!formal || auth.can('system.parameters'))"
           class="btn"
           :disabled="store.busy || store.loading || !store.catalog"
           @click="store.reset('system')"
@@ -283,7 +283,7 @@
     <AppDrawer
       :visible="!!selectedLog"
       title="操作日志详情"
-      @update:visible="!$event && (selectedLog = null)"
+      @update:visible="!$event && closeLog()"
       ><dl
         v-if="selectedLog"
         class="kv"
@@ -300,12 +300,13 @@
         ><dt>请求 ID</dt><dd>{{ selectedLog.requestId || '未提供' }}</dd
         ><dt>结果 / 错误码</dt
         ><dd>{{ outcomeLabel(selectedLog.outcome) }} / {{ selectedLog.errorCode || '无' }}</dd
-        ><dt>摘要</dt><dd>{{ selectedLog.summary }}</dd></dl
+        ><dt>摘要</dt><dd>{{ selectedLog.summary }}</dd
+        ><template v-if="selectedLog.changes"><dt>变更快照</dt><dd><pre class="history-changes">{{ JSON.stringify(selectedLog.changes, null, 2) }}</pre></dd></template></dl
       ><template #footer
         ><p>身份为操作当时快照，后续改名或换角色不改写此记录。</p></template
       ></AppDrawer
     >
-    <SystemPasswordDrawer v-if="formal && store.passwordTarget" :visible="true" :mode="store.passwordTarget.mode" :disabled="!!store.pendingMutation || (store.passwordTarget.mode === 'ADMIN' && !auth.can('system.accounts'))" :submit="store.submitPassword" @close="store.allowLeave()" @dirty-change="store.secretDirty = $event" @saved="store.passwordSaved" />
+    <SystemPasswordDrawer v-if="formal && store.passwordTarget" :visible="true" :mode="store.passwordTarget.mode" :disabled="!store.canSubmitPassword" :submit="store.submitPassword" @close="store.allowLeave()" @dirty-change="store.secretDirty = $event" @saved="store.passwordSaved" />
     <SystemAccountDrawer /><SystemRoleDrawer /><SystemParameterDrawer /><DecisionDialog
       :request="store.decision"
       @answer="store.answer"
@@ -313,7 +314,7 @@
   </div>
 </template>
 <script setup lang="ts">
-import { computed, onMounted, onBeforeUnmount, ref } from 'vue';
+import { computed, onMounted, onBeforeUnmount, ref, watch } from 'vue';
 import type { OperationEvent } from '../types/system';
 import AppDrawer from '../components/AppDrawer.vue';
 import { previewService } from '../services';
@@ -335,11 +336,16 @@ const store = useSystemStore(),
   selectedLog = ref<OperationEvent | null>(null);
 let logSerial = 0,
   logAbort: AbortController | undefined;
-onBeforeUnmount(() => {
+function closeLog() {
   logSerial++;
   logAbort?.abort();
-});
+  logAbort = undefined;
+  selectedLog.value = null;
+}
+onBeforeUnmount(closeLog);
+watch([() => auth.generation, () => auth.identity?.sessionId, () => auth.identity?.revision, () => store.tab], closeLog, { flush: 'sync' });
 async function openLog(row: { id: string }) {
+  if (!auth.can('system.logs')) return;
   // 同一详情重试成功后，不继续显示上次操作的错误或成功提示。
   store.error = '';
   store.notice = '';
@@ -393,6 +399,11 @@ const outcomeLabel = (value: string) =>
 // 筛选与列表各走受保护的业务接口，不借助资源预加载取得系统数据。
 </script>
 <style scoped>
+.history-changes {
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
 .split {
   display: grid;
   grid-template-columns: 210px minmax(0, 1fr);

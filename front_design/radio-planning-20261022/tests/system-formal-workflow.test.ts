@@ -5,32 +5,43 @@ import { allPermissions } from '../src/config/permissions';
 import { ApiError } from '../src/services/types';
 import { createMemoryHistory, createRouter, RouterView } from 'vue-router';
 
-const service = vi.hoisted(() => ({ loadSystemOptions: vi.fn(), queryAccountSummaries: vi.fn(), queryRoleSummaries: vi.fn(), queryParameterSummaries: vi.fn(), queryOperationSummaries: vi.fn(), getSystemAccount: vi.fn(), getSystemRole: vi.fn(), getSystemParameter: vi.fn(), saveSystemAccount: vi.fn(), saveSystemRole: vi.fn(), saveSystemParameter: vi.fn(), setSystemAccountState: vi.fn(), getSession: vi.fn(), getSystemOperation: vi.fn(), changeOwnPassword: vi.fn(), maintainSystemAccountPassword: vi.fn(), resetSystemParameters: vi.fn(), archiveSystemLogs: vi.fn(), login: vi.fn(), getLoginCatalog: vi.fn() }));
+const service = vi.hoisted(() => ({ loadSystemOptions: vi.fn(), queryAccountSummaries: vi.fn(), queryRoleSummaries: vi.fn(), queryParameterSummaries: vi.fn(), queryOperationSummaries: vi.fn(), getOperationEvent: vi.fn(), getSystemAccount: vi.fn(), getSystemRole: vi.fn(), getSystemParameter: vi.fn(), saveSystemAccount: vi.fn(), saveSystemRole: vi.fn(), saveSystemParameter: vi.fn(), setSystemAccountState: vi.fn(), getSession: vi.fn(), getSystemOperation: vi.fn(), changeOwnPassword: vi.fn(), maintainSystemAccountPassword: vi.fn(), resetSystemParameters: vi.fn(), archiveSystemLogs: vi.fn(), login: vi.fn(), getLoginCatalog: vi.fn() }));
 const capabilityReader = vi.hoisted(() => vi.fn());
 vi.mock('../src/services/local-identity-http', () => ({ readLocalIdentityCapabilities: capabilityReader }));
 vi.mock('../src/services', () => ({ previewService: service, releasePageSessionBinding: vi.fn(), switchIntegrationIdentity: vi.fn() }));
 vi.mock('../src/config/env', () => ({ env: { mode: 'http', apiBaseUrl: '/api/v1', sampleData: true } }));
 vi.mock('../src/components/AppDrawer.vue', async () => {
   const { h } = await import('vue');
-  return { default: { props: ['visible'], setup(props: {visible:boolean}, context: {slots:Record<string,()=>import('vue').VNode[]>}) { return () => props.visible ? h('section', [context.slots.default?.(), context.slots.footer?.()]) : null; } } };
+  return { default: { props: ['visible', 'title'], emits: ['update:visible'], setup(props: {visible:boolean;title?:string}, context: {slots:Record<string,()=>import('vue').VNode[]>;emit:(event:'update:visible',value:boolean)=>void}) { return () => props.visible ? h('section', [h('button', { 'aria-label': '关闭' + props.title, onClick: () => context.emit('update:visible', false) }, '关闭'), context.slots.default?.(), context.slots.footer?.()]) : null; } } };
 });
+vi.mock('../src/components/AppTable.vue', async () => {
+  const { h } = await import('vue');
+  return { default: { props: ['rows'], emits: ['select'], setup(props: {rows:{id:string}[]}, context:{emit:(event:'select',row:{id:string})=>void}) { return () => h('div', props.rows.map(row => h('button', { onClick: () => context.emit('select', row) }, row.id))); } } };
+});
+vi.mock('../src/components/SystemAccountDrawer.vue', () => ({ default: { render: () => null } }));
+vi.mock('../src/components/SystemRoleDrawer.vue', () => ({ default: { render: () => null } }));
+vi.mock('../src/components/SystemParameterDrawer.vue', () => ({ default: { render: () => null } }));
+vi.mock('../src/components/DecisionDialog.vue', () => ({ default: { render: () => null } }));
+vi.mock('../src/components/RequestState.vue', () => ({ default: { render: () => null } }));
 import { useAuthStore } from '../src/stores/auth';
 import { useSystemStore } from '../src/stores/system';
 import SystemPasswordDrawer from '../src/components/SystemPasswordDrawer.vue';
 import LoginView from '../src/views/LoginView.vue';
+import SystemView from '../src/views/SystemView.vue';
 import { all, clientTemplate, find, node, renderer, textOf } from './helpers/vue-client';
 let pinia: ReturnType<typeof createPinia>;
 let app: App | undefined;
 beforeAll(async () => {
   await clientTemplate(SystemPasswordDrawer, 'src/components/SystemPasswordDrawer.vue', 'r2-p05-password-render.ts');
   await clientTemplate(LoginView, 'src/views/LoginView.vue', 'r2-p05-login-render.ts');
+  await clientTemplate(SystemView, 'src/views/SystemView.vue', 'r2-p05-system-render.ts');
 });
 const identity = () => ({ id: 'ACC-one', sessionId: 'SID-one', username: 'operator', name: '维护', roleId: 'ROLE-one', roleName: '维护角色', epoch: 'session-generation', revision: '1', permissions: [...allPermissions] });
 const row = () => ({ id: 'ACC-two', username: 'viewer', name: '查看人员', department: '测试', roleId: 'ROLE-one', enabled: true, roleName: '角色', lastLogin: null });
 const result = () => ({ revision: 'SYS-2', objectId: 'ACC-two', changed: true, operationId: 'OP-one' });
 beforeEach(() => {
   class TestDocument extends EventTarget { activeElement = null; }
-  vi.stubGlobal('Document', TestDocument); vi.stubGlobal('document', new TestDocument()); vi.stubGlobal('ShadowRoot', class {});
+  vi.stubGlobal('Document', TestDocument); vi.stubGlobal('document', new TestDocument()); vi.stubGlobal('ShadowRoot', class {}); vi.stubGlobal('window', new EventTarget());
   vi.resetAllMocks(); pinia = createPinia(); setActivePinia(pinia); useAuthStore().accept(identity());
   service.getSession.mockResolvedValue(identity());
   capabilityReader.mockResolvedValue({ authMode: 'LOCAL_PASSWORD', initialized: true, passwordChangeRequired: false, passwordPolicy: { minScalars: 15, maxScalars: 128 }, capabilities: { passwordMaintenance: true, anonymousRecovery: false } });
@@ -61,6 +72,13 @@ describe('本地系统页面状态闭环', () => {
     const store = useSystemStore(); await store.load(); await store.openAccount({ id: 'ACC-two' }); store.accountForm!.name = '输入';
     service.saveSystemAccount.mockRejectedValueOnce(new ApiError('版本变化', 1203)); expect(await store.save()).toBe(false); expect(store.pendingMutation).toBeNull(); expect(store.accountForm!.name).toBe('输入');
   });
+  it('核实回执期间换会话保留原请求编号和现场', async () => {
+    const store = useSystemStore(); await store.load(); await store.openAccount({ id: 'ACC-two' }); store.accountForm!.name = '保留现场';
+    service.saveSystemAccount.mockRejectedValueOnce(new ApiError('超时', 'REQUEST_TIMEOUT')); await store.save(); const requestId = store.pendingMutation!.requestId;
+    let resolve!: (value:unknown)=>void; service.getSystemOperation.mockReturnValueOnce(new Promise(done => { resolve = done; }));
+    const reading = store.reconcilePending(); await settle(); useAuthStore().accept({ ...identity(), sessionId: 'SID-new' }); resolve({ status: 'FOUND', ...result() });
+    expect(await reading).toBe(false); expect(store.pendingMutation!.requestId).toBe(requestId); expect(store.accountForm!.name).toBe('保留现场');
+  });
   it('迟到详情不能替换新表单', async () => {
     const store = useSystemStore(); await store.load(); let resolve!: (v: any) => void;
     service.getSystemAccount.mockReturnValueOnce(new Promise(done => { resolve = done; }));
@@ -79,6 +97,60 @@ describe('本地系统页面状态闭环', () => {
     expect(service.resetSystemParameters).toHaveBeenCalledWith(expect.objectContaining({ parameterIds: ['PAR-01', 'PAR-02'], confirm: 'RESTORE_PARAMETER_DEFAULTS' }));
     await store.changeTab('logs'); service.archiveSystemLogs.mockResolvedValue(result()); const archive = store.reset('logs'); await settle(); store.answer('save'); await archive;
     expect(service.archiveSystemLogs).toHaveBeenCalledWith(expect.objectContaining({ baseAuditRevision: 'AUD-3', throughSequence: 3, confirm: 'ARCHIVE_LOG_VIEW' }));
+  });
+  it('同权限新会话不能提交旧账号表单或旧密码目标', async () => {
+    const store = useSystemStore(); await store.load(); await store.openAccount({ id: 'ACC-two' }); store.accountForm!.name = '旧会话输入';
+    useAuthStore().accept({ ...identity(), sessionId: 'SID-new' });
+    expect(store.canSave).toBe(false); expect(await store.save()).toBe(false); expect(service.saveSystemAccount).not.toHaveBeenCalled();
+    const opening = store.openPassword({ id: 'ACC-two' }); await settle(); store.answer('discard'); await opening;
+    useAuthStore().accept({ ...identity(), sessionId: 'SID-third' });
+    await expect(store.submitPassword({ currentPassword: '', operatorPassword: crypto.randomUUID(), newPassword: crypto.randomUUID() })).rejects.toThrow();
+    expect(service.maintainSystemAccountPassword).not.toHaveBeenCalled();
+  });
+  it('权限影响确认框期间切号不提交原表单', async () => {
+    const store = useSystemStore(); await store.load(); service.getSystemAccount.mockResolvedValueOnce({ revision: 'SYS-1', account: { ...row(), id: 'ACC-one' } });
+    await store.openAccount({ id: 'ACC-one' }); store.accountForm!.roleId = 'ROLE-other';
+    const saving = store.save(); await settle(); expect(store.decision).not.toBeNull();
+    useAuthStore().accept({ ...identity(), id: 'ACC-new', sessionId: 'SID-new' }); store.answer('save');
+    expect(await saving).toBe(false); expect(service.saveSystemAccount).not.toHaveBeenCalled(); expect(store.accountForm!.roleId).toBe('ROLE-other');
+  });
+  it('停启确认冻结选择时的版本，确认换身份则取消', async () => {
+    const store = useSystemStore(); await store.load(); service.setSystemAccountState.mockResolvedValue(result());
+    const first = store.setEnabled(row()); await settle(); store.accounts!.revision = 'SYS-9'; store.answer('save'); await first;
+    expect(service.setSystemAccountState).toHaveBeenCalledWith(expect.objectContaining({ baseRevision: 'SYS-1', accountId: 'ACC-two', enabled: false }));
+    service.setSystemAccountState.mockClear(); const second = store.setEnabled(row()); await settle();
+    useAuthStore().accept({ ...identity(), sessionId: 'SID-new' }); store.answer('save'); await second;
+    expect(service.setSystemAccountState).not.toHaveBeenCalled();
+  });
+  it('恢复参数先保护脏表单，取消保留输入', async () => {
+    const store = useSystemStore(); await store.load(); await store.openAccount({ id: 'ACC-two' }); store.accountForm!.name = '未保存输入';
+    const resetting = store.reset('system'); await settle(); expect(store.decision!.title).toBe('系统表单尚未保存'); store.answer('cancel'); await resetting;
+    expect(store.accountForm!.name).toBe('未保存输入'); expect(service.resetSystemParameters).not.toHaveBeenCalled();
+  });
+  it('归档确认冻结日志边界，确认换身份不发请求', async () => {
+    const store = useSystemStore(); await store.load(); await store.changeTab('logs'); service.archiveSystemLogs.mockResolvedValue(result());
+    const archiving = store.reset('logs'); await settle(); store.logs!.revision = 'AUD-9'; store.logs!.snapshotSequence = 9; store.answer('save'); await archiving;
+    expect(service.archiveSystemLogs).toHaveBeenCalledWith(expect.objectContaining({ baseAuditRevision: 'AUD-3', throughSequence: 3 }));
+    service.archiveSystemLogs.mockClear(); const second = store.reset('logs'); await settle(); useAuthStore().accept({ ...identity(), sessionId: 'SID-new' }); store.answer('save'); await second;
+    expect(service.archiveSystemLogs).not.toHaveBeenCalled();
+  });
+  it('已确定提交成功后身份刷新不会留下可再提交的旧表单', async () => {
+    const store = useSystemStore(); await store.load(); await store.openAccount({ id: 'ACC-two' }); store.accountForm!.name = '已提交';
+    service.saveSystemAccount.mockImplementationOnce(async () => { useAuthStore().accept(null); return { ...result(), reauthenticationRequired: true }; });
+    expect(await store.save()).toBe(true); expect(store.accountForm).toBeNull(); expect(store.dirty).toBe(false); expect(store.notice).toContain('已提交');
+  });
+  it('真实System模板关闭日志详情会取消在途读取且迟到响应不重开', async () => {
+    useAuthStore().accept({ ...identity(), permissions: ['system.view', 'system.logs'] });
+    service.queryOperationSummaries.mockResolvedValue({ items: [{ id: 'LOG-one' }, { id: 'LOG-two' }], total: 2, pageNum: 1, pageSize: 20, revision: 'AUD-3', snapshotSequence: 3 });
+    service.getOperationEvent.mockResolvedValueOnce({ id: 'LOG-one', time: new Date().toISOString(), actor: null, attemptedUsername: 'operator', module: 'system', action: 'parameter.save', outcome: 'SUCCESS', summary: '历史快照', changes: { before: { value: 30 }, after: { value: 45 } } });
+    let resolve!: (value:unknown)=>void; service.getOperationEvent.mockReturnValueOnce(new Promise(done => { resolve = done; }));
+    const router = createRouter({ history: createMemoryHistory(), routes: [{ path: '/system', component: SystemView }] }); await router.push('/system'); await router.isReady();
+    const root = node('root'); app = renderer.createApp({ render: () => h(RouterView) }); app.use(pinia); app.use(router); app.provide(ssrContextKey, { modules: new Set() }); app.mount(root); await settle();
+    await (find(root, n => n.tag === 'button' && textOf(n) === 'LOG-one')!.props.onClick as ()=>Promise<void>)(); await settle(); expect(textOf(root)).toContain('历史快照');
+    const second = (find(root, n => n.tag === 'button' && textOf(n) === 'LOG-two')!.props.onClick as ()=>Promise<void>)(); await settle();
+    (find(root, n => n.tag === 'button' && n.props['aria-label'] === '关闭操作日志详情')!.props.onClick as ()=>void)(); await settle();
+    expect(service.getOperationEvent.mock.calls[1]![0].signal.aborted).toBe(true);
+    resolve({ id: 'LOG-two', summary: '迟到日志' }); await second; await settle(); expect(textOf(root)).not.toContain('迟到日志'); expect(textOf(root)).not.toContain('历史快照');
   });
   it.each(['SELF', 'ADMIN'] as const)('真实密码抽屉 %s 提交后清空局部输入', async mode => {
     const submit = vi.fn().mockResolvedValue({ ...result(), reauthenticationRequired: true }), saved = vi.fn(), dirty = vi.fn();
@@ -118,5 +190,28 @@ describe('本地系统页面状态闭环', () => {
     const root = node('root'); app = renderer.createApp({ render: () => h(RouterView) }); app.use(pinia); app.use(router); app.provide(ssrContextKey, { modules: new Set() }); app.mount(root); await settle();
     expect(find(root, n => n.tag === 'button' && textOf(n).includes('登录工作区'))!.props.disabled).toBe(true);
     expect(textOf(root)).toContain('系统尚未显式初始化'); expect(service.login).not.toHaveBeenCalled(); expect(service.getLoginCatalog).not.toHaveBeenCalled();
+  });
+  it('Login迟到能力响应不能打开新身份的旧改密表单', async () => {
+    let resolve!: (value:unknown)=>void; capabilityReader.mockReturnValueOnce(new Promise(done => { resolve = done; }));
+    const router = createRouter({ history: createMemoryHistory(), routes: [{ path: '/login', component: LoginView }] }); await router.push('/login'); await router.isReady();
+    const root = node('root'); app = renderer.createApp({ render: () => h(RouterView) }); app.use(pinia); app.use(router); app.provide(ssrContextKey, { modules: new Set() }); app.mount(root); await settle();
+    const signal = capabilityReader.mock.calls[0]![0].signal; useAuthStore().accept({ ...identity(), sessionId: 'SID-new' }); await settle();
+    resolve({ authMode: 'LOCAL_PASSWORD', initialized: true, passwordChangeRequired: true }); await settle();
+    expect(signal.aborted).toBe(true); expect(all(root, n => n.tag === 'input')).toHaveLength(2);
+    expect(find(root, n => n.tag === 'button' && textOf(n).includes('登录工作区'))!.props.disabled).toBe(true);
+  });
+  it('重新读取登录状态不会绕过改密未知结果核实', async () => {
+    useAuthStore().accept(null); service.login.mockResolvedValue(identity()); service.getSystemOperation.mockResolvedValue({ status: 'NOT_FOUND' });
+    capabilityReader.mockResolvedValueOnce({ authMode: 'LOCAL_PASSWORD', initialized: true, passwordChangeRequired: false }).mockResolvedValueOnce({ authMode: 'LOCAL_PASSWORD', initialized: true, passwordChangeRequired: true });
+    service.changeOwnPassword.mockRejectedValue(new ApiError('超时', 'REQUEST_TIMEOUT'));
+    const router = createRouter({ history: createMemoryHistory(), routes: [{ path: '/login', component: LoginView }, { path: '/system', component: { render: () => null } }] }); await router.push('/login'); await router.isReady();
+    const root = node('root'); app = renderer.createApp({ render: () => h(RouterView) }); app.use(pinia); app.use(router); app.provide(ssrContextKey, { modules: new Set() }); app.mount(root); await settle();
+    const inputs = all(root, n => n.tag === 'input'); (inputs[0]!.props['onUpdate:modelValue'] as (v:string)=>void)('operator'); (inputs[1]!.props['onUpdate:modelValue'] as (v:string)=>void)(crypto.randomUUID());
+    await (find(root, n => n.tag === 'form')!.props.onSubmit as (e:unknown)=>Promise<void>)({ preventDefault() {} }); await settle();
+    const changedPassword = crypto.randomUUID(); all(root, n => n.tag === 'input').slice(2).forEach(input => (input.props['onUpdate:modelValue'] as (v:string)=>void)(changedPassword)); await settle();
+    await (all(root, n => n.tag === 'form')[1]!.props.onSubmit as (e:unknown)=>Promise<void>)({ preventDefault() {} }); await settle();
+    expect(service.changeOwnPassword).toHaveBeenCalledTimes(1);
+    await (find(root, n => n.tag === 'button' && textOf(n) === '重新读取登录状态')!.props.onClick as ()=>Promise<void>)(); await settle();
+    expect(service.getSystemOperation).toHaveBeenCalledTimes(1); expect(router.currentRoute.value.path).toBe('/login'); expect(textOf(root)).toContain('尚未查到回执');
   });
 });

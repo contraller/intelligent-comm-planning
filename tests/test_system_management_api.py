@@ -1,8 +1,10 @@
 """系统管理独立契约；所有数据库和账号为本轮新建测试材料。"""
 from pathlib import Path
+from concurrent.futures import ThreadPoolExecutor
 import secrets
 import sqlite3
 import sys
+from threading import Barrier
 from types import SimpleNamespace
 
 import pytest
@@ -242,3 +244,49 @@ def test_admin_password_reauthentication_failure_commits_counter(local_system):
     assert error.value.code == 1101
     with e.factory() as session:
         assert session.get(LocalIdentityThrottle, "account:" + e.account_id).failures == 1
+
+
+@pytest.mark.parametrize("action", ["role.update", "account.state"])
+def test_concurrent_admin_changes_keep_one_usable_admin(local_system, action):
+    e = local_system
+    role = create_role(e, permissions=sorted(ADMIN_PERMISSIONS), name="第二维护角色")
+    second = e.system.execute("account.create", e.actor, {**mutation(e, "second-admin"),
+        "account": dict(username="second-operator", name="第二维护人员", department="隔离测试", roleId=role["objectId"]),
+        "initialPassword": secrets.token_urlsafe(24)})
+    second_actor = SystemActor(second["objectId"], "second-test-binding", "1", ADMIN_PERMISSIONS)
+    actors = (e.actor, second_actor)
+    baseline = mutation(e)["baseRevision"]
+    barrier = Barrier(2)
+
+    def change(index):
+        actor = actors[index]
+        if action == "role.update":
+            with e.factory() as session:
+                target = session.get(LocalAccount, actor.account_id).role_id
+            change_body = {"role": dict(name="降权角色" + str(index), description="并发防自锁", permissions=["system.view"])}
+        else:
+            target = actors[1 - index].account_id
+            change_body = {"enabled": False}
+        barrier.wait(timeout=30)
+        try:
+            return e.system.execute(action, actor, {"baseRevision": baseline, "requestId": "concurrent-" + str(index), **change_body}, object_id=target)
+        except SystemManagementError as error:
+            return error
+
+    with ThreadPoolExecutor(max_workers=2) as workers:
+        outcomes = list(workers.map(change, range(2)))
+    assert sum(isinstance(value, dict) for value in outcomes) == 1
+    rejected = next(value for value in outcomes if isinstance(value, SystemManagementError))
+    assert rejected.code in (1203, 1103, 1106)
+    with e.factory() as session:
+        usable = [(account, session.get(LocalRole, account.role_id))
+            for account in session.scalars(select(LocalAccount).where(LocalAccount.enabled.is_(True)))
+            if ADMIN_PERMISSIONS <= set(session.get(LocalRole, account.role_id).permissions)]
+        assert len(usable) == 1
+        account, remaining_role = usable[0]
+        remaining = SystemActor(account.id, "remaining-test-binding", str(account.identity_revision), frozenset(remaining_role.permissions))
+        target = remaining_role.id if action == "role.update" else account.id
+    final_body = {"role": dict(name="最后维护角色", description="不得收回", permissions=["system.view"])} if action == "role.update" else {"enabled": False}
+    with pytest.raises(SystemManagementError) as last_admin:
+        e.system.execute(action, remaining, {"baseRevision": e.system.read("options", remaining)["revision"], "requestId": "last-admin-retry", **final_body}, object_id=target)
+    assert last_admin.value.data["reason"] == "LAST_ADMIN"

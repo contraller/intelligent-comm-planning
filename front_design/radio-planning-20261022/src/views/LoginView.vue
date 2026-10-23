@@ -239,7 +239,7 @@
         >
       </section>
     </div>
-    <SystemPasswordDrawer v-if="!isMock" :visible="passwordRequired" mode="SELF" :disabled="passwordUncertain" :submit="changeRequiredPassword" @close="closePassword" @saved="passwordSaved" />
+    <SystemPasswordDrawer v-if="!isMock" :key="passwordOwner" :visible="passwordRequired" mode="SELF" :disabled="passwordUncertain" :submit="changeRequiredPassword" @close="closePassword" @saved="passwordSaved" />
     <Dialog
       v-if="isMock"
       :visible="recovery"
@@ -277,7 +277,7 @@
   </main>
 </template>
 <script setup lang="ts">
-import { ref, onMounted, onBeforeUnmount } from 'vue';
+import { ref, onMounted, onBeforeUnmount, watch } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
 import { useAuthStore } from '../stores/auth';
 import { previewService } from '../services';
@@ -308,24 +308,29 @@ const recoverable = ref(false);
 const recovering = ref(false);
 const submitting = ref(false);
 const capabilities = ref<LocalIdentityCapabilities | null>(null), capabilityLoading = ref(false), passwordRequired = ref(false), passwordUncertain = ref(false);
+const passwordOwner = ref('');
+const identityStamp = () => JSON.stringify([auth.generation, auth.identity?.id, auth.identity?.sessionId, auth.identity?.revision]);
 let capabilitySerial = 0, capabilityAbort: AbortController | undefined, passwordRequestId = '', passwordActorId = '';
 onBeforeUnmount(() => { capabilitySerial++; capabilityAbort?.abort(); password.value = ''; });
+// 换号后清除输入和旧能力，不清除尚未核实的原请求编号。
+watch(identityStamp, () => { capabilitySerial++; capabilityAbort?.abort(); capabilityLoading.value = false; capabilities.value = null; passwordRequired.value = false; passwordOwner.value = ''; password.value = ''; }, { flush: 'sync' });
 async function refreshCapabilities() {
-  const serial = ++capabilitySerial;
+  const serial = ++capabilitySerial, actor = identityStamp();
   capabilityAbort?.abort(); const controller = new AbortController(); capabilityAbort = controller; capabilityLoading.value = true;
   const timer = setTimeout(() => controller.abort(), 15000);
   try { const value = await readLocalIdentityCapabilities({ baseUrl: env.apiBaseUrl, signal: capabilityAbort.signal });
-    if (serial !== capabilitySerial) return false;
-    capabilities.value = value; passwordRequired.value = value.passwordChangeRequired; return true;
+    if (serial !== capabilitySerial || actor !== identityStamp()) return false;
+    capabilities.value = value; passwordRequired.value = value.passwordChangeRequired; passwordOwner.value = value.passwordChangeRequired ? actor : ''; return true;
   } catch { if (serial === capabilitySerial) { capabilities.value = null; message.value = '本地认证服务尚未就绪，请重新读取状态。'; } return false; }
   finally { clearTimeout(timer); if (serial === capabilitySerial) capabilityLoading.value = false; }
 }
 async function changeRequiredPassword(fields: PasswordFields) {
   if (passwordUncertain.value) throw new Error('请先核实原请求编号');
+  if (!auth.identity || !passwordOwner.value || passwordOwner.value !== identityStamp()) throw new Error('密码表单身份已变化，请重新读取登录状态');
   if (!previewService.changeOwnPassword) throw new Error('本人改密入口尚未接线');
   passwordRequestId = randomUuid(); passwordActorId = auth.identity?.id ?? '';
   try { return await previewService.changeOwnPassword({ requestId: passwordRequestId, currentPassword: fields.currentPassword, newPassword: fields.newPassword }); }
-  catch (e) { if (e instanceof ApiError && ['NETWORK_ERROR','REQUEST_TIMEOUT','INVALID_RESPONSE','INVALID_ENVELOPE','INVALID_SYSTEM_RESPONSE'].includes(String(e.code))) {
+  catch (e) { if (e instanceof ApiError && ['NETWORK_ERROR','REQUEST_TIMEOUT','INVALID_RESPONSE','INVALID_ENVELOPE','INVALID_SYSTEM_RESPONSE','REQUEST_ABORTED'].includes(String(e.code))) {
     passwordUncertain.value = true; message.value = '改密结果待核实，请求编号：' + passwordRequestId + '。重新认证后可核实回执，不自动重试。';
   } throw e; }
 }
@@ -402,6 +407,7 @@ async function reloadSession() {
   try {
     if (await auth.discardRestricted()) {
       if (!(await refreshCapabilities())) return;
+      if (passwordUncertain.value && !(await reconcilePassword())) return;
       if (auth.identity && !auth.error && !capabilities.value?.passwordChangeRequired) await router.replace(auth.firstPath(route.query.next));
       else message.value = auth.error || '当前未登录，请输入账号和密码。';
     }
