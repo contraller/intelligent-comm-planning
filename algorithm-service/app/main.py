@@ -23,7 +23,9 @@ from .gis_plan_router import router as gis_plan_router
 from .interference_frontend_router import router as interference_frontend_router
 from .frequency_resource_router import router as frequency_resource_router
 from .device_configuration_router import router as device_configuration_router
+from .device_status_router import router as device_status_router
 from .observation_routes import router as observation_router
+from .spectrum_source_routes import router as spectrum_source_router
 from .resource_export_schemas import ResourceDeviceQuery
 from .resource_maintenance_schemas import (AvailabilityChange, AvailabilityPreview,
     ResourceDeviceChanges, ResourceMaintenanceQuery)
@@ -84,7 +86,9 @@ app.include_router(gis_plan_router)
 app.include_router(interference_frontend_router)
 app.include_router(frequency_resource_router)
 app.include_router(device_configuration_router)
+app.include_router(device_status_router)
 app.include_router(observation_router)
+app.include_router(spectrum_source_router)
 
 
 def _frontend_workbench_call(response: Response, operation):

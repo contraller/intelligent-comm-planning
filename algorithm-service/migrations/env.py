@@ -11,7 +11,9 @@ from app import fault_scenario_models, fault_submission_models, kg_models, plann
 from app import integration_identity_models, fault_frontend_models  # noqa: F401
 from app import resource_dataset_models  # noqa: F401  # 注册资源快照与指针。
 from app import interference_frontend_models, device_configuration_models  # noqa: F401
+from app import device_status_models  # noqa: F401  # 状态与资源基线独立，正式迁移仍为单链。
 from app.observation_models import OBSERVATION_METADATA
+from app.spectrum_source_models import SPECTRUM_SOURCE_METADATA
 
 
 config = context.config
@@ -20,7 +22,7 @@ if config.config_file_name is not None:
 
 # 后续模型导入完成后，自动生成迁移会读取该元数据。
 # 观测模块保留独立模型边界，但迁移仍使用同一库和单一版本链。
-target_metadata = [Base.metadata, OBSERVATION_METADATA]
+target_metadata = [Base.metadata, OBSERVATION_METADATA, SPECTRUM_SOURCE_METADATA]
 
 
 def _configure_url() -> str:
