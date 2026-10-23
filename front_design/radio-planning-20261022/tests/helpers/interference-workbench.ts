@@ -125,7 +125,7 @@ export async function createWorkbenchFixture(supplied?: ApiPlan) {
   const preview: MeasurePreview = { run_id: run.run_id, measure_id: 'UNIT-CM1', run_version: 1, source_hash: hash, preview_hash: hash,
     before_configuration: { frequency_khz: null }, proposed_changes: { frequency_khz: 54321 }, impact_after: result,
     metrics: { connectivityPercent: 83.21 }, available: true, unavailable_reasons: [] };
-  const unexpected = vi.fn(async (): Promise<never> => { throw new Error('只读入口意外调用业务写入或未设置的服务'); });
+  async function unexpected(): Promise<never> { throw new Error('只读入口意外调用业务写入或未设置的服务'); }
   const workbench = {
     getContext: vi.fn<InterferenceWorkbenchServices['getContext']>(async input => ({ ...structuredClone(context), task_id: input.task_id ?? null,
       source_options: context.source_options.filter(row => !input.task_id || row.task_id === input.task_id).map(row => structuredClone(row)) })),
@@ -154,6 +154,9 @@ export async function createWorkbenchFixture(supplied?: ApiPlan) {
     listSceneVersions: vi.fn<InterferenceSceneServices['listSceneVersions']>(async () => ({ items: [structuredClone(scene)], total: 1, page: 1, pageSize: 20 })),
     saveScene: vi.fn<InterferenceSceneServices['saveScene']>(unexpected), getSceneReceipt: vi.fn<InterferenceSceneServices['getSceneReceipt']>(unexpected),
   } satisfies InterferenceSceneServices;
+  const commands = [workbench.submitRun, workbench.cancelRun, workbench.adoptMeasure, workbench.cancelAdoption,
+    workbench.getAdoption, workbench.getOperation, scenes.saveScene, scenes.getSceneReceipt];
+  expect(new Set(commands).size, '每个服务命令必须有独立调用计数').toBe(commands.length);
   function bind() {
     vi.spyOn(collaborationHttp.interferenceWorkbench, 'getContext').mockImplementation(workbench.getContext);
     vi.spyOn(collaborationHttp.interferenceWorkbench, 'listSources').mockImplementation(workbench.listSources);
@@ -224,7 +227,7 @@ export async function clickWorkbench(root: HostTree, label: string | ((row: Host
 }
 export async function openWorkbenchFromPage(root: HostTree, fixture: WorkbenchFixture, openRun = true) {
   await clickWorkbench(root, '干扰分析');
-  await clickWorkbench(root, '打开方案干扰工作区');
+  expect(workbenchNode(root, row => row.props['aria-label'] === '数据库冻结方案'), '分析命令进入冻结工作区').toBeDefined();
   await clickWorkbench(root, '打开冻结网络');
   const store = useInterferenceStore();
   expect(store.taskContext).toEqual(fixture.target);

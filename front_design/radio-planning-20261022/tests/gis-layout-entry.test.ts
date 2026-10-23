@@ -183,9 +183,10 @@ describe('GIS 抽屉与态势分配', () => {
         selectedNodeId: '', selectedLinkId: '', onSelectSource: select });
     } });
     const store = useInterferenceStore(); await store.enterPlan(fixture.target); store.draft.interferenceIds = ['UNIT-IF2']; await flush();
-    const locate = find(root, n => n.props['aria-label'] === `定位干扰源 ${initialResources().interferences![0]!.id}`);
-    expect(locate, '保留旧定位需求；当前新版面板未提供此入口，需 P03 补接而非删断言').toBeDefined();
+    const locate = find(root, n => n.props['aria-label'] === '定位干扰源');
+    expect(locate, '来源详情分支提供定位命令').toBeDefined();
     locate!.props.onClick(); expect(select).toHaveBeenCalledWith(initialResources().interferences![0]!.id);
+    expect(select).toHaveBeenCalledOnce();
     expect(store.draft.interferenceIds).toEqual(['UNIT-IF2']); fixture.assertNoWrites();
   });
 });

@@ -156,6 +156,7 @@ describe('独立任务的会话隔离',()=>{
 describe('干扰状态会话隔离',()=>{
   it('措施和分析切换重置实际显示，失败保留快照而成功缺省响应清除旧预览',async()=>{
     await start('planner');const f=await createWorkbenchFixture(),store=await enterWorkbenchStore(f);
+    const {affected_nodes,affected_links,affected_area,summary}=f.run.result!;
     await store.loadMeasurePreview('UNIT-CM1');store.after=true;
     const preview=JSON.stringify(store.selectedMeasurePreview),impact=JSON.stringify(store.impact);
     f.workbench.getContext.mockRejectedValueOnce(new ApiError('读取中断','NETWORK_ERROR'));
@@ -165,7 +166,8 @@ describe('干扰状态会话隔离',()=>{
     expect(store.selectedMeasurePreview!.measure_id).toBe(store.measureId);store.after=true;
     f.workbench.getPreview.mockResolvedValueOnce({...f.preview,measure_id:'UNIT-CM2',impact_after:null});
     await store.query();await store.loadMeasurePreview('UNIT-CM2');expect(store.queryError).toBe('');expect(store.canPreviewAfter).toBe(false);
-    expect(store.selectedMeasurePreview!.impact_after).toBeNull();expect(store.effectiveAfter).toBe(false);expect(store.impact).toEqual(f.run.result);
+    expect(store.selectedMeasurePreview!.impact_after).toBeNull();expect(store.effectiveAfter).toBe(false);
+    expect(store.impact).toEqual({affected_nodes,affected_links,affected_area,summary});expect(store.selected?.result).toEqual(f.run.result);
     expect(store.previewUnavailableReason).toContain('措施后影响');
     await store.loadMeasurePreview('UNIT-CM2');store.after=true;expect(store.effectiveAfter).toBe(true);
     f.workbench.getRun.mockResolvedValueOnce({...f.run,run_id:'UNIT-RUN2'});await store.selectRun('UNIT-RUN2');
@@ -173,13 +175,15 @@ describe('干扰状态会话隔离',()=>{
   });
   it('预览重复、结构不完整或缺少措施后影响均不能显示后态',async()=>{
     await start('planner');const f=await createWorkbenchFixture(),store=await enterWorkbenchStore(f);
+    const {affected_nodes,affected_links,affected_area,summary}=f.run.result!;
     const incomplete={...f.preview,proposed_changes:undefined},duplicate=structuredClone(f.preview);
     duplicate.impact_after!.affected_nodes.push({...duplicate.impact_after!.affected_nodes[0]!});
     for(const payload of [incomplete,duplicate]){
       const http=createInterferenceWorkbenchHttp(async<T>()=>structuredClone(payload) as T);
       f.workbench.getPreview.mockImplementationOnce(http.getPreview);
       await store.loadMeasurePreview('UNIT-CM1');store.after=true;
-      expect(store.canPreviewAfter).toBe(false);expect(store.effectiveAfter).toBe(false);expect(store.impact).toEqual(f.run.result);
+      expect(store.canPreviewAfter).toBe(false);expect(store.effectiveAfter).toBe(false);
+      expect(store.impact).toEqual({affected_nodes,affected_links,affected_area,summary});expect(store.selected?.result).toEqual(f.run.result);
       expect(store.queryError).toContain('冻结契约');
     }
     f.workbench.getPreview.mockResolvedValueOnce({...f.preview,impact_after:null});await store.loadMeasurePreview('UNIT-CM1');store.after=true;
