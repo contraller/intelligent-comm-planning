@@ -43,6 +43,35 @@
         @dirty="statusDirty = $event"
         @busy="statusBusy = $event"
       />
+      <p
+        v-if="viewedObservationRef"
+        class="notice"
+        >观测 {{ viewedObservationRef.datasetId }} · 声明成员
+        {{
+          viewedObservationRef.ref.deviceIds.join('、')
+        }}；下方分页读取完整快照，未读取成员仍为未知。</p
+      >
+      <fieldset
+        v-if="anchor"
+        class="status-members"
+      >
+        <legend>频谱引用成员（已读取）</legend>
+        <label
+          v-for="id in availableStatusMembers"
+          :key="id"
+          ><input
+            v-model="statusRefMembers"
+            type="checkbox"
+            :value="id"
+          />{{ id }}</label
+        >
+        <button
+          class="btn small"
+          :disabled="!statusRefMembers.length"
+          @click="statusRefMembers = []"
+          >清空成员选择</button
+        >
+      </fieldset>
       <DeviceMonitoringPanel
         :frozen-network="network"
         :selected-id="selectedDevice"
@@ -100,11 +129,14 @@
       ref="spectrum"
       :services="services.observations"
       :resource-revision="network.identity.resource_revision"
+      :device-status-ref="observationStatusRef"
       :can-view="canReadResources"
       :can-import="canImportObservations"
       :session-generation="String(sessionGeneration)"
       @dirty-change="spectrumDirty = $event"
       @busy-change="spectrumBusy = $event"
+      @select-dataset="cancelStatusRefRead"
+      @select-status-ref="viewObservationStatus"
     />
     <section
       v-if="tab === 'interference'"
@@ -145,6 +177,7 @@
           {{ selectedImpact.level }}</p
         >
         <InterferenceAnalysisPanel
+          :source-editable="false"
           :task-context="taskContext"
           :selected-node-id="analysisNode"
           :selected-link-id="analysisLink"
@@ -180,6 +213,11 @@ import { useDeviceConfigurationAcceptanceStore } from '../stores/device-configur
 import { useAuthStore } from '../stores/auth';
 import type { GisNetwork, GisPlanOperationServices } from '../types/gis-plan';
 import type { FrozenDeviceStatusProjection } from '../stores/monitoring';
+import type { ObservationDeviceStatusRefInput } from '../types/observation';
+import {
+  readObservationStatusHeader,
+  selectedObservationStatusRef,
+} from '../services/gis-observation-status';
 const props = defineProps<{
   network: GisNetwork;
   services: GisPlanOperationServices;
@@ -289,6 +327,92 @@ const projections = computed(() => {
   }
   return result;
 });
+const statusRefMembers = ref<string[]>([]),
+  statusRefBusy = ref(false);
+const viewedObservationRef = ref<{
+  datasetId: string;
+  ref: ObservationDeviceStatusRefInput;
+} | null>(null);
+const availableStatusMembers = computed(() =>
+  Object.keys(projections.value)
+    .filter((id) => !!projections.value[id]?.ref)
+    .sort(),
+);
+const observationStatusRef = computed(() =>
+  selectedObservationStatusRef(anchor.value, statusRefMembers.value, projections.value),
+);
+watch(
+  () => (anchor.value ? JSON.stringify(anchor.value) : ''),
+  () => {
+    statusRefMembers.value = [];
+    viewedObservationRef.value = null;
+  },
+);
+let statusRefSerial = 0,
+  statusRefRead: AbortController | undefined,
+  selectingStatusRef = false;
+function cancelStatusRefRead() {
+  statusRefSerial++;
+  statusRefRead?.abort();
+  statusRefRead = undefined;
+  statusRefBusy.value = false;
+  if (selectingStatusRef) {
+    selectingStatusRef = false;
+    status.cancel();
+  }
+}
+async function viewObservationStatus(input: {
+  datasetId: string;
+  datasetRevision: string;
+  ref: ObservationDeviceStatusRefInput;
+}) {
+  if (!canReadResources.value || !(await requestLeave())) return;
+  cancelStatusRefRead();
+  const serial = statusRefSerial,
+    owner = props.sessionGeneration,
+    identity = props.network.identity.snapshot_id;
+  const target = {
+    datasetId: input.datasetId,
+    ref: { ...input.ref, deviceIds: [...input.ref.deviceIds] },
+  };
+  const controller = new AbortController();
+  statusRefRead = controller;
+  statusRefBusy.value = true;
+  notice.value = '';
+  const current = () =>
+    serial === statusRefSerial &&
+    owner === props.sessionGeneration &&
+    identity === props.network.identity.snapshot_id &&
+    !controller.signal.aborted;
+  try {
+    const header = await readObservationStatusHeader(
+      props.services.deviceStatuses,
+      target.ref,
+      props.network.identity.resource_revision,
+      controller.signal,
+    );
+    if (!header || !current()) return;
+    selectingStatusRef = true;
+    await status.select(header);
+    if (!current()) return;
+    if (
+      status.batch?.snapshot_id !== target.ref.snapshotId ||
+      status.batch.snapshot_revision !== target.ref.snapshotRevision ||
+      status.error
+    )
+      throw new Error(status.error || '冻结状态快照尚未成功读取');
+    viewedObservationRef.value = target;
+    tab.value = 'devices';
+  } catch (reason) {
+    if (current()) notice.value = reason instanceof Error ? reason.message : '冻结状态引用读取失败';
+  } finally {
+    if (serial === statusRefSerial) {
+      statusRefBusy.value = false;
+      selectingStatusRef = false;
+      statusRefRead = undefined;
+    }
+  }
+}
 function selectDevice(id: string) {
   if (configurationVisible.value || config.busy) {
     notice.value = '请先处理当前设备配置表单。';
@@ -330,6 +454,7 @@ async function requestLeave() {
 async function selectTab(next: typeof tab.value) {
   if (next === tab.value) return;
   if (!(await requestLeave())) return;
+  cancelStatusRefRead();
   tab.value = next;
 }
 watch(
@@ -368,6 +493,7 @@ function beforeUnload(event: BeforeUnloadEvent) {
 onMounted(() => window.addEventListener('beforeunload', beforeUnload));
 onBeforeUnmount(() => {
   release();
+  cancelStatusRefRead();
   status.cancel();
   spectrum.value?.stop();
   if (analysisAttached.value) analysis.stop();
@@ -388,6 +514,18 @@ defineExpose({ requestLeave });
   display: grid;
   gap: 12px;
   min-width: 0;
+}
+.status-members {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  border: 1px solid #2a4055;
+  min-width: 0;
+}
+.status-members label {
+  display: flex;
+  align-items: center;
+  gap: 5px;
 }
 .toolbar {
   display: flex;

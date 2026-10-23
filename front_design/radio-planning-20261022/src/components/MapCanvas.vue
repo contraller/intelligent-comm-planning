@@ -622,6 +622,8 @@ const host = ref<HTMLDivElement>();
 const interferenceGeometryNotice = ref('');
 const readClicks = new WeakMap<object, string>();
 let readPress = '';
+// 在原生按下事件中捕获来源，避免延迟 singleclick 选中切换后的网络。
+function captureReadPress() { readPress = readOwner(); }
 function readOwner() {
   if (props.interferenceProjection) return workbenchMapKey(props.interferenceProjection);
   const source = props.frozenNetwork?.identity;
@@ -1467,7 +1469,7 @@ onMounted(() => {
     });
   }
   // singleclick 延迟期间可能换方案；按原始点击携带的代次核对。
-  map.on('pointerdown', () => { readPress = readOwner(); });
+  map.getViewport().addEventListener('pointerdown', captureReadPress, true);
   map.on('click', (event) => {
     if (event.originalEvent && readPress) readClicks.set(event.originalEvent, readPress);
     readPress = '';
@@ -1757,6 +1759,7 @@ onBeforeUnmount(() => {
   unByKey(roadClipListener);
   roadManager.dispose();
   clearTerrain();
+  map?.getViewport().removeEventListener('pointerdown', captureReadPress, true);
   map?.dispose();
 });
 </script>

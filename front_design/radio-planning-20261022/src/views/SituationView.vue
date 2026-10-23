@@ -1255,6 +1255,7 @@ import type {
   GisResourceTree as ResourceTreeResult,
 } from '../services/gis-resource-tree';
 import type { Coordinate, PlanVersion } from '../types/domain';
+import { planStations } from '../services/planning-snapshot';
 import { safeReturnPath } from '../config/permissions';
 const workspace = useGisResourceWorkspace();
 const task = useGisTaskSelection();

@@ -9,7 +9,11 @@ const host = readFileSync(
   'utf8',
 );
 const situation = readFileSync(new URL('../src/views/SituationView.vue', import.meta.url), 'utf8');
-const legacyMonitoring = readFileSync(new URL('../src/components/SituationMonitoringDrawer.vue', import.meta.url), 'utf8');
+const legacyMonitoring = readFileSync(
+  new URL('../src/components/SituationMonitoringDrawer.vue', import.meta.url),
+  'utf8',
+);
+const map = readFileSync(new URL('../src/components/MapCanvas.vue', import.meta.url), 'utf8');
 // 静态接线门禁不替代子组实际组件、共享类型或真实页面验收。
 describe('GIS跨组宿主静态边界', () => {
   it('只消费冻结网络和P06读取投影，不造监控帧或状态', () => {
@@ -49,11 +53,28 @@ describe('GIS跨组宿主静态边界', () => {
     expect(situation).toContain('httpConfigurationPanel.value.requestLeave()');
   });
   it('干扰使用原始冻结投影和真实版本，采纳结果只有成功才可打开', () => {
+    expect(component).toContain(':source-editable="false"');
     expect(component).toContain(':interference-projection="analysis.mapProjection"');
     expect(component).toContain("row.state === 'SUCCESS'");
     expect(component).not.toContain("planVersion: 'V1'");
     expect(situation).toContain('frozenPanel.value?.openIdentity({ taskId, planId })');
     expect(situation).not.toContain('analysis.selected.run.network');
+  });
+  it('频谱只接显式成员引用，查看历史引用使用P06真实查询且可取消', () => {
+    expect(component).toContain(':device-status-ref="observationStatusRef"');
+    expect(component).toContain('@select-status-ref="viewObservationStatus"');
+    expect(component).toContain('@select-dataset="cancelStatusRefRead"');
+    expect(component).toContain('v-model="statusRefMembers"');
+    expect(component).toContain('status.select(header)');
+    expect(component).toMatch(/readObservationStatusHeader\(\s*props\.services\.deviceStatuses/);
+    expect(component).not.toContain('deviceIds: props.network.devices.map');
+  });
+  it('按下来源用原生捕获和对称释放，故障快照仍保留真实站点转换', () => {
+    expect(map).not.toContain("map.on('pointerdown'");
+    expect(map).toContain("addEventListener('pointerdown', captureReadPress, true)");
+    expect(map).toContain("removeEventListener('pointerdown', captureReadPress, true)");
+    expect(situation).toContain("import { planStations } from '../services/planning-snapshot'");
+    expect(situation).toContain('planStations(fault.network.value)');
   });
   it('刷新保护保留本地输入，明确保留原号关闭后不永远封锁离页', () => {
     expect(component).toContain("window.addEventListener('beforeunload', beforeUnload)");
