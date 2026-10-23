@@ -257,8 +257,11 @@
         ><button
           v-if="maintenanceBinding"
           class="btn small"
+          :disabled="!!traceUnavailableReason"
+          :title="traceUnavailableReason || undefined"
           @click="openTrace"
           >变更追溯与历史版本</button
+        ><p v-if="maintenanceBinding && traceUnavailableReason" class="detail-note" role="status">{{ traceUnavailableReason }}</p
         ><slot name="actions" /></template></DeviceDetailTabs
     ><DeviceTraceDrawer
       v-if="maintenanceBinding && traceOpen"
@@ -362,12 +365,19 @@ const currentModeLabel = computed(() => {
   return maintenanceModes.find(item => item.value === mode)?.label ?? mode ?? '未提供';
 });
 const traceEditable = computed(() => !!props.maintenanceBinding?.editable && auth.can('resources.device.edit') && !auth.blocked && props.device.availability !== 'OFF_SHELF');
+const traceUnavailableReason = computed(() => {
+  if (auth.blocked) return '当前会话受限，资源追溯暂不可用。';
+  if (!auth.can('resources.view')) return '当前账号缺少资源查看权限（resources.view），不能查看变更追溯。';
+  if (httpMode && !props.traceServices) return '资源追溯服务未接入，当前不可用。';
+  return '';
+});
 const trace = useDeviceTrace(() => props.maintenanceBinding ? {
   device_id: props.device.id, resource_revision: props.maintenanceBinding.revision,
   readable: auth.can('resources.view') && !auth.blocked,
   editable: traceEditable.value,
 } : null, () => props.traceServices);
 function openTrace() {
+  if (!props.maintenanceBinding || traceUnavailableReason.value) return;
   traceOpen.value = true;
   void trace.query();
 }

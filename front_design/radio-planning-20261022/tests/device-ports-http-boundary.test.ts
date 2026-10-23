@@ -69,8 +69,8 @@ async function mountPorts() {
     loaded: true, busy: false, error: '旧维护占位错误', editable: true, onLoad: load, onEdit: edit }) });
   app.mount(root); await settle(); return { root, load, edit };
 }
-async function mountInfo(context: 'ledger' | 'gis') {
-  pinia = createPinia(); setActivePinia(pinia); authorizeStore();
+async function mountInfo(context: 'ledger' | 'gis', withTraceServices = true) {
+  pinia = createPinia(); setActivePinia(pinia); const auth = authorizeStore();
   const resources = initialResources(), device: Device = { ...resources.devices[0]!, currentWorkMode: 'MOCK_FIXED', ports: [{ ...port }] };
   const model = resources.models.find(item => item.id === device.modelId);
   if (!model) throw new Error('设备夹具缺真实关联型号');
@@ -81,10 +81,10 @@ async function mountInfo(context: 'ledger' | 'gis') {
   const configure = vi.fn(), edit = vi.fn(), root = node('root');
   app = renderer.createApp({ render: () => h(DeviceInfoPanel, { device,
     detailContext: { node: null, model: null, antenna: null, knowledgeAvailable: false },
-    maintenanceBinding: { context, revision, editable: true }, traceServices: traces,
+    maintenanceBinding: { context, revision, editable: true }, traceServices: withTraceServices ? traces : undefined,
     configuration: { editable: true, disabled: false, reason: '' }, onConfigure: configure, onPorts: edit }) });
   app.use(pinia); app.provide(ssrContextKey, {}); app.mount(root); await settle();
-  return { root, device, legacy, configure, edit, traces };
+  return { root, device, legacy, configure, edit, traces, auth };
 }
 
 it('HTTP shows explicit unknown readonly feedback, not supplied legacy ports, observations or placeholder failures', async () => {
@@ -122,4 +122,40 @@ it('non-HTTP device retains the old explicitly loaded maintenance path', async (
   expect(s.legacy).toHaveBeenCalledWith({ context: 'ledger', deviceId: s.device.id, revision, signal: expect.any(AbortSignal) });
   expect(textOf(s.root)).toContain(port.number); expect(textOf(s.root)).toContain('教学定频');
   expect(s.traces.queryHistory).not.toHaveBeenCalled();
+});
+it('disables trace without resources.view and restores the normal read entry when permission returns', async () => {
+  const s = await mountInfo('gis'), identity = { ...s.auth.identity! };
+  s.auth.accept({ ...identity, permissions: identity.permissions.filter(permission => permission !== 'resources.view') }); await settle();
+  const button = find(s.root, item => item.tag === 'button' && textOf(item) === '变更追溯与历史版本')!;
+  expect(button.props.disabled).toBe(true); expect(button.props.title).toContain('resources.view');
+  expect(textOf(s.root)).toContain('当前账号缺少资源查看权限');
+  await click(s.root, '变更追溯与历史版本');
+  expect(s.traces.queryHistory).not.toHaveBeenCalled(); expect(s.legacy).not.toHaveBeenCalled();
+  expect(find(s.root, item => item.tag === 'aside')).toBeUndefined();
+  s.auth.accept(identity); await settle();
+  expect(button.props.disabled).toBe(false); expect(textOf(s.root)).not.toContain('不能查看变更追溯');
+  await click(s.root, '变更追溯与历史版本'); expect(s.traces.queryHistory).toHaveBeenCalledTimes(1);
+});
+it('disables trace with an explicit reason while the session is blocked', async () => {
+  const s = await mountInfo('ledger'); s.auth.accept(s.auth.identity, '会话校验失败'); await settle();
+  const button = find(s.root, item => item.tag === 'button' && textOf(item) === '变更追溯与历史版本')!;
+  expect(button.props.disabled).toBe(true); expect(textOf(s.root)).toContain('当前会话受限');
+  await click(s.root, '变更追溯与历史版本');
+  expect(s.traces.queryHistory).not.toHaveBeenCalled(); expect(s.legacy).not.toHaveBeenCalled();
+  expect(find(s.root, item => item.tag === 'aside')).toBeUndefined();
+});
+it('disables the HTTP trace entry with a visible unavailable reason when no service is injected', async () => {
+  const s = await mountInfo('gis', false);
+  const button = find(s.root, item => item.tag === 'button' && textOf(item) === '变更追溯与历史版本')!;
+  expect(button.props.disabled).toBe(true); expect(textOf(s.root)).toContain('资源追溯服务未接入，当前不可用');
+  await click(s.root, '变更追溯与历史版本');
+  expect(s.traces.queryHistory).not.toHaveBeenCalled(); expect(s.legacy).not.toHaveBeenCalled();
+  expect(find(s.root, item => item.tag === 'aside')).toBeUndefined();
+});
+it('retains the non-HTTP trace opening and its existing missing-service feedback', async () => {
+  runtime.mode = 'mock'; const s = await mountInfo('ledger', false);
+  const button = find(s.root, item => item.tag === 'button' && textOf(item) === '变更追溯与历史版本')!;
+  expect(button.props.disabled).toBe(false); await click(s.root, '变更追溯与历史版本');
+  expect(find(s.root, item => item.tag === 'aside')).toBeDefined(); expect(textOf(s.root)).toContain('资源追溯服务未接入');
+  expect(s.legacy).not.toHaveBeenCalled(); expect(s.traces.queryHistory).not.toHaveBeenCalled();
 });
