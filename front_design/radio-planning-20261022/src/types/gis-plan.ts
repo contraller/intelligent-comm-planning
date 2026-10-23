@@ -89,3 +89,14 @@ export interface GisLinkDetail {
   route_ids: string[];
   observation: { state: 'missing'; message: string; samples: [] };
 }
+export interface GisPlanSurface {
+  identity: GisPlanIdentity;
+  terrain: import('./resource-read').ResourceTerrain | null;
+  terrain_notice: string;
+}
+export interface GisPlanServices {
+  getNetwork(query: GisPlanQuery, signal?: AbortSignal): Promise<GisNetwork>;
+  getLink(query: GisLinkQuery, network: GisNetwork, signal?: AbortSignal): Promise<GisLinkDetail>;
+  getPaths(query: GisPathsQuery, network: GisNetwork, signal?: AbortSignal): Promise<GisPaths>;
+  getSurface(query: GisPlanQuery & { snapshotId: string }, network: GisNetwork, signal?: AbortSignal): Promise<GisPlanSurface>;
+}

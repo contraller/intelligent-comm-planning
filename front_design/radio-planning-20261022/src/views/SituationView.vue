@@ -1,6 +1,6 @@
 <template>
   <div
-    v-if="data || workspace.ready.value"
+    v-if="data || workspace.ready.value || frozenView"
     class="situation-page"
     :class="{
       'is-editing': resourceEditable || (fault.active.value && fault.canEdit.value),
@@ -10,6 +10,9 @@
     <div class="situation-toolbar">
       <!-- 模式条使用文字和颜色共同提示当前可编辑范围。 -->
       <div class="toolbar">
+        <button v-if="httpMode && auth.can('planning.view')" class="btn small" :disabled="editor.busy || fault.active.value" @click="toggleFrozenPlans">
+          {{ frozenView ? '返回当前资源' : '查看已保存方案' }}
+        </button>
         <!-- 页面标题与导航同名，沿用业务页面共享的标题样式。 -->
         <h1>GIS 态势</h1>
         <span class="divider" /><span class="muted">太行山地区域通信保障</span
@@ -45,9 +48,9 @@
           ></span
         >
         <button
-          v-if="!editing && !diagnosisMode && !taskViewing && !fault.active.value"
+          v-if="!frozenView && !editing && !diagnosisMode && !taskViewing && !fault.active.value"
           class="btn small"
-          :disabled="!editor.canEdit || editor.busy"
+          :disabled="!workspaceEditable || !editor.canEdit || editor.busy"
           @click="configurationAction(() => gis.begin())"
         >
           <i class="pi pi-pencil" />编辑资源
@@ -92,6 +95,8 @@
         </template>
       </div>
     </div>
+    <GisFrozenPlanPanel v-if="frozenView" :services="frozenServices" :session-generation="auth.generation" />
+    <template v-if="!frozenView">
     <div class="maintenance-toolbar toolbar">
       <!-- 资源恢复属于低频维护操作，沿用壳层权限与确认流程。 -->
       <details
@@ -1170,6 +1175,7 @@
       :candidate-filtered-ids="candidateExportFiltered"
       :candidate-selected-ids="candidateExportSelected"
     />
+    </template>
   </div>
   <section
     v-if="!workspace.ready.value && !data"
@@ -1238,6 +1244,10 @@ import { projectGisTree } from '../services/gis-workspace';
 import ResourceReadStatus from '../components/ResourceReadStatus.vue';
 import DecisionDialog from '../components/DecisionDialog.vue';
 import MapCanvas from '../components/MapCanvas.vue';
+import GisFrozenPlanPanel from '../components/GisFrozenPlanPanel.vue';
+import { collaborationHttp } from '../services/http';
+import { previewService } from '../services';
+import { env } from '../config/env';
 import GisObjectInfoPanel from '../components/GisObjectInfoPanel.vue';
 import LinkDetailPanel from '../components/LinkDetailPanel.vue';
 import CandidateLinkPanel from '../components/CandidateLinkPanel.vue';
@@ -1284,6 +1294,17 @@ const data = computed(() =>
       : null,
 );
 const editor = useResourceEditStore();
+const frozenView = ref(false), httpMode = env.mode === 'http';
+const frozenServices = { plans: collaborationHttp.gisPlans, queryPlans: previewService.querySavedPlanningPlans };
+// 公共权限目录由总集成接线；GIS入口不借用宽泛的资源编辑权限。
+const workspaceEditable = computed(() => !auth.blocked && !!auth.identity?.permissions.some(permission => String(permission) === 'resources.workspace.edit'));
+async function toggleFrozenPlans() {
+  if (frozenView.value) { frozenView.value = false; return; }
+  if (!httpMode || !auth.can('planning.view') || fault.active.value) return;
+  if (!(await configurationAction(() => gis.leave()))) return;
+  editor.clearSession(); frozenView.value = true;
+}
+watch(() => auth.generation, () => { frozenView.value = false; });
 const route = useRoute(),
   router = useRouter();
 const analysisRoutePresent = computed(
@@ -1940,6 +1961,7 @@ onBeforeUnmount(() => {
 });
 // 来源标识跟随实际显示的数据；措施预览没有独立快照 ID，明确显示措施与来源方案。
 const visibleSource = computed(() => {
+  if (frozenView.value) return '数据库冻结方案 · 独立历史来源';
   if (fault.active.value)
     return `故障标绘 · ${fault.network.value?.name ?? '网络未就绪'} · ${fault.draft.value?.name || '新场景'}`;
   if (diagnosisMode.value) return `诊断 ${diagnosis.display.value?.record.id ?? '结果未提供'}`;

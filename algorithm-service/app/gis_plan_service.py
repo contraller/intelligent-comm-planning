@@ -1,5 +1,8 @@
 """只读取指定方案，不调用算法或用当前资源修补历史网络。"""
 from copy import deepcopy
+import json
+import math
+import re
 
 from pydantic import ValidationError
 
@@ -151,6 +154,36 @@ def link_detail(plan_id, task_id, snapshot_id, link_id, *, factory=None):
             "demand_ids": sorted({row["demand_id"] for row in routes}),
             "route_ids": [row["id"] for row in routes],
             "observation": {"state": "missing", "message": "未提供本方案链路的实测观测；计划等级不是实测结论。", "samples": []}}
+
+
+def surface(plan_id, task_id, snapshot_id, *, factory=None):
+    factory = factory or get_session_factory()
+    data = network(plan_id, task_id, snapshot_id, factory=factory)
+    notice = "该方案的 DEM 版本无法与当前地形核对，未显示地形底图。"
+    terrain = None
+    with factory() as session:
+        plan = session.get(PlanningPlan, plan_id)
+        if plan is None or plan.task_id != task_id or (plan.result_snapshot or {}).get("snapshot_id") != snapshot_id:
+            raise GisPlanError("冻结方案已不可用，请重新打开方案")
+        raw = deepcopy(plan.raw_snapshot)
+    # 地形属于同一冻结来源；不因当前资源换版而给历史网络套用另一份DEM。
+    from . import planning_adjustment_service
+    try:
+        fingerprint = raw.get("terrain_fingerprint") if isinstance(raw, dict) else None
+        if fingerprint and fingerprint == planning_adjustment_service.terrain_fingerprint():
+            meta = json.loads((frontend_integration.REPO_ROOT / "data/raw/dem/dem_current.json").read_text(encoding="utf-8"))
+            sha, bounds, source = meta.get("source_sha256"), meta.get("bbox"), meta.get("source")
+            valid_bounds = (isinstance(bounds, list) and len(bounds) == 4
+                            and all(type(v) in (int, float) and math.isfinite(v) for v in bounds)
+                            and -180 <= bounds[0] < bounds[2] <= 180 and -90 <= bounds[1] < bounds[3] <= 90)
+            if (not isinstance(sha, str) or not re.fullmatch(r"[a-f0-9]{64}", sha)
+                    or not isinstance(source, str) or not source.strip() or not valid_bounds):
+                raise ValueError("DEM元数据无效")
+            terrain = {"sourceSha256": sha, "bounds": bounds, "source": source}
+            notice = ""
+    except (OSError, ValueError, KeyError, TypeError):
+        notice = "当前 DEM 元数据缺失或无效，未显示地形底图。"
+    return {"identity": data["identity"], "terrain": terrain, "terrain_notice": notice}
 
 
 def paths(plan_id, task_id, snapshot_id, demand_id=None, *, factory=None):

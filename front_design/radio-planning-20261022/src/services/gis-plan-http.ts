@@ -1,6 +1,6 @@
 import type { AuthenticatedRequest } from './auth-http';
 import type { GisLinkQuery, GisNetwork, GisPathsQuery, GisPlanQuery } from '../types/gis-plan';
-import { readGisLinkDetail, readGisNetwork, readGisPaths, validateGisPlanQuery } from './gis-plan-validation';
+import { readGisLinkDetail, readGisNetwork, readGisPaths, readGisPlanSurface, validateGisPlanQuery } from './gis-plan-validation';
 
 function path(query: GisPlanQuery, suffix: string, demandId?: string): string {
   const params = new URLSearchParams({ context: 'gis', task_id: query.taskId });
@@ -12,6 +12,12 @@ function path(query: GisPlanQuery, suffix: string, demandId?: string): string {
 // 不选择“最新”方案、不退回 Mock；详情必须核对页面当前打开的冻结网络。
 export function createGisPlanHttp(request: AuthenticatedRequest) {
   return {
+    async getSurface(query: GisPlanQuery & { snapshotId: string }, network: GisNetwork, signal?: AbortSignal) {
+      const expected = { ...query };
+      validateGisPlanQuery(expected, 'paths');
+      const source = readGisNetwork(network, expected);
+      return readGisPlanSurface(await request<unknown>(path(expected, 'surface'), { method: 'GET', signal }), expected, source);
+    },
     async getNetwork(query: GisPlanQuery, signal?: AbortSignal) {
       const expected = { ...query };
       validateGisPlanQuery(expected, 'network');

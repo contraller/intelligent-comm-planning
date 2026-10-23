@@ -33,6 +33,8 @@ def _respond(request, plan_id, kind, link_id=None):
         elif kind == "links":
             _identifier.validate_python(link_id)
             data = service.link_detail(plan_id, query.task_id, query.snapshot_id, link_id)
+        elif kind == "surface":
+            data = service.surface(plan_id, query.task_id, query.snapshot_id)
         else:
             data = service.paths(plan_id, query.task_id, query.snapshot_id, query.demand_id)
         return {"code": 0, "message": "success", "data": data}
@@ -59,3 +61,8 @@ def link_detail(request: Request, plan_id: str, link_id: str):
 @router.get("/{plan_id}/paths")
 def paths(request: Request, plan_id: str):
     return _respond(request, plan_id, "paths")
+
+
+@router.get("/{plan_id}/surface")
+def surface(request: Request, plan_id: str):
+    return _respond(request, plan_id, "surface")

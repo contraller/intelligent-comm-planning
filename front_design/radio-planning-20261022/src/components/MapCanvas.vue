@@ -180,7 +180,12 @@
         :class="legendOpen ? 'pi-angle-down' : 'pi-angle-up'"
     /></button>
     <div
-      v-if="resourceRead && !richScene"
+      v-if="frozenNetwork"
+      class="map-legend"
+      ><span>冻结方案 · 算法预测</span><span><b class="normal" />冻结状态正常</span><span><b class="offline" />灰色：状态／告警未提供或离线</span><span>虚线：备用链路</span></div
+    >
+    <div
+      v-else-if="resourceRead && !richScene"
       class="map-legend"
       ><span>数字圆点：资源聚合</span><span><b class="normal" />正常</span
       ><span><b class="warn" />告警 / 生效干扰源</span><span><b class="fault" />故障</span
@@ -427,6 +432,8 @@ import { boundingExtent } from 'ol/extent';
 import { resourceReadLayer, resourceViewport } from '../maps/resource-read-layers';
 import { Style, Circle as CircleStyle } from 'ol/style';
 import { planningApiLayer, type PlanningMapOverlay } from '../maps/planning-api-layers';
+import { gisPlanLayer } from '../maps/gis-plan-layers';
+import type { GisNetwork } from '../types/gis-plan';
 import { coverageLayers, type CoverageImageState } from '../maps/coverage-layers';
 import {
   createMockCoverageLayers,
@@ -486,6 +493,7 @@ const props = withDefaults(
     // 显式接入资源视图；共用地图的其他调用默认不启用。
     hoverPreview?: GisHoverContext;
     planningOverlay?: PlanningMapOverlay | null;
+    frozenNetwork?: GisNetwork | null;
     planningCandidates?: CandidateMapFrame;
     deploymentConstraints?: DeploymentConstraintFrame | null;
     coverageDisplay?: CoverageDisplay;
@@ -543,6 +551,7 @@ const props = withDefaults(
     richScene: false,
     resourceFrame: null,
     planningOverlay: null,
+    frozenNetwork: null,
     planningContext: 'planning',
     coverageDisplay: 'auto',
     mockCoverageDisplay: 'auto',
@@ -575,6 +584,9 @@ const props = withDefaults(
   },
 );
 const emit = defineEmits<{
+  selectFrozenNode: [id: string];
+  selectFrozenLink: [id: string];
+  selectFrozenDemand: [id: string];
   selectPlanningCandidate: [selection: CandidateSelection];
   gisPick: [result: GisPickResult];
   gisPickCancel: [key: string];
@@ -1030,9 +1042,8 @@ function paint() {
       if (coverage.raster) layers.push(coverage.raster);
       layers.push(coverage.vector);
     }
-    layers.push(
-      resourceReadLayer(props.resourceFrame, props.selectedId, props.resourceSelectedKind),
-    );
+    if (props.frozenNetwork) layers.push(gisPlanLayer(props.frozenNetwork, { node: props.selectedId, link: props.selectedLinkId, demand: props.selectedDemandId }));
+    else layers.push(resourceReadLayer(props.resourceFrame, props.selectedId, props.resourceSelectedKind));
     if (props.planningOverlay)
       layers.push(
         planningApiLayer(props.planningOverlay, props.selectedId, props.selectedLinkId, [
@@ -1287,6 +1298,10 @@ function fitDeviceCoverage(snapshotId: string) {
     );
 }
 function fit() {
+  if (map && props.frozenNetwork?.nodes.length) {
+    map.getView().fit(boundingExtent(props.frozenNetwork.nodes.map(node => projectCoordinate(node.coordinate))), { padding: [65, 65, 60, 65], maxZoom: 11 });
+    return;
+  }
   if (map && props.resourceRead && props.resourceBounds) {
     const b = props.resourceBounds;
     map
@@ -1456,6 +1471,15 @@ onMounted(() => {
       return;
     }
     map?.forEachFeatureAtPixel(event.pixel, (feature) => {
+      const frozenKind = feature.get('kind');
+      if (typeof frozenKind === 'string' && frozenKind.startsWith('frozen-plan-')) {
+        if (feature.get('snapshot') !== props.frozenNetwork?.identity.snapshot_id) return true;
+        const id = feature.get('objectId');
+        if (frozenKind === 'frozen-plan-node') emit('selectFrozenNode', id);
+        if (frozenKind === 'frozen-plan-link') emit('selectFrozenLink', id);
+        if (frozenKind === 'frozen-plan-demand') emit('selectFrozenDemand', id);
+        return true;
+      }
       // 输入区域不遮挡原资源选择，也不发出候选或正式部署事件。
       if (feature.get('kind') === 'deployment-constraint') return undefined;
       if (feature.get('kind') === 'planning-candidate-point') {
@@ -1567,6 +1591,7 @@ watch(
     props.resourceFrame,
     props.resourceSelectedKind,
     props.planningOverlay,
+    props.frozenNetwork,
     coverageImage.url.value,
     props.mockCoverage,
     props.deviceCoverageActive,
@@ -1638,6 +1663,7 @@ watch(() => props.coverageDisplay, updateHttpCoverage);
 watch(() => props.mockCoverageDisplay, updateMockCoverage);
 watch(() => props.deviceCoverageDisplay, updateDeviceCoverage);
 watch(() => props.selectedId, locate);
+watch(() => props.frozenNetwork?.identity.snapshot_id, () => { if (props.frozenNetwork) fit(); });
 watch(
   () => props.planningOverlay?.snapshotId,
   () => {

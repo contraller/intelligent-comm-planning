@@ -2,6 +2,7 @@ import { ApiError } from './types';
 import type {
   GisFrozenDemand, GisFrozenDevice, GisFrozenLink, GisFrozenNode, GisFrozenRoute,
   GisLinkDetail, GisLinkQuery, GisNetwork, GisPaths, GisPathsQuery, GisPlanIdentity, GisPlanQuery,
+  GisPlanSurface,
 } from '../types/gis-plan';
 
 const invalid = () => new ApiError('冻结 GIS 方案响应不符合契约，请重新打开方案', 'INVALID_GIS_PLAN_RESPONSE');
@@ -69,6 +70,23 @@ function identity(value: unknown, query: GisPlanQuery): GisPlanIdentity {
   if (result.plan_id !== query.planId || result.task_id !== query.taskId
     || (query.snapshotId !== undefined && result.snapshot_id !== query.snapshotId)) throw invalid();
   return result;
+}
+export function readGisPlanSurface(value: unknown, query: GisPlanQuery, network: GisNetwork): GisPlanSurface {
+  const row = object(value, ['identity', 'terrain', 'terrain_notice']);
+  const source = identity(row.identity, query), notice = text(row.terrain_notice);
+  const { state: _state, source_changed: _changed, ...stable } = source;
+  const { state: _networkState, source_changed: _networkChanged, ...expected } = network.identity;
+  if (!same(stable, expected)) throw invalid();
+  const terrain = nullable(row.terrain, value => {
+    const item = object(value, ['sourceSha256', 'bounds', 'source']);
+    const sha = text(item.sourceSha256), label = text(item.source), bounds = array(item.bounds, n => number(n));
+    if (!/^[a-f0-9]{64}$/.test(sha) || !label.trim() || bounds.length !== 4
+      || !(-180 <= bounds[0] && bounds[0] < bounds[2] && bounds[2] <= 180)
+      || !(-90 <= bounds[1] && bounds[1] < bounds[3] && bounds[3] <= 90)) throw invalid();
+    return { sourceSha256: sha, source: label, bounds: [bounds[0], bounds[1], bounds[2], bounds[3]] as [number, number, number, number] };
+  });
+  if (terrain === null ? !notice.trim() : notice !== '') throw invalid();
+  return { identity: source, terrain, terrain_notice: notice };
 }
 function node(value: unknown): GisFrozenNode {
   const row = object(value, ['id', 'name', 'coordinate', 'status', 'alert']);

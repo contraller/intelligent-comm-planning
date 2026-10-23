@@ -130,6 +130,52 @@ def test_link_and_paths_are_bound_to_same_snapshot(api):
     assert routes["identity"] == data["identity"]
 
 
+def test_surface_requires_exact_snapshot_and_preserves_unknown(api):
+    client, _, _ = api
+    assert query(client, "surface").status_code == 422
+    assert query(client, "surface", snapshot_id="OTHER").status_code == 409
+    response = query(client, "surface", snapshot_id="SNAP-P02")
+    assert response.status_code == 200, response.text
+    data = response.json()["data"]
+    assert data["identity"]["snapshot_id"] == "SNAP-P02"
+    assert data["terrain"] is None and data["terrain_notice"]
+
+
+def test_surface_only_uses_verified_frozen_dem(api, monkeypatch, tmp_path):
+    import json
+    from app import planning_adjustment_service
+    client, factory, _ = api
+    with factory.begin() as session:
+        session.get(PlanningPlan, "P1").raw_snapshot = {"terrain_fingerprint": "frozen-dem"}
+    meta = tmp_path / "data/raw/dem/dem_current.json"
+    meta.parent.mkdir(parents=True)
+    meta.write_text(json.dumps({"source_sha256": "a" * 64, "bbox": [113, 36, 115, 38], "source": "构造测试元数据"}), encoding="utf-8")
+    monkeypatch.setattr(resources, "REPO_ROOT", tmp_path)
+    monkeypatch.setattr(planning_adjustment_service, "terrain_fingerprint", lambda: "frozen-dem")
+    data = query(client, "surface", snapshot_id="SNAP-P02").json()["data"]
+    assert data["terrain"] == {"sourceSha256": "a" * 64, "bounds": [113, 36, 115, 38], "source": "构造测试元数据"}
+    assert data["terrain_notice"] == ""
+    monkeypatch.setattr(planning_adjustment_service, "terrain_fingerprint", lambda: "another-dem")
+    data = query(client, "surface", snapshot_id="SNAP-P02").json()["data"]
+    assert data["terrain"] is None and data["terrain_notice"]
+
+
+@pytest.mark.parametrize("bad", [None, [], [115, 36, 113, 38], [113, 36, 115, 95], [True, 36, 115, 38]])
+def test_surface_rejects_damaged_dem_bounds(api, monkeypatch, tmp_path, bad):
+    import json
+    from app import planning_adjustment_service
+    client, factory, _ = api
+    with factory.begin() as session:
+        session.get(PlanningPlan, "P1").raw_snapshot = {"terrain_fingerprint": "frozen-dem"}
+    meta = tmp_path / "data/raw/dem/dem_current.json"
+    meta.parent.mkdir(parents=True)
+    meta.write_text(json.dumps({"source_sha256": "a" * 64, "bbox": bad, "source": "测试"}), encoding="utf-8")
+    monkeypatch.setattr(resources, "REPO_ROOT", tmp_path)
+    monkeypatch.setattr(planning_adjustment_service, "terrain_fingerprint", lambda: "frozen-dem")
+    data = query(client, "surface", snapshot_id="SNAP-P02").json()["data"]
+    assert data["terrain"] is None and "无效" in data["terrain_notice"]
+
+
 @pytest.mark.parametrize("path,params,code,status", [
     ("network", {"task_id": "other"}, 2001, 404),
     ("network", {"snapshot_id": "other"}, 1203, 409),
