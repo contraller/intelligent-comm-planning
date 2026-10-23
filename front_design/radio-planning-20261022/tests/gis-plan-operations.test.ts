@@ -94,6 +94,16 @@ describe('GIS跨组宿主静态边界', () => {
     expect(component).toContain('auth.registerLeave(requestLeave, hasPending)');
     expect(situation).toContain('additionalPending: () => httpMode');
   });
+  it('PAR1只用唯一运行参数实例串行刷新目录，离页取消且不重启旧观测', () => {
+    expect(component).toContain('useRuntimeParametersStore()');
+    expect(component).toContain("runtime.snapshot?.values['PAR-01']");
+    expect(component).toContain('canRefreshDirectoryInBackground()');
+    expect(component).toContain('refreshDirectoryInBackground(signal)');
+    expect(component).toContain('directoryRefresh.dispose()');
+    expect(component).not.toContain('runtime.bind(');
+    expect(component).not.toContain('status.list()');
+    expect(component).not.toContain('setInterval(');
+  });
   it('旧监控包装不再裸挂需要HTTP服务的新组件，也不创建第二个客户端', () => {
     expect(legacyMonitoring).not.toContain('<SpectrumMonitoringPanel v-else />');
     expect(legacyMonitoring).toContain('v-else-if="observations"');

@@ -236,6 +236,8 @@ import InterferenceAnalysisPanel from './InterferenceAnalysisPanel.vue';
 import InterferenceHistoryDrawer from './InterferenceHistoryDrawer.vue';
 import InterferenceMeasureDrawer from './InterferenceMeasureDrawer.vue';
 import { useInterferenceStore } from '../stores/interference';
+import { useRuntimeParametersStore } from '../stores/runtime-parameters';
+import { createGisStatusRefresh } from '../services/gis-status-refresh';
 import { workbenchMapKey } from '../maps/interference-workbench-layers';
 import { guardedAnalysisMapSelection } from '../services/gis-analysis-map-selection';
 import type { TerrainBasemap } from '../services/terrain-basemap';
@@ -371,6 +373,8 @@ const statusPanel = ref<InstanceType<typeof ResourceStatusPanel>>(),
 const statusDirty = ref(false),
   statusBusy = ref(false);
 const spectrum = ref<InstanceType<typeof SpectrumMonitoringPanel>>();
+const runtime = useRuntimeParametersStore(),
+  directoryVisible = ref(false);
 const can = (permission: string) =>
   !auth.blocked && !!auth.identity?.permissions.some((value) => String(value) === permission);
 const canReadResources = computed(() => can('resources.view') && can('situation.view'));
@@ -525,6 +529,53 @@ async function requestLeave() {
   }
   return true;
 }
+// 只刷新候选快照目录，不读取实测帧、不自动选择新批次或移动地图。
+const refreshConsumer = 'gis.device-status-directory';
+const refreshActive = () =>
+  directoryVisible.value &&
+  tab.value === 'devices' &&
+  canReadResources.value &&
+  !!runtime.snapshot &&
+  !runtime.loading &&
+  !runtime.error &&
+  !statusDirty.value &&
+  !statusBusy.value &&
+  !status.pendingImport &&
+  !configurationVisible.value &&
+  !config.busy &&
+  !config.pending &&
+  !!statusPanel.value?.canRefreshDirectoryInBackground();
+const refreshIdentity = () =>
+  runtime.snapshot
+    ? JSON.stringify([
+        props.sessionGeneration,
+        props.network.identity.snapshot_id,
+        props.network.identity.resource_revision,
+        runtime.snapshot.epoch,
+        runtime.snapshot.revision,
+      ])
+    : '';
+const directoryRefresh = createGisStatusRefresh({
+  active: refreshActive,
+  identity: refreshIdentity,
+  intervalSeconds: () => runtime.snapshot?.values['PAR-01'],
+  read: (signal) =>
+    statusPanel.value?.refreshDirectoryInBackground(signal) ?? Promise.resolve(false),
+});
+function syncDirectoryRefresh() {
+  directoryRefresh.sync();
+  const value = runtime.snapshot;
+  if (refreshActive() && value) runtime.reportApplied(refreshConsumer, value.epoch, value.revision);
+  else runtime.clearApplied(refreshConsumer);
+}
+watch(
+  () => [refreshIdentity(), refreshActive(), runtime.snapshot?.values['PAR-01']],
+  syncDirectoryRefresh,
+  { flush: 'sync' },
+);
+function visibilityChanged() {
+  directoryVisible.value = !document.hidden;
+}
 async function selectTab(next: typeof tab.value) {
   if (next === tab.value) return;
   if (!(await requestLeave())) return;
@@ -564,8 +615,16 @@ function beforeUnload(event: BeforeUnloadEvent) {
     event.returnValue = '';
   }
 }
-onMounted(() => window.addEventListener('beforeunload', beforeUnload));
+onMounted(() => {
+  window.addEventListener('beforeunload', beforeUnload);
+  document.addEventListener('visibilitychange', visibilityChanged);
+  visibilityChanged();
+  syncDirectoryRefresh();
+});
 onBeforeUnmount(() => {
+  directoryRefresh.dispose();
+  runtime.clearApplied(refreshConsumer);
+  document.removeEventListener('visibilitychange', visibilityChanged);
   release();
   cancelStatusRefRead();
   status.cancel();
