@@ -24,6 +24,13 @@ function fixture(data: unknown) {
   const request = vi.fn<AuthenticatedRequest>().mockResolvedValue(data);
   return { request, api: createFrequencyResourceHttp(request as AuthenticatedRequest) };
 }
+function deferredFixture() {
+  let complete!: (data: unknown) => void;
+  const response = new Promise<unknown>(resolve => { complete = resolve; });
+  const result = fixture(null);
+  result.request.mockReturnValue(response);
+  return { ...result, complete };
+}
 
 describe('规划频点停用独立 HTTP 契约', () => {
   it('读取明确版本，保留原禁用频点及未知数据', async () => {
@@ -59,6 +66,50 @@ describe('规划频点停用独立 HTTP 契约', () => {
     expect(result).toMatchObject({ objectId: 'resource-frequency-disable', requestId: 'disable-1', baseRevision: base,
       revision: next, readRevision: next, changed: true, updated: ['FQ-0002'], unchanged: ['FQ-0001'], affectedIds: ['FQ-0002'] });
     expect(result.items.every(row => row.isAvailable === false)).toBe(true);
+  });
+
+  it.each([false, true])('读取等待期间改变版本，仍按发起快照核验：返回改后版本=%s', async changedResponse => {
+    const f = deferredFixture(), request = query();
+    const pending = f.api.loadFrequencyResources(request);
+    request.revision = next;
+    expect(f.request.mock.calls[0][0]).toBe(`/resource/frequency-resources?context=ledger&revision=${base}`);
+    f.complete(changedResponse ? { ...snapshot(), revision: next, base_revision: next } : snapshot());
+    if (changedResponse) await expect(pending).rejects.toMatchObject({ code: 'INVALID_FREQUENCY_RESOURCE_RESPONSE' });
+    else await expect(pending).resolves.toMatchObject({ revision: base, baseRevision: base });
+  });
+
+  it.each([false, true])('预检等待期间改版本和清单，仍按发起快照核验：返回改后输入=%s', async changedResponse => {
+    const f = deferredFixture(), request = validationInput(), originalIds = request.ids;
+    const pending = f.api.validateFrequencyDisable(request);
+    originalIds.splice(0, originalIds.length, 'FQ-9001');
+    request.ids = ['FQ-9002'];
+    request.revision = next;
+    expect(originalIds).toEqual(['FQ-9001']);
+    expect(JSON.parse(f.request.mock.calls[0][1]?.body as string)).toEqual({
+      context: 'ledger', revision: base, ids: ['FQ-0001', 'FQ-0002'],
+    });
+    f.complete(changedResponse ? { ...preview(), revision: next, base_revision: next,
+      selected_ids: ['FQ-9002'], would_disable: ['FQ-9002'], unchanged: [], items: [item('FQ-9002')] } : preview());
+    if (changedResponse) await expect(pending).rejects.toMatchObject({ code: 'INVALID_FREQUENCY_RESOURCE_RESPONSE' });
+    else await expect(pending).resolves.toMatchObject({ revision: base, selectedIds: ['FQ-0001', 'FQ-0002'] });
+  });
+
+  it.each([false, true])('保存等待期间改版本、请求号和清单，仍按发起快照核验：返回改后输入=%s', async changedResponse => {
+    const f = deferredFixture(), request = input(), originalIds = request.ids;
+    const pending = f.api.disableFrequencyResources(request);
+    originalIds.splice(0, originalIds.length, 'FQ-9001');
+    request.ids = ['FQ-9002'];
+    request.baseRevision = 'resource-3333333333333333';
+    request.requestId = 'changed-request';
+    expect(originalIds).toEqual(['FQ-9001']);
+    expect(JSON.parse(f.request.mock.calls[0][1]?.body as string)).toEqual({ context: 'ledger',
+      base_revision: base, request_id: 'disable-1', ids: ['FQ-0001', 'FQ-0002'] });
+    f.complete(changedResponse ? { ...receipt(), base_revision: request.baseRevision, request_id: request.requestId,
+      selected_ids: ['FQ-9002'], updated: ['FQ-9002'], unchanged: [], affected_ids: ['FQ-9002'],
+      items: [item('FQ-9002', false)] } : receipt());
+    if (changedResponse) await expect(pending).rejects.toMatchObject({ code: 'INVALID_FREQUENCY_RESOURCE_RESPONSE' });
+    else await expect(pending).resolves.toMatchObject({ baseRevision: base, requestId: 'disable-1',
+      selectedIds: ['FQ-0001', 'FQ-0002'], revision: next });
   });
 
   it('无变化回执保留版本，预检没有虚构影响或新版本', async () => {

@@ -7,7 +7,10 @@ function invalid(): never { throw new ApiError('规划频点请求不符合停�
 function identifier(value: unknown): asserts value is string {
   if (typeof value !== 'string' || !value || value.length > 120 || /\s|[\u0000-\u001f\u007f]/u.test(value)) invalid();
 }
-function requestBody(value: unknown, mode: 'read' | 'validate' | 'disable') {
+function requestSnapshot(value: unknown, mode: 'read'): Readonly<FrequencyResourceQuery>;
+function requestSnapshot(value: unknown, mode: 'validate'): Readonly<FrequencyDisableValidationInput>;
+function requestSnapshot(value: unknown, mode: 'disable'): Readonly<FrequencyDisableInput>;
+function requestSnapshot(value: unknown, mode: 'read' | 'validate' | 'disable') {
   if (!value || typeof value !== 'object' || Array.isArray(value)) invalid();
   const input = value as Record<string, unknown>;
   const versionKey = mode === 'disable' ? 'baseRevision' : 'revision';
@@ -23,32 +26,39 @@ function requestBody(value: unknown, mode: 'read' | 'validate' | 'disable') {
     if (new Set(selected).size !== selected.length) invalid();
     selected.sort();
   }
-  if (mode === 'disable') identifier(input.requestId);
-  return { context: 'ledger' as const,
-    [mode === 'disable' ? 'base_revision' : 'revision']: input[versionKey] as string,
-    ...(mode === 'read' ? {} : { ids: selected }),
-    ...(mode === 'disable' ? { request_id: input.requestId as string } : {}) };
+  // 仅冻结本次调用的副本；页面仍可编辑原对象及原 ids，响应只核对发起时的值。
+  Object.freeze(selected);
+  if (mode === 'disable') {
+    identifier(input.requestId);
+    return Object.freeze({ context: 'ledger' as const, baseRevision: input[versionKey] as string,
+      requestId: input.requestId, ids: selected });
+  }
+  const snapshot = { context: 'ledger' as const, revision: input[versionKey] as string };
+  return Object.freeze(mode === 'read' ? snapshot : { ...snapshot, ids: selected });
 }
 
 export function createFrequencyResourceHttp(request: AuthenticatedRequest) {
   const path = '/resource/frequency-resources';
   return {
     async loadFrequencyResources(input: FrequencyResourceQuery, signal?: AbortSignal) {
-      requestBody(input, 'read');
-      const query = new URLSearchParams({ context: input.context, revision: input.revision });
-      return readFrequencyResources(await request(`${path}?${query}`, { signal }), input.revision);
+      const snapshot = requestSnapshot(input, 'read');
+      const query = new URLSearchParams({ context: snapshot.context, revision: snapshot.revision });
+      return readFrequencyResources(await request(`${path}?${query}`, { signal }), snapshot.revision);
     },
     async validateFrequencyDisable(input: FrequencyDisableValidationInput, signal?: AbortSignal) {
-      const body = requestBody(input, 'validate');
+      const snapshot = requestSnapshot(input, 'validate');
+      const body = { context: snapshot.context, revision: snapshot.revision, ids: snapshot.ids };
       return readFrequencyDisableValidation(await request(`${path}/disable/validate`, {
         method: 'POST', body: JSON.stringify(body), signal,
-      }), input);
+      }), snapshot);
     },
     async disableFrequencyResources(input: FrequencyDisableInput, signal?: AbortSignal) {
-      const body = requestBody(input, 'disable');
+      const snapshot = requestSnapshot(input, 'disable');
+      const body = { context: snapshot.context, base_revision: snapshot.baseRevision,
+        request_id: snapshot.requestId, ids: snapshot.ids };
       return readFrequencyDisableReceipt(await request(`${path}/disable`, {
         method: 'POST', body: JSON.stringify(body), signal,
-      }), input);
+      }), snapshot);
     },
   };
 }
