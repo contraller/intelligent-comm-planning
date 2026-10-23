@@ -7,7 +7,7 @@
           <option value="baseline">台账基线</option><option value="observed" :disabled="!status.batch">构造状态快照</option>
         </select>
       </label>
-      <button class="btn small" :disabled="!entry.available.value || status.busy" @click="entry.retry">读取批次</button>
+      <button class="btn small" :disabled="!entry.available.value || status.busy" @click="refreshDirectory">读取批次</button>
       <button class="btn small" :disabled="!status.batch || status.busy" @click="clear">清除选择</button>
       <span>当前资源设备 {{ total ?? '未知' }} 台</span>
     </div>
@@ -74,11 +74,12 @@
   </section>
 </template>
 <script setup lang="ts">
-import { computed, onScopeDispose, ref, watch } from 'vue';
+import { computed, onScopeDispose, ref, shallowRef, watch } from 'vue';
 import { useResourceStatusEntry } from '../stores/resource-status';
+import { useAuthStore } from '../stores/auth';
 import type { DeviceStatusClient } from '../services/device-status-http';
 import { validateStatusImport } from '../services/device-status-decode';
-import type { DeviceStatusReceipt, StatusFilter } from '../types/device-status-snapshot';
+import type { DeviceStatusHeader, DeviceStatusReceipt, StatusFilter, StatusPage } from '../types/device-status-snapshot';
 const props = withDefaults(defineProps<{
   enabled?: boolean; selectedIds?: string[]; hiddenCount?: number; pausedReason?: string;
   resourceRevision: string | undefined; total: number | null; queryBusy?: boolean; services?: DeviceStatusClient; allowImport?: boolean;
@@ -96,6 +97,49 @@ let submittedInput: { requestId: string; raw: string; fileName: string } | null 
 const dirtyInput = computed(() => raw.value !== acceptedInput.value.raw || fileName.value !== acceptedInput.value.fileName);
 const localBusy = computed(() => status.busy || fileBusy.value);
 let fileSerial = 0;
+type Directory = StatusPage<DeviceStatusHeader>;
+const auth = useAuthStore();
+const stagedDirectory = shallowRef<{ value: Directory; previous: Directory | null; client: DeviceStatusClient; revision: string; generation: number } | null>(null);
+let directorySerial = 0, directoryControl: AbortController | null = null, disposed = false;
+const directoryEligible = computed(() => entry.available.value && !auth.blocked && !auth.transition && !auth.busy
+  && status.revision === props.resourceRevision && !dirtyInput.value && !localBusy.value && !status.pendingImport);
+function discardDirectoryRefresh() {
+  directorySerial++; directoryControl?.abort(); directoryControl = null; stagedDirectory.value = null;
+}
+watch([directoryEligible, () => props.services, () => props.resourceRevision, () => status.revision,
+  () => status.snapshots, () => status.snapshots?.page, () => status.snapshots?.page_size,
+  () => auth.generation, () => auth.identity?.id, () => auth.identity?.sessionId], discardDirectoryRefresh, { flush: 'sync' });
+function canRefreshDirectoryInBackground(): boolean {
+  return !disposed && directoryEligible.value && !directoryControl;
+}
+async function refreshDirectoryInBackground(signal?: AbortSignal): Promise<boolean> {
+  const client = props.services;
+  if (signal?.aborted || !canRefreshDirectoryInBackground() || !client) return false;
+  const previous = status.snapshots, revision = status.revision, generation = auth.generation;
+  const expected = { context: 'ledger' as const, resource_revision: revision, page: previous?.page ?? 1, page_size: previous?.page_size ?? 20 };
+  const token = ++directorySerial, control = new AbortController(); directoryControl = control;
+  const abort = () => { if (token === directorySerial) discardDirectoryRefresh(); else control.abort(); };
+  signal?.addEventListener('abort', abort, { once: true });
+  try {
+    const value = await client.listSnapshots(expected, { signal: control.signal });
+    if (disposed || signal?.aborted || control.signal.aborted || token !== directorySerial || !directoryEligible.value || generation !== auth.generation
+      || props.services !== client || status.revision !== revision || status.snapshots !== previous
+      || value.page !== expected.page || value.page_size !== expected.page_size || value.items.some(item => item.resource_revision !== revision)) return false;
+    // 后台只暂存目录，用户明确刷新后才改变可见顺序，不触碰已选快照。
+    stagedDirectory.value = { value, previous, client, revision, generation };
+    return true;
+  } catch { return false; }
+  finally { signal?.removeEventListener('abort', abort); if (token === directorySerial) directoryControl = null; }
+}
+async function refreshDirectory() {
+  if (!entry.available.value || status.busy) return;
+  const staged = stagedDirectory.value;
+  const applicable = staged && directoryEligible.value && staged.client === props.services && staged.revision === status.revision
+    && staged.previous === status.snapshots && staged.generation === auth.generation;
+  discardDirectoryRefresh();
+  if (staged && applicable) status.snapshots = staged.value;
+  else await entry.retry();
+}
 const names = { NORMAL: '正常', FAULT: '故障', OFFLINE: '离线' };
 watch(() => status.batch, value => { if (value) emit('snapshot-selected', { snapshot_id: value.snapshot_id, snapshot_revision: value.snapshot_revision, resource_revision: value.resource_revision }); });
 watch(() => status.receipt, value => {
@@ -136,13 +180,14 @@ function discardInput() {
   return true;
 }
 async function requestLeave(): Promise<boolean> {
+  discardDirectoryRefresh();
   if (localBusy.value || status.pendingImport || dirtyInput.value) {
     leaveNotice.value = '尚有文件读取、待核实原号或未提交导入输入，请先核实或明确放弃本地输入。'; return false;
   }
   return true;
 }
-defineExpose({ requestLeave });
-onScopeDispose(() => { fileSerial++; });
+defineExpose({ requestLeave, canRefreshDirectoryInBackground, refreshDirectoryInBackground });
+onScopeDispose(() => { disposed = true; fileSerial++; discardDirectoryRefresh(); });
 </script>
 <style scoped>
 .resource-status-panel { padding: 12px 0; font-size: 12px; border-top: 1px solid var(--line, #d5d9de); }

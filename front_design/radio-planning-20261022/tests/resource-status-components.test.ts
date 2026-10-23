@@ -1,10 +1,10 @@
 import { afterEach, expect, it, vi } from 'vitest';
-import { h, nextTick, ssrContextKey, type App } from 'vue';
+import { h, nextTick, shallowReactive, ssrContextKey, type App } from 'vue';
 import { createPinia, disposePinia, setActivePinia } from 'pinia';
 import { authorizeStore } from './helpers/auth';
 import { clientTemplate, node, renderer, find, textOf, type HostNode } from './helpers/vue-client';
 import Panel from '../src/components/ResourceStatusPanel.vue';
-import { deviceStatusSchema as schema, type DeviceStatusHeader, type DeviceStatusImport } from '../src/types/device-status-snapshot';
+import { deviceStatusSchema as schema, type DeviceStatusHeader, type DeviceStatusImport, type StatusPage } from '../src/types/device-status-snapshot';
 import type { DeviceStatusClient } from '../src/services/device-status-http';
 import { useResourceStatusStore } from '../src/stores/resource-status';
 import { createMockService } from '../src/services/mock';
@@ -34,10 +34,13 @@ async function mount(services?: DeviceStatusClient, allowImport = false) {
   if (!permissions.includes('resources.device.status.import')) permissions.push('resources.device.status.import');
   const selected = vi.fn(), root = node('root');
   const dirty = vi.fn(), busy = vi.fn(), imported = vi.fn();
-  let exposed!: { requestLeave(): Promise<boolean> };
-  app = renderer.createApp({ render: () => h(Panel, { resourceRevision: revision, total: null, services, allowImport,
+  let exposed!: { requestLeave(): Promise<boolean>; canRefreshDirectoryInBackground(): boolean; refreshDirectoryInBackground(signal?: AbortSignal): Promise<boolean> };
+  const state = shallowReactive({ resourceRevision: revision, services, enabled: true, queryBusy: false });
+  app = renderer.createApp({ render: () => h(Panel, { ...state, total: null, allowImport,
     ref: value => { exposed = value as unknown as typeof exposed; }, 'onSnapshot-selected': selected, onDirty: dirty, onBusy: busy, onImported: imported }) });
-  app.use(pinia); app.provide(ssrContextKey, {}); app.mount(root); await settle(); return { root, selected, dirty, busy, imported, leave: () => exposed.requestLeave() };
+  app.use(pinia); app.provide(ssrContextKey, {}); app.mount(root); await settle();
+  return { root, selected, dirty, busy, imported, state, auth, leave: () => exposed.requestLeave(),
+    canBackground: () => exposed.canRefreshDirectoryInBackground(), background: (signal?: AbortSignal) => exposed.refreshDirectoryInBackground(signal) };
 }
 it('missing service is explicit and does not create mock batches', async () => {
   const { root } = await mount(); expect(textOf(root)).toContain('状态服务未接入'); expect(textOf(root)).toContain('未知');
@@ -110,6 +113,148 @@ it.each(['request', 'revision', 'total'] as const)('keeps pending import and lea
   await status.verifyImport(); await settle();
   expect(status.pendingImport).toEqual(fileRequest); expect(status.receipt).toBeNull(); expect(status.error).toContain('不符');
   expect(s.imported).not.toHaveBeenCalled(); expect(s.dirty).toHaveBeenLastCalledWith(true); expect(await s.leave()).toBe(false);
+});
+function directory(items = [header], page = 1): StatusPage<DeviceStatusHeader> {
+  return { schema_version: schema, items, total: items.length, page, page_size: 20 };
+}
+const nextHeader: DeviceStatusHeader = { ...header, snapshot_id: 'DSS-' + 'd'.repeat(32), snapshot_revision: 'device-status-' + 'e'.repeat(64),
+  content_hash: 'e'.repeat(64), source_label: '新构造批次', imported_at: '2026-10-24T10:00:00.000000Z' };
+function deferredDirectory(services: DeviceStatusClient) {
+  let done!: (value: StatusPage<DeviceStatusHeader>) => void;
+  vi.mocked(services.listSnapshots).mockImplementationOnce(() => new Promise<StatusPage<DeviceStatusHeader>>(resolve => { done = resolve; }));
+  return (value: StatusPage<DeviceStatusHeader>) => done(value);
+}
+async function clickDirectory(root: HostNode) {
+  const button = find(root, n => n.tag === 'button' && textOf(n) === '读取批次')!;
+  await (button.props.onClick as () => Promise<void>)(); await settle();
+}
+it('stages same-page directory in isolation and applies only on an explicit refresh, never selects a new batch', async () => {
+  const services = client(), s = await mount(services), status = useResourceStatusStore();
+  await status.select(header); await settle();
+  status.error = '保留前台错误'; status.notice = '保留前台提示';
+  const selectedBatch = status.batch, selectedRecords = status.snapshotRecords, visibleDirectory = status.snapshots;
+  const busyEvents = s.busy.mock.calls.length, selectedEvents = s.selected.mock.calls.length;
+  const done = deferredDirectory(services), refreshing = s.background();
+  expect(s.canBackground()).toBe(false); expect(await s.background()).toBe(false);
+  expect(services.listSnapshots).toHaveBeenLastCalledWith({ context: 'ledger', resource_revision: revision, page: 1, page_size: 20 }, { signal: expect.any(AbortSignal) });
+  expect(status.busy).toBe(false); expect(s.busy).toHaveBeenCalledTimes(busyEvents);
+  expect(find(s.root, n => n.tag === 'button' && textOf(n) === '读取批次')!.props.disabled).toBe(false);
+  done(directory([nextHeader, header])); expect(await refreshing).toBe(true); await settle();
+  expect(status.snapshots).toBe(visibleDirectory); expect(textOf(s.root)).not.toContain('新构造批次');
+  expect(status.error).toBe('保留前台错误'); expect(status.notice).toBe('保留前台提示');
+  await clickDirectory(s.root);
+  expect(status.snapshots?.items[0]?.snapshot_id).toBe(nextHeader.snapshot_id); expect(textOf(s.root)).toContain('新构造批次');
+  expect(status.batch).toBe(selectedBatch); expect(status.snapshotRecords).toBe(selectedRecords);
+  expect(s.selected).toHaveBeenCalledTimes(selectedEvents); expect(services.listSnapshots).toHaveBeenCalledTimes(2);
+  expect(services.getSnapshot).toHaveBeenCalledTimes(1); expect(services.queryDevices).toHaveBeenCalledTimes(1);
+  expect(services.importSnapshot).not.toHaveBeenCalled(); expect(s.imported).not.toHaveBeenCalled(); expect(s.dirty).toHaveBeenLastCalledWith(false);
+});
+it('background failure preserves foreground directory and messages, and explicit refresh still performs the normal read', async () => {
+  const services = client(), s = await mount(services), status = useResourceStatusStore(), previous = status.snapshots;
+  status.error = '前台失败'; status.notice = '原提示';
+  vi.mocked(services.listSnapshots).mockRejectedValueOnce(new Error('background timeout'));
+  expect(await s.background()).toBe(false); expect(s.canBackground()).toBe(true);
+  expect(status.snapshots).toBe(previous); expect(status.error).toBe('前台失败'); expect(status.notice).toBe('原提示'); expect(status.busy).toBe(false);
+  expect(await s.leave()).toBe(true); await clickDirectory(s.root); expect(services.listSnapshots).toHaveBeenCalledTimes(3);
+});
+it('a background request never blocks leaving and ignores a late result after leaving', async () => {
+  const services = client(), s = await mount(services), status = useResourceStatusStore(), previous = status.snapshots;
+  const done = deferredDirectory(services), refreshing = s.background(), signal = vi.mocked(services.listSnapshots).mock.calls.at(-1)![1]?.signal;
+  expect(await s.leave()).toBe(true); expect(signal?.aborted).toBe(true);
+  done(directory([nextHeader])); expect(await refreshing).toBe(false); expect(status.snapshots).toBe(previous); expect(status.busy).toBe(false);
+});
+it('uses the current directory page and page size without returning to page one', async () => {
+  const services = client(), s = await mount(services), status = useResourceStatusStore();
+  status.snapshots = { ...directory(), total: 2, page: 2, page_size: 1 };
+  vi.mocked(services.listSnapshots).mockResolvedValueOnce({ ...directory([nextHeader]), total: 2, page: 2, page_size: 1 });
+  expect(await s.background()).toBe(true);
+  expect(services.listSnapshots).toHaveBeenLastCalledWith({ context: 'ledger', resource_revision: revision, page: 2, page_size: 1 }, { signal: expect.any(AbortSignal) });
+  expect(status.snapshots?.items[0]?.snapshot_id).toBe(header.snapshot_id); await clickDirectory(s.root);
+  expect(status.snapshots?.page).toBe(2); expect(status.snapshots?.page_size).toBe(1); expect(status.snapshots?.items[0]?.snapshot_id).toBe(nextHeader.snapshot_id);
+});
+it('skips an already aborted scheduler signal without making a request', async () => {
+  const services = client(), s = await mount(services), scheduler = new AbortController(); scheduler.abort();
+  expect(await s.background(scheduler.signal)).toBe(false); expect(s.canBackground()).toBe(true); expect(services.listSnapshots).toHaveBeenCalledTimes(1);
+});
+it('scheduler abort cancels only the background directory and discards its late response', async () => {
+  const services = client(), s = await mount(services), status = useResourceStatusStore(), previous = status.snapshots, scheduler = new AbortController();
+  const done = deferredDirectory(services), refreshing = s.background(scheduler.signal), signal = vi.mocked(services.listSnapshots).mock.calls.at(-1)![1]?.signal;
+  scheduler.abort(); expect(signal?.aborted).toBe(true); expect(status.busy).toBe(false);
+  done(directory([nextHeader])); expect(await refreshing).toBe(false); expect(status.snapshots).toBe(previous); expect(await s.leave()).toBe(true);
+});
+it('an old scheduler abort cannot cancel the foreground snapshot read which superseded it', async () => {
+  const services = client(), s = await mount(services), status = useResourceStatusStore(), scheduler = new AbortController();
+  const done = deferredDirectory(services), refreshing = s.background(scheduler.signal);
+  let finish!: (value: DeviceStatusHeader) => void;
+  vi.mocked(services.getSnapshot).mockImplementationOnce(() => new Promise<DeviceStatusHeader>(resolve => { finish = resolve; }));
+  const selecting = status.select(header), foregroundSignal = vi.mocked(services.getSnapshot).mock.calls.at(-1)![1]?.signal;
+  scheduler.abort(); done(directory([nextHeader])); expect(await refreshing).toBe(false);
+  expect(foregroundSignal?.aborted).toBe(false); expect(status.busy).toBe(true);
+  finish(header); await selecting; expect(status.batch?.snapshot_id).toBe(header.snapshot_id); expect(status.busy).toBe(false);
+});
+it.each(['raw', 'file', 'busy', 'pending', 'permission', 'service', 'revision', 'binding', 'disabled', 'query', 'identity-busy'] as const)('skips background directory for gate: %s', async gate => {
+  const services = client(), s = await mount(services, true), status = useResourceStatusStore();
+  if (gate === 'raw') (find(s.root, n => n.props['aria-label'] === '状态导入 JSON')!.props['onUpdate:modelValue'] as (value: string) => void)('unsaved');
+  if (gate === 'file') await chooseFile(s.root, { name: 'unsubmitted.json', size: 0, text: async () => '' });
+  if (gate === 'busy') status.busy = true;
+  if (gate === 'pending') status.pendingImport = fileRequest;
+  if (gate === 'permission') s.auth.identity = { ...s.auth.identity!, permissions: s.auth.identity!.permissions.filter(value => value !== 'resources.view') };
+  if (gate === 'service') s.state.services = undefined;
+  if (gate === 'revision') s.state.resourceRevision = '';
+  if (gate === 'binding') status.bind(services, 'resource-2222222222222222');
+  if (gate === 'disabled') s.state.enabled = false;
+  if (gate === 'query') s.state.queryBusy = true;
+  if (gate === 'identity-busy') s.auth.busy = 1;
+  await settle(); const calls = vi.mocked(services.listSnapshots).mock.calls.length;
+  expect(s.canBackground()).toBe(false); expect(await s.background()).toBe(false); expect(services.listSnapshots).toHaveBeenCalledTimes(calls);
+  expect(services.getSnapshot).not.toHaveBeenCalled(); expect(services.queryDevices).not.toHaveBeenCalled();
+});
+it.each(['revision', 'page', 'page-size'] as const)('does not stage a directory with a mismatched %s response', async mismatch => {
+  const services = client(), s = await mount(services), status = useResourceStatusStore(), previous = status.snapshots;
+  const value = directory([{ ...nextHeader, resource_revision: mismatch === 'revision' ? 'resource-2222222222222222' : revision }]);
+  if (mismatch === 'page') value.page = 2;
+  if (mismatch === 'page-size') value.page_size = 1;
+  status.error = '保留原错误';
+  vi.mocked(services.listSnapshots).mockResolvedValueOnce(value);
+  expect(await s.background()).toBe(false); expect(status.snapshots).toBe(previous); expect(status.error).toBe('保留原错误');
+  await clickDirectory(s.root); expect(services.listSnapshots).toHaveBeenCalledTimes(3); expect(status.snapshots?.items[0]?.snapshot_id).toBe(header.snapshot_id);
+});
+it('discards an already staged directory when input becomes dirty and never clears the draft', async () => {
+  const services = client(), s = await mount(services, true), status = useResourceStatusStore();
+  vi.mocked(services.listSnapshots).mockResolvedValueOnce(directory([nextHeader])); expect(await s.background()).toBe(true);
+  const input = find(s.root, n => n.props['aria-label'] === '状态导入 JSON')!;
+  (input.props['onUpdate:modelValue'] as (value: string) => void)('unsaved'); await settle(); await clickDirectory(s.root);
+  expect(services.listSnapshots).toHaveBeenCalledTimes(3); expect(status.snapshots?.items[0]?.snapshot_id).toBe(header.snapshot_id);
+  expect(s.dirty).toHaveBeenLastCalledWith(true); expect(await s.leave()).toBe(false);
+});
+it('does not start directory refresh while reading a file', async () => {
+  const services = client(), s = await mount(services, true); let done!: (value: string) => void;
+  const reading = chooseFile(s.root, { name: 'waiting.json', size: 10, text: () => new Promise<string>(resolve => { done = resolve; }) });
+  expect(s.canBackground()).toBe(false); expect(await s.background()).toBe(false); expect(services.listSnapshots).toHaveBeenCalledTimes(1);
+  done(''); await reading;
+});
+it.each(['service', 'revision', 'session', 'generation', 'page', 'permission', 'dirty', 'busy', 'pending', 'disabled', 'unmount'] as const)('aborts and discards a late background directory on %s change', async change => {
+  const services = client(), s = await mount(services, true), status = useResourceStatusStore();
+  const done = deferredDirectory(services), refreshing = s.background(), signal = vi.mocked(services.listSnapshots).mock.calls.at(-1)![1]?.signal;
+  if (change === 'service') s.state.services = client();
+  if (change === 'revision') {
+    const nextRevision = 'resource-2222222222222222';
+    vi.mocked(services.listSnapshots).mockResolvedValueOnce(directory([{ ...header, resource_revision: nextRevision }]));
+    s.state.resourceRevision = nextRevision;
+  }
+  if (change === 'session') s.auth.identity = { ...s.auth.identity!, sessionId: 'new-session' };
+  if (change === 'generation') s.auth.generation++;
+  if (change === 'page') status.snapshots = { ...directory(), total: 21, page: 2 };
+  if (change === 'permission') s.auth.identity = { ...s.auth.identity!, permissions: s.auth.identity!.permissions.filter(value => value !== 'resources.view') };
+  if (change === 'dirty') (find(s.root, n => n.props['aria-label'] === '状态导入 JSON')!.props['onUpdate:modelValue'] as (value: string) => void)('unsaved');
+  if (change === 'busy') status.busy = true;
+  if (change === 'pending') status.pendingImport = fileRequest;
+  if (change === 'disabled') s.state.enabled = false;
+  if (change === 'unmount') { app!.unmount(); app = undefined; }
+  await settle(); const visibleDirectory = status.snapshots;
+  expect(signal?.aborted).toBe(true); done(directory([nextHeader])); expect(await refreshing).toBe(false);
+  expect(status.snapshots).toBe(visibleDirectory); expect(s.selected).not.toHaveBeenCalled(); expect(services.getSnapshot).not.toHaveBeenCalled(); expect(services.queryDevices).not.toHaveBeenCalled();
+  if (change === 'busy') expect(status.busy).toBe(true);
 });
 it('retains GIS unknown-state color and cluster behavior independently of status snapshot import', async () => {
   const storage = new TestStorage(), raw = createMockService(() => storage), data = await raw.loadPreview();
