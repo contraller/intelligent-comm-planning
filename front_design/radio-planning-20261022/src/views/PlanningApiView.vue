@@ -32,6 +32,11 @@
       role="alert"
       >{{ routeTaskError }}</p
     >
+    <div v-if="route.query.editTask === '1'" class="toolbar" aria-label="GIS任务编辑返回">
+      <button class="btn primary" :disabled="gisTaskReturning || !task.editable || task.busy || !!task.pendingSave" @click="saveAndReturnToGis"><i class="pi pi-save" aria-hidden="true" />保存任务并返回 GIS</button>
+      <button class="btn" :disabled="gisTaskReturning || !task.saved" @click="returnToGis"><i class="pi pi-arrow-left" aria-hidden="true" />返回 GIS 任务</button>
+      <span v-if="gisTaskReturnError" role="alert">{{ gisTaskReturnError }}</span>
+    </div>
     <div
       v-if="route.query.from === 'diagnosis' && !routeTaskError"
       class="notice"
@@ -445,6 +450,7 @@ import type { PlanningJobSummary, PlanningPlanSummary } from '../types/planning-
 import { previewService } from '../services';
 import { collaborationHttp } from '../services/http';
 import { verifyPlanningInterferenceEntry } from '../services/planning-interference-entry';
+import { saveTaskForGis } from '../services/gis-task-edit-entry';
 
 const task = useTaskInputStore();
 const planning = usePlanningApiStore();
@@ -895,10 +901,27 @@ function addNode(id: string) {
   task.updateInput(next);
   void task.refreshReferences(false);
 }
+const gisTaskReturning = ref(false), gisTaskReturnError = ref('');
+async function saveAndReturnToGis() {
+  if (gisTaskReturning.value || !task.editable || route.query.editTask !== '1') return;
+  const owner = auth.generation, path = route.fullPath;
+  const current = () => active && owner === auth.generation && !auth.blocked && path === route.fullPath;
+  gisTaskReturning.value = true; gisTaskReturnError.value = '';
+  try {
+    const saved = await saveTaskForGis(task, current);
+    if (!saved || !current()) { if (current()) gisTaskReturnError.value = task.error || '任务尚未确认保存，当前输入已保留。'; return; }
+    await router.push({ path: '/situation', query: { taskId: saved.taskId } });
+  } catch (reason) { if (current()) gisTaskReturnError.value = reason instanceof Error ? reason.message : '任务保存失败'; }
+  finally { gisTaskReturning.value = false; }
+}
+async function returnToGis() {
+  if (gisTaskReturning.value || !task.saved || route.query.editTask !== '1') return;
+  await router.push({ path: '/situation', query: { taskId: task.saved.taskId } });
+}
 async function syncUrl() {
   if (
     !active ||
-    diagnosisReturning.value ||
+    diagnosisReturning.value || gisTaskReturning.value ||
     route.path !== '/planning' ||
     restoring ||
     (!task.saved && !planning.selectedPlan && !planning.job) ||
@@ -906,7 +929,7 @@ async function syncUrl() {
   )
     return;
   const query: Record<string, string> = {
-    taskId: planning.selectedPlan?.taskId ?? planning.job?.taskId ?? task.taskId,
+    taskId: route.query.editTask === '1' && planning.step === 1 ? task.taskId : planning.selectedPlan?.taskId ?? planning.job?.taskId ?? task.taskId,
   };
   // 内部身份同步保留诊断准备来源，返回入口不随保存动作丢失。
   if (route.query.from === 'diagnosis') query.from = 'diagnosis';

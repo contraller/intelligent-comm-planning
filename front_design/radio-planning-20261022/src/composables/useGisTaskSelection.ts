@@ -5,6 +5,7 @@ import { usePlanningStore } from '../stores/planning';
 import { useTaskInputStore } from '../stores/task-input';
 import { useResourceReadStore } from '../stores/resource-read';
 import { ApiError } from '../services/types';
+import { env } from '../config/env';
 import type { PlanningInput } from '../types/planning';
 import type { ApiTask } from '../types/task-api';
 import type { ReadNode, ResourceObjectDetail } from '../types/resource-read';
@@ -117,7 +118,7 @@ export function useGisTaskSelection() {
     if (!(await queryLibrary())) return false;
     if (!readable.value || disposed) return false;
     // 显式目标不可用时不回退；没有目标时也不擅自选择任务列表首项。
-    const fallback = taskInput.saved?.taskId ?? (planning.taskId && planning.savedTask ? planning.taskId : undefined);
+    const fallback = taskInput.saved?.taskId ?? (env.mode !== 'http' && planning.taskId && planning.savedTask ? planning.taskId : undefined);
     const target = explicitTaskId !== undefined ? explicitTaskId : fallback;
     if (target !== undefined) return select(target);
     clearSelection(); return true;

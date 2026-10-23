@@ -6,6 +6,7 @@ import { useResourceEditStore } from './resource-edit';
 import { usePreviewStore } from './preview';
 import { useAuthStore } from './auth';
 import { previewService } from '../services';
+import { env } from '../config/env';
 import { diffResources,resourceSignature,changesPresent } from '../services/resource-validation';
 import type { ResourcesData } from '../types/domain';
 import { ApiError } from '../services/types';
@@ -20,6 +21,9 @@ const clone=<T>(v:T):T=>structuredClone(toRaw(v));
 export const useGisWorkspaceStore=defineStore('gis-workspace',()=>{
   const editor=useResourceEditStore(),preview=usePreviewStore(),auth=useAuthStore();
   const read = useResourceReadStore();
+  const canEditResources = () => !auth.blocked && (env.mode === 'http'
+    ? !!auth.identity?.permissions.some(value => String(value) === 'resources.workspace.edit')
+    : auth.can('resources.edit'));
   const scene = ref<GisResourceScene | null>(null), sceneLoading = ref(false), sceneError = ref('');
   const linkDetails=ref<LinkDetailContext|null>(null);
   let linkAbort:AbortController|undefined,linkSerial=0;
@@ -88,7 +92,7 @@ export const useGisWorkspaceStore=defineStore('gis-workspace',()=>{
   function stop(){active.value=false;editor.registerGisSave(null);sceneSerial++;sceneAbort?.abort();sceneLoading.value=false;linkSerial++;linkAbort?.abort();linkDetails.value=null;}
   function clearHistory(){undoStack.value=[];redoStack.value=[];}
   async function begin(){
-    if (busy.value || editor.busy || !auth.can('resources.edit') || !auth.can('situation.view') || read.frozen) return false;
+    if (busy.value || editor.busy || !canEditResources() || !auth.can('situation.view') || read.frozen) return false;
     if (editor.context === 'gis') { mapMode.value = 'resource'; return true; }
     const revision = read.workspace?.revision, token = generation, session = auth.generation;
     if (!revision) { editor.report(new Error('请先读取资源版本')); return false; }
@@ -111,7 +115,7 @@ export const useGisWorkspaceStore=defineStore('gis-workspace',()=>{
       if(editor.importFile)throw new Error('请先明确确认或取消资源文件导入');
       const candidate=editor.candidateWithForm();
       const resourceChanges=diffResources(editor.base,candidate);
-      if(changesPresent(resourceChanges)&&!auth.can('resources.edit')||!auth.can('situation.view'))throw new Error('缺少本次资源保存所需权限');
+      if(changesPresent(resourceChanges)&&!canEditResources()||!auth.can('situation.view'))throw new Error('缺少本次资源保存所需权限');
       const content={baseRevision:editor.baseRevision,...resourceChanges,restoreFrom:editor.restoreSources(candidate),context:'gis' as const};
       const signature=resourceSignature(content);if(request?.signature!==signature)request={signature,id:randomUuid()};
       busy.value=true;editor.saving=true;
@@ -132,7 +136,7 @@ export const useGisWorkspaceStore=defineStore('gis-workspace',()=>{
     const from=direction==='undo'?undoStack.value:redoStack.value,to=direction==='undo'?redoStack.value:undoStack.value;
     const next=from.at(-1);if(!next)return;
     const current=snapshot();
-    if(resourceSignature(next.resources)!==resourceSignature(current.resources)&&!auth.can('resources.edit'))return;
+    if(resourceSignature(next.resources)!==resourceSignature(current.resources)&&!canEditResources())return;
     restoring=true;from.pop();to.push(current);
     if(next.resources)editor.replaceGisDraft(clone(next.resources));
     restoring=false;
