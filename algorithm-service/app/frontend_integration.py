@@ -11,6 +11,8 @@ from pathlib import Path
 from typing import Any, Iterable
 
 from . import resource_dataset_service as resource_dataset
+from .resource_read_filter import filter_device_items, sort_device_items
+from .resource_export_schemas import ResourceDeviceFilter
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -149,12 +151,19 @@ def _device_item(row: dict[str, str], nodes: list[dict[str, str]],
         "model_name": model["model_name"],
         "antenna_name": antenna["antenna_name"],
         "device_class": model["device_class"],
+        "status": row.get("status") or None,
+        "region": node.get("region"),
+        "mobility": node.get("mobility") or None,
+        "node_role": node.get("node_role") or None,
+        "relay_capable": None if not node.get("relay_capable") else _boolean(node["relay_capable"]),
+        "freq_min_khz": _optional_number(model.get("freq_min_khz")),
+        "freq_max_khz": _optional_number(model.get("freq_max_khz")),
         "antenna_height_m": _optional_number(row.get("antenna_height_m")),
         "tx_power_dbm": _optional_number(row.get("tx_power_dbm")),
         "work_freq_khz": _optional_number(row.get("work_freq_khz")),
         "tilt_deg": _optional_number(row.get("tilt_deg")),
         "azimuth_deg": _optional_number(row.get("azimuth_deg")),
-        "alert": row.get("status") != "NORMAL",
+        "alert": None if not row.get("status") else row["status"] != "NORMAL",
         "origin": "SOURCE",
         "availability": row.get("availability", "ACTIVE"),
     }
@@ -282,7 +291,9 @@ def resource_object(kind: str, object_id: str, revision: str) -> dict[str, Any]:
 
 def resource_page(kind: str, revision: str, page: int, page_size: int,
                   search: str = "", node_id: str | None = None,
-                  parent_id: str | None = None, availability: str | None = None) -> dict[str, Any]:
+                  parent_id: str | None = None, availability: str | None = None,
+                  device_filter: ResourceDeviceFilter | None = None,
+                  sort: str = "id", order: str = "asc") -> dict[str, Any]:
     """返回前端资源树需要的稳定分页，不在读取时改写源数据。"""
     _assert_revision(revision)
     if page < 1 or page_size not in {5, 10, 20, 50}:
@@ -302,15 +313,19 @@ def resource_page(kind: str, revision: str, page: int, page_size: int,
             rows = [row for row in rows if row.get("availability", "ACTIVE") == availability]
         models, antennas = _rows("models"), _rows("antennas")
         items = [_device_item(row, nodes, models, antennas) for row in rows]
+        items = filter_device_items(items, device_filter or ResourceDeviceFilter(search=search))
         names = lambda item: (item["device_id"], item["model_name"], item["node_name"])
     else:
         items = [_interference_item(row) for row in _rows("interferences")]
         names = lambda item: (item["interference_id"], item["interference_name"])
     term = search.strip().lower()
-    if term:
+    if term and kind != "device":
         items = [item for item in items if any(term in str(value).lower() for value in names(item))]
     id_field = {"node": "node_id", "device": "device_id", "interference": "interference_id"}[kind]
-    items.sort(key=lambda item: item[id_field])
+    if kind == "device":
+        items = sort_device_items(items, sort, order)
+    else:
+        items.sort(key=lambda item: item[id_field])
     total = len(items)
     start = (page - 1) * page_size
     return _envelope({

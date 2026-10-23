@@ -138,8 +138,8 @@ export function decodePage<T extends ReadObject>(kind: ResourceObjectKind, value
   if (kind === 'device' && query.availability && items.some(row => row.kind !== 'device'
     || (row.availability ?? 'UNKNOWN') !== query.availability)) fail('availability filter result');
   // 新增条件若被服务忽略，拒绝错误结果；不能在当前页补筛后宣称全库匹配。
-  if (kind === 'device' && (query.mobility || query.nodeRole || query.relayCapable !== undefined || query.frequency)
-    && items.some(row => row.kind === 'device' && !matchesLedgerQuery(projectReadLedgerRows([row])[0]!, { mobility: query.mobility, nodeRole: query.nodeRole, relayCapable: query.relayCapable, frequency: query.frequency }))) fail('ledger filter result');
+  if (kind === 'device' && items.some(row => row.kind === 'device'
+    && !matchesLedgerQuery(projectReadLedgerRows([row])[0]!, query))) fail('ledger filter result');
   if (kind === 'node' && items.some(row => row.kind === 'node' && (query.mobility && row.mobility !== query.mobility || query.nodeRole && row.role !== query.nodeRole || query.relayCapable !== undefined && row.relayCapable !== query.relayCapable))) fail('node classification result');
   if (new Set(items.map(x => x.id)).size !== items.length || items.length !== Math.min(query.pageSize, Math.max(0, total - (query.pageNum - 1) * query.pageSize))) fail('page items/total');
   if (query.nodeId && items.some(x => x.kind !== 'device' || x.stationId !== query.nodeId)) fail('node_id association');

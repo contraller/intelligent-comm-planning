@@ -176,6 +176,21 @@ npm test -- tests/sr5-sr6-delivery-smoke.test.ts -t '重启回读' --testTimeout
 
 本批真实 HTTP 已验证完整两段诊断、DEM 字节校验、模板及五种文件格式、人工反馈、独立审核发布、回滚和重启回读。尺寸回调测试使用内存宿主，不等同浏览器尺寸与抖动验收。旧前端相关回归 342 项通过，1 项因 Node 宿主缺少 `navigator` 失败；不得登记为前端全量通过。
 
+## 资源台账导出与筛选
+
+资源台账现有“导出”抽屉已接入服务端预检及文件接口，支持 CSV 单表、XLSX 多表，以及全部、全部筛选结果、当前页勾选设备。XLSX 同时选择站点表时补齐设备所属站点及父级；不包含未保存输入。筛选按完整资源集执行，不只作用于当前页。文件名及 XLSX 说明表标明构造联调来源，非生产、非实测。
+
+本批隔离页面为 `http://127.0.0.11:5311/#/resources`，代理 API `http://127.0.0.11:8111`；只连接 P01 工作树自身的 `data/runtime/collab.sqlite`，不要将地址改为主运行 5183。使用规划员可查看和导出；切换身份继续沿用服务端会话与 CSRF 校验。
+
+```powershell
+npm test -- tests/resource-export-http.test.ts tests/resource-read-http.test.ts tests/http-client.test.ts --maxWorkers=1
+$env:RESOURCE_EXPORT_URL='http://127.0.0.11:5311'
+$env:RESOURCE_EXPORT_ISOLATED='1'
+npm test -- tests/resource-export-live.test.ts --maxWorkers=1
+```
+
+真实 HTTP 3 项通过；Edge 无头页面点击已验证 414 行全量 CSV、174 行 HF 筛选 CSV 和 1 台选中设备 XLSX（补齐 1 节点），截图和文件在 P01 工作树 `data/runtime/browser_export_1792747304085/`。版本变化返回 `RESOURCE_VERSION_CHANGED`，需刷新后重新预检。GIS/观测专用导出、资源导入和新增设备仍未接入，不因台账导出完成而开放。
+
 ## 构建与交付边界
 
 `npm run build -- --mode integration` 生成静态 `dist/`。Vite 开发代理不随静态文件发布，部署时须由 Web 服务将 `/api/v1` 转发到运行中的后端，并提供 `maps/` 等静态资源；直接双击 HTML 无法完成业务调用。构建配置保留已有输出文件，打正式包时应使用新的输出目录，例如 `npm run build -- --mode integration --outDir dist/delivery-20261022`，避免将旧哈希资源一并交付。

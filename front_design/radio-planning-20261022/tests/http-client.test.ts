@@ -164,10 +164,11 @@ describe('HTTP 客户端保留失败语义', () => {
 });
 
 describe('第七批 HTTP 未接入边界',()=>{
-  it('新增九个入口全部明确未实现，不发请求或回退 Mock',async()=>{
+  it('剩余八个入口明确未实现；已接导出拒绝缺参数，不回退 Mock',async()=>{
     const fetcher=vi.spyOn(globalThis,'fetch');
-    const names=['getResourceTemplate','previewResourceImport','commitResourceImport','exportResources','setDeviceAvailability','loadSpectrumWorkspace','saveSpectrumSource','checkSpectrumSource','resetSpectrumWorkspace'];
+    const names=['getResourceTemplate','previewResourceImport','commitResourceImport','setDeviceAvailability','loadSpectrumWorkspace','saveSpectrumSource','checkSpectrumSource','resetSpectrumWorkspace'];
     for(const name of names)await expect((httpService as unknown as Record<string,()=>Promise<unknown>>)[name]()).rejects.toMatchObject({code:'NOT_IMPLEMENTED'});
+    await expect((httpService.exportResources as unknown as ()=>Promise<unknown>)()).rejects.toMatchObject({code:'VALIDATION_ERROR'});
     expect(fetcher).not.toHaveBeenCalled();fetcher.mockRestore();
   });
 });

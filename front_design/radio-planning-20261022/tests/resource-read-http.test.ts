@@ -25,7 +25,7 @@ describe('资源 HTTP 传输和 DTO', () => {
       await expect(read({ ...terrain, ...patch })).rejects.toMatchObject({ code: 'INVALID_RESOURCE_RESPONSE' });
   });
   it('同源 GET 发送分页筛选排序，不从当前页推算全库总数', async () => {
-    const s = service({ ...page([device()]), page: 3, total: 21 });
+    const s = service({ ...page([{ ...device(), model_name: '短 波设备' }]), page: 3, total: 21 });
     const result = await s.api.queryResourceDevices({ ...query, pageNum: 3, search: '短 波', deviceClass: 'HF', sort: 'status', order: 'desc', availability: 'UNKNOWN', alert: 'UNKNOWN' });
     expect(result).toMatchObject({ total: 21, pageNum: 3, pageSize: 10 });
     expect(result.items[0]).toMatchObject({ id: 'D1', stationId: 'N1', alert: null, origin: null, availability: null });
@@ -89,7 +89,7 @@ describe('资源 HTTP 传输和 DTO', () => {
   });
   it('超时覆盖响应体等待，取消可结束不响应 AbortSignal 的传输', async () => {
     vi.useFakeTimers();
-    const fetcher=vi.fn<typeof fetch>(async()=>({ok:true,status:200,json:()=>new Promise(()=>{})}) as Response);
+    const fetcher=vi.fn<typeof fetch>(async()=>({ok:true,status:200,headers:new Headers({'Content-Type':'application/json'}),json:()=>new Promise(()=>{})}) as Response);
     const api=createResourceReadHttp({baseUrl:()=>'/api/v1',fetcher,timeoutMs:100});
     const task=api.queryResourceDevices(query), check=expect(task).rejects.toMatchObject({code:'REQUEST_TIMEOUT'});
     await vi.advanceTimersByTimeAsync(100); await check;

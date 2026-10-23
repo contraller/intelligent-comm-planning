@@ -18,6 +18,8 @@ from .fault_plan_source import FaultPlanSourceError, list_plan_sources
 from . import frontend_integration
 from . import resource_dataset_service as resource_dataset
 from . import resource_maintenance_service
+from .resource_export_router import router as resource_export_router
+from .resource_export_schemas import ResourceDeviceQuery
 from .resource_maintenance_schemas import (AvailabilityChange, AvailabilityPreview,
     ResourceDeviceChanges, ResourceMaintenanceQuery)
 from . import gis_frontend_service
@@ -71,6 +73,7 @@ except ImportError as exc:  # pragma: no cover - exercised only without runtime 
 
 
 app = FastAPI(title="短波/超短波智能规划算法服务", version="0.1.0")
+app.include_router(resource_export_router)
 
 
 def _frontend_workbench_call(response: Response, operation):
@@ -727,19 +730,21 @@ def frontend_resource_nodes(revision: str, page: int = 1, page_size: int = 10,
 
 
 @app.get("/api/v1/resource/devices")
-def frontend_resource_devices(revision: str, page: int = 1, page_size: int = 10,
-                              search: str = "", node_id: str | None = None,
-                              context: str = "planning", availability: str | None = None) -> dict[str, Any]:
-    """返回资源台账或节点详情使用的设备分页。"""
-    if context not in {"ledger", "gis", "planning"}:
-        raise HTTPException(status_code=422, detail="invalid resource context")
-    if availability is not None and availability not in {"ACTIVE", "OFF_SHELF", "UNKNOWN"}:
-        raise HTTPException(status_code=422, detail="invalid availability")
-    try:
+def frontend_resource_devices(request: Request, response: Response):
+    """完整集合先筛选排序再分页；不再静默忽略页面传入条件。"""
+    def operation():
+        if len(request.query_params) != len(request.query_params.multi_items()):
+            raise ValueError("设备查询参数不能重复")
+        query = ResourceDeviceQuery.model_validate(dict(request.query_params))
+        if query.context == "ledger":
+            integration_identity.require(request, "resources.view")
+        if query.revision != frontend_integration.resource_revision():
+            raise resource_dataset.ResourceDatasetError("资源版本已变化，请刷新后继续浏览", 1205, 409)
         return frontend_integration.resource_page(
-            "device", revision, page, page_size, search, node_id=node_id, availability=availability)
-    except ValueError as exc:
-        raise HTTPException(status_code=409, detail=str(exc)) from exc
+            "device", query.revision, query.page, query.page_size, query.search,
+            node_id=query.node_id, availability=query.availability, device_filter=query.device_filter(),
+            sort=query.sort, order=query.order)["data"]
+    return _frontend_workbench_call(response, operation)
 
 
 @app.get("/api/v1/resource/interference-sources")

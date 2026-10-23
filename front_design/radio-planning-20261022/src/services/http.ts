@@ -8,6 +8,7 @@ import { createDiagnosisHttp } from './diagnosis-http';
 import { createKnowledgeHttp } from './knowledge-http';
 import { createGisHttp } from './gis-http';
 import { createResourceMaintenanceHttp } from './resource-maintenance-http';
+import { createResourceExportHttp } from './resource-export-http';
 
 // 保留既有导出路径；认证、传输与页面会话分别维护，不在入口堆叠实现。
 export { createHttpClient } from './http-client';
@@ -21,6 +22,7 @@ export const httpService: PreviewService = {
   ...createKnowledgeHttp(authentication.authenticatedRequest),
   ...createGisHttp(authentication.authenticatedRequest),
   ...createResourceMaintenanceHttp(authentication.authenticatedRequest),
+  ...createResourceExportHttp(authentication.authenticatedRequest),
   async getDeviceNetworkDetail() { throw new ApiError('HTTP 同快照网络下钻协议尚未接入', 'NOT_IMPLEMENTED'); },
   // 实例维护协议待确认，不猜端点、不回退教学成功。
   async getDeviceMaintenance() { throw new ApiError('HTTP 实例端口维护尚未接入', 'NOT_IMPLEMENTED'); },
@@ -96,11 +98,9 @@ export const httpService: PreviewService = {
   async previewTaskImport(){throw new ApiError('HTTP 任务与方案导出适配尚未接入','NOT_IMPLEMENTED');},
   async exportPlanVersion(){throw new ApiError('HTTP 任务与方案导出适配尚未接入','NOT_IMPLEMENTED');},
   // 资源导入/频谱正式协议待对齐，不向配置 URL 发出采集请求。
-  async previewResourceExport() { throw new ApiError('资源导出预检尚未接入，请稍后重试','NOT_IMPLEMENTED'); },
   async getResourceTemplate() { throw new ApiError('HTTP 资源及频谱适配尚未接入','NOT_IMPLEMENTED'); },
   async previewResourceImport() { throw new ApiError('HTTP 资源及频谱适配尚未接入','NOT_IMPLEMENTED'); },
   async commitResourceImport() { throw new ApiError('HTTP 资源及频谱适配尚未接入','NOT_IMPLEMENTED'); },
-  async exportResources() { throw new ApiError('HTTP 资源及频谱适配尚未接入','NOT_IMPLEMENTED'); },
   async setDeviceAvailability() { throw new ApiError('HTTP 资源及频谱适配尚未接入','NOT_IMPLEMENTED'); },
   async loadSpectrumWorkspace() { throw new ApiError('HTTP 资源及频谱适配尚未接入','NOT_IMPLEMENTED'); },
   async saveSpectrumSource() { throw new ApiError('HTTP 资源及频谱适配尚未接入','NOT_IMPLEMENTED'); },
