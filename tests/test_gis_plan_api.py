@@ -1,0 +1,268 @@
+"""GIS 独立路由与冻结投影；构造样本不冒充真实算法或页面验收。"""
+from copy import deepcopy
+from datetime import datetime, timezone
+from pathlib import Path
+import socket
+import sys
+from threading import Thread
+import time
+
+import httpx
+import pytest
+import uvicorn
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
+from sqlalchemy import create_engine, func, select
+from sqlalchemy.exc import OperationalError
+from sqlalchemy.orm import sessionmaker
+
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "algorithm-service"))
+
+from app import frontend_integration as resources, gis_plan_service as service, integration_identity_service as identity
+from app.database import Base, DatabaseConfigurationError
+from app.gis_plan_router import router
+from app.planning_job_models import PlanningJob
+from app.planning_plan_models import PlanningCurrentPlan, PlanningPlan
+from app.task_input_models import PlanningTask, PlanningTaskRevision
+
+
+def frozen_result():
+    return {"snapshot_id": "SNAP-P02", "nodes": [
+        {"id": node, "name": "构造节点" + node, "coordinate": [114.0 + i / 10, 37.0]}
+        for i, node in enumerate(("A", "B", "C"))],
+        "devices": [{"id": "E" + node, "stationId": node, "modelId": "M1", "deviceClass": "HF",
+                     "workFreqKhz": 7000.0, "txPowerDbm": 40.0, "antennaHeightM": 12.0}
+                    for node in ("A", "B", "C")],
+        "links": [{"id": lid, "a": a, "b": b, "deviceA": "E" + a, "deviceB": "E" + b,
+                   "deviceClass": "HF", "frequencyKhz": 7000.0, "backup": backup, "state": "GOOD"}
+                  for lid, a, b, backup in (("L1", "A", "B", True), ("L2", "B", "C", True), ("L3", "A", "C", False))],
+        "configuration": {"routes": [
+            {"id": "R1", "demandId": "D1", "nodeIds": ["A", "C"], "linkIds": ["L3"], "backup": False},
+            {"id": "R2", "demandId": "D1", "nodeIds": ["A", "B", "C"], "linkIds": ["L1", "L2"], "backup": True}]}}
+
+
+def frozen_input():
+    return {"demands": [{"id": "D1", "sourceId": "A", "targetId": "C", "sourceDeviceId": None,
+                          "targetDeviceId": None, "service": "数据", "mandatory": True,
+                          "requiredRateKbps": 64.0, "minReliability": 0.95}]}
+
+
+@pytest.fixture
+def api(tmp_path, monkeypatch):
+    db = tmp_path / "gis.sqlite"
+    engine = create_engine("sqlite:///" + db.as_posix(), connect_args={"check_same_thread": False})
+    Base.metadata.create_all(engine)
+    factory = sessionmaker(bind=engine, expire_on_commit=False)
+    now = datetime.now(timezone.utc)
+    with factory.begin() as session:
+        session.add(PlanningTask(task_id="T1", current_revision_id="I1", current_version_no=1, created_at=now, updated_at=now))
+        session.add(PlanningTaskRevision(revision_id="I1", task_id="T1", version_no=1, condition_version="C1",
+                                        resource_revision="resource-old", context="planning", input_snapshot=frozen_input(), created_at=now))
+        session.add(PlanningJob(job_id="J1", request_id="RUN1", request_digest="hash", task_id="T1", revision_id="I1",
+                                condition_version="C1", resource_revision="resource-old", context="planning", status="SUCCESS",
+                                progress=1.0, stage="完成", created_at=now, updated_at=now))
+        session.add(PlanningPlan(plan_id="P1", request_id="SAVE1", request_digest="hash", task_id="T1", job_id="J1",
+                                 revision_id="I1", condition_version="C1", resource_revision="resource-old", version_no=1,
+                                 name="构造测试方案", note="非实测", state="CONFIRMED", source="SR4", saved_at=now,
+                                 confirmed_at=now, input_snapshot=frozen_input(), result_snapshot=frozen_result(), outcome_snapshot={}))
+        session.add(PlanningCurrentPlan(task_id="T1", plan_id="P1", updated_at=now))
+    monkeypatch.setenv("FRONTEND_INTEGRATION_DEMO", "1")
+    monkeypatch.setattr(service, "get_session_factory", lambda: factory)
+    monkeypatch.setattr(identity, "get_session_factory", lambda: factory)
+    monkeypatch.setattr(resources, "resource_revision", lambda: "resource-new")
+    app = FastAPI()
+    app.include_router(router)
+    with TestClient(app) as client:
+        yield client, factory, db
+    engine.dispose()
+
+
+def query(client, path="network", **params):
+    return client.get("/api/v1/gis/plans/P1/" + path,
+                      params={"context": "gis", "task_id": "T1", **params})
+
+
+def edit(factory, field, transform):
+    with factory.begin() as session:
+        plan = session.get(PlanningPlan, "P1")
+        value = deepcopy(getattr(plan, field))
+        transform(value)
+        setattr(plan, field, value)
+
+
+def test_network_keeps_historical_snapshot_and_unknowns(api, monkeypatch):
+    client, factory, _ = api
+    monkeypatch.setattr(resources, "_rows", lambda *args: pytest.fail("不得用当前资源补历史快照"))
+    result = query(client)
+    assert result.status_code == 200, result.text
+    data = result.json()["data"]
+    assert data["identity"] == {"plan_id": "P1", "task_id": "T1", "snapshot_id": "SNAP-P02", "input_version": "I1",
+                                "condition_version": "C1", "resource_revision": "resource-old", "state": "CONFIRMED",
+                                "source_changed": True, "data_origin": "SYNTHETIC_INTEGRATION", "source": "SR4"}
+    assert data["nodes"][0]["status"] is None and data["nodes"][0]["alert"] is None
+    assert data["nodes"][0]["coordinate"] == [114.0, 37.0]
+    assert len(data["routes"]) == 2 and data["paths_state"] == "ready"
+    with factory() as session:
+        assert session.get(PlanningCurrentPlan, "T1").plan_id == "P1"
+        assert session.get(PlanningPlan, "P1").result_snapshot == frozen_result()
+        assert session.scalar(select(func.count()).select_from(PlanningJob)) == 1
+
+
+@pytest.mark.parametrize("state", ["SAVED", "REFERENCE", "CONFIRMED"])
+def test_all_saved_states_remain_readable(api, state):
+    client, factory, _ = api
+    with factory.begin() as session:
+        session.get(PlanningPlan, "P1").state = state
+    assert query(client).json()["data"]["identity"]["state"] == state
+
+
+def test_link_and_paths_are_bound_to_same_snapshot(api):
+    client, _, _ = api
+    response = query(client, "links/L3", snapshot_id="SNAP-P02")
+    assert response.status_code == 200, response.text
+    data = response.json()["data"]
+    assert data["demand_ids"] == ["D1"] and data["route_ids"] == ["R1"]
+    assert [d["id"] for d in data["endpoint_devices"]] == ["EA", "EC"]
+    assert data["observation"]["state"] == "missing" and data["observation"]["samples"] == []
+    routes = query(client, "paths", snapshot_id="SNAP-P02", demand_id="D1").json()["data"]
+    assert routes["routes"][1]["node_ids"] == ["A", "B", "C"]
+    assert routes["identity"] == data["identity"]
+
+
+@pytest.mark.parametrize("path,params,code,status", [
+    ("network", {"task_id": "other"}, 2001, 404),
+    ("network", {"snapshot_id": "other"}, 1203, 409),
+    ("links/missing", {"snapshot_id": "SNAP-P02"}, 1002, 404),
+    ("paths", {"snapshot_id": "SNAP-P02", "demand_id": "missing"}, 1002, 404),
+    ("links/L1", {}, 1001, 422), ("paths", {}, 1001, 422),
+    ("network", {"context": "planning"}, 1001, 422),
+    ("network", {"task_id": "bad id"}, 1001, 422),
+    ("network", {"extra": "unsupported"}, 1001, 422)])
+def test_rejected_queries(api, path, params, code, status):
+    response = query(api[0], path, **params)
+    assert response.status_code == status and response.json()["code"] == code, response.text
+    assert response.json()["data"] is None
+
+
+def test_missing_plan_and_duplicate_queries_and_body(api):
+    client = api[0]
+    assert client.get("/api/v1/gis/plans/missing/network?context=gis&task_id=T1").status_code == 404
+    assert client.get("/api/v1/gis/plans/P1/network?context=gis&task_id=T1&task_id=T2").status_code == 422
+    assert client.get("/api/v1/gis/plans/P1/network?context=gis").status_code == 422
+    response = client.request("GET", "/api/v1/gis/plans/P1/network?context=gis&task_id=T1", content=b"x")
+    assert response.status_code == 422
+
+
+@pytest.mark.parametrize("mutation", [
+    lambda r: r["nodes"].append(deepcopy(r["nodes"][0])),
+    lambda r: r["nodes"][0].update(coordinate=[181.0, 37.0]),
+    lambda r: r["nodes"][0].update(alert="false"),
+    lambda r: r["devices"][0].update(stationId="missing"),
+    lambda r: r["devices"][0].update(deviceClass="VUHF"),
+    lambda r: r["links"][0].update(deviceA="EB"),
+    lambda r: r["links"][0].update(frequencyKhz="7000"),
+    lambda r: r["configuration"]["routes"][0].update(nodeIds=["A", "B"]),
+    lambda r: r["configuration"]["routes"][1].update(linkIds=["L2", "L1"]),
+    lambda r: r["configuration"]["routes"].append({**r["configuration"]["routes"][0], "id": "R3"}),
+    lambda r: r.update(snapshot_id=None),
+    lambda r: r.update(nodes=None)])
+def test_corrupt_frozen_data_is_not_silently_repaired(api, mutation):
+    client, factory, _ = api
+    edit(factory, "result_snapshot", mutation)
+    response = query(client)
+    assert response.status_code == 409 and response.json()["code"] == 1203, response.text
+
+
+def test_bad_demand_device_binding_is_rejected(api):
+    client, factory, _ = api
+    edit(factory, "input_snapshot", lambda data: data["demands"][0].update(sourceDeviceId="EC"))
+    assert query(client).status_code == 409
+
+
+def test_missing_paths_and_unallocated_frequency_stay_unknown(api):
+    client, factory, _ = api
+    edit(factory, "result_snapshot", lambda data: data.update(configuration=None))
+    edit(factory, "result_snapshot", lambda data: data["links"][0].update(frequencyKhz=0))
+    data = query(client).json()["data"]
+    assert data["paths_state"] == "missing" and data["paths_message"] and data["routes"] == []
+    assert data["links"][0]["frequency_khz"] is None
+    assert query(client, "paths", snapshot_id="SNAP-P02").json()["data"]["paths_state"] == "missing"
+
+
+def test_actual_identity_gate_and_error_envelope(api, monkeypatch):
+    client = api[0]
+    monkeypatch.delenv("FRONTEND_INTEGRATION_DEMO")
+    assert query(client).status_code == 401
+    monkeypatch.setenv("FRONTEND_INTEGRATION_DEMO", "1")
+    response = client.get("/api/v1/gis/plans/P1/network?context=gis&task_id=T1", cookies={identity.COOKIE: "invalid"})
+    assert response.status_code == 409 and response.json()["code"] == 1106
+    original = resources.session_identity()
+    monkeypatch.setattr(resources, "session_identity", lambda: {**original, "permissions": []})
+    assert query(client).status_code == 403
+
+
+@pytest.mark.parametrize("kind,code", [("configuration", 5001), ("sql", 5002)])
+def test_database_failure_does_not_fallback_or_leak(api, monkeypatch, kind, code):
+    def fail():
+        if kind == "configuration":
+            raise DatabaseConfigurationError("secret connection configuration")
+        raise OperationalError("SELECT secret", None, Exception("secret"))
+    monkeypatch.setattr(service, "get_session_factory", fail)
+    response = query(api[0])
+    assert response.status_code == 503 and response.json()["code"] == code
+    assert "secret" not in response.text
+
+
+def test_independent_sqlite_reopen_reads_same_frozen_content(api):
+    client, _, db = api
+    expected = query(client).json()["data"]
+    second = create_engine("sqlite:///" + db.as_posix())
+    try:
+        actual = service.network("P1", "T1", "SNAP-P02", factory=sessionmaker(bind=second))
+        assert actual == expected
+    finally:
+        second.dispose()
+
+
+def test_isolated_socket_http_projection_and_errors(api, monkeypatch):
+    # 使用本组固定端口及构造库，只证明真实HTTP传输，不冒充主页面或算法验收。
+    listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    try:
+        listener.bind(("127.0.0.12", 8112))
+    except OSError:
+        listener.close()
+        pytest.skip("P02隔离端口不可绑定，不抢占或改用其他端口")
+    config = uvicorn.Config(api[0].app, log_level="error", access_log=False, lifespan="off", ws="none")
+    server = uvicorn.Server(config)
+    thread = Thread(target=server.run, kwargs={"sockets": [listener]}, daemon=True)
+    try:
+        thread.start()
+        deadline = time.monotonic() + 10
+        while not server.started and thread.is_alive() and time.monotonic() < deadline:
+            time.sleep(0.02)
+        assert server.started, "隔离服务未启动"
+        with httpx.Client(base_url="http://127.0.0.12:8112", trust_env=False, timeout=5) as client:
+            root = "/api/v1/gis/plans/P1/"
+            args = {"context": "gis", "task_id": "T1", "snapshot_id": "SNAP-P02"}
+            for suffix in ("network", "links/L1", "paths"):
+                response = client.get(root + suffix, params=args)
+                assert response.status_code == 200 and response.json()["code"] == 0
+                assert response.json()["data"]["identity"]["snapshot_id"] == "SNAP-P02"
+            for suffix, fields, status, code in [
+                ("network", {**args, "task_id": "other"}, 404, 2001),
+                ("network", {**args, "snapshot_id": "other"}, 409, 1203),
+                ("network", {**args, "extra": "unknown"}, 422, 1001),
+                ("links/missing", args, 404, 1002),
+            ]:
+                response = client.get(root + suffix, params=fields)
+                assert response.status_code == status and response.json()["code"] == code
+            monkeypatch.delenv("FRONTEND_INTEGRATION_DEMO")
+            response = client.get(root + "network", params=args)
+            assert response.status_code == 401 and response.json()["code"] == 1101
+    finally:
+        server.should_exit = True
+        if thread.ident is not None:
+            thread.join(timeout=10)
+        listener.close()
+    assert not thread.is_alive(), "隔离HTTP服务未正常退出"
