@@ -44,7 +44,7 @@ vi.mock('../src/components/MapCanvas.vue', async () => {
   const { defineComponent, h } = await import('vue');
   return { default: defineComponent({
     inheritAttrs: false,
-    props: ['frozenNetwork', 'interferenceProjection', 'gisDeviceFrame', 'stations', 'interferences', 'links', 'candidateWorkset', 'demands', 'regions', 'interferenceImpact', 'selectedId', 'selectedInterferenceId', 'resourceMarkers', 'planningOverlay'],
+    props: ['frozenNetwork', 'interferenceProjection', 'gisDeviceFrame', 'stations', 'interferences', 'links', 'candidateWorkset', 'demands', 'regions', 'interferenceImpact', 'selectedId', 'selectedLinkId', 'selectedInterferenceId', 'resourceMarkers', 'planningOverlay'],
     setup(props, { expose }) {
       expose({ locate: () => {}, locateResource: () => {} });
       return () => h('map-probe', { ...props });

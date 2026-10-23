@@ -765,11 +765,19 @@ describe('GIS 三组结果图层页面接入', () => {
     s.editor.form!.fields.antennaHeightM = s.editor.form!.initial.antennaHeightM; await nextTick();
     expect(layers(s).illustration).toEqual({ visible: true, opacity: 0.2 }); expect(s.map().deviceCoverageActive).toBe(true);
   });
-  it('监控不显示区域，分析使用冻结来源和等级筛选，返回设备模式保留各自偏好', async () => {
-    const s = await mountEntry('DV-0001', true); await click(s.root, '查看覆盖'); await change(s.root, '信号覆盖透明度', '0.5', 'onInput');
+  it('旧教学监控不显示区域，返回设备模式保留原覆盖偏好', async () => {
+    const s = await mountEntry(); await click(s.root, '查看覆盖'); await change(s.root, '信号覆盖透明度', '0.5', 'onInput');
     await change(s.root, '显示原有影响示意区域', false);
     s.monitor.showNetwork(); await settleMonitoring(); expect(Object.values(layers(s)).every(row => !row.visible)).toBe(true);
     expect(s.map().regions).toEqual([]); expect(textOf(s.root)).toContain('监控网络不提供此类区域');
+    await click(s.root, '资源树');
+    expect((s.map().deviceCoverages as DeviceCoverageOverlay[])[0].sample.deviceId).toBe('DV-0001');
+    expect(layers(s).illustration.visible).toBe(false); expect(layers(s).coverage.opacity).toBe(0.5);
+    expect(s.storage.writes).toBe(0); s.wb.assertNoWrites();
+  });
+  it('HTTP分析使用冻结来源和等级筛选，返回设备模式保留各自偏好', async () => {
+    const s = await mountEntry('DV-0001', true); await click(s.root, '查看覆盖'); await change(s.root, '信号覆盖透明度', '0.5', 'onInput');
+    await change(s.root, '显示原有影响示意区域', false);
     const analysis = await analysisMode(s), impact = JSON.stringify(analysis.impact);
     expect(analysisMap(s.root).interferenceProjection).toEqual(analysis.mapProjection);
     expect(analysisMap(s.root).gisResultLayers).toBeUndefined();
@@ -882,11 +890,17 @@ describe('普通 GIS 链路点选详情接入', () => {
     expect(textOf(detail(s.root)!)).toContain('没有 GIS 查看权限'); await selectLink(s, 'PL-002');
     authorizeStore(); await nextTick(); expect(s.map().selectedLinkId).toBe('PL-001'); expect(s.storage.writes).toBe(0);
   });
-  it('监控和干扰分析使用自己的网络与选择，返回资源视图恢复原链路', async () => {
-    const s = await mountEntry('DV-0001', true); await selectLink(s, 'PL-002');
+  it('旧教学监控使用自己的网络与选择，返回资源视图恢复原链路', async () => {
+    const s = await mountEntry(); await selectLink(s, 'PL-002');
     const baseline = s.gis.scene!.situation.links;
     s.monitor.showNetwork(); await settleMonitoring(); expect(detail(s.root)).toBeUndefined(); expect(s.map().selectedLinkId).not.toBe('PL-002');
     expect(s.map().links).not.toEqual(baseline); await click(s.root, '资源树'); expect(s.map().selectedLinkId).toBe('PL-002');
+    expect(detail(s.root)).toBeDefined(); expect(s.gis.scene!.situation.links).toEqual(baseline);
+    expect(s.storage.writes).toBe(0); s.wb.assertNoWrites();
+  });
+  it('HTTP冻结干扰使用自己的网络与选择，返回资源视图恢复原链路', async () => {
+    const s = await mountEntry('DV-0001', true); await selectLink(s, 'PL-002');
+    const baseline = s.gis.scene!.situation.links;
     await enterAnalysis(s);
     expect(detail(s.root)).toBeUndefined(); expect(analysisMap(s.root).selectedLinkId).not.toBe('PL-002');
     const analysisId = s.wb.network.links[0]!.id;
