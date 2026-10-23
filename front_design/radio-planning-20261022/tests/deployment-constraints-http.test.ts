@@ -15,7 +15,7 @@ describe('部署条件 HTTP 与引用隔离',()=>{
   it('服务返回不存在的通视节点时，导入错误定位实际任务行',async()=>{
     const file=await taskTemplate('xlsx','task_scenarios',value()),book=new Excel.Workbook();await book.xlsx.load(new Uint8Array(file.bytes).buffer);
     const sheet=book.getWorksheet('task_scenarios')!;sheet.getRow(4).values=sheet.getRow(2).values;sheet.getRow(2).values=[];
-    const f=httpFixture(()=>response({valid:false,issues:[{objectId:'TASK',field:'deploymentConstraints.losRequiredNodeIds',message:'节点N3不存在'}],task:null}));
+    const f=httpFixture((path,init)=>{expect(path).toBe('/api/v1/task-files/preview');expect(JSON.parse(String(init.body)).files[0].bytes_base64).toBeTruthy();return response({taskId:'TASK-NEW',input:null,issues:[{objectId:'TASK',field:'deploymentConstraints.losRequiredNodeIds',message:'节点N3不存在',sheet:'task_scenarios',row:4}],notes:[],differences:[],signature:'a'.repeat(64),existing:false,taskRevision:null,resourceRevision:'r1',requestContext:{context:'planning',taskId:'T1',taskRevision:'t1',resourceRevision:'r1'}});});
     const preview=await createTaskHttp(f.request).previewTaskInputImport({context:'planning',taskId:'T1',revision:'t1',resourceRevision:'r1',input:value(),files:[{...file,bytes:new Uint8Array(await book.xlsx.writeBuffer())}]});
     expect(preview.input).toBeNull();expect(preview.issues[0]).toMatchObject({sheet:'task_scenarios',row:4,field:'deploymentConstraints.losRequiredNodeIds'});
   });

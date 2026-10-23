@@ -87,11 +87,11 @@ describe('任务输入 HTTP 契约',()=>{
     const detail={expected:'t1',actual:'t2',suggestions:['重新打开任务']},f=httpFixture(()=>response(detail,1203,409));
     await expect(createTaskHttp(f.request).saveTaskInput({...options,taskId:'T1',revision:'t1',resourceRevision:'r1',requestId:'save-2',input:input()})).rejects.toMatchObject({status:409,code:1203,data:detail,requestId:'response-id'});
   });
-  it('导入只发送解析后的输入供校验，原文件不上传且不触发保存',async()=>{
+  it('导入上传原文件供服务端预检，不调用本地解析或任务保存',async()=>{
     const files=await Promise.all(['task_scenarios','task_links'].map(k=>taskTemplate('csv',k as 'task_links',input())));
-    const f=httpFixture((_path,init)=>{const body=JSON.parse(String(init.body));expect(body.input.stationIds).toEqual(['N1','N2']);expect(body.files).toBeUndefined();return response({valid:true,issues:[],task:null});});
+    const f=httpFixture((path,init)=>{const body=JSON.parse(String(init.body));expect(path).toBe('/api/v1/task-files/preview');expect(body.input.stationIds).toEqual(['N1','N2']);expect(body.files).toHaveLength(2);expect(body.files.every((file:{bytes_base64:string})=>!!file.bytes_base64)).toBe(true);return response({taskId:'TASK-NEW',input:input(),issues:[],notes:[],differences:[],signature:'a'.repeat(64),existing:false,taskRevision:null,resourceRevision:'r1',requestContext:{context:'planning',taskId:'T1',taskRevision:'t1',resourceRevision:'r1'}});});
     const result=await createTaskHttp(f.request).previewTaskInputImport({...options,taskId:'T1',revision:'t1',resourceRevision:'r1',input:input(),files:files.map(x=>({name:x.name,bytes:x.bytes}))});
-    expect(result.input?.demands).toHaveLength(1);expect(result.taskId).toBe('TASK-NEW');expect(f.calls.filter(c=>!c.path.includes('/auth/')).map(c=>c.path)).toEqual(['/api/v1/task-inputs/validate']);
+    expect(result.input?.demands).toHaveLength(1);expect(result.taskId).toBe('TASK-NEW');expect(f.calls.filter(c=>!c.path.includes('/auth/')).map(c=>c.path)).toEqual(['/api/v1/task-files/preview']);
   });
   it('响应归属、页码、重复 ID 与回执归属不一致时拒绝',async()=>{
     const f=httpFixture(()=>response({...taskDto(),task_id:'OTHER'}));await expect(createTaskHttp(f.request).getTaskInput({...options,taskId:'T1'})).rejects.toMatchObject({code:'INVALID_PLANNING_RESPONSE'});

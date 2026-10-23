@@ -24,9 +24,9 @@ describe('路由请求HTTP保存与回显',()=>{
     expect(readApiPlan({...planDto(),input:value()},{taskId:'T1'}).input).toEqual(value());const bad=value();Object.assign(bad.demands[0],{routeStrategy:['MIN_DELAY']});expect(()=>readApiPlan({...planDto(),input:bad},{taskId:'T1'})).toThrow();
   });
   it('同编号服务任务的已有路由要求在旧模板导入时提示清空',async()=>{
-    const file=await taskTemplate('xlsx','task_scenarios',input());
-    const f=httpFixture(()=>response({valid:true,issues:[],task:{...taskDto(),task_id:'TASK-NEW',input:value()}}));
-    const result=await createTaskHttp(f.request).previewTaskInputImport({...request(),input:input(),files:[file]});
+    const files=await Promise.all((['task_scenarios','task_links'] as const).map(kind=>taskTemplate('csv',kind,input())));
+    const f=httpFixture((path,init)=>{expect(path).toBe('/api/v1/task-files/preview');expect(JSON.parse(String(init.body)).files[0].bytes_base64).toBeTruthy();return response({taskId:'TASK-NEW',input:input(),issues:[],notes:['需求 D1 的路由条件有未设置项，确认应用后将清空对应原设置；尚未保存。'],differences:[{field:'demands',before:value().demands,after:input().demands}],signature:'a'.repeat(64),existing:true,taskRevision:'t1',resourceRevision:'r1',requestContext:{context:'planning',taskId:'T1',taskRevision:'t1',resourceRevision:'r1'}});});
+    const result=await createTaskHttp(f.request).previewTaskInputImport({...request(),input:input(),files});
     expect(result.notes.join('')).toContain('清空');expect(result.input!.demands[0]).not.toHaveProperty('needBackup');
   });
 });

@@ -29,7 +29,7 @@ describe('双页任务草稿与保存',()=>{
     task.discardDraft();expect(task.displayIssues).toEqual([]);
   });
   it('打开已保存任务后清理此前默认任务的反馈，避免来源提示与保存状态冲突',async()=>{
-    const {task}=await setup();task.notice='默认任务的载入反馈';expect(await task.open('T1',false)).toBe(true);expect(task.notice).toBe('');expect(task.saved).not.toBeNull();
+    const {task}=await setup();task.notice='默认任务的载入反馈';expect(await task.open('T1',false)).toBe(true);expect(task.notice).toBe('已打开任务“测试通信任务”及服务端保存版本。');expect(task.notice).not.toContain('默认任务的载入反馈');expect(task.saved).not.toBeNull();
   });
   it.each(['planning','gis'] as const)('%s 清空开始时间按未设置保存，非法非空值仍拒绝',async context=>{
     const {task}=await setup();await task.initialize(context);task.draft!.startTime='';
