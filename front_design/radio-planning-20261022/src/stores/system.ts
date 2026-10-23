@@ -135,11 +135,11 @@ export const useSystemStore=defineStore('system',()=>{
   function toggle(code:Permission,on:boolean){if(canSave.value&&roleForm.value)roleForm.value.permissions=togglePermission(roleForm.value.permissions,code,on);}
   async function runWrite(action:string,send:(requestId:string)=>Promise<SystemResult>){
     if(pendingMutation.value)throw new ApiError('请先核实上次操作回执','OPERATION_UNCERTAIN');
-    const requestId=randomUuid(),actorId=auth.identity?.id??'';
+    const requestId=randomUuid(),actorId=auth.identity?.id??'',writer=identityStamp();
     if(env.mode==='http')pendingMutation.value={requestId,action,actorId};
     try{const result=await send(requestId);pendingMutation.value=null;
       // 事务成功与参数刷新分离；刷新失败不把已提交写入伪报失败。
-      if(env.mode==='http'&&['PAR-01','PAR-02','parameters'].includes(result.objectId))void useRuntimeParametersStore().refresh().catch(()=>{});
+      if(env.mode==='http'&&writer===identityStamp()&&['PAR-01','PAR-02','parameters'].includes(result.objectId))void useRuntimeParametersStore().refresh().catch(()=>{});
       return result;}
     catch(e){
       const uncertain=e instanceof ApiError&&['NETWORK_ERROR','REQUEST_TIMEOUT','INVALID_RESPONSE','INVALID_ENVELOPE','INVALID_SYSTEM_RESPONSE','REQUEST_ABORTED'].includes(String(e.code));
@@ -156,6 +156,7 @@ export const useSystemStore=defineStore('system',()=>{
     try{const result=await previewService.getSystemOperation({requestId:pending.requestId});
       if(actor!==identityStamp()||pending!==pendingMutation.value){error.value='核实期间身份已变化，原请求编号继续保留';return false;}
       if(result.status==='NOT_FOUND'){error.value='尚未查到回执，不能判定失败；保留原请求编号，不自动重试';return false;}
+      if(env.mode==='http'&&['PAR-01','PAR-02','parameters'].includes(result.objectId))void useRuntimeParametersStore().refresh().catch(()=>{});
       pendingMutation.value=null;closeForms();await auth.check();if(auth.can('system.view'))await load();notice.value='已核实操作提交成功';return true;
     }catch(e){error.value=e instanceof Error?e.message:'回执核实失败';return false;}finally{busy.value=false;}
   }
