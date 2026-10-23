@@ -86,8 +86,8 @@ async function fixture(options: { second?: boolean; path?: string; interferenceO
   pinia = createPinia(); setActivePinia(pinia); const auth = authorizeStore(); vi.spyOn(auth, 'check').mockResolvedValue(true);
   Object.assign(window, { localStorage: f.storage });
   const raw = createMockService(() => f.storage);
-  const spyTarget: Record<keyof typeof previewService, (...args: never[]) => unknown> = previewService;
-  for (const [key, method] of Object.entries(raw)) if (key !== 'getSession') vi.spyOn(spyTarget, key as keyof typeof spyTarget).mockImplementation(method.bind(raw));
+  const spyTarget: { [K in keyof typeof previewService]: (...args: never[]) => unknown } = previewService;
+  for (const [key, method] of Object.entries(raw)) if (key !== 'getSession' && typeof method === 'function') vi.spyOn(spyTarget, key as keyof typeof spyTarget).mockImplementation(method.bind(raw));
   const wb = await createWorkbenchFixture(await raw.getPlanningPlan({ context: 'gis', taskId: f.plan.taskId, planId: f.plan.id }));
   if (options.interferenceOnly) { wb.source.current = false; wb.source.unavailable_reasons = ['仅因干扰源修改失效，允许冻结分析']; }
   wb.bind();
