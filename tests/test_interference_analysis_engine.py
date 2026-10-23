@@ -483,3 +483,139 @@ def test_margin_contract_unassigned_frequency_never_falls_back_to_representative
     assert not scenario.links and params["summary"]["failed"] == len(params["links"])
     assert all(row["freq_khz"] is None and not row["meets"] for row in params["links"])
     assert all(row["margin_before_interference_db"] is None for row in params["links"])
+
+
+@pytest.fixture
+def actual_power_case(monkeypatch):
+    """独立构造型号/网络及解析损耗桩，验证档位求解，不是主DEM证据。"""
+    from types import SimpleNamespace
+    from scripts.planning import sr4_flow as flow
+    nodes = [{"node_id": name, "node_subtype": "III_MOBILE", "lon": 114 + index * .01, "lat": 38.0}
+             for index, name in enumerate(("UNIT-A", "UNIT-B", "UNIT-C"))]
+    models = [{"model_id": "UNIT-POWER-MODEL", "device_class": "VUHF", "freq_min_khz": "30000",
+        "freq_max_khz": "300000", "tx_power_levels_dbm": "0;10;20;30", "tx_power_max_dbm": "30",
+        "rx_sensitivity_dbm": "-120", "bandwidth_khz": "25"}]
+    antennas = [{"antenna_id": "UNIT-POWER-ANT", "gain_dbi": "0", "pattern_type": "OMNI"}]
+    devices = [{"device_id": "D-" + name, "node_id": name, "model_id": models[0]["model_id"],
+        "antenna_id": antennas[0]["antenna_id"], "tx_power_dbm": "0", "antenna_height_m": "3"}
+        for name in ("UNIT-A", "UNIT-B", "UNIT-C")]
+    links = [{"link_id": name, "node_a_id": "UNIT-A", "node_b_id": other, "device_class": "VUHF",
+        "device_a_id": "D-UNIT-A", "device_b_id": "D-" + other, "is_available": "true"}
+        for name, other in (("EASY", "UNIT-B"), ("HARD", "UNIT-C"))]
+    stations = flow.stations_from_nodes(nodes, devices, models, antennas)
+    terrain = _modules()["terrain"].SyntheticTerrain((113.99, 37.99, 114.03, 38.01))
+    required_snr = flow.IF.REQUIRED_SNR_DB[flow.IF.SERVICE_OF_BAND["VUHF"]]
+    extra_loss = {"hard": 0.0}
+    def loss(_terrain, pa, pb, frequency, _ha, _hb):
+        hard = max(pa[0], pb[0]) > 114.015
+        value = 100 - required_snr - 5 + (10 + extra_loss["hard"] if hard else 0) + (10 if frequency > 100000 else 0)
+        return value, True, 0.0, 1000.0
+    monkeypatch.setattr(flow.IF, "vuhf_path_loss", loss)
+    monkeypatch.setattr(flow.IF, "noise_floor_dbm", lambda *_args: -100.0)
+    monkeypatch.setattr(flow.IF, "interference_at", lambda _cache, jammers, *_args:
+        {jam.jid: -90.0 for jam in jammers})
+    def representative_margin(_terrain, sa, sb, _band, tx_a, tx_b, _ha, _hb):
+        return min(tx_a, tx_b) + ( -5 if max(sa.lon, sb.lon) > 114.015 else 5), 1000.0, 80.0
+    monkeypatch.setattr(flow.RP, "_margin_with", representative_margin)
+    frequencies = {row["link_id"]: 200000.0 for row in links}
+    def calculate(**kwargs):
+        return flow.RP.plan_bound_devices(stations, links, devices, models, antennas, terrain,
+            fade_margin_db=6.0, **kwargs)
+    return SimpleNamespace(flow=flow, nodes=nodes, devices=devices, models=models, antennas=antennas,
+        links=links, frequencies=frequencies, extra_loss=extra_loss, calculate=calculate)
+
+
+def test_actual_power_repairs_recoverable_gap_and_honors_all_shared_device_links(actual_power_case):
+    case = actual_power_case
+    before = digest({key: getattr(case, key) for key in ("nodes", "devices", "models", "antennas", "links", "frequencies")})
+    legacy = case.calculate()
+    actual = case.calculate(frequency_by_link=case.frequencies, interference_rows=[])
+    legacy_power = {row["device_id"]: row["tx_power_dbm"] for row in legacy["params"]}
+    power = {row["device_id"]: row["tx_power_dbm"] for row in actual["params"]}
+    assert legacy_power == {"D-UNIT-A": 20, "D-UNIT-B": 10, "D-UNIT-C": 20}
+    assert power == {"D-UNIT-A": 30, "D-UNIT-B": 20, "D-UNIT-C": 30}
+    assert not actual["failed_links"] and all(row["required_margin_db"] == 6.0 for row in actual["links"])
+    assert actual["summary"]["total_radiated_w"] == 2.1
+    assert actual["margin_basis"] == "ASSIGNED_FREQUENCY_WITH_INTERFERENCE"
+    assert all(row["antenna_height_m"] == row["antenna_height_range_m"][1] for row in actual["params"])
+    lower = case.calculate(frequency_by_link=case.frequencies, interference_rows=[], manual_override=[
+        {"device_id": did, "tx_power_dbm": value - 10 if did == "D-UNIT-A" else value}
+        for did, value in power.items()])
+    assert {row["link_id"] for row in lower["failed_links"]} == {"HARD"}
+    assert digest({key: getattr(case, key) for key in ("nodes", "devices", "models", "antennas", "links", "frequencies")}) == before
+
+
+def test_actual_power_unreachable_link_keeps_best_margin_instead_of_trading_it_for_savings(actual_power_case):
+    case = actual_power_case
+    case.extra_loss["hard"] = 40.0
+    actual = case.calculate(frequency_by_link=case.frequencies, interference_rows=[])
+    by_id = {row["link_id"]: row for row in actual["links"]}
+    power = {row["device_id"]: row["tx_power_dbm"] for row in actual["params"]}
+    assert by_id["EASY"]["meets"] and not by_id["HARD"]["meets"]
+    assert by_id["HARD"]["margin_db"] == pytest.approx(by_id["HARD"]["margin_at_allowed_power_db"])
+    assert by_id["HARD"]["margin_at_max_power_db"] < 6.0
+    assert power == {"D-UNIT-A": 30, "D-UNIT-B": 20, "D-UNIT-C": 30}
+
+
+@pytest.mark.parametrize("freeze_all", [False, True])
+def test_actual_power_never_rewrites_manual_or_adoption_frozen_power_and_height(actual_power_case, freeze_all):
+    case = actual_power_case
+    overrides = [{"device_id": "D-UNIT-A", "tx_power_dbm": 20, "antenna_height_m": 3},
+                 {"device_id": "D-UNIT-C", "tx_power_dbm": 10, "antenna_height_m": 4}]
+    if freeze_all:
+        overrides.append({"device_id": "D-UNIT-B", "tx_power_dbm": 0, "antenna_height_m": 5})
+    before = deepcopy(overrides)
+    actual = case.calculate(frequency_by_link=case.frequencies, interference_rows=[], manual_override=overrides)
+    parameters = {row["device_id"]: row for row in actual["params"]}
+    for row in overrides:
+        assert parameters[row["device_id"]]["tx_power_dbm"] == row["tx_power_dbm"]
+        assert parameters[row["device_id"]]["antenna_height_m"] == row["antenna_height_m"]
+    assert actual["failed_links"] and not actual["manual_errors"] and overrides == before
+
+
+def test_actual_power_uses_selected_frequency_and_exact_frozen_jammers(actual_power_case):
+    case = actual_power_case
+    low = case.calculate(frequency_by_link={lid: 50000.0 for lid in case.frequencies}, interference_rows=[])
+    clear = case.calculate(frequency_by_link=case.frequencies, interference_rows=[])
+    source = [{"interference_id": "UNIT-J", "name": "构造解析功率测试源", "lon": "114.01", "lat": "38.0",
+        "center_freq_khz": "200000", "bandwidth_khz": "25", "tx_power_dbm": "10", "antenna_gain_dbi": "0",
+        "antenna_height_m": "3", "duty_cycle": "1", "active": "true", "pattern_type": "OMNI",
+        "interference_type": "NOISE", "azimuth_deg": ""}]
+    before = deepcopy(source)
+    jammed = case.calculate(frequency_by_link=case.frequencies, interference_rows=source)
+    assert low["summary"]["total_radiated_w"] < clear["summary"]["total_radiated_w"]
+    assert not clear["failed_links"] and jammed["failed_links"]
+    assert all(row["margin_before_interference_db"] > row["margin_db"] for row in jammed["links"])
+    assert all(row["margin_db"] >= min(6.0, row["margin_at_allowed_power_db"]) - 1e-6 for row in jammed["links"])
+    assert source == before
+
+
+@pytest.mark.parametrize("missing", [False, True])
+def test_actual_power_missing_frequency_keeps_gap_without_representative_fallback(actual_power_case, missing):
+    case = actual_power_case
+    frequencies = {"EASY": 200000.0}
+    if not missing:
+        frequencies["HARD"] = None
+    actual = case.calculate(frequency_by_link=frequencies, interference_rows=[])
+    row = next(row for row in actual["links"] if row["link_id"] == "HARD")
+    assert not row["meets"] and row["freq_khz"] is None and row["margin_before_interference_db"] is None
+    assert row["margin_at_max_power_db"] is None and row in actual["failed_links"]
+
+
+@pytest.mark.parametrize("frequency", [float("nan"), float("inf"), 0, -1, True, 400000.0])
+def test_actual_power_rejects_invalid_frequency_without_mutating_inputs(actual_power_case, frequency):
+    case = actual_power_case
+    before = deepcopy(case.devices)
+    with pytest.raises(ValueError, match="实际功率求解频点"):
+        case.calculate(frequency_by_link={"EASY": frequency, "HARD": 200000.0}, interference_rows=[])
+    assert case.devices == before
+
+
+def test_actual_power_legacy_keywords_are_exactly_backward_compatible(actual_power_case):
+    case = actual_power_case
+    assert case.calculate() == case.calculate(frequency_by_link=None, interference_rows=None)
+    assert "margin_basis" not in case.calculate()
+    assert case.calculate(frequency_by_link=case.frequencies) == case.calculate(
+        frequency_by_link=case.frequencies, interference_rows=[])
+    with pytest.raises(ValueError, match="绑定实际频点"):
+        case.calculate(interference_rows=[])

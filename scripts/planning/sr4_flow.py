@@ -327,7 +327,9 @@ def _check_candidate(pb, solution, stations, nodes, devices, models, antennas,
     caps = RP.capabilities_by_device(st2, devices2, models, antennas)
     params = RP.plan_bound_devices(st2, links, devices2, models, antennas,
                                    terrain, preset=preset,
-                                   fade_margin_db=solution["m_req"])
+                                   fade_margin_db=solution["m_req"],
+                                   frequency_by_link={row["link_id"]: row["freq_khz"] for row in freq["link_assignments"]},
+                                   interference_rows=[] if interference_rows is None else interference_rows)
     binding_errors.extend(params["manual_errors"])
     scenario = _actual_link_margins(st2, links, terrain, freq, ftasks, params,
         devices2, models, antennas, [] if interference_rows is None else interference_rows, caps)
@@ -482,11 +484,19 @@ def run_from_parent(parent_snapshot, adjustment, device_refs, task_id, demand_ro
     permitted = {row["device_id"] for row in device_refs}
     if any(row["device_id"] not in permitted for row in adjustment["manual_override"]):
         raise ValueError("人工调整包含父方案之外的物理设备")
+    ftasks = FQ.tasks_from_nets(links, nodes, devices, models)
+    FQ.fill_ranges_by_node(ftasks, links, nodes, devices, models)
+    locks = _frozen_frequency_locks(detail, ftasks, pool_rows, change) if binding else None
+    frequency = FQ.assign(ftasks, FQ.FreqPool(pool_rows), manual=locks)
+    frequency["link_assignments"] = FQ.expand_to_links(frequency, ftasks)
+    frequency["constraints"] = copy.deepcopy(frequency_constraints)
     parent_best = detail["optimization"]["best"]
     params = RP.plan_bound_devices(
         stations, links, devices, models, antennas, terrain,
         preset=preset, fade_margin_db=parent_best["fade_margin_db"],
-        manual_override=adjustment["manual_override"])
+        manual_override=adjustment["manual_override"],
+        frequency_by_link={row["link_id"]: row["freq_khz"] for row in frequency["link_assignments"]},
+        interference_rows=jam_rows)
     if params["manual_errors"]:
         raise ValueError("人工设备参数无效：" + "；".join(params["manual_errors"]))
     actual_margins = {row["link_id"]: row["margin_db"] for row in params["links"]}
@@ -510,12 +520,6 @@ def run_from_parent(parent_snapshot, adjustment, device_refs, task_id, demand_ro
     device_path_errors = endpoint_binding_errors(links, demand_rows, routes)
     if device_path_errors:
         raise ValueError("；".join(device_path_errors))
-    ftasks = FQ.tasks_from_nets(links, nodes, devices, models)
-    FQ.fill_ranges_by_node(ftasks, links, nodes, devices, models)
-    locks = _frozen_frequency_locks(detail, ftasks, pool_rows, change) if binding else None
-    frequency = FQ.assign(ftasks, FQ.FreqPool(pool_rows), manual=locks)
-    frequency["link_assignments"] = FQ.expand_to_links(frequency, ftasks)
-    frequency["constraints"] = copy.deepcopy(frequency_constraints)
     scenario = _actual_link_margins(stations, links, terrain, frequency, ftasks, params,
         devices, models, antennas, jam_rows, caps)
     graph = routing.graph_from_links(route_links, metrics_rows)[0]

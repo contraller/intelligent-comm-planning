@@ -231,9 +231,89 @@ def capabilities_by_device(stations, devices, models, antennas):
     return caps
 
 
+def _actual_bound_power(stations, links, devices, models, antennas, terrain,
+                        caps, height, forced, required, frequency_by_link, interference_rows):
+    """固定频点/挂高，按物理设备的全部关联链路下降自由功率档位。"""
+    import interference as IF
+    from terrain import haversine_m
+    eligible = []
+    for link in links:
+        frequency = frequency_by_link.get(link["link_id"])
+        if frequency is None:
+            continue
+        if isinstance(frequency, bool) or not math.isfinite(float(frequency)) or float(frequency) <= 0:
+            raise ValueError("实际功率求解频点必须为有限正数")
+        eligible.append(link)
+    tx = {did: forced.get(did, cap.tx_max) for did, cap in caps.items()}
+    by_id, incident, maximum, allowed_maximum = {}, {did: [] for did in caps}, {}, {}
+    scenario = None
+    if eligible:
+        frequency = {"link_assignments": [{"link_id": row["link_id"],
+            "freq_khz": float(frequency_by_link[row["link_id"]])} for row in eligible]}
+        scenario = IF.scenario_from_plan(dict(stations=stations, links=eligible, terrain=terrain,
+            frequency=frequency, freq_tasks=[], devices=devices, models=models, antennas=antennas,
+            params={"params": [{"device_id": did, "tx_power_dbm": tx[did],
+                "antenna_height_m": height[did]} for did in caps]}),
+            [] if interference_rows is None else interference_rows)
+        by_id = {link.link_id: link for link in scenario.links}
+        if len(by_id) != len(eligible) or set(by_id) != {row["link_id"] for row in eligible}:
+            raise ValueError("实际功率求解未覆盖全部已绑定物理链路")
+        for link in scenario.links:
+            for radio in (link.st_a.radio[link.band], link.st_b.radio[link.band]):
+                if not radio["fmin"] <= link.f <= radio["fmax"]:
+                    raise ValueError("实际功率求解频点超出绑定设备范围")
+            allowed_maximum[link.link_id] = scenario.link_state(link)["margin_after"]
+            actual_tx = link.tx
+            try:
+                link.tx = {sid: caps[did].tx_max for sid, did in link.device.items()}
+                maximum[link.link_id] = scenario.link_state(link)["margin_after"]
+            finally:
+                link.tx = actual_tx
+            for did in set(link.device.values()):
+                incident[did].append(link)
+    targets = {lid: min(required, margin) for lid, margin in allowed_maximum.items()}
+    # 所有自由设备先在最大档确认可达性；不可达链路也保护其最大余量，不牺牲全网质量省电。
+    for did, cap in sorted(caps.items()):
+        if did in forced:
+            continue
+        for level in sorted(cap.levels):
+            tx[did] = level
+            for link in incident[did]:
+                for sid, owner in link.device.items():
+                    if owner == did:
+                        link.tx[sid] = level
+            if all(scenario.link_state(link)["margin_after"] >= targets[link.link_id] - 1e-6
+                   for link in incident[did]):
+                break
+    station_by_id = {station.sid: station for station in stations}
+    result = []
+    for row in links:
+        lid, a, b = row["link_id"], row["device_a_id"], row["device_b_id"]
+        sa, sb = station_by_id[row["node_a_id"]], station_by_id[row["node_b_id"]]
+        link = by_id.get(lid)
+        state = scenario.link_state(link) if link is not None else None
+        margin = state["margin_after"] if state is not None else -999.0
+        result.append(dict(link_id=lid, node_a=sa.sid, node_b=sb.sid,
+            device_a_id=a, device_b_id=b, band=row["device_class"],
+            distance_m=round(haversine_m(sa.lon, sa.lat, sb.lon, sb.lat), 1),
+            freq_khz=link.f if link is not None else None,
+            path_loss_db=round(scenario._signal_pl(link), 2) if link is not None else None,
+            tx_a_dbm=tx[a], tx_b_dbm=tx[b], height_a_m=height[a], height_b_m=height[b],
+            margin_before_interference_db=state["margin_before"] if state is not None else None,
+            margin_db=margin, required_margin_db=required, meets=state is not None and margin >= required - 1e-6,
+            margin_at_max_power_db=maximum.get(lid), margin_at_allowed_power_db=allowed_maximum.get(lid)))
+    return tx, result
+
+
 def plan_bound_devices(stations, links, devices, models, antennas, terrain,
-                       preset="TERRAIN", fade_margin_db=None, manual_override=None):
+                       preset="TERRAIN", fade_margin_db=None, manual_override=None, *,
+                       frequency_by_link=None, interference_rows=None):
     """按冻结的链路设备绑定，独立规划每台物理电台。"""
+    actual_mode = frequency_by_link is not None
+    if actual_mode and not isinstance(frequency_by_link, dict):
+        raise ValueError("实际功率求解频点必须为链路映射")
+    if interference_rows is not None and (not actual_mode or not isinstance(interference_rows, list)):
+        raise ValueError("实际功率求解干扰源必须绑定实际频点并使用冻结行列表")
     cfg = dict(PRESETS.get(preset, {})) if preset else {}
     required = (fade_margin_db if fade_margin_db is not None
                 else cfg.get("fade_margin_db", DEFAULT_FADE_MARGIN_DB))
@@ -294,31 +374,36 @@ def plan_bound_devices(stations, links, devices, models, antennas, terrain,
             errors.append("链路 %s 的绑定设备与端点或频段不一致" % link["link_id"])
             continue
         sa, sb = endpoint(ca.sid, a, band), endpoint(cb.sid, b, band)
+        if actual_mode:
+            base.append((link, sa, sb, a, b, None, None))
+            continue
         maximum, _, _ = _margin_with(terrain, sa, sb, band, ca.tx_max, cb.tx_max,
                                       height[a], height[b])
         need = min(ca.tx_max, cb.tx_max) - (maximum - required)
         base.append((link, sa, sb, a, b, need, maximum))
-    wanted = {}
-    for _link, _sa, _sb, a, b, need, _maximum in base:
-        wanted[a] = max(wanted.get(a, -1e9), need)
-        wanted[b] = max(wanted.get(b, -1e9), need)
-    tx = {did: forced.get(did, cap.snap_up(min(wanted.get(did, cap.tx_min), cap.tx_max)))
-          for did, cap in caps.items()}
-    result_links, failed = [], []
-    for link, sa, sb, a, b, _need, maximum in base:
-        margin, distance, loss = _margin_with(terrain, sa, sb, link["device_class"],
-                                               tx[a], tx[b], height[a], height[b])
-        rec = dict(link_id=link["link_id"], node_a=sa.sid, node_b=sb.sid,
-                   device_a_id=a, device_b_id=b, band=link["device_class"],
-                   distance_m=round(distance, 1), path_loss_db=round(loss, 2),
-                   tx_a_dbm=tx[a], tx_b_dbm=tx[b],
-                   height_a_m=height[a], height_b_m=height[b],
-                   margin_db=round(margin, 2), required_margin_db=required,
-                   meets=margin >= required - 1e-6,
-                   margin_at_max_power_db=round(maximum, 2))
-        result_links.append(rec)
-        if not rec["meets"]:
-            failed.append(rec)
+    if actual_mode:
+        tx, result_links = _actual_bound_power(stations, [row[0] for row in base], devices,
+            models, antennas, terrain, caps, height, forced, required, frequency_by_link, interference_rows)
+    else:
+        wanted = {}
+        for _link, _sa, _sb, a, b, need, _maximum in base:
+            wanted[a] = max(wanted.get(a, -1e9), need)
+            wanted[b] = max(wanted.get(b, -1e9), need)
+        tx = {did: forced.get(did, cap.snap_up(min(wanted.get(did, cap.tx_min), cap.tx_max)))
+              for did, cap in caps.items()}
+        result_links = []
+        for link, sa, sb, a, b, _need, maximum in base:
+            margin, distance, loss = _margin_with(terrain, sa, sb, link["device_class"],
+                                                   tx[a], tx[b], height[a], height[b])
+            result_links.append(dict(link_id=link["link_id"], node_a=sa.sid, node_b=sb.sid,
+                       device_a_id=a, device_b_id=b, band=link["device_class"],
+                       distance_m=round(distance, 1), path_loss_db=round(loss, 2),
+                       tx_a_dbm=tx[a], tx_b_dbm=tx[b],
+                       height_a_m=height[a], height_b_m=height[b],
+                       margin_db=round(margin, 2), required_margin_db=required,
+                       meets=margin >= required - 1e-6,
+                       margin_at_max_power_db=round(maximum, 2)))
+    failed = [row for row in result_links if not row["meets"]]
     active = {did for row in result_links
               for did in (row["device_a_id"], row["device_b_id"])}
     params = [dict(device_id=did, node_id=cap.sid, band=cap.band,
@@ -331,6 +416,7 @@ def plan_bound_devices(stations, links, devices, models, antennas, terrain,
               for did, cap in sorted(caps.items())]
     power = sum(10 ** ((tx[did] - 30) / 10) for did in active)
     return dict(preset=preset, preset_name=cfg.get("name"), note=cfg.get("note"),
+                **({"margin_basis": "ASSIGNED_FREQUENCY_WITH_INTERFERENCE"} if actual_mode else {}),
                 fade_margin_db=required, params=params, links=result_links,
                 failed_links=failed, manual_errors=errors,
                 summary=dict(devices=len(params), devices_active=len(active),
