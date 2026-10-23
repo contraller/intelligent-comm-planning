@@ -31,7 +31,7 @@ import { authorizeStore } from './helpers/auth';
 import { bindMonitoring, settleMonitoring } from './helpers/monitoring';
 import { interferenceFixture } from './helpers/interference';
 import { TestStorage } from './helpers/storage';
-import { analysisMap, clickWorkbench, compileWorkbenchTemplates, createWorkbenchFixture, openWorkbenchFromPage, settleWorkbench, workbenchNode, workbenchText } from './helpers/interference-workbench';
+import { analysisMap, clickWorkbench, compileWorkbenchTemplates, createWorkbenchFixture, openWorkbenchFromPage, reportHostFailure, settleWorkbench, traceHostErrors, workbenchNode, workbenchText } from './helpers/interference-workbench';
 
 const transport = vi.hoisted(() => ({ mode: 'mock' }));
 vi.mock('../src/config/env', async importOriginal => {
@@ -167,12 +167,16 @@ function treeIds(root: HostNode) {
 }
 
 let app: App<HostNode> | undefined, pinia: ReturnType<typeof createPinia> | undefined;
-afterEach(() => {
+let waitingFor = '夹具未启动', waitSnapshot: () => unknown = () => null;
+afterEach(context => {
+  reportHostFailure(context.task, waitingFor, waitSnapshot);
   app?.unmount(); app = undefined;
   if (pinia) disposePinia(pinia); pinia = undefined;
   vi.restoreAllMocks(); vi.unstubAllGlobals(); vi.useRealTimers();
+  waitingFor = '夹具未启动'; waitSnapshot = () => null;
 });
 async function mountEntry(url: string, editing = false, confirmedNetwork = false, frozen = false) {
+  waitingFor = '态势入口夹具准备';
   transport.mode = frozen ? 'http' : 'mock';
   vi.useFakeTimers();
   vi.stubGlobal('window', new EventTarget());
@@ -215,10 +219,16 @@ async function mountEntry(url: string, editing = false, confirmedNetwork = false
   const wb = await createWorkbenchFixture(); wb.bind();
   app = renderer.createApp({ render: () => h(RouterView) }); app.use(pinia); app.use(router);
   app.provide(ssrContextKey, {});
-  await router.push(url); await router.isReady();
+  traceHostErrors(app);
+  waitSnapshot = () => { const read = useResourceReadStore(); return { route: router.currentRoute.value.fullPath,
+    mode: gis.mapMode, gisBusy: gis.busy, saveState: gis.saveState, editorBusy: editor.busy, editorDecision: editor.decision,
+    formDirty: editor.formDirty, resourceDirty: editor.dirty, editorError: editor.error,
+    refreshing: read.refreshing, readPending: read.pending, readErrors: read.errors }; };
+  waitingFor = '态势入口router.push'; await router.push(url); await router.isReady();
   const root = node('root'); app.mount(root); await settleMonitoring(); await nextTick();
   // 原有节点口径场景显式进入站点浏览；设备分类默认入口由专项测试覆盖。
   await click(root, '按站点浏览'); await vi.advanceTimersByTimeAsync(250); await settleMonitoring();
+  waitingFor = '态势入口用例主体';
   expect([...storage.entries]).toEqual(before);
   return { root, gis, editor, browseResources, router, storage, before, raw, monitor: useMonitoringStore(), map: () => find(root, 'map-probe')!.props, wb };
 }

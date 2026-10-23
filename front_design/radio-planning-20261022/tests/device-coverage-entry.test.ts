@@ -28,7 +28,7 @@ import { useMonitoringStore } from '../src/stores/monitoring';
 import type { DeviceCoverageOverlay } from '../src/types/device-coverage';
 import { authorizeStore } from './helpers/auth';
 import { bindMonitoring, settleMonitoring } from './helpers/monitoring';
-import { analysisMap, clickWorkbench, compileWorkbenchTemplates, createWorkbenchFixture, openWorkbenchFromPage, settleWorkbench, workbenchText } from './helpers/interference-workbench';
+import { analysisMap, clickWorkbench, compileWorkbenchTemplates, createWorkbenchFixture, openWorkbenchFromPage, reportHostFailure, settleWorkbench, traceHostErrors, workbenchText } from './helpers/interference-workbench';
 import { TestStorage } from './helpers/storage';
 // 仅复用模板编译，原有特殊宿主和业务交互保持本地。
 import { clientTemplate } from './helpers/vue-client';
@@ -128,7 +128,7 @@ function find(root: HostNode, predicate: (n: HostNode) => boolean): HostNode | u
 const textOf = (root: HostNode): string => root.text.replace(/<[^>]+>/g, '') + root.children.map(textOf).join('');
 async function click(root: HostNode, label: string) {
   const el = find(root, n => n.tag === 'button' && textOf(n).trim() === label);
-  expect(el, label).toBeDefined(); await (el!.props.onClick as () => unknown)(); await settleMonitoring();
+  expect(el, label).toBeDefined(); waitingFor = '按钮 ' + label; await (el!.props.onClick as () => unknown)(); waitingFor = '按钮后刷新 ' + label; await settleMonitoring();
 }
 // 原生折叠组通过 toggle 展开；原有趋势、图层与输入保护断言不变。
 async function expandHistory(root: HostNode) {
@@ -144,8 +144,10 @@ async function change(root: HostNode, label: string, value: string | boolean, ev
   if (label === '搜索资源') { await vi.advanceTimersByTimeAsync(250); await settleMonitoring(); }
 }
 let app: App<HostNode> | undefined, pinia: ReturnType<typeof createPinia> | undefined;
-afterEach(() => { app?.unmount(); app = undefined; if (pinia) disposePinia(pinia); pinia = undefined; vi.restoreAllMocks(); vi.clearAllMocks(); vi.unstubAllGlobals(); vi.useRealTimers(); });
+let waitingFor = '夹具未启动', waitSnapshot: () => unknown = () => null;
+afterEach(context => { reportHostFailure(context.task, waitingFor, waitSnapshot); app?.unmount(); app = undefined; if (pinia) disposePinia(pinia); pinia = undefined; vi.restoreAllMocks(); vi.clearAllMocks(); vi.unstubAllGlobals(); vi.useRealTimers(); waitingFor = '夹具未启动'; waitSnapshot = () => null; });
 async function mountEntry(deviceId = 'DV-0001', frozen = false) {
+  waitingFor = '设备入口夹具准备';
   transport.mode = frozen ? 'http' : 'mock';
   vi.useFakeTimers(); vi.stubGlobal('window', new EventTarget());
   class TestDocument extends EventTarget { hidden = false; activeElement = null; }
@@ -168,13 +170,20 @@ async function mountEntry(deviceId = 'DV-0001', frozen = false) {
     vi.spyOn(previewService, name).mockImplementation(raw[name] as never);
   bindMonitoring(raw); vi.spyOn(previewService,'getMonitoringObservation').mockImplementation(raw.getMonitoringObservation);
   const wb = await createWorkbenchFixture(); wb.bind();
-  const preview = usePreviewStore(); await preview.load();await useResourceReadStore().activate('gis');await useGisWorkspaceStore().loadScene();
+  const preview = usePreviewStore(); waitingFor = '设备入口预览及GIS读取'; await preview.load();await useResourceReadStore().activate('gis');await useGisWorkspaceStore().loadScene();
   const router = createRouter({ history: createMemoryHistory(), routes: [
     { path: '/situation', component: SituationView }, { path: '/planning', component: { render: () => null } },
   ] });
   app = renderer.createApp({ render: () => h(RouterView) }); app.use(pinia); app.use(router); app.provide(ssrContextKey, {});
-  await router.push('/situation?stationId=ND-0001&deviceId=' + deviceId); await router.isReady();
+  traceHostErrors(app);
+  waitSnapshot = () => { const gis = useGisWorkspaceStore(), editor = useResourceEditStore(), read = useResourceReadStore();
+    return { route: router.currentRoute.value.fullPath, mode: gis.mapMode, gisBusy: gis.busy, saveState: gis.saveState,
+      editorBusy: editor.busy, editorDecision: editor.decision, formDirty: editor.formDirty, resourceDirty: editor.dirty,
+      editorError: editor.error, refreshing: read.refreshing, readPending: read.pending, readErrors: read.errors,
+      currentResource: read.workspace?.revision }; };
+  waitingFor = '设备入口router.push'; await router.push('/situation?stationId=ND-0001&deviceId=' + deviceId); await router.isReady();
   const root = node('root'); app.mount(root); await settleMonitoring(); await nextTick();
+  waitingFor = '设备入口用例主体';
   const map = () => find(root, n => n.tag === 'map-probe')!.props;
   return { root, map, preview, storage, router, directory: () => directory, gis: useGisWorkspaceStore(), editor: useResourceEditStore(), monitor: useMonitoringStore(), wb };
 }

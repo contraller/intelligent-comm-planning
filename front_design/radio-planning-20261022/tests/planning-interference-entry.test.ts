@@ -23,7 +23,7 @@ import { interferenceFixture } from './helpers/interference';
 import { savedRequest } from './helpers/tasks';
 // 仅复用模板编译，忽略注释节点文本的宿主保留本地。
 import { clientTemplate } from './helpers/vue-client';
-import { compileWorkbenchTemplates, createWorkbenchFixture, clickWorkbench, deferred, settleWorkbench, workbenchText } from './helpers/interference-workbench';
+import { compileWorkbenchTemplates, createWorkbenchFixture, clickWorkbench, deferred, reportHostFailure, settleWorkbench, traceHostErrors, workbenchText } from './helpers/interference-workbench';
 
 vi.mock('../src/config/env', async importOriginal => {
   const actual = await importOriginal<typeof import('../src/config/env')>();
@@ -68,13 +68,15 @@ function find(root: HostNode, predicate: (n: HostNode) => boolean): HostNode | u
 const textOf = (root: HostNode): string => root.tag === '#comment' ? '' : root.text.replace(/<[^>]+>/g, '') + root.children.map(textOf).join('');
 const button = (root: HostNode, label: string) => find(root, n => n.tag === 'button' && textOf(n).trim() === label)!;
 async function settle() { for (let i = 0; i < 25; i++) { await Promise.resolve(); await nextTick(); } }
-async function click(root: HostNode, label: string) { const hit = button(root, label); expect(hit, label).toBeDefined(); await hit.props.onClick(); await settle(); }
+async function click(root: HostNode, label: string) { const hit = button(root, label); expect(hit, label).toBeDefined(); waitingFor = '按钮 ' + label; await hit.props.onClick(); waitingFor = '按钮后刷新 ' + label; await settle(); }
 
 let app: App | undefined, pinia: ReturnType<typeof createPinia> | undefined;
+let waitingFor = '夹具未启动', waitSnapshot: () => unknown = () => null;
 beforeAll(async () => { for (const [component, path] of [[PlanningApiView, 'src/views/PlanningApiView.vue'], [SituationView, 'src/views/SituationView.vue'], [InterferenceAnalysisPanel, 'src/components/InterferenceAnalysisPanel.vue']] as const) await clientTemplate(component, path, 'planning-interference-render.ts'); await compileWorkbenchTemplates(); });
 beforeEach(() => { vi.useFakeTimers(); vi.stubGlobal('window', Object.assign(new EventTarget(), { confirm: vi.fn(() => false) })); class TestDocument extends EventTarget { activeElement = null; hidden = false; } vi.stubGlobal('Document', TestDocument); vi.stubGlobal('document', new TestDocument()); vi.stubGlobal('ShadowRoot', class {}); });
-afterEach(() => { app?.unmount(); app = undefined; if (pinia) disposePinia(pinia); pinia = undefined; vi.restoreAllMocks(); vi.unstubAllGlobals(); vi.useRealTimers(); });
+afterEach(context => { reportHostFailure(context.task, waitingFor, waitSnapshot); app?.unmount(); app = undefined; if (pinia) disposePinia(pinia); pinia = undefined; vi.restoreAllMocks(); vi.unstubAllGlobals(); vi.useRealTimers(); waitingFor = '夹具未启动'; waitSnapshot = () => null; });
 async function fixture(options: { second?: boolean; path?: string; interferenceOnly?: boolean } = {}) {
+  waitingFor = 'interferenceFixture原保存确认准备';
   const f = await interferenceFixture();
   let second: typeof f.plan | undefined;
   if (options.second) {
@@ -88,18 +90,27 @@ async function fixture(options: { second?: boolean; path?: string; interferenceO
   const raw = createMockService(() => f.storage);
   const spyTarget: { [K in keyof typeof previewService]: (...args: never[]) => unknown } = previewService;
   for (const [key, method] of Object.entries(raw)) if (key !== 'getSession' && typeof method === 'function') vi.spyOn(spyTarget, key as keyof typeof spyTarget).mockImplementation(method.bind(raw));
+  waitingFor = '构造专用冻结服务';
   const wb = await createWorkbenchFixture(await raw.getPlanningPlan({ context: 'gis', taskId: f.plan.taskId, planId: f.plan.id }));
   if (options.interferenceOnly) { wb.source.current = false; wb.source.unavailable_reasons = ['仅因干扰源修改失效，允许冻结分析']; }
   wb.bind();
-  await usePreviewStore().load();
+  waitingFor = '预览读取'; await usePreviewStore().load();
   const planning = usePlanningApiStore(), task = useTaskInputStore(), store = useInterferenceStore(), gis = useGisWorkspaceStore(), editor = useResourceEditStore();
   const router = createRouter({ history: createMemoryHistory(), routes: [{ path: '/planning', component: PlanningApiView }, { path: '/situation', component: SituationView }, { path: '/elsewhere', component: { render: () => null } }] });
   const planningPath = router.resolve({ path: '/planning', query: { taskId: f.plan.taskId, planId: f.plan.id } }).fullPath;
   const targetPath = (plan = f.plan) => router.resolve({ path: '/situation', query: { analysisTaskId: plan.taskId, analysisPlanId: plan.id } }).fullPath;
-  await router.push(options.path ?? planningPath); await router.isReady();
+  waitSnapshot = () => ({ route: router.currentRoute.value.fullPath, taskId: task.taskId, savedTaskId: task.saved?.taskId,
+    taskLoading: task.loading, taskDirty: task.dirty, taskDecision: task.decision, taskError: task.error,
+    taskResource: task.resourceRevision, currentResource: useResourceReadStore().workspace?.revision,
+    planningStep: planning.step, planId: planning.selectedPlan?.id, planningBusy: planning.busy, planningPending: !!planning.pending,
+    editorDecision: editor.decision, editorBusy: editor.busy, gisBusy: gis.busy, authBlocked: auth.blocked });
+  waitingFor = '初始router.push'; await router.push(options.path ?? planningPath);
+  waitingFor = 'router.isReady'; await router.isReady();
   app = renderer.createApp({ render: () => h(RouterView) }); app.use(pinia); app.use(router); app.provide(ssrContextKey, { modules: new Set() });
-  const root = node('root'); app.mount(root); await settle(); await settle();
+  traceHostErrors(app);
+  const root = node('root'); waitingFor = '页面mount及初始化'; app.mount(root); await settle(); await settle();
   await settleWorkbench();
+  waitingFor = '用例主体';
   return { ...f, second, raw, auth, planning, task, store, gis, editor, router, root, planningPath, targetPath, wb };
 }
 type Fixture = Awaited<ReturnType<typeof fixture>>;

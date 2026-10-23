@@ -1,11 +1,18 @@
 import { expect, vi } from 'vitest';
-import { nextTick } from 'vue';
+import { nextTick, type App, type Component } from 'vue';
 import GisFrozenPlanPanel from '../../src/components/GisFrozenPlanPanel.vue';
 import GisPlanOperations from '../../src/components/GisPlanOperations.vue';
 import InterferenceAnalysisPanel from '../../src/components/InterferenceAnalysisPanel.vue';
 import InterferenceSceneDrawer from '../../src/components/InterferenceSceneDrawer.vue';
 import InterferenceHistoryDrawer from '../../src/components/InterferenceHistoryDrawer.vue';
 import InterferenceMeasureDrawer from '../../src/components/InterferenceMeasureDrawer.vue';
+import ResourceReadStatus from '../../src/components/ResourceReadStatus.vue';
+import DevicePortsPanel from '../../src/components/DevicePortsPanel.vue';
+import LinkAssessmentPanel from '../../src/components/LinkAssessmentPanel.vue';
+import GisDiagnosisPanel from '../../src/components/GisDiagnosisPanel.vue';
+import LinkDetailPanel from '../../src/components/LinkDetailPanel.vue';
+import DeviceMonitoringPanel from '../../src/components/DeviceMonitoringPanel.vue';
+import LinkMonitoringPanel from '../../src/components/LinkMonitoringPanel.vue';
 import { collaborationHttp } from '../../src/services/http';
 import { previewService } from '../../src/services';
 import { useInterferenceStore } from '../../src/stores/interference';
@@ -20,10 +27,27 @@ export const measureTitles = ['频率调整', '信道切换', '功率优化', '�
 const types = ['FREQ_ADJUST', 'CHANNEL_SWITCH', 'POWER_OPT', 'ROUTE_REBUILD', 'NODE_REDEPLOY'] as const;
 
 export async function compileWorkbenchTemplates() {
-  for (const [component, name] of [[GisFrozenPlanPanel, 'GisFrozenPlanPanel'], [GisPlanOperations, 'GisPlanOperations'],
+  const templates: [Component, string][] = [[GisFrozenPlanPanel, 'GisFrozenPlanPanel'], [GisPlanOperations, 'GisPlanOperations'],
     [InterferenceAnalysisPanel, 'InterferenceAnalysisPanel'], [InterferenceSceneDrawer, 'InterferenceSceneDrawer'],
-    [InterferenceHistoryDrawer, 'InterferenceHistoryDrawer'], [InterferenceMeasureDrawer, 'InterferenceMeasureDrawer']] as const)
+    [InterferenceHistoryDrawer, 'InterferenceHistoryDrawer'], [InterferenceMeasureDrawer, 'InterferenceMeasureDrawer'],
+    [ResourceReadStatus, 'ResourceReadStatus'], [DevicePortsPanel, 'DevicePortsPanel'], [LinkAssessmentPanel, 'LinkAssessmentPanel'],
+    [GisDiagnosisPanel, 'GisDiagnosisPanel'], [LinkDetailPanel, 'LinkDetailPanel'],
+    [DeviceMonitoringPanel, 'DeviceMonitoringPanel'], [LinkMonitoringPanel, 'LinkMonitoringPanel']];
+  for (const [component, name] of templates)
     await clientTemplate(component, `src/components/${name}.vue`, 'workbench-host-render.ts');
+}
+
+export function reportHostFailure(task: { name: string; result?: { state: string } }, stage: string, snapshot: () => unknown) {
+  if (task.result?.state !== 'fail') return;
+  try { console.error('[P04_HOST_WAIT]', JSON.stringify({ test: task.name, stage, state: snapshot() })); }
+  catch (reason) { console.error('[P04_HOST_WAIT]', task.name, stage, String(reason)); }
+}
+
+export function traceHostErrors(app: App) {
+  app.config.errorHandler = (reason, _instance, info) => {
+    console.error('[P04_VUE_HOST_ERROR]', info, reason instanceof Error ? reason.stack : String(reason));
+    throw reason;
+  };
 }
 
 export function deferred<T>() {
