@@ -33,8 +33,11 @@ export async function compileWorkbenchTemplates() {
     [ResourceReadStatus, 'ResourceReadStatus'], [DevicePortsPanel, 'DevicePortsPanel'], [LinkAssessmentPanel, 'LinkAssessmentPanel'],
     [GisDiagnosisPanel, 'GisDiagnosisPanel'], [LinkDetailPanel, 'LinkDetailPanel'],
     [DeviceMonitoringPanel, 'DeviceMonitoringPanel'], [LinkMonitoringPanel, 'LinkMonitoringPanel']];
-  for (const [component, name] of templates)
+  for (const [component, name] of templates) {
+    // 调用方显式提供的render替身不替换为缺少setup的真实模板。
+    if (typeof component === 'object' && 'render' in component && typeof component.render === 'function' && !('__file' in component)) continue;
     await clientTemplate(component, `src/components/${name}.vue`, 'workbench-host-render.ts');
+  }
 }
 
 export function reportHostFailure(task: { name: string; result?: { state: string } }, stage: string, snapshot: () => unknown) {

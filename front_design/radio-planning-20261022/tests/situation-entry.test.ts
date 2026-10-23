@@ -279,14 +279,18 @@ describe('GIS 入口挂载联动', () => {
     expect(s.storage.writes).toBe(0);
   });
   it.each(['/situation', '/situation?stationId=ND-0001', '/situation?diagnosisId=DG-HW'])(
-    '没有分析记录时，%s 的分析按钮显示入口并退出原快照', async url => {
-      const s = await mountEntry(url), analysis = useInterferenceStore();
+    '没有分析记录时，%s 的冻结入口隔离原快照但不伪造分析结果', async url => {
+      const s = await mountEntry(url, false, false, true), analysis = useInterferenceStore(), originalMode = s.gis.mapMode;
+      s.wb.context.run_count = 0;
+      s.wb.workbench.listRuns.mockResolvedValue({ items: [], total: 0, page: 1, page_size: 20 });
       const submit = vi.spyOn(previewService, 'submitInterferenceAnalysis');
       expect(analysis.selected).toBeNull();
       await click(s.root, '干扰分析'); await settleMonitoring();
-      expect(s.gis.mapMode).toBe('resource'); expect(s.map().resourceMarkers).toBe(true);
-      expect(findWhere(s.root, row => row.tag === 'button' && textOf(row).trim() === '打开方案干扰工作区')).toBeDefined();
-      expect(submit).not.toHaveBeenCalled(); expect(s.storage.writes).toBe(0);
+      expect(workbenchNode(s.root, row => row.props['aria-label'] === '数据库冻结方案')).toBeDefined();
+      expect(workbenchNode(s.root, row => row.tag === 'map-probe' && !!row.props.resourceMarkers)).toBeUndefined();
+      expect(s.gis.mapMode).toBe(originalMode); expect(analysis.selected).toBeNull(); expect(analysis.mapProjection).toBeNull();
+      expect(s.wb.workbench.getRun).not.toHaveBeenCalled();
+      expect(submit).not.toHaveBeenCalled(); s.wb.assertNoWrites(); expect(s.storage.writes).toBe(0);
     });
   it('已有分析记录时从监控切到选定快照，不自动重新分析', async () => {
     const s = await mountEntry('/situation', false, false, true);s.monitor.showNetwork();
@@ -296,22 +300,27 @@ describe('GIS 入口挂载联动', () => {
     expect(s.wb.workbench.listRuns).toHaveBeenCalledWith(expect.objectContaining({task_id:s.wb.target.taskId}),expect.any(AbortSignal));
     s.wb.assertNoWrites();expect(s.storage.writes).toBe(0);
   });
-  it('打开分析面板保留未应用的 GIS 表单', async () => {
-    const s = await mountEntry('/situation', true), before = JSON.stringify(s.editor.form);
-    await click(s.root, '干扰分析'); await settleMonitoring();
-    expect(findWhere(s.root, row => row.tag === 'button' && textOf(row).trim() === '打开方案干扰工作区')).toBeDefined();
+  it('取消进入冻结分析保留未应用的 GIS 表单', async () => {
+    const s = await mountEntry('/situation', true, false, true), before = JSON.stringify(s.editor.form);
+    const entering = clickWorkbench(s.root, '干扰分析'); await settleWorkbench();
+    expect(s.editor.decision).not.toBeNull(); s.editor.answer('cancel'); await entering;
+    expect(workbenchNode(s.root, row => row.props['aria-label'] === '数据库冻结方案')).toBeUndefined();
     expect(JSON.stringify(s.editor.form)).toBe(before); expect(s.editor.formDirty).toBe(true);
-    expect(s.storage.writes).toBe(0);
+    s.wb.assertNoWrites(); expect(s.storage.writes).toBe(0);
   });
   it('保留已选资源链路时，切回分析不会被资源详情监听覆盖', async () => {
-    const s = await mountEntry('/situation?stationId=ND-0001');
+    const s = await mountEntry('/situation?stationId=ND-0001', false, false, true);
     await search(s.root, 'PL-001');
     const link = findWhere(s.root, row => row.props['aria-label'] === '选择链路 PL-001')!;
     await (link.props.onClick as Function)(); await settleMonitoring();
     s.monitor.showNetwork(); await settleMonitoring();
+    const originalMode = s.gis.mapMode;
     await click(s.root, '干扰分析'); await settleMonitoring();
-    expect(s.gis.mapMode).toBe('resource'); expect(findWhere(s.root, row => row.tag === 'button' && textOf(row).trim() === '打开方案干扰工作区')).toBeDefined();
-    expect(s.storage.writes).toBe(0);
+    expect(workbenchNode(s.root, row => row.props['aria-label'] === '数据库冻结方案')).toBeDefined();
+    expect(workbenchNode(s.root, row => row.tag === 'map-probe' && !!row.props.resourceMarkers)).toBeUndefined();
+    expect(s.gis.mapMode).toBe(originalMode);
+    await clickWorkbench(s.root, '返回当前资源'); await click(s.root, '资源树');
+    expect(s.map().selectedLinkId).toBe('PL-001'); s.wb.assertNoWrites(); expect(s.storage.writes).toBe(0);
   });
   // 只核对实际模板中的来源说明，切换展示不产生业务保存。
   it('来源标识跟随资源和监控视图，缺少资源版本时明确提示', async () => {
@@ -361,13 +370,12 @@ describe('GIS 入口挂载联动', () => {
   );
   it('进入冻结干扰前必须处理 GIS 输入；取消不丢表单，返回当前资源不改冻结身份', async () => {
     const s = await mountEntry('/situation?stationId=ND-0001', true, false, true), form = JSON.stringify(s.editor.form);
-    await click(s.root,'干扰分析');
-    const enter=clickWorkbench(s.root,'打开方案干扰工作区');await settleWorkbench();
+    const enter=clickWorkbench(s.root,'干扰分析');await settleWorkbench();
     expect(s.editor.decision).not.toBeNull();s.editor.answer('cancel');await enter;
     expect(JSON.stringify(s.editor.form)).toBe(form);expect(s.editor.formDirty).toBe(true);
     expect(workbenchNode(s.root,row=>row.props['aria-label']==='数据库冻结方案')).toBeUndefined();s.wb.assertNoWrites();
     // 明确放弃以后才进入；不能以直接改 store 模式绕过原离开决定。
-    const next=clickWorkbench(s.root,'打开方案干扰工作区');await settleWorkbench();s.editor.answer('discard');await next;
+    const next=clickWorkbench(s.root,'干扰分析');await settleWorkbench();s.editor.answer('discard');await next;
     await clickWorkbench(s.root,'打开冻结网络');
     await clickWorkbench(s.root,row=>workbenchText(row).trim().startsWith('历史 '));
     await clickWorkbench(s.root,row=>String(row.props.class).includes('history-row'));
