@@ -8,11 +8,12 @@ import { initialMeta } from '../src/services/resource-storage';
 import { validateStatusBatch, validObservationTime, validateStatusCatalog } from '../src/services/resource-status-validation';
 import { deviceStatusDisplay, mergeDeviceStatuses } from '../src/services/resource-status-display';
 import { useResourceStatusEntry, useResourceStatusStore } from '../src/stores/resource-status';
-import { usePreviewStore } from '../src/stores/preview';
-import { previewService } from '../src/services';
-import type { DeviceStatusBatch, DeviceStatusQuery, DeviceStatusSummary } from '../src/types/resource-status';
+import type { DeviceStatusBatch, DeviceStatusQuery } from '../src/types/resource-status';
 import { TestStorage } from './helpers/storage';
 import { authorizeStore } from './helpers/auth';
+import { ApiError } from '../src/services/types';
+import type { DeviceStatusClient } from '../src/services/device-status-http';
+import { deviceStatusSchema, type DeviceStatusHeader, type DeviceStatusItem, type DeviceStatusImport, type DeviceStatusReceipt, type StatusPage, type StatusDevices } from '../src/types/device-status-snapshot';
 
 const request: Omit<DeviceStatusQuery, 'resourceRevision'> = { context: 'ledger', deviceIds: ['DV-0001', 'DV-0002', 'DV-0004'], exampleId: 'abnormal' };
 async function fixture() {
@@ -76,7 +77,10 @@ describe('设备状态独立 Mock 与回包校验', () => {
     expect(s.storage.entries).toEqual(before); expect(s.storage.writes).toBe(writes);
   });
   it.each(['missing', 'extra', 'duplicate', 'station', 'model', 'revision', 'source', 'status', 'alert', 'time', 'sequence', 'snapshot', 'failed-observation'])('损坏 %s 拒绝整批', async kind => {
-    const s = await fixture(), value = structuredClone(s.batch) as any, row = value.items[0];
+    const s = await fixture(), value = { ...structuredClone(s.batch), items: s.batch.items.map((item): Record<string, unknown> => ({ ...structuredClone(item) })) }, row = value.items[0];
+    const raw = row.observation;
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw new Error('测试夹具缺少首条观测');
+    const observation = raw as Record<string, unknown>;
     if (kind === 'missing') value.items.pop();
     if (kind === 'extra') value.items.push({ ...row, deviceId: 'EXTRA' });
     if (kind === 'duplicate') value.items[1] = row;
@@ -84,10 +88,10 @@ describe('设备状态独立 Mock 与回包校验', () => {
     if (kind === 'model') row.modelId = 'WRONG';
     if (kind === 'revision') value.resourceRevision = 'old';
     if (kind === 'source') value.source.id = 'other';
-    if (kind === 'status') row.observation.status = 'DEGRADED';
-    if (kind === 'alert') row.observation.alert = undefined;
-    if (kind === 'time') row.observation.observedAt = '2026-02-30T10:00:00Z';
-    if (kind === 'sequence') row.observation.sequence = -1;
+    if (kind === 'status') observation.status = 'DEGRADED';
+    if (kind === 'alert') observation.alert = undefined;
+    if (kind === 'time') observation.observedAt = '2026-02-30T10:00:00Z';
+    if (kind === 'sequence') observation.sequence = -1;
     if (kind === 'snapshot') value.snapshotId = ' ';
     if (kind === 'failed-observation') { row.outcome = 'FAILED'; row.reason = '失败'; }
     expect(() => validateStatusBatch(value, s.query, s.data.resources, s.batch.source)).toThrow();
@@ -122,58 +126,122 @@ describe('观测显示合并', () => {
 let pinia: ReturnType<typeof createPinia> | undefined;
 const scopes: ReturnType<typeof effectScope>[] = [];
 afterEach(() => { scopes.splice(0).forEach(s => s.stop()); if (pinia) disposePinia(pinia); pinia = undefined; vi.restoreAllMocks(); });
-async function storeFixture() {
-  pinia = createPinia(); setActivePinia(pinia); const auth = authorizeStore(); const s = await fixture();
-  const preview = usePreviewStore(); preview.data = s.data;
-  // Store 走当前台账的目录、摘要与分页明细，完整批次校验仍由上方底层测试覆盖。
-  const revision = s.query.resourceRevision;
-  const summary = await s.raw.synchronizeDeviceStatuses({ ...s.query, exampleId: 'normal' });
-  vi.spyOn(previewService, 'loadDeviceStatusOptions').mockImplementation(s.raw.loadDeviceStatusOptions);
-  vi.spyOn(previewService, 'synchronizeDeviceStatuses').mockImplementation(s.raw.synchronizeDeviceStatuses);
-  vi.spyOn(previewService, 'queryDeviceStatusBatch').mockImplementation(s.raw.queryDeviceStatusBatch);
-  const status = useResourceStatusStore(), key = Symbol(); await status.load(key, () => true, revision);
-  return { ...s, auth, preview, status, key, revision, summary, sync: async () => {
-    await status.sync(request.deviceIds, key, () => true, revision);
-    if (status.batch) await status.loadBatch();
-  } };
+const snapshotRevision = 'resource-1111111111111111';
+function snapshotHeader(): DeviceStatusHeader {
+  return { schema_version: deviceStatusSchema, snapshot_id: 'DSS-' + 'a'.repeat(32), snapshot_revision: 'device-status-' + 'b'.repeat(64),
+    content_hash: 'b'.repeat(64), resource_revision: snapshotRevision, resource_content_hash: 'c'.repeat(64), data_origin: 'SYNTHETIC_INTEGRATION',
+    source_label: '单测显式构造快照', provenance_note: '非设备遥测', imported_at: '2026-10-23T10:00:00.000000Z', actor_id: 'editor', total: 1,
+    counts: { NORMAL: 0, FAULT: 1, OFFLINE: 0, UNKNOWN: 0, total: 1 }, first_observed_at: null, last_observed_at: null };
 }
-describe('同标签页状态生命周期', () => {
-  it('有效同步才切来源，改示例清缓存，基线切换不请求、不改资源历史', async () => {
-    const s = await storeFixture(), before = JSON.stringify(s.preview.data); expect(s.status.mode).toBe('baseline');
-    s.status.setExample('abnormal'); await s.sync(); expect(s.status.mode).toBe('observed');
-    expect(s.status.display(s.data.resources.devices[0]).status).toBe('FAULT');
-    s.status.setMode('baseline'); s.status.setMode('observed'); expect(previewService.synchronizeDeviceStatuses).toHaveBeenCalledTimes(1);
-    s.status.setExample('partial'); expect(s.status.records).toEqual({}); expect(s.status.mode).toBe('baseline');
-    expect(JSON.stringify(s.preview.data)).toBe(before); expect(s.storage.writes).toBe(0);
+function snapshotItem(): DeviceStatusItem {
+  return { device_id: 'DV-0001', node_id: 'ND-0001', model_id: 'DM-0004', availability: 'OFF_SHELF',
+    status: 'FAULT', alert: false, observed_at: null, unknown_reasons: ['构造来源未提供采集时间'] };
+}
+function headerPage(): StatusPage<DeviceStatusHeader> {
+  return { schema_version: deviceStatusSchema, items: [snapshotHeader()], total: 1, page: 1, page_size: 20 };
+}
+function devicePage(): StatusDevices {
+  const header = snapshotHeader();
+  return { schema_version: deviceStatusSchema, snapshot_id: header.snapshot_id, snapshot_revision: header.snapshot_revision,
+    resource_revision: header.resource_revision, items: [snapshotItem()], total: 1, page: 1, page_size: 20 };
+}
+function importBody(): DeviceStatusImport {
+  const { availability: _, ...record } = snapshotItem(), header = snapshotHeader();
+  return { schema_version: deviceStatusSchema, context: 'ledger', request_id: 'explicit-import-one', base_revision: snapshotRevision,
+    data_origin: 'SYNTHETIC_INTEGRATION', source_label: header.source_label, provenance_note: header.provenance_note, records: [record] };
+}
+function storeFixture() {
+  pinia = createPinia(); setActivePinia(pinia);
+  const auth = authorizeStore();
+  const permissions = auth.identity!.permissions as string[];
+  if (!permissions.includes('resources.device.status.import')) permissions.push('resources.device.status.import');
+  const header = snapshotHeader();
+  const receipt = (input: DeviceStatusImport): DeviceStatusReceipt => ({
+    schema_version: deviceStatusSchema, request_id: input.request_id, snapshot_id: header.snapshot_id, snapshot_revision: header.snapshot_revision,
+    resource_revision: input.base_revision, imported_at: header.imported_at, total: input.records.length, content_hash: header.content_hash, data_origin: header.data_origin,
   });
-  it('损坏摘要和整批失败保持原观测；初次失败保留基线', async () => {
-    const s = await storeFixture(); vi.mocked(previewService.synchronizeDeviceStatuses).mockRejectedValueOnce(new Error('不可读'));
-    await s.sync(); expect(s.status.mode).toBe('baseline'); expect(s.status.error).toContain('不可读');
-    await s.sync(); const before = JSON.stringify(s.status.records);
-    vi.mocked(previewService.synchronizeDeviceStatuses).mockResolvedValueOnce({ ...s.status.batch!, counts: { REPORTED: 0, NO_REPORT: 0, FAILED: 0 } }); await s.sync();
-    expect(s.status.error).not.toBe(''); expect(JSON.stringify(s.status.records)).toBe(before); expect(s.status.mode).toBe('observed');
+  const client = {
+    listSnapshots: vi.fn<DeviceStatusClient['listSnapshots']>().mockResolvedValue(headerPage()),
+    getSnapshot: vi.fn<DeviceStatusClient['getSnapshot']>().mockResolvedValue(header),
+    queryDevices: vi.fn<DeviceStatusClient['queryDevices']>().mockResolvedValue(devicePage()),
+    importSnapshot: vi.fn<DeviceStatusClient['importSnapshot']>().mockImplementation(async input => receipt(input)),
+    getImport: vi.fn<DeviceStatusClient['getImport']>().mockResolvedValue(receipt(importBody())),
+  } satisfies DeviceStatusClient;
+  const status = useResourceStatusStore(); status.bind(client, snapshotRevision, true);
+  return { auth, client, status, header };
+}
+describe('冻结快照状态生命周期', () => {
+  it('明确选择批次才进入观测来源，null时间与false告警不补造，切换来源不发写请求', async () => {
+    const s = storeFixture(), device = initialResources().devices[0], before = JSON.stringify(device);
+    await s.status.list(); expect(s.status.mode).toBe('baseline'); expect(s.status.project(device.id, snapshotRevision)).toBeNull();
+    await s.status.select(s.header);
+    expect(s.status.display(device)).toMatchObject({ status: 'FAULT', alert: false, observedAt: undefined, retained: false });
+    expect(s.status.project(device.id, snapshotRevision)).toMatchObject({
+      ref: { snapshotId: s.header.snapshot_id, snapshotRevision: s.header.snapshot_revision, resourceRevision: snapshotRevision, deviceId: device.id },
+      status: 'FAULT', alert: false, observedAt: null,
+    });
+    expect(s.status.project('uncovered', snapshotRevision)).toBeNull();
+    s.status.setMode('baseline'); s.status.setMode('observed');
+    expect(s.client.queryDevices).toHaveBeenCalledTimes(1); expect(s.client.importSnapshot).not.toHaveBeenCalled();
+    expect(JSON.stringify(device)).toBe(before);
   });
-  it.each(['resource', 'session', 'permission', 'example', 'leave'])('%s 变化隔离迟到响应', async kind => {
-    const s = await storeFixture(); let finish!: (b: DeviceStatusSummary) => void;
-    vi.mocked(previewService.synchronizeDeviceStatuses).mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
-    const pending = s.sync(); expect(s.status.busy).toBe(true);
-    if (kind === 'resource') s.preview.data!.resourceMeta.revision = 'changed';
+  it('初次读取失败保留基线，明细刷新失败保留原已核验记录且显示错误', async () => {
+    const s = storeFixture();
+    s.client.getSnapshot.mockRejectedValueOnce(new Error('不可读'));
+    await s.status.select(s.header); expect(s.status.mode).toBe('baseline'); expect(s.status.error).toContain('不可读');
+    await s.status.select(s.header); const before = JSON.stringify(s.status.snapshotRecords);
+    s.client.queryDevices.mockRejectedValueOnce(new Error('明细暂不可用')); await s.status.loadBatch(2);
+    expect(s.status.error).toContain('明细暂不可用'); expect(JSON.stringify(s.status.snapshotRecords)).toBe(before);
+    expect(s.status.mode).toBe('observed');
+  });
+  it.each(['resource', 'session', 'permission', 'generation', 'leave'])('%s 变化取消并隔离迟到响应', async kind => {
+    const s = storeFixture(); let finish!: (header: DeviceStatusHeader) => void;
+    s.client.getSnapshot.mockImplementationOnce(() => new Promise<DeviceStatusHeader>(resolve => { finish = resolve; }));
+    const pending = s.status.select(s.header); expect(s.status.busy).toBe(true);
+    const signal = s.client.getSnapshot.mock.calls[0]?.[1]?.signal;
+    if (kind === 'resource') s.status.bind(s.client, 'resource-2222222222222222');
     if (kind === 'session') s.auth.accept({ ...s.auth.identity!, sessionId: 'another' });
     if (kind === 'permission') s.auth.accept({ ...s.auth.identity!, permissions: [] });
-    if (kind === 'example') s.status.setExample('partial');
-    if (kind === 'leave') s.status.cancel(s.key);
-    finish(s.summary); await pending; expect(s.status.records).toEqual({}); expect(s.status.mode).toBe('baseline'); expect(s.status.busy).toBe(false);
+    if (kind === 'generation') s.auth.generation++;
+    if (kind === 'leave') s.status.cancel();
+    finish(s.header); await pending;
+    expect(signal?.aborted).toBe(true); expect(s.status.snapshotRecords).toEqual({}); expect(s.status.mode).toBe('baseline');
+    expect(s.status.busy).toBe(false); expect(s.client.queryDevices).not.toHaveBeenCalled();
   });
-  it('同入口重复请求合并为一次；关闭后共享已完成缓存，暂停不丢偏好', async () => {
-    const s = await storeFixture(); await s.sync(); const records = JSON.stringify(s.status.records);
-    const enabled = ref(true), scope = effectScope(); scopes.push(scope);
-    const entry = scope.run(() => useResourceStatusEntry(() => enabled.value, () => s.revision))!;
-    expect(entry.status.mode).toBe('observed'); expect(JSON.stringify(entry.status.records)).toBe(records);
+  it('入口暂停/离开取消迟到列表，同版已读取快照保留；重复操作不产生并发请求', async () => {
+    const s = storeFixture(); await s.status.select(s.header);
+    const before = JSON.stringify(s.status.snapshotRecords), enabled = ref(true), scope = effectScope(); scopes.push(scope);
+    const entry = scope.run(() => useResourceStatusEntry(() => enabled.value, () => snapshotRevision, () => s.client))!;
+    for (let i = 0; i < 6; i++) await nextTick();
     enabled.value = false; await nextTick(); expect(entry.available.value).toBe(false); expect(s.status.mode).toBe('observed');
-    enabled.value = true; await nextTick();
-    let finish!: (b: DeviceStatusSummary) => void;
-    vi.mocked(previewService.synchronizeDeviceStatuses).mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
-    const pending = entry.sync(request.deviceIds); await entry.sync(request.deviceIds); expect(previewService.synchronizeDeviceStatuses).toHaveBeenCalledTimes(2);
-    scope.stop(); finish(s.summary); await pending; expect(JSON.stringify(s.status.records)).toBe(records);
+    enabled.value = true; for (let i = 0; i < 6; i++) await nextTick();
+    let finish!: (value: StatusPage<DeviceStatusHeader>) => void;
+    s.client.listSnapshots.mockImplementationOnce(() => new Promise<StatusPage<DeviceStatusHeader>>(resolve => { finish = resolve; }));
+    const calls = s.client.listSnapshots.mock.calls.length, pending = entry.retry(); await entry.retry();
+    expect(s.client.listSnapshots).toHaveBeenCalledTimes(calls + 1);
+    scope.stop(); finish(headerPage()); await pending;
+    expect(JSON.stringify(s.status.snapshotRecords)).toBe(before); expect(s.status.busy).toBe(false);
+  });
+  it('显式导入超时保留原号，经404核实才允许同号重试，受理不修改资源', async () => {
+    const s = storeFixture(), input = importBody(), resources = initialResources(), before = JSON.stringify(resources);
+    s.client.importSnapshot.mockRejectedValueOnce(new Error('timeout'));
+    await s.status.submitImport(input); expect(s.status.pendingImport?.request_id).toBe(input.request_id);
+    s.client.getImport.mockRejectedValueOnce(new ApiError('not found', 'DEVICE_STATUS_NOT_FOUND'));
+    await s.status.verifyImport(); expect(s.status.importNotFound).toBe(true);
+    await s.status.submitImport(s.status.pendingImport!);
+    expect(s.client.importSnapshot.mock.calls[1]?.[0]).toEqual(input); expect(s.status.pendingImport).toBeNull();
+    expect(s.status.receipt?.request_id).toBe(input.request_id); expect(JSON.stringify(resources)).toBe(before);
+  });
+  it('冻结历史入口与缺权限账号均不能导入，未知状态不借用台账正常', async () => {
+    const s = storeFixture(); s.status.bind(s.client, snapshotRevision, false);
+    await s.status.submitImport(importBody()); expect(s.client.importSnapshot).not.toHaveBeenCalled();
+    s.status.bind(s.client, snapshotRevision, true);
+    const unknown: DeviceStatusItem = { ...snapshotItem(), status: null, alert: null, observed_at: null, unknown_reasons: ['全部观测未知'] };
+    s.client.getSnapshot.mockResolvedValueOnce({ ...s.header, counts: { NORMAL: 0, FAULT: 0, OFFLINE: 0, UNKNOWN: 1, total: 1 } });
+    s.client.queryDevices.mockResolvedValueOnce({ ...devicePage(), items: [unknown] });
+    await s.status.select(s.header); expect(s.status.display(initialResources().devices[0])).toMatchObject({ status: null, alert: null });
+    s.auth.accept({ ...s.auth.identity!, permissions: [] });
+    expect(s.status.project('DV-0001', snapshotRevision)).toBeNull(); expect(s.status.mode).toBe('baseline');
+    await s.status.submitImport(importBody()); expect(s.client.importSnapshot).not.toHaveBeenCalled();
   });
 });

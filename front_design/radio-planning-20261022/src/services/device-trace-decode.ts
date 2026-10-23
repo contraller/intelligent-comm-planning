@@ -9,6 +9,14 @@ const revision = (value: unknown) => typeof value === 'string' && /^resource-[0-
 const finite = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value);
 const requestId = (v: unknown) => statusId(v) && /^[A-Za-z0-9][A-Za-z0-9._:-]{0,119}$/.test(v) && !['context', 'validate', 'history'].includes(v);
 function strings(v: unknown): v is string[] { return Array.isArray(v) && v.every(s => typeof s === 'string' && !!s.trim()) && new Set(v).size === v.length; }
+function array(value: unknown): unknown[] {
+  if (!Array.isArray(value)) return bad();
+  return value;
+}
+function dictionary(value: unknown): Record<string, unknown> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return bad();
+  return value as Record<string, unknown>;
+}
 export function validateTraceQuery(value: unknown, detail = false) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) invalid();
   const row = value as Record<string, unknown>, required = ['context', 'device_id', 'resource_revision', ...(detail ? ['request_id'] : [])];
@@ -23,10 +31,12 @@ export function validateRestoreInput(deviceId: string, value: unknown): asserts 
 }
 function summary(value: unknown, device: string): TraceSummary {
   const row = statusObject(value, summaryKeys, bad);
-  if (row.device_id !== device || !revision(row.revision) || !statusTime(row.created_at) || row.data_origin !== 'SYNTHETIC_INTEGRATION' || !strings(row.changed_fields)) bad();
+  const changedFields = row.changed_fields;
+  if (!strings(changedFields)) return bad();
+  if (row.device_id !== device || !revision(row.revision) || !statusTime(row.created_at) || row.data_origin !== 'SYNTHETIC_INTEGRATION') bad();
   if (row.kind === 'RETAINED_BASELINE') {
-    if (row.request_id !== null || row.actor_id !== null || row.base_revision !== null || row.changed !== false || row.changed_fields.length) bad();
-  } else if (row.kind !== 'RESOURCE_CHANGE' || !requestId(row.request_id) || !statusId(row.actor_id) || !revision(row.base_revision) || row.changed !== true || !row.changed_fields.length) bad();
+    if (row.request_id !== null || row.actor_id !== null || row.base_revision !== null || row.changed !== false || changedFields.length) bad();
+  } else if (row.kind !== 'RESOURCE_CHANGE' || !requestId(row.request_id) || !statusId(row.actor_id) || !revision(row.base_revision) || row.changed !== true || !changedFields.length) bad();
   return structuredClone(row) as unknown as TraceSummary;
 }
 export function readTraceHistory(value: unknown, expected: TraceQuery): TracePage {
@@ -46,16 +56,16 @@ export function readTraceDetail(value: unknown, expected: TraceDetailQuery): Tra
   if (row.schema_version !== schema || row.request_id !== expected.request_id || row.kind !== 'RESOURCE_CHANGE') bad();
   const s = Object.fromEntries(summaryKeys.map(k => [k, row[k]])); summary(s, expected.device_id);
   device(row.before, expected.device_id); device(row.after, expected.device_id);
-  if (!Array.isArray(row.diffs) || !row.source_files || typeof row.source_files !== 'object' || Array.isArray(row.source_files)) bad();
+  const diffs = array(row.diffs), sourceFiles = dictionary(row.source_files);
   const left = row.before as Record<string, string> | null, right = row.after as Record<string, string> | null;
   const changed = [...new Set([...Object.keys(left ?? {}), ...Object.keys(right ?? {})])].filter(k => left?.[k] !== right?.[k]).sort();
-  if (JSON.stringify(changed) !== JSON.stringify(row.changed_fields) || row.diffs.length !== changed.length) bad();
-  row.diffs.forEach((value: unknown, i: number) => {
+  if (JSON.stringify(changed) !== JSON.stringify(row.changed_fields) || diffs.length !== changed.length) bad();
+  diffs.forEach((value, i) => {
     const diff = statusObject(value, ['field', 'before', 'after', 'known'], bad), field = changed[i]!;
     if (diff.field !== field || diff.before !== (left?.[field] ?? null) || diff.after !== (right?.[field] ?? null)
       || diff.known !== (![null, undefined, ''].includes(left?.[field]) && ![null, undefined, ''].includes(right?.[field]))) bad();
   });
-  for (const value of Object.values(row.source_files)) {
+  for (const value of Object.values(sourceFiles)) {
     const file = statusObject(value, ['path', 'sha256'], bad);
     if (typeof file.path !== 'string' || !file.path.startsWith('data/') || typeof file.sha256 !== 'string' || !/^[a-f0-9]{64}$/.test(file.sha256)) bad();
   }
@@ -65,11 +75,12 @@ export function readRestoreProposal(value: unknown, deviceId: string, expected: 
   const row = statusObject(value, ['schema_version', 'device_id', 'base_revision', 'source_revision', 'source_request_id', 'model_id', 'compatible', 'changes', 'patch', 'blocked_fields', 'warnings'], bad);
   if (row.schema_version !== schema || row.device_id !== deviceId || row.base_revision !== expected.base_revision || row.source_revision !== expected.source_revision || row.source_request_id !== expected.source_request_id
     || !revision(row.base_revision) || !revision(row.source_revision) || !statusId(row.model_id) || typeof row.compatible !== 'boolean' || !strings(row.blocked_fields) || !strings(row.warnings)
-    || !row.patch || typeof row.patch !== 'object' || Array.isArray(row.patch) || !Array.isArray(row.changes)) bad();
+    || !row.patch || typeof row.patch !== 'object' || Array.isArray(row.patch)) bad();
+  const changes = array(row.changes);
   const patch = row.patch as Record<string, unknown>, keys = Object.keys(patch);
-  if (keys.some(k => !fields.includes(k) || !finite(patch[k])) || row.compatible !== !!keys.length || row.changes.length !== keys.length) bad();
+  if (keys.some(k => !fields.includes(k) || !finite(patch[k])) || row.compatible !== !!keys.length || changes.length !== keys.length) bad();
   const seen = new Set();
-  for (const value of row.changes) {
+  for (const value of changes) {
     const diff = statusObject(value, ['field', 'before', 'after', 'known'], bad);
     if (!fields.includes(diff.field as string) || seen.has(diff.field) || !Object.hasOwn(patch, diff.field as string) || diff.after !== patch[diff.field as string]
       || diff.before !== null && !finite(diff.before) || diff.known !== true || diff.before === diff.after) bad();

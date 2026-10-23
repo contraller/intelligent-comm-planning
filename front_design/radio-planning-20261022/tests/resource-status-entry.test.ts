@@ -1,50 +1,19 @@
-import { useResourceReadStore } from '../src/stores/resource-read';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { h, nextTick, ssrContextKey, type App, type Component } from 'vue';
+import { h, nextTick, reactive, ref, ssrContextKey, type App } from 'vue';
 import { createPinia, disposePinia, setActivePinia } from 'pinia';
-import { createMemoryHistory, createRouter, RouterView } from 'vue-router';
-import ResourcesView from '../src/views/ResourcesView.vue';
-import SituationView from '../src/views/SituationView.vue';
-import GisObjectInfoPanel from '../src/components/GisObjectInfoPanel.vue';
 import ResourceStatusPanel from '../src/components/ResourceStatusPanel.vue';
 import ResourceStatusBadge from '../src/components/ResourceStatusBadge.vue';
-import ResourceLedgerFilters from '../src/components/ResourceLedgerFilters.vue';
-import ResourceLedgerTree from '../src/components/ResourceLedgerTree.vue';
 import DeviceInfoPanel from '../src/components/DeviceInfoPanel.vue';
-import ObjectInfoPanel from '../src/components/ObjectInfoPanel.vue';
 import StatusBadge from '../src/components/StatusBadge.vue';
-import GisDeviceLayerPanel from '../src/components/GisDeviceLayerPanel.vue';
-import { previewService } from '../src/services';
-import { createMockService } from '../src/services/mock';
-import { createAccessService } from '../src/services/access';
-import { usePreviewStore } from '../src/stores/preview';
-import { useResourceEditStore } from '../src/stores/resource-edit';
-import { useResourceLedgerEditStore } from '../src/stores/resource-ledger-edit';
+import { createDeviceStatusHttp } from '../src/services/device-status-http';
+import type { AuthenticatedRequest } from '../src/services/auth-http';
+import { ApiError } from '../src/services/types';
+import { initialResources } from '../src/mocks/resource-presets';
 import { useResourceStatusStore } from '../src/stores/resource-status';
-import { useGisWorkspaceStore } from '../src/stores/gis-workspace';
-import { useMonitoringStore } from '../src/stores/monitoring';
+import { deviceStatusSchema as schema, type DeviceStatusHeader, type DeviceStatusItem, type DeviceStatusImport, type DeviceStatusReceipt, type StatusPage } from '../src/types/device-status-snapshot';
 import { authorizeStore } from './helpers/auth';
-import { TestStorage } from './helpers/storage';
-// 仅复用相同的基础宿主，页面接线、事件与等待策略保持本地。
-import { clientTemplate, node, renderer, find, all, textOf, type HostNode } from './helpers/vue-client';
-import type { DeviceStatusSummary } from '../src/types/resource-status';
-import type { GisDeviceMapFrame } from '../src/maps/gis-device-display';
+import { clientTemplate, node, renderer, find, textOf, type HostNode } from './helpers/vue-client';
 
-vi.mock('../src/components/AppTable.vue', async () => {
-  const { defineComponent, h } = await import('vue');
-  return { default: defineComponent({ props: ['rows', 'columns', 'selected'], emits: ['select'],
-    setup(props, { emit, slots }) { return () => h('table-probe', { ...props }, props.rows.map((row: any) =>
-      h('row-probe', { id: row.id }, [h('button', { 'aria-label': '查看 ' + row.id, onClick: () => emit('select', row) }, row.id), slots.selection?.({ row }), slots[props.columns.find((column: any) => column.header === '运行状态').field]?.({ row })]))); } }) };
-});
-vi.mock('../src/components/AppDrawer.vue', async () => {
-  const { defineComponent, h } = await import('vue');
-  return { default: defineComponent({ props: ['visible'], setup(props, { slots }) { return () => props.visible ? h('drawer-probe', [slots.default?.(), slots.footer?.()]) : null; } }) };
-});
-vi.mock('../src/components/MapCanvas.vue', async () => {
-  const { defineComponent, h } = await import('vue');
-  return { default: defineComponent({ inheritAttrs: false, props: ['gisDeviceFrame', 'stations', 'selectedId', 'resourceMarkers'],
-    setup(props, { expose }) { expose({ locate() {}, locateResource() {} }); return () => h('map-probe', { ...props }); } }) };
-});
 vi.mock('../src/components/DeviceDetailTabs.vue', async () => {
   const { defineComponent, h } = await import('vue');
   return { default: defineComponent({ setup(_, { slots }) { return () => h('details-probe', [slots.basic?.(), slots.parameters?.(), slots.actions?.()]); } }) };
@@ -53,173 +22,165 @@ vi.mock('../src/composables/useDeviceKnowledgeSummary', async () => {
   const { ref } = await import('vue');
   return { useDeviceKnowledgeSummary: () => ({ summary: ref(null), status: ref('forbidden'), error: ref(''), retry() {} }) };
 });
-vi.mock('../src/components/SpectrumConfigPanel.vue', () => ({ default: { inheritAttrs: false, render: () => null } }));
-vi.mock('../src/components/GisResourceTree.vue', () => ({ default: { inheritAttrs: false, render: () => null } }));
-vi.mock('../src/components/GisResultLayerPanel.vue', () => ({ default: { inheritAttrs: false, render: () => null } }));
-vi.mock('../src/components/DeviceCoveragePanel.vue', () => ({ default: { inheritAttrs: false, render: () => null } }));
-vi.mock('../src/components/GisTaskPanel.vue', () => ({ default: { inheritAttrs: false, render: () => null } }));
-vi.mock('../src/components/InterferenceAnalysisPanel.vue', () => ({ default: { inheritAttrs: false, render: () => null } }));
-vi.mock('../src/components/InterferenceHistoryDrawer.vue', () => ({ default: { inheritAttrs: false, render: () => null } }));
-vi.mock('../src/components/InterferenceMeasureDrawer.vue', () => ({ default: { inheritAttrs: false, render: () => null } }));
-vi.mock('../src/components/InterferenceSourceDrawer.vue', () => ({ default: { inheritAttrs: false, render: () => null } }));
-vi.mock('../src/components/SituationMonitoringDrawer.vue', () => ({ default: { inheritAttrs: false, render: () => null } }));
-vi.mock('../src/components/MonitoringObjectPanel.vue', () => ({ default: { inheritAttrs: false, render: () => null } }));
-vi.mock('../src/components/ResourceExportDrawer.vue', () => ({ default: { inheritAttrs: false, render: () => null } }));
-vi.mock('../src/components/DecisionDialog.vue', () => ({ default: { inheritAttrs: false, render: () => null } }));
-vi.mock('../src/components/ResourceReadStatus.vue', () => ({ default: { inheritAttrs: false, render: () => null } }));
-vi.mock('../src/components/ResourceLedgerEditDrawer.vue', () => ({ default: { inheritAttrs: false, render: () => null } }));
-vi.mock('../src/components/ResourceLedgerImportDrawer.vue', () => ({ default: { inheritAttrs: false, render: () => null } }));
-vi.mock('../src/components/ResourceLedgerExportDrawer.vue', () => ({ default: { inheritAttrs: false, render: () => null } }));
-vi.mock('../src/components/DeviceConfigurationDrawer.vue', () => ({ default: { inheritAttrs: false, render: () => null } }));
-// 共用详情入口使用客户端模板，原有业务断言保持实际组件接线。
-await clientTemplate(GisObjectInfoPanel, 'src/components/GisObjectInfoPanel.vue', 'resource-ledger-render.ts');
-async function click(root: HostNode, label: string) {
-  const el = find(root, n => n.tag === 'button' && textOf(n).trim() === label);
-  expect(el, label).toBeDefined(); await (el!.props.onClick as () => unknown)(); await nextTick();
-}
-async function settle() { for (let i = 0; i < 12; i++) await nextTick(); }
-
-
 await Promise.all([
-  [ResourcesView, 'views/ResourcesView'], [SituationView, 'views/SituationView'],
-  [ResourceStatusPanel, 'components/ResourceStatusPanel'], [ResourceStatusBadge, 'components/ResourceStatusBadge'],
-  [ResourceLedgerFilters, 'components/ResourceLedgerFilters'], [DeviceInfoPanel, 'components/DeviceInfoPanel'],
-  [ResourceLedgerTree, 'components/ResourceLedgerTree'],
-  [ObjectInfoPanel, 'components/ObjectInfoPanel'], [StatusBadge, 'components/StatusBadge'],
-  [GisDeviceLayerPanel, 'components/GisDeviceLayerPanel'],
-].map(([component, path]) => clientTemplate(component as Component, 'src/' + path + '.vue', 'resource-ledger-render.ts')));
+  clientTemplate(ResourceStatusPanel, 'src/components/ResourceStatusPanel.vue', 'p06-status-entry.ts'),
+  clientTemplate(ResourceStatusBadge, 'src/components/ResourceStatusBadge.vue', 'p06-status-badge.ts'),
+  clientTemplate(DeviceInfoPanel, 'src/components/DeviceInfoPanel.vue', 'p06-device-detail.ts'),
+  clientTemplate(StatusBadge, 'src/components/StatusBadge.vue', 'p06-status-label.ts'),
+]);
+const revision = 'resource-1111111111111111', observedAt = '2026-10-21T00:00:00.000000Z';
+function header(): DeviceStatusHeader {
+  return { schema_version: schema, snapshot_id: 'DSS-' + 'a'.repeat(32), snapshot_revision: 'device-status-' + 'b'.repeat(64),
+    content_hash: 'b'.repeat(64), resource_revision: revision, resource_content_hash: 'e'.repeat(64), data_origin: 'SYNTHETIC_INTEGRATION',
+    source_label: '已持久化构造批次', provenance_note: '测试替身响应，非真实遥测', imported_at: '2026-10-23T10:00:00.000000Z', actor_id: 'editor',
+    total: 2, counts: { NORMAL: 0, FAULT: 1, OFFLINE: 0, UNKNOWN: 1, total: 2 }, first_observed_at: observedAt, last_observed_at: observedAt };
+}
+function records(): DeviceStatusItem[] {
+  const devices = initialResources().devices, first = devices.find(item => item.id === 'DV-0001')!, unknown = devices.find(item => item.id === 'DV-0004')!;
+  return [
+    { device_id: first.id, node_id: first.stationId, model_id: first.modelId, status: 'FAULT', alert: false, observed_at: observedAt, unknown_reasons: [], availability: first.availability ?? 'ACTIVE' },
+    { device_id: unknown.id, node_id: unknown.stationId, model_id: unknown.modelId, status: null, alert: null, observed_at: null, unknown_reasons: ['原始来源未提供状态、告警和采集时间'], availability: unknown.availability ?? 'ACTIVE' },
+  ];
+}
 let app: App<HostNode> | undefined, pinia: ReturnType<typeof createPinia> | undefined;
 afterEach(() => { app?.unmount(); app = undefined; if (pinia) disposePinia(pinia); pinia = undefined; vi.restoreAllMocks(); vi.unstubAllGlobals(); });
-async function mountEntry(url = '/resources') {
-  vi.stubGlobal('window', new EventTarget()); class TestDocument extends EventTarget { activeElement = null; }
+async function settle() { for (let i = 0; i < 15; i++) await nextTick(); }
+async function click(root: HostNode, label: string) {
+  const element = find(root, n => n.tag === 'button' && textOf(n).trim() === label);
+  expect(element, label).toBeDefined();
+  const handler = element!.props.onClick;
+  if (typeof handler !== 'function') throw new Error('控件缺少实际click事件');
+  await handler(); await settle();
+}
+function transportFixture() {
+  const headers = [header()], batches = new Map<string, DeviceStatusItem[]>([[header().snapshot_id, records()]]);
+  const receipts = new Map<string, DeviceStatusReceipt>(), posted: DeviceStatusImport[] = [];
+  const request = vi.fn<AuthenticatedRequest>().mockImplementation(async (path, init) => {
+    const url = new URL(path, 'http://unit-test.invalid'), query = url.searchParams;
+    const page = Number(query.get('page') ?? 1), pageSize = Number(query.get('page_size') ?? 20);
+    const pageOf = <T,>(items: T[]) => ({ schema_version: schema, items: items.slice((page - 1) * pageSize, page * pageSize), total: items.length, page, page_size: pageSize });
+    if (url.pathname === '/device-status/imports' && init?.method === 'POST') {
+      const input: unknown = JSON.parse(String(init.body));
+      // 工厂已严格校验请求；测试替身保存原body供断言，不在生产store计算观测。
+      const value = input as DeviceStatusImport; posted.push(value);
+      const added: DeviceStatusHeader = { ...header(), snapshot_id: 'DSS-' + 'c'.repeat(32), snapshot_revision: 'device-status-' + 'd'.repeat(64),
+        content_hash: 'd'.repeat(64), source_label: value.source_label, provenance_note: value.provenance_note, imported_at: '2026-10-23T11:00:00.000000Z' };
+      headers.unshift(added); batches.set(added.snapshot_id, value.records.map(item => {
+        const source = records().find(record => record.device_id === item.device_id);
+        if (!source) throw new ApiError('fixture device not found', 1002);
+        return { ...item, availability: source.availability };
+      }));
+      const receipt: DeviceStatusReceipt = { schema_version: schema, request_id: value.request_id, snapshot_id: added.snapshot_id, snapshot_revision: added.snapshot_revision,
+        resource_revision: added.resource_revision, imported_at: added.imported_at, total: added.total, content_hash: added.content_hash, data_origin: added.data_origin };
+      receipts.set(value.request_id, receipt); return receipt;
+    }
+    if (url.pathname.startsWith('/device-status/imports/')) {
+      const receipt = receipts.get(decodeURIComponent(url.pathname.split('/').at(-1)!));
+      if (!receipt) throw new ApiError('not found', 1002);
+      return structuredClone(receipt);
+    }
+    if (url.pathname === '/device-status/snapshots') {
+      return pageOf(headers.filter(item => !query.has('resource_revision') || item.resource_revision === query.get('resource_revision')));
+    }
+    const parts = url.pathname.split('/'), selected = headers.find(item => item.snapshot_id === parts[3]);
+    if (!selected) throw new ApiError('not found', 1002);
+    if (parts[4] === 'devices') {
+      const filter = query.get('status_filter') ?? 'ALL';
+      const rows = (batches.get(selected.snapshot_id) ?? []).filter(item => filter === 'ALL' || filter === 'UNKNOWN' && item.status === null || item.status === filter);
+      return { ...pageOf(rows), snapshot_id: selected.snapshot_id, snapshot_revision: selected.snapshot_revision, resource_revision: selected.resource_revision };
+    }
+    return structuredClone(selected);
+  });
+  return { request, posted, client: createDeviceStatusHttp(request as AuthenticatedRequest) };
+}
+async function mountEntry(allowImport = false) {
+  class TestDocument extends EventTarget { activeElement = null; }
   vi.stubGlobal('Document', TestDocument); vi.stubGlobal('document', new TestDocument());
   pinia = createPinia(); setActivePinia(pinia); const auth = authorizeStore();
-  const storage = new TestStorage(), raw = createMockService(() => storage);
-  // 每次返回新的同身份对象，验证真实访问包装的会话重验不会误清缓存。
-  const actual = { ...raw, getSession: async () => JSON.parse(JSON.stringify(auth.identity)) };
-  const access = createAccessService(() => actual, null);
-  for (const name of Object.keys(access)) vi.spyOn(previewService as any, name).mockImplementation((access as any)[name]);
-  const preview = usePreviewStore(); await preview.load();
-  const router = createRouter({ history: createMemoryHistory(), routes: [
-    { path: '/resources', component: ResourcesView }, { path: '/situation', component: SituationView },
-    { path: '/planning', component: { render: () => null } },
-  ] });
-  await router.push(url); await router.isReady();
-  app = renderer.createApp({ render: () => h(RouterView) }); app.use(pinia); app.use(router); app.provide(ssrContextKey, {});
-  const root = node('root'); app.mount(root); await settle();
-  if (url.startsWith('/resources')) await vi.waitFor(() => expect(useResourceStatusStore().catalog).not.toBeNull());
-  return { root, storage, raw, auth, preview, router, status: useResourceStatusStore(), editor: useResourceLedgerEditStore(), gis: useGisWorkspaceStore(), monitor: useMonitoringStore() };
+  const permissions = auth.identity!.permissions as string[];
+  if (!permissions.includes('resources.device.status.import')) permissions.push('resources.device.status.import');
+  const status = useResourceStatusStore(), transport = transportFixture(), resources = initialResources();
+  const props = reactive({ revision, enabled: true, allowImport, deviceId: 'DV-0001', observed: true });
+  const panel = ref<InstanceType<typeof ResourceStatusPanel> | null>(null), selected = vi.fn(), dirty = vi.fn(), busy = vi.fn();
+  const root = node('root');
+  app = renderer.createApp({ render: () => {
+    const device = resources.devices.find(item => item.id === props.deviceId)!;
+    return h('module-host', [
+      h(ResourceStatusPanel, { ref: panel, resourceRevision: props.revision, total: resources.devices.length, enabled: props.enabled,
+        allowImport: props.allowImport, services: transport.client, 'onSnapshot-selected': selected, onDirty: dirty, onBusy: busy }),
+      h(DeviceInfoPanel, { device, resources, statusDisplay: props.observed ? status.display(device) : undefined,
+        statusSnapshotRef: props.observed ? status.project(device.id, props.revision)?.ref ?? null : null,
+        maintenanceBinding: { context: 'gis', revision: props.revision, editable: false } }),
+    ]);
+  } });
+  app.use(pinia); app.provide(ssrContextKey, {}); app.mount(root); await settle();
+  return { root, auth, status, transport, resources, props, selected, dirty, busy, leave: () => panel.value!.requestLeave() };
 }
-const control = (root: HostNode, label: string) => { const el = find(root, n => n.props['aria-label'] === label); expect(el, label).toBeDefined(); return el!; };
-async function field(root: HostNode, label: string, value: string) {
-  const el = control(root, label); (el.props[el.tag === 'select' ? 'onChange' : 'onInput'] as Function)({ target: { value } }); await new Promise(resolve => setTimeout(resolve, 270)); await settle();
+function updateRaw(root: HostNode, value: string) {
+  const input = find(root, n => n.props['aria-label'] === '状态导入 JSON')!, update = input?.props['onUpdate:modelValue'];
+  expect(input).toBeDefined();
+  if (typeof update !== 'function') throw new Error('导入输入缺少实际v-model事件');
+  update(value);
 }
-async function check(root: HostNode, id: string) { (control(root, '勾选 ' + id).props.onChange as Function)({ target: { checked: true } }); await settle(); }
-const rows = (root: HostNode) => find(root, n => n.tag === 'table-probe')!.props.rows as any[];
-const frame = (root: HostNode) => find(root, n => n.tag === 'map-probe')!.props.gisDeviceFrame as GisDeviceMapFrame | undefined;
-const synchronize = async (root: HostNode) => { await click(root, '同步全部设备状态（414）'); await new Promise(resolve => setTimeout(resolve, 270)); await settle(); };
 
-// 真实页面、详情与同步模板联动；画布几何/颜色在独立组件测试执行。
-describe('台账与 GIS 状态同步入口', () => {
-  it('运行状态排序字段跟随可见观测，未知观测不借用基线状态', async () => {
-    const s = await mountEntry(); await field(s.root, '设备状态教学样例', 'abnormal'); await synchronize(s.root);
-    // 检查传给真实表格约定的字段；不把内存宿主当作浏览器排序验收。
-    const column = (find(s.root, n => n.tag === 'table-probe')!.props.columns as {field: string; header: string}[]).find(c => c.header === '运行状态')!;
-    const fault = rows(s.root).find(r => r.id === 'DV-0001'), unknown = rows(s.root).find(r => r.id === 'DV-0004');
-    expect(fault[column.field]).toBe('FAULT'); expect(fault.status).toBe('NORMAL');
-    expect(unknown[column.field]).toBe('UNKNOWN');
-    await field(s.root, '设备状态来源', 'baseline');
-    expect(rows(s.root).find(r => r.id === 'DV-0001')[column.field]).toBe('NORMAL');
-    expect(s.preview.data!.resources.devices.find(d => d.id === 'DV-0001')!.status).toBe('NORMAL');
-    expect(s.storage.writes).toBe(0);
+// 专用模块宿主使用实际组件和严格HTTP工厂；完整资源/GIS页由main/P02各自验收。
+describe('冻结状态面板与设备详情入口', () => {
+  it('显式选择真实批次才投影同版ref，未知记录和未覆盖设备都不借基线正常', async () => {
+    const s = await mountEntry(), before = JSON.stringify(s.resources);
+    expect(s.status.project('DV-0001', revision)).toBeNull(); await click(s.root, '已持久化构造批次');
+    expect(s.selected).toHaveBeenCalledWith({ snapshot_id: header().snapshot_id, snapshot_revision: header().snapshot_revision, resource_revision: revision });
+    expect(textOf(s.root)).toContain('设备故障'); expect(textOf(s.root)).toContain(observedAt);
+    s.props.deviceId = 'DV-0004'; await settle();
+    expect(textOf(s.root)).toContain('状态未提供'); expect(textOf(s.root)).toContain('告警未提供');
+    expect(s.status.project('DV-0004', revision)).toMatchObject({ status: null, alert: null, observedAt: null });
+    s.props.deviceId = 'DV-0005'; await settle(); expect(s.status.project('DV-0005', revision)).toBeNull();
+    expect(JSON.stringify(s.resources)).toBe(before);
   });
-  it('GIS 故障详情的来源底栏不再额外声明设备正常', async () => {
-    const s = await mountEntry('/situation?stationId=ND-0001&deviceId=DV-0001');
-    // 定向展示夹具修改当前详情 DTO，普通 GIS 不再绑定 Preview。
-    await vi.waitFor(()=>expect(useResourceReadStore().detail).not.toBeNull());const object=useResourceReadStore().detail!.object;if(object.kind==='device')object.status='FAULT'; await settle();
-    expect(textOf(s.root)).toContain('设备故障');
-    const footer = find(s.root, n => String(n.props.class).split(' ').includes('detail-footer'))!;
-    expect(footer).toBeDefined(); expect(textOf(footer)).toContain('数据来源：已保存资源');
-    expect(textOf(footer)).not.toContain('正常'); expect(s.storage.writes).toBe(0);
+  it('冻结资源R只读，普通资源展示仍用保存值，不把构造状态写回设备', async () => {
+    const s = await mountEntry(); await click(s.root, '已持久化构造批次');
+    expect(find(s.root, n => n.tag === 'input' && n.props.type === 'file')).toBeUndefined();
+    expect(s.transport.posted).toEqual([]); s.props.observed = false; await settle();
+    expect(s.status.mode).toBe('observed'); expect(s.resources.devices[0].status).toBe('NORMAL');
+    expect(s.transport.request.mock.calls.filter(([path]) => path.startsWith('/device-status/snapshots?')).every(([path]) => new URL(path, 'http://unit-test.invalid').searchParams.get('resource_revision') === revision)).toBe(true);
   });
-  it('筛选清空勾选；勾选同步仅当前页，全库同步仍由服务展开目标', async () => {
-    const s = await mountEntry(); expect(s.status.catalog).not.toBeNull();
-    await check(s.root, 'DV-0001'); await check(s.root, 'DV-0002'); await field(s.root, '搜索设备', 'DV-0001');
-    expect(textOf(s.root)).toContain('同步勾选设备状态（0）'); await check(s.root, 'DV-0001');
-    await field(s.root, '设备状态教学样例', 'abnormal'); await click(s.root, '同步勾选设备状态（1）'); await new Promise(resolve => setTimeout(resolve, 270)); await settle();
-    expect(previewService.synchronizeDeviceStatuses).toHaveBeenLastCalledWith(expect.objectContaining({ deviceIds: ['DV-0001'], scope: 'IDS' }));
-    expect(rows(s.root)[0].status).toBe('NORMAL'); expect(rows(s.root)[0].statusDisplay.status).toBe('FAULT');
-    await synchronize(s.root); expect(vi.mocked(previewService.synchronizeDeviceStatuses).mock.lastCall![0]).toMatchObject({ scope: 'ALL', deviceIds: [] });
-    (control(s.root, '查看 DV-0001').props.onClick as Function)(); await settle();
-    expect(textOf(s.root)).toContain('设备故障'); expect(textOf(s.root)).toContain('2026-10-16T08:00:00+08:00');
-    await field(s.root, '筛选设备状态', 'NORMAL'); expect(rows(s.root)).toEqual([]); expect(textOf(s.root)).toContain('详情和输入已保留');
-    expect(s.storage.writes).toBe(0);
+  it('状态筛选向服务端传批次和UNKNOWN，不对资源当前页筛出伪全库结论', async () => {
+    const s = await mountEntry(); await click(s.root, '已持久化构造批次');
+    const input = find(s.root, n => n.props['aria-label'] === '快照状态筛选')!, change = input.props.onChange;
+    if (typeof change !== 'function') throw new Error('状态筛选缺少实际change事件');
+    await change({ target: { value: 'UNKNOWN' } }); await settle();
+    expect(s.status.batchDetails?.total).toBe(1); expect(s.status.batchDetails?.items[0]?.device_id).toBe('DV-0004');
+    expect(s.transport.request.mock.calls.at(-1)?.[0]).toContain('status_filter=UNKNOWN');
   });
-  it('未知状态/告警筛选不混用基线，切回基线只清不支持条件', async () => {
-    const s = await mountEntry(); await field(s.root, '设备状态教学样例', 'abnormal'); await synchronize(s.root);
-    await field(s.root, '搜索设备', 'DV-000'); await field(s.root, '筛选附加告警', 'UNKNOWN');
-    expect(rows(s.root).map(r => r.id)).toEqual(['DV-0004', 'DV-0005']);
-    await field(s.root, '筛选设备状态', 'UNKNOWN'); expect(rows(s.root).map(r => r.id)).toEqual(['DV-0004']);
-    await field(s.root, '设备状态来源', 'baseline');
-    expect(control(s.root, '筛选设备状态').props.value).toBe('全部状态'); expect(control(s.root, '筛选附加告警').props.value).toBe('ALL');
-    expect(control(s.root, '搜索设备').props.value).toBe('DV-000'); expect(previewService.synchronizeDeviceStatuses).toHaveBeenCalledTimes(1);
+  it('显式导入前保护原始JSON，真实工厂只发校验后的body，回执后标记发起副本', async () => {
+    const s = await mountEntry(true), before = JSON.stringify(s.resources);
+    const value: DeviceStatusImport = { schema_version: schema, context: 'ledger', request_id: 'entry-import-one', base_revision: revision,
+      data_origin: 'SYNTHETIC_INTEGRATION', source_label: '入口显式构造导入', provenance_note: '测试用显式请求',
+      records: records().map(({ availability: _, ...record }) => record) };
+    updateRaw(s.root, JSON.stringify(value)); await settle();
+    expect(s.dirty).toHaveBeenLastCalledWith(true); expect(await s.leave()).toBe(false);
+    await click(s.root, '校验并导入');
+    expect(s.transport.posted).toEqual([value]); expect(s.status.receipt?.request_id).toBe(value.request_id);
+    expect(s.dirty).toHaveBeenLastCalledWith(false); expect(await s.leave()).toBe(true);
+    expect(JSON.stringify(s.resources)).toBe(before);
   });
-  it('同步及读取失败保留设备未保存表单和既有方案/诊断', async () => {
-    const s = await mountEntry(); (control(s.root, '查看 DV-0001').props.onClick as Function)(); await settle();
-    await click(s.root, '编辑设备参数'); await settle(); s.editor.form!.fields.antennaHeightM = '19';
-    const form = JSON.stringify(s.editor.form), history = JSON.stringify([s.preview.data!.planning, s.preview.data!.diagnosis]), resources = JSON.stringify(s.preview.data!.resources);
-    await field(s.root, '设备状态教学样例', 'abnormal'); await synchronize(s.root);
-    vi.mocked(previewService.synchronizeDeviceStatuses).mockRejectedValueOnce(new Error('服务暂不可用')); await synchronize(s.root);
-    expect(textOf(s.root)).toContain('服务暂不可用'); expect(JSON.stringify(s.editor.form)).toBe(form);
-    expect(JSON.stringify([s.preview.data!.planning, s.preview.data!.diagnosis])).toBe(history); expect(JSON.stringify(s.preview.data!.resources)).toBe(resources);
-    expect(s.storage.writes).toBe(0); s.editor.clearForSession();
+  it('脏JSON必须显式放弃，离开确认不隐式清空或生成导入', async () => {
+    const s = await mountEntry(true); updateRaw(s.root, '{invalid-but-retained'); await settle();
+    expect(await s.leave()).toBe(false); expect(s.transport.posted).toEqual([]);
+    await click(s.root, '放弃未提交导入输入'); expect(await s.leave()).toBe(true); expect(s.dirty).toHaveBeenLastCalledWith(false);
   });
-  it('台账观测跨页保留；普通 GIS 始终展示资源状态，网络监控独立', async () => {
-    const s = await mountEntry(); await field(s.root, '设备状态教学样例', 'abnormal'); await synchronize(s.root);
-    const count = vi.mocked(previewService.synchronizeDeviceStatuses).mock.calls.length;
-    await s.router.push('/situation?stationId=ND-0001&deviceId=DV-0001'); await settle();
-    expect(frame(s.root)!.points.find(p => p.id === 'DV-0001')!.status).toBe('NORMAL');
-    expect(frame(s.root)).not.toHaveProperty('statusSource'); expect(textOf(s.root)).not.toContain('设备状态同步');
-    expect(previewService.synchronizeDeviceStatuses).toHaveBeenCalledTimes(count);
-    const statusBefore = s.status.mode;
-    await s.gis.begin(); await settle(); expect(frame(s.root)!.points.find(p => p.id === 'DV-0001')!.status).toBe('NORMAL');
-    expect(s.status.mode).toBe(statusBefore);
-    await click(s.root, '退出编辑'); await settle(); expect(frame(s.root)!.points.find(p => p.id === 'DV-0001')!.status).toBe('NORMAL');
-    s.monitor.showNetwork(); await settle(); expect(frame(s.root)).toBeUndefined(); expect(s.status.mode).toBe(statusBefore);
-    s.gis.mapMode = 'resource'; await settle(); expect(frame(s.root)).not.toHaveProperty('statusSource');
-    await s.router.push('/resources'); await settle(); expect(rows(s.root).find(r => r.id === 'DV-0001').statusDisplay.status).toBe('FAULT');
-  });
-  it('GIS 状态筛选仅使用资源基线，编辑往返保留设备清单', async () => {
-    const s = await mountEntry('/situation?stationId=ND-0001'); await click(s.root, '图层管理'); await settle();
-    expect(all(s.root, n => n.tag === 'option' && n.props.value === 'UNKNOWN')).toEqual([]);
-    await field(s.root, '设备点位状态', 'FAULT');
-    const ids = frame(s.root)!.points.map(p => p.id);
-    expect(ids).toEqual(s.preview.data!.resources.devices.filter(d => d.status === 'FAULT').map(d => d.id));
-    await s.gis.begin(); await settle(); await click(s.root, '退出编辑'); await settle();
-    expect(frame(s.root)!.points.map(p => p.id)).toEqual(ids);
-    expect(control(s.root, '设备点位状态').props.value).toBe('FAULT');
-    expect(previewService.synchronizeDeviceStatuses).not.toHaveBeenCalled();
-  });
-  it('保存上下架使旧观测失效；重新同步正常不能把设备恢复上架', async () => {
-    const s = await mountEntry(); await synchronize(s.root);
-    const saving = s.editor.setAvailability(['DV-0001'], 'OFF_SHELF'); await settle();
-    expect(s.editor.decision?.title).toBe('下架设备'); s.editor.answer('save'); await saving; await settle();
-    expect(s.status.mode).toBe('baseline'); expect(s.status.records).toEqual({}); expect(textOf(s.root)).toContain('资源版本已变化');
-    await synchronize(s.root); const device = (await s.raw.loadPreview()).resources.devices[0];
-    expect(rows(s.root).find(r => r.id === device.id)!.statusDisplay.status).toBe('NORMAL'); expect(device.availability).toBe('OFF_SHELF');
-  });
-  it('切页后的迟到状态不会污染新页；失权后控件和观测停止使用', async () => {
-    const s = await mountEntry(); let finish!: (batch: DeviceStatusSummary) => void;
-    vi.mocked(previewService.synchronizeDeviceStatuses).mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
-    const btn = find(s.root, n => n.tag === 'button' && textOf(n).trim() === '同步全部设备状态（414）')!;
-    const pending = (btn.props.onClick as Function)(); await nextTick();
-    const request = vi.mocked(previewService.synchronizeDeviceStatuses).mock.lastCall![0], batch = await s.raw.synchronizeDeviceStatuses(request);
-    await s.router.push('/situation?stationId=ND-0001'); await settle(); finish(batch); await pending; await settle();
-    expect(s.status.records).toEqual({}); expect(s.status.mode).toBe('baseline');
-    expect(find(s.root, n => n.props['aria-label'] === '设备状态来源')).toBeUndefined();
-    expect(frame(s.root)).not.toHaveProperty('statusSource');
+  it('暂停/换版后拒绝迟到读取，失权后清除ref并隐藏导入', async () => {
+    const s = await mountEntry(true); let finish!: (value: StatusPage<DeviceStatusHeader>) => void;
+    s.transport.request.mockImplementationOnce(() => new Promise<StatusPage<DeviceStatusHeader>>(resolve => { finish = resolve; }));
+    const pending = s.status.list(); const signal = s.transport.request.mock.calls.at(-1)?.[1]?.signal;
+    s.props.enabled = false; await settle();
+    finish({ schema_version: schema, items: [header()], total: 1, page: 1, page_size: 20 }); await pending;
+    expect(signal?.aborted).toBe(true); expect(s.status.batch).toBeNull();
+    s.props.enabled = true; await settle(); await click(s.root, '已持久化构造批次');
+    s.props.revision = 'resource-2222222222222222'; await settle();
+    expect(s.status.project('DV-0001', revision)).toBeNull(); expect(s.status.mode).toBe('baseline');
     s.auth.accept({ ...s.auth.identity!, permissions: [] }); await settle();
-    expect(frame(s.root)).toBeUndefined(); expect(previewService.synchronizeDeviceStatuses).toHaveBeenCalledTimes(1);
+    expect(s.status.importable).toBe(false); expect(find(s.root, n => n.tag === 'input' && n.props.type === 'file')).toBeUndefined();
+    expect(s.status.snapshotRecords).toEqual({});
   });
 });
 

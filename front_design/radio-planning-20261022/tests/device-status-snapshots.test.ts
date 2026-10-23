@@ -3,7 +3,7 @@ import { createPinia, disposePinia, setActivePinia } from 'pinia';
 import { authorizeStore } from './helpers/auth';
 import { useResourceStatusStore } from '../src/stores/resource-status';
 import type { DeviceStatusClient } from '../src/services/device-status-http';
-import { deviceStatusSchema as schema, type DeviceStatusHeader } from '../src/types/device-status-snapshot';
+import { deviceStatusSchema as schema, type DeviceStatusHeader, type StatusPage } from '../src/types/device-status-snapshot';
 const revision = 'resource-1111111111111111';
 const header: DeviceStatusHeader = { schema_version: schema, snapshot_id: 'DSS-' + 'a'.repeat(32), snapshot_revision: 'device-status-' + 'b'.repeat(64),
   content_hash: 'b'.repeat(64), resource_revision: revision, resource_content_hash: 'c'.repeat(64), data_origin: 'SYNTHETIC_INTEGRATION',
@@ -45,5 +45,13 @@ describe('immutable status snapshot selection', () => {
     client.getSnapshot.mockImplementationOnce(() => new Promise(resolve => { done = resolve; }));
     const pending = status.select(header); auth.identity = { ...auth.identity!, id: 'other', sessionId: 'other' };
     done(header); await pending; expect(status.batch).toBeNull(); expect(client.queryDevices).not.toHaveBeenCalled();
+  });
+  it('cancels a generation-bound list request without treating the new number as an owner key', async () => {
+    const { status, client, auth } = setup(); let done!: (value: StatusPage<DeviceStatusHeader>) => void;
+    client.listSnapshots.mockImplementationOnce(() => new Promise<StatusPage<DeviceStatusHeader>>(resolve => { done = resolve; }));
+    const pending = status.list(), signal = client.listSnapshots.mock.calls.at(-1)?.[1]?.signal;
+    auth.generation++;
+    done({ schema_version: schema, items: [header], total: 1, page: 1, page_size: 20 }); await pending;
+    expect(signal?.aborted).toBe(true); expect(status.snapshots).toBeNull(); expect(status.busy).toBe(false);
   });
 });

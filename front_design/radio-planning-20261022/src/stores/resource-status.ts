@@ -31,7 +31,7 @@ export const useResourceStatusStore = defineStore('resource-status', () => {
   watch([() => auth.identity?.id, () => auth.identity?.sessionId], () => {
     clear(); pendingImport.value = null; importNotFound.value = false; receipt.value = null;
   }, { flush: 'sync' });
-  watch(() => auth.generation, cancel, { flush: 'sync' });
+  watch(() => auth.generation, () => cancel(), { flush: 'sync' });
   watch(() => readable(), value => { if (!value) clear(); }, { flush: 'sync' });
   function bind(client: DeviceStatusClient | null, resourceRevision: string, importAllowed = false) {
     allowImport.value = importAllowed;
