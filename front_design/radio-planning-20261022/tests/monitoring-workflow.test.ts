@@ -6,6 +6,19 @@ import { createMockService } from '../src/services/mock';
 import { TestStorage } from './helpers/storage';
 import { RESOURCE_STORAGE_KEY,PLANNING_STORAGE_KEY,SPECTRUM_STORAGE_KEY,SYSTEM_STORAGE_KEY } from '../src/config/demo';
 import { interferenceVariants } from '../src/mocks/interference-presets';
+import { resolveDeviceStatusProjection, type FrozenDeviceStatusProjection } from '../src/stores/monitoring';
+
+describe('P06冻结状态投影', () => {
+  const anchor = { snapshotId: 'snapshot-A', snapshotRevision: 'snapshot-revision-A', resourceRevision: 'resource-A' };
+  const row: FrozenDeviceStatusProjection = { ref: { ...anchor, deviceId: 'device-A' }, status: null, alert: null, observedAt: null,
+    unknownReasons: ['构造资料未提供状态、告警和时间'], dataOrigin: 'SYNTHETIC_INTEGRATION' };
+  it('四项齐全且同版同快照才消费，nullable不补正常', () => {
+    expect(resolveDeviceStatusProjection(row, anchor, 'device-A')).toEqual(row);
+    expect(resolveDeviceStatusProjection(row, { ...anchor, resourceRevision: 'resource-B' }, 'device-A')).toBeNull();
+    expect(resolveDeviceStatusProjection(row, anchor, 'device-B')).toBeNull(); expect(resolveDeviceStatusProjection({ ...row, ref: null }, anchor, 'device-A')).toBeNull();
+    expect(resolveDeviceStatusProjection({ ...row, unknownReasons: [] }, anchor, 'device-A')).toBeNull();
+  });
+});
 
 describe('监控数据来源',()=>{
   it('无确认网络时使用独立演示；纯读取不初始化业务存储',async()=>{

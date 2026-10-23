@@ -1,305 +1,116 @@
 <template>
-  <div class="spectrum-panel">
-    <!-- 只展示可用教学频段，不擅自补齐或保存用户配置。 -->
-    <p class="spectrum-hint"
-      >GIS 频谱态势支持：{{
-        SPECTRUM_MONITORING_BANDS.map((b) => b.minKhz + '–' + b.maxKhz + ' kHz').join('、')
-      }}。保存完整配置并通过当前版本的 Mock 检查后可播放；其他频段暂无观测预设。</p
-    >
-    <div class="toolbar spectrum-toolbar"
-      ><button
-        class="btn primary"
-        :disabled="!store.canEdit || store.busy"
-        @click="store.open()"
-        >新增配置</button
-      ><button
-        class="btn"
-        :disabled="!auth.can('resources.view') || store.loading || store.busy || store.dirty"
-        @click="store.load()"
-        >刷新</button
-      ><button
-        class="btn"
-        :disabled="!auth.can('resources.reset') || store.busy"
-        @click="store.reset()"
-        >重置频谱配置</button
-      >
-      <label class="demo-settings"
-        >演示检查<select
-          v-model="demo"
-          :disabled="store.busy"
-          aria-label="Mock 检查场景"
-          ><option value="success">模拟成功</option
-          ><option value="connection-failed">模拟连接失败</option
-          ><option value="format-invalid">模拟格式异常</option></select
-        ></label
-      >
-    </div>
-    <p
-      v-if="store.loading"
-      role="status"
-      >读取中…</p
-    ><p
-      v-if="store.error"
-      class="error"
-      role="alert"
-      >{{ store.error }}</p
-    ><p
-      v-if="store.notice"
-      class="notice"
-      role="status"
-      >{{ store.notice }}</p
-    >
-    <!-- 与设备台账共用列表模板，检查结果始终标明所属配置版本。 -->
-    <!-- 列表沿用服务返回顺序，不开放表头排序。 -->
-    <AppTable
-      :rows="store.workspace?.sources ?? []"
-      :columns="columns"
-      :loading="store.loading"
-      :server="true"
-      :sortable="false"
-      :total="store.total"
-      :page-size="store.query.pageSize"
-      :first="(store.query.pageNum - 1) * store.query.pageSize"
-      @page="
-        store.load({ pageNum: Math.floor($event.first / $event.rows) + 1, pageSize: $event.rows })
-      "
-    >
-      <template #name="{ row }"
-        ><strong>{{ row.name }}</strong
-        ><small class="cell-note">{{ row.id }}</small></template
-      >
-      <template #range="{ row }"
-        ><span class="nowrap"
-          >{{ row.minKhz ?? '待补全' }}–{{ row.maxKhz ?? '待补全' }}</span
-        ></template
-      >
-      <template #protocol="{ row }"
-        ><span class="nowrap">{{
-          row.protocol === 'HTTP_JSON' ? 'HTTP JSON' : 'WebSocket JSON'
-        }}</span></template
-      >
-      <template #enabled="{ row }"
-        ><span
-          class="chip"
-          :class="{ amber: !row.enabled }"
-          >{{ row.enabled ? '启用' : '停用' }}</span
-        ></template
-      >
-      <template #connection="{ row }">{{ checkLabel(row, 'connection') }}</template>
-      <template #validation="{ row }"
-        >{{ checkLabel(row, 'validation')
-        }}<small
-          v-if="last(row)"
-          class="cell-note"
-          >{{ last(row)!.message }} · 配置版本 {{ last(row)!.configRevision }}</small
-        ></template
-      >
-      <template #checkedAt="{ row }">{{ last(row)?.checkedAt ?? '未检查' }}</template>
-      <template #actions="{ row: source }"
-        ><div class="toolbar"
-          ><button
-            class="btn"
-            :disabled="!store.canEdit || store.busy"
-            @click="store.open(source)"
-            >编辑 / 启停</button
-          ><button
-            class="btn"
-            :disabled="
-              !store.canEdit ||
-              store.busy ||
-              store.dirty ||
-              !source.enabled ||
-              source.minKhz === null
-            "
-            @click="store.check(source, demo)"
-            >执行 Mock 检查</button
-          ></div
-        >
-      </template>
-    </AppTable>
-    <AppDrawer
-      :visible="!!store.form"
-      title="频谱接口配置"
-      subtitle="只保存教学配置，不建立真实连接。"
-      @update:visible="!$event && store.leave()"
-    >
-      <form
-        v-if="store.form"
-        class="fields"
-        @submit.prevent="store.save()"
-      >
-        <p class="readonly-note">{{ store.form.id }}</p>
-        <label
-          >名称<input
-            v-model="store.form.name"
-            :disabled="!store.canEdit || store.busy"
-            maxlength="60"
-        /></label>
-        <label
-          >协议<select
-            v-model="store.form.protocol"
-            :disabled="!store.canEdit || store.busy"
-            ><option value="HTTP_JSON">HTTP JSON</option
-            ><option value="WEBSOCKET_JSON">WebSocket JSON</option></select
-          ></label
-        >
-        <label
-          >接入地址<input
-            v-model="store.form.endpoint"
-            :disabled="!store.canEdit || store.busy"
-            maxlength="500"
-        /></label>
-        <label
-          >采集周期 / s<input
-            v-model.number="store.form.intervalSeconds"
-            type="number"
-            :disabled="!store.canEdit || store.busy"
-        /></label>
-        <label
-          >频段下限 / kHz<input
-            v-model.number="store.form.minKhz"
-            type="number"
-            :disabled="!store.canEdit || store.busy"
-        /></label>
-        <label
-          >频段上限 / kHz<input
-            v-model.number="store.form.maxKhz"
-            type="number"
-            :disabled="!store.canEdit || store.busy"
-        /></label>
-        <label
-          ><input
-            v-model="store.form.enabled"
-            type="checkbox"
-            :disabled="!store.canEdit || store.busy"
-          />启用</label
-        >
-        <p
-          v-if="store.error"
-          class="error"
-          >{{ store.error }}</p
-        ><button
-          class="btn primary"
-          :disabled="!store.canEdit || store.busy"
-          >{{ store.busy ? '保存中…' : '保存配置' }}</button
-        >
+  <section class="source-panel">
+    <h3>频谱采集源</h3>
+    <p class="muted">SYNTHETIC_INTEGRATION · 配置声明 · 未核实真实采集</p>
+    <p v-if="!canView" role="alert">无权读取采集源</p>
+    <template v-else>
+      <form class="toolbar" @submit.prevent="store.load(1)">
+        <input v-model="s.search" aria-label="搜索采集源" maxlength="120" placeholder="来源编号或名称" />
+        <select v-model="s.enabled" aria-label="启停筛选"><option :value="undefined">全部</option><option :value="true">启用</option><option :value="false">停用</option></select>
+        <button class="btn" :disabled="s.loading || locked" title="搜索" aria-label="搜索"><i class="pi pi-search" /></button>
+        <button class="btn" type="button" :disabled="s.loading || locked" title="刷新" aria-label="刷新" @click="store.load()"><i class="pi pi-refresh" /></button>
+        <button class="btn primary" type="button" :disabled="!canEdit || locked" @click="open()"><i class="pi pi-plus" /> 新增来源</button>
       </form>
-      <template #footer
-        ><p>配置有变化后旧检查失效，需重新检查。</p
-        ><button
-          class="btn"
-          :disabled="store.busy"
-          @click="store.leave()"
-          >关闭</button
-        ></template
-      >
+      <p v-if="s.loading" role="status">读取中</p>
+      <p v-if="s.error" class="error" role="alert">{{ s.error }}</p>
+      <p v-if="s.notice" role="status">{{ s.notice }}</p>
+      <p v-if="s.stale" class="error">保留上次列表，当前刷新未成功</p>
+      <div v-if="s.pending" class="pending" role="status">
+        <p>待核实请求：{{ s.pending.requestId }}</p>
+        <button class="btn" :disabled="s.busy" @click="store.verify()">核实回执</button>
+        <button class="btn" :disabled="s.busy || !canEdit" @click="store.retry()">原号重试</button>
+      </div>
+      <div class="table-scroll">
+        <table><thead><tr><th>来源</th><th>声明地址 / 协议</th><th>频段 / kHz</th><th>周期 / s</th><th>状态</th><th>离线校验</th><th>操作</th></tr></thead>
+          <tbody><tr v-for="row in s.rows" :key="row.sourceId">
+            <td>{{ row.draft.name }}<small>{{ row.sourceId }}<br />{{ row.configRevision }}</small></td>
+            <td>{{ row.draft.endpoint ?? '未知' }}<small>{{ row.draft.protocolHint ?? '未知' }}</small></td>
+            <td>{{ row.draft.minKhz ?? '未知' }} ~ {{ row.draft.maxKhz ?? '未知' }}</td><td>{{ row.draft.intervalSeconds ?? '未知' }}</td>
+            <td>{{ row.draft.enabled ? '启用声明' : '停用声明' }}<small>连接未尝试</small></td>
+            <td>{{ row.latestOfflineCheck ? row.latestOfflineCheck.validation === 'VALID' ? '格式有效' : '资料不完整' : '未校验' }}<small>{{ row.latestOfflineCheck?.checkedAt }}</small></td>
+            <td><div class="toolbar">
+              <button class="btn" :disabled="locked" title="查看或编辑" aria-label="查看或编辑" @click="open(row)"><i class="pi pi-pencil" /></button>
+              <button class="btn" :disabled="!canEdit || locked || store.dirty" @click="store.check(row)">离线校验</button>
+              <button class="btn" :disabled="locked" title="导出" aria-label="导出" @click="download(row)"><i class="pi pi-download" /></button>
+              <button class="btn" :disabled="locked" @click="$emit('select-source', { sourceId: row.sourceId, configRevision: row.configRevision })">选择</button>
+            </div></td>
+          </tr><tr v-if="!s.loading && !s.rows.length"><td colspan="7">暂无采集源</td></tr></tbody>
+        </table>
+      </div>
+      <div class="toolbar pager"><button class="btn" :disabled="s.page <= 1 || s.loading || locked" aria-label="上一页" title="上一页" @click="store.load(s.page - 1)"><i class="pi pi-chevron-left" /></button>
+        <span>{{ s.page }} / {{ Math.max(1, Math.ceil(s.total / s.pageSize)) }} · {{ s.total }} 项</span>
+        <button class="btn" :disabled="s.page * s.pageSize >= s.total || s.loading || locked" aria-label="下一页" title="下一页" @click="store.load(s.page + 1)"><i class="pi pi-chevron-right" /></button></div>
+    </template>
+    <AppDrawer :visible="!!s.draft" title="采集源配置" @update:visible="!$event && close()">
+      <form v-if="s.draft" class="fields" @submit.prevent="store.save()">
+        <fieldset :disabled="!canEdit || locked">
+          <label>来源编号<input v-model="s.sourceId" :disabled="s.baseRevision !== null" maxlength="120" required /></label>
+          <label>名称<input v-model="s.draft.name" maxlength="60" required /></label>
+          <label>协议声明<select v-model="s.draft.protocolHint"><option :value="null">未知</option><option value="HTTP_JSON">HTTP JSON</option><option value="WEBSOCKET_JSON">WebSocket JSON</option></select></label>
+          <label>地址声明<input :value="s.draft.endpoint ?? ''" maxlength="500" @input="s.draft.endpoint = ($event.target as HTMLInputElement).value || null" /></label>
+          <label v-for="field in numericFields" :key="field.key">{{ field.label }}<input :value="s.draft[field.key] ?? ''" type="number" :min="field.key === 'intervalSeconds' ? 1 : 0" :max="field.key === 'intervalSeconds' ? 3600 : undefined" :step="field.key === 'intervalSeconds' ? 1 : 'any'" @input="s.draft[field.key] = numeric($event)" /></label>
+          <label>来源说明<textarea v-model="s.draft.provenanceNote" maxlength="500" required /></label>
+          <label class="toggle"><input v-model="s.draft.enabled" type="checkbox" />启用声明</label>
+        </fieldset>
+        <p class="muted">SYNTHETIC_INTEGRATION · 连接未尝试</p>
+        <p v-if="s.error" role="alert" class="error">{{ s.error }}</p>
+        <button class="btn primary" :disabled="!canEdit || locked || !store.dirty"><i class="pi pi-save" /> 保存</button>
+      </form>
+      <template v-if="s.baseRevision">
+        <p class="revision">{{ s.baseRevision }}</p>
+        <div class="toolbar"><button class="btn" :disabled="locked" @click="store.history()">版本记录</button><button class="btn" :disabled="locked" @click="store.checks()">本版本校验记录</button></div>
+        <ul><li v-for="row in s.history" :key="row.configRevision"><button class="btn version" @click="historical = row">{{ row.createdAt }} · {{ row.configRevision }}</button><button class="btn" title="导出历史版本" aria-label="导出历史版本" @click="download(row)"><i class="pi pi-download" /></button></li></ul>
+        <div v-if="s.historyTotal" class="toolbar"><button class="btn" :disabled="s.historyPage <= 1" @click="store.history(s.historyPage - 1)">上一页</button><span>{{ s.historyPage }} · {{ s.historyTotal }} 项</span><button class="btn" :disabled="s.historyPage * 10 >= s.historyTotal" @click="store.history(s.historyPage + 1)">下一页</button></div>
+        <ul><li v-for="row in s.checks" :key="row.checkId">{{ row.checkedAt }} · {{ row.validation }} · 连接未尝试<ul><li v-for="issue in row.issues" :key="issue.field + issue.code">{{ issue.field }}：{{ issue.message }}</li></ul></li></ul>
+        <div v-if="s.checkTotal" class="toolbar"><button class="btn" :disabled="s.checkPage <= 1" @click="store.checks(s.checkPage - 1)">上一页</button><span>{{ s.checkPage }} · {{ s.checkTotal }} 项</span><button class="btn" :disabled="s.checkPage * 10 >= s.checkTotal" @click="store.checks(s.checkPage + 1)">下一页</button></div>
+        <dl v-if="historical" class="history"><dt>历史版本</dt><dd>{{ historical.configRevision }}</dd><template v-for="(value, key) in historical.draft" :key="key"><dt>{{ key }}</dt><dd>{{ value ?? '未知' }}</dd></template></dl>
+      </template>
+      <template #footer><button class="btn" :disabled="locked" @click="close()">关闭</button></template>
     </AppDrawer>
-    <DecisionDialog
-      :request="store.decision"
-      @answer="store.answer"
-    />
-  </div>
+    <DecisionDialog :request="decision" @answer="answer" />
+  </section>
 </template>
 <script setup lang="ts">
-import { SPECTRUM_MONITORING_BANDS } from '../config/demo';
-import { onMounted, onBeforeUnmount, ref } from 'vue';
+import { computed, onBeforeUnmount, ref, watch } from 'vue';
 import AppDrawer from './AppDrawer.vue';
-import AppTable from './AppTable.vue';
 import DecisionDialog from './DecisionDialog.vue';
-import { useSpectrumStore } from '../stores/spectrum';
-import { useAuthStore } from '../stores/auth';
-import type { SpectrumDemo, SpectrumSource } from '../types/spectrum';
-const store = useSpectrumStore(),
-  auth = useAuthStore(),
-  demo = ref<SpectrumDemo>('success');
-onMounted(() => {
-  if (!store.workspace) void store.load();
-});
-onBeforeUnmount(store.stopReading);
-// 行摘要直接带最近检查，页面不下载或扫描完整检查历史。
-const last = (
-  s: SpectrumSource & { latestCheck?: import('../types/spectrum').SpectrumCheck | null },
-) => s.latestCheck;
-const label = (state: string) =>
-  ({ SUCCESS: '成功', FAILED: '失败', NOT_RUN: '未执行' })[state] ?? state;
-const columns = [
-  { field: 'name', header: '采集源名称' },
-  { field: 'endpoint', header: '接入地址', sortable: false },
-  { field: 'protocol', header: '协议', sortable: false },
-  { field: 'intervalSeconds', header: '周期（s）' },
-  { field: 'range', header: '采集频段（kHz）', sortable: false },
-  { field: 'enabled', header: '启停状态', sortable: false },
-  { field: 'connection', header: '连接检查', sortable: false },
-  { field: 'validation', header: '数据校验', sortable: false },
-  { field: 'checkedAt', header: '最近检查时间', sortable: false },
-];
-function checkLabel(source: SpectrumSource, field: 'connection' | 'validation') {
-  const check = last(source);
-  if (!check) return '未检查';
-  return !source.enabled || check.configRevision !== source.revision
-    ? '旧检查已失效，请重新检查'
-    : label(check[field]);
+import { createSpectrumSourcesStore } from '../stores/spectrum-sources';
+import type { SpectrumSourceServices, SpectrumSourceVersion } from '../types/spectrum-source';
+import type { Decision, DecisionRequest } from '../types/resource-edit';
+const props = defineProps<{ services: SpectrumSourceServices; canView: boolean; canEdit: boolean; sessionGeneration: string }>();
+const emit = defineEmits<{ 'dirty-change': [value: boolean]; 'busy-change': [value: boolean]; saved: [value: { sourceId: string; configRevision: string }]; 'select-source': [value: { sourceId: string; configRevision: string }] }>();
+const store = createSpectrumSourcesStore(props.services, () => props), s = store.state;
+const locked = computed(() => s.busy || !!s.pending);
+const historical = ref<SpectrumSourceVersion | null>(null), decision = ref<DecisionRequest | null>(null);
+let resolve: ((value: Decision) => void) | undefined;
+function answer(value: Decision) { decision.value = null; resolve?.(value); resolve = undefined; }
+const numericFields = [{ key: 'intervalSeconds', label: '声明周期 / s' }, { key: 'minKhz', label: '下限 / kHz' }, { key: 'maxKhz', label: '上限 / kHz' }] as const;
+function numeric(event: Event) { const raw = (event.target as HTMLInputElement).value; return raw === '' ? null : Number(raw); }
+async function requestLeave() {
+  if (locked.value || decision.value) return false;
+  if (!store.dirty) return true;
+  const value = await new Promise<Decision>(done => { resolve = done; decision.value = { title: '未保存配置', message: '采集源配置尚未保存', saveLabel: props.canEdit ? '保存并离开' : undefined, discardLabel: '放弃草稿', cancelLabel: '继续编辑' }; });
+  if (value === 'cancel') return false;
+  if (value === 'save') { await store.save(); return !store.dirty && !locked.value; }
+  store.discard(); return true;
 }
+async function open(row?: SpectrumSourceVersion) { if (await requestLeave()) { historical.value = null; store.edit(row); } }
+async function close() { if (await requestLeave()) store.discard(); }
+async function download(row: SpectrumSourceVersion) {
+  const generation = props.sessionGeneration;
+  try { const blob = await props.services.exportSource({ sourceId: row.sourceId, configRevision: row.configRevision });
+    if (generation !== props.sessionGeneration || !props.canView) return;
+    const url = URL.createObjectURL(blob), anchor = document.createElement('a'); anchor.href = url; anchor.download = 'spectrum-source-' + row.configRevision + '.json'; anchor.click(); setTimeout(() => URL.revokeObjectURL(url), 1000);
+  } catch (reason) { if (generation === props.sessionGeneration) s.error = reason instanceof Error ? reason.message : '导出失败'; }
+}
+function clearForSession() { answer('cancel'); historical.value = null; store.clearForSession(); }
+watch(() => [props.sessionGeneration, props.canView, props.canEdit], () => { clearForSession(); if (props.canView) void store.load(1); }, { immediate: true });
+watch(() => store.dirty, value => emit('dirty-change', value), { immediate: true });
+watch(locked, value => emit('busy-change', value), { immediate: true });
+watch(() => s.receipt?.requestId, () => { if (s.receipt?.operationType === 'SOURCE_SAVE') emit('saved', { sourceId: s.receipt.sourceId, configRevision: s.receipt.configRevision }); });
+onBeforeUnmount(() => { answer('cancel'); store.clearForSession(); });
+defineExpose({ requestLeave, stop: store.stop, clearForSession });
 </script>
 <style scoped>
-.spectrum-panel {
-  padding: 20px;
-}
-.cell-note {
-  display: block;
-  margin-top: 6px;
-  color: var(--muted);
-  font-size: 11px;
-  overflow-wrap: anywhere;
-}
-.nowrap {
-  white-space: nowrap;
-}
-.demo-settings {
-  display: flex;
-  flex-direction: row;
-  align-items: center;
-  gap: 8px;
-  margin-left: auto;
-  color: var(--muted);
-  font-size: 12px;
-}
-.demo-settings select {
-  width: auto;
-}
-.spectrum-hint {
-  margin: 0 0 12px;
-  color: var(--muted);
-  font-size: 12px;
-  line-height: 1.7;
-}
-@media (max-width: 900px) {
-  .demo-settings {
-    flex-basis: 100%;
-    margin-left: 0;
-  }
-}
-.spectrum-panel > .toolbar {
-  flex-wrap: wrap;
-  margin-bottom: 16px;
-}
-.spectrum-panel :deep(td) {
-  max-width: 280px;
-  overflow-wrap: anywhere;
-}
-.fields {
-  display: grid;
-  gap: 15px;
-}
-.fields label {
-  display: grid;
-  gap: 7px;
-}
-.error {
-  color: #ffb4b4;
-  margin: 12px 0;
-}
-dd {
-  overflow-wrap: anywhere;
-}
+.source-panel{padding:16px;min-width:0}.source-panel h3{font-size:16px;margin:0 0 8px}.toolbar{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:10px 0}.toolbar input{max-width:260px}.table-scroll{overflow:auto}table{width:100%;border-collapse:collapse;font-size:12px}th,td{text-align:left;border-bottom:1px solid var(--line);padding:10px;vertical-align:top;overflow-wrap:anywhere}td{max-width:260px}small{display:block;color:var(--muted);font-size:11px;margin-top:5px;overflow-wrap:anywhere}.muted{color:var(--muted);font-size:12px}.error{color:#eeb0aa}.fields,fieldset{display:grid;gap:12px}fieldset{border:0;padding:0;min-width:0}.fields label{display:grid;gap:6px}.fields .toggle{display:flex;align-items:center}.toggle input{width:auto}.pending{border-left:3px solid #cfb568;padding:8px;overflow-wrap:anywhere}.revision,.history{font-size:12px;overflow-wrap:anywhere}.history dd{margin:0 0 8px}.version{white-space:normal;text-align:left;overflow-wrap:anywhere}ul{padding-left:18px;font-size:12px;overflow-wrap:anywhere}.pager{justify-content:flex-end}@media(max-width:700px){.source-panel{padding:10px}th,td{padding:8px}.toolbar input{max-width:100%}}
 </style>

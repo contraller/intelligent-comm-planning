@@ -7,6 +7,25 @@ import type { MonitoringContext, MonitoringFrameResult, SpectrumMonitoringContex
 import { useAuthStore } from './auth';
 import { useGisWorkspaceStore } from './gis-workspace';
 
+export interface FrozenDeviceStatusRef { snapshotId: string; snapshotRevision: string; resourceRevision: string; deviceId: string }
+export type FrozenDeviceStatusAnchor = Omit<FrozenDeviceStatusRef, 'deviceId'>;
+export interface FrozenDeviceStatusProjection {
+  ref: FrozenDeviceStatusRef | null; status: 'NORMAL' | 'FAULT' | 'OFFLINE' | null; alert: boolean | null;
+  observedAt: string | null; unknownReasons: string[]; dataOrigin: 'SYNTHETIC_INTEGRATION';
+}
+// 只认宿主给定的冻结锚点，缺任一身份或未知说明时整条投影拒绝。
+export function resolveDeviceStatusProjection(value: FrozenDeviceStatusProjection | null | undefined, anchor: FrozenDeviceStatusAnchor | null | undefined, deviceId: string): FrozenDeviceStatusProjection | null {
+  if (!value?.ref || !anchor || !deviceId || value.dataOrigin !== 'SYNTHETIC_INTEGRATION') return null;
+  const keys = ['snapshotId', 'snapshotRevision', 'resourceRevision'] as const;
+  if (keys.some(key => !anchor[key] || value.ref![key] !== anchor[key]) || value.ref.deviceId !== deviceId) return null;
+  if (value.status !== null && !['NORMAL', 'FAULT', 'OFFLINE'].includes(value.status)) return null;
+  if (value.alert !== null && typeof value.alert !== 'boolean') return null;
+  if (value.observedAt !== null && !Number.isFinite(Date.parse(value.observedAt))) return null;
+  if (!Array.isArray(value.unknownReasons) || value.unknownReasons.some(reason => typeof reason !== 'string' || !reason.trim())) return null;
+  if ([value.status, value.alert, value.observedAt].includes(null) && !value.unknownReasons.length) return null;
+  return value;
+}
+
 // 只保存当前标签页的展示状态；两个通道独立，不把频谱异常改写成干扰或故障场景。
 export const useMonitoringStore = defineStore('monitoring', () => {
   const auth=useAuthStore(),gis=useGisWorkspaceStore();
@@ -16,6 +35,12 @@ export const useMonitoringStore = defineStore('monitoring', () => {
   const networkLoading=ref(false),spectrumLoading=ref(false),networkError=ref(''),spectrumError=ref('');
   const networkReadAt=ref(''),spectrumReadAt=ref('');
   const selectedDeviceId=ref(''),selectedStationId=ref(''),selectedLinkId=ref('');
+  const deviceStatusAnchor=ref<FrozenDeviceStatusAnchor|null>(null),deviceStatusProjections=ref<Record<string,FrozenDeviceStatusProjection>>({});
+  function bindDeviceStatus(anchor:FrozenDeviceStatusAnchor|null,rows:Record<string,FrozenDeviceStatusProjection>){
+    const captured=anchor?{...anchor}:null,next:Record<string,FrozenDeviceStatusProjection>={};
+    for(const [id,row] of Object.entries(rows)){const valid=resolveDeviceStatusProjection(row,captured,id);if(valid)next[id]=JSON.parse(JSON.stringify(valid));}
+    deviceStatusAnchor.value=captured;deviceStatusProjections.value=next;
+  }
   const networkState=reactive(initialPlaybackState()),spectrumState=reactive(initialPlaybackState());
   const networkReadable=computed(()=>auth.can('situation.view')&&auth.can('planning.view')&&!auth.blocked);
   const spectrumReadable=computed(()=>auth.can('situation.view')&&auth.can('resources.view')&&!auth.blocked);
@@ -138,8 +163,10 @@ export const useMonitoringStore = defineStore('monitoring', () => {
   function clearForSession(){
     stop();networkPlayer.clear();spectrumPlayer.clear();context.value=null;networkResult.value=null;spectrumContext.value=null;spectrumResult.value=null;
     taskId.value=null;sourceId.value='';networkKey='';spectrumKey='';networkError.value='';spectrumError.value='';networkReadAt.value='';spectrumReadAt.value='';clearSelection();
+    bindDeviceStatus(null,{});
   }
   watch(()=>auth.generation,()=>{
+    bindDeviceStatus(null,{});
     networkSerial++;spectrumSerial++;networkLoading.value=false;spectrumLoading.value=false;
     networkPlayer.setActive(false);spectrumPlayer.setActive(false);syncPlayback();
   },{flush:'sync'});
@@ -147,7 +174,7 @@ export const useMonitoringStore = defineStore('monitoring', () => {
   onScopeDispose(()=>{networkPlayer.clear();spectrumPlayer.clear();});
   return {tab,open,visible,taskId,context,networkResult,spectrumContext,spectrumResult,sourceId,source,network,networkState,spectrumState,
     networkLoading,spectrumLoading,networkError,spectrumError,networkReadAt,spectrumReadAt,networkReadable,spectrumReadable,spectrumStale,
-    selectedDeviceId,selectedStationId,selectedLinkId,loadNetwork,loadSpectrum,refreshNetwork,refreshSpectrum,selectSource,
+    selectedDeviceId,selectedStationId,selectedLinkId,deviceStatusAnchor,deviceStatusProjections,bindDeviceStatus,loadNetwork,loadSpectrum,refreshNetwork,refreshSpectrum,selectSource,
     showNetwork,selectDevice,selectStation,selectLink,stop,clearForSession,
     restartNetwork:()=>networkPlayer.restart(),restartSpectrum:()=>spectrumPlayer.restart()};
 });

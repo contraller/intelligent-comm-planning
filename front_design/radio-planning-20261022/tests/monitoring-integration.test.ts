@@ -18,6 +18,9 @@ import { readSystem,writeSystem } from '../src/services/system-storage';
 import { PLANNING_POLL_MS,DIAGNOSIS_POLL_MS } from '../src/config/demo';
 import SituationMonitoringDrawer from '../src/components/SituationMonitoringDrawer.vue';
 import MonitoringObjectPanel from '../src/components/MonitoringObjectPanel.vue';
+import DeviceMonitoringPanel from '../src/components/DeviceMonitoringPanel.vue';
+import LinkMonitoringPanel from '../src/components/LinkMonitoringPanel.vue';
+import type { GisNetwork } from '../src/types/gis-plan';
 
 let pinia:ReturnType<typeof createPinia>;
 afterEach(()=>{if(pinia)disposePinia(pinia);vi.restoreAllMocks();vi.useRealTimers();});
@@ -94,13 +97,13 @@ describe('态势状态与页面集成',()=>{
     expect(s.store.open).toBe(true);expect(s.store.networkState.index).toBe(0);
   });
   // 指标重排读取同一帧，不附加规划资料中的逐指标判定。
-  it('监控链路指标列表保留当前帧数值，零值与未采集仍分别显示',async()=>{
+  it('不把legacy链路构造帧当作冻结方案实测',async()=>{
     const s=await start(), link=s.store.networkResult!.frame.links[0]!;
     s.store.selectLink(link.linkId); link.snrDb=null; link.throughputKbps=0;
     const app=createSSRApp(MonitoringObjectPanel);app.use(pinia);
     const html=await renderToString(app);
-    expect(html).toContain('链路观测指标');expect(html).toContain('信噪比');expect(html).toContain('未采集');
-    expect(html).toMatch(/吞吐量<\/dt><dd[^>]*>0/);expect(html).not.toContain('metric-state');
+    expect(html).toContain('方案等级');expect(html).toContain('未提供链路观测');
+    expect(html).not.toContain('链路观测指标');expect(html).not.toContain('metric-state');
   });
   it('监控组件可渲染设备状态、采集时间及观测/配置详情',async()=>{
     const s=await start();s.store.selectDevice('DV-0001');
@@ -109,5 +112,18 @@ describe('态势状态与页面集成',()=>{
     for(const value of ['设备监控态势','通信链路态势','频谱态势','采集时间','网络观测','DV-0001'])expect(html).toContain(value);
     const detail=createSSRApp(MonitoringObjectPanel);detail.use(pinia);
     const rendered=await renderToString(detail);expect(rendered).toContain('观测功率');expect(rendered).toContain('方案配置功率');
+  });
+});
+
+describe('R2 HTTP冻结网络专用展示', () => {
+  const network = { identity: { resource_revision: 'resource-A' }, devices: [{ id: 'device-A', station_id: 'node-A', frequency_khz: 0, tx_power_dbm: 0 }],
+    links: [{ id: 'link-A', a: 'node-A', b: 'node-B', device_a: 'device-A', device_b: 'device-B', frequency_khz: null, planned_state: 'WARNING' }] } as unknown as GisNetwork;
+  it('没有legacy network/frame也可展示冻结配置，零值不丢失，状态未知', async () => {
+    const html = await renderToString(createSSRApp(DeviceMonitoringPanel, { frozenNetwork: network }));
+    expect(html).toContain('device-A'); expect(html).toContain('方案配置功率'); expect(html).toContain('未知'); expect(html).toContain('>0<');
+  });
+  it('链路直接显示冻结planned_state，未知实测不被预测覆盖', async () => {
+    const html = await renderToString(createSSRApp(LinkMonitoringPanel, { frozenNetwork: network, selectedId: 'link-A' }));
+    expect(html).toContain('link-A'); expect(html).toContain('方案等级'); expect(html).toContain('未提供链路观测'); expect(html).not.toContain('NOT_IMPLEMENTED');
   });
 });
