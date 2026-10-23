@@ -9,7 +9,7 @@ import copy
 import time
 import uuid
 
-from sqlalchemy import func, select, text
+from sqlalchemy import func, select, text, true
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 
 from .local_password_service import hash_password, verify_password
@@ -147,6 +147,34 @@ class SystemManagementService:
     @staticmethod
     def parameter_dto(parameter):
         return {"id": parameter.id, **PARAMETERS[parameter.id], "value": parameter.value}
+
+    def runtime_parameters(self, actor: SystemActor) -> dict:
+        try:
+            with self.factory() as session, session.begin():
+                self.check_actor(session, actor)
+                # 单条SQL物化状态和两值，避免SQLite分次SELECT混入另一提交的版本。
+                rows = session.execute(select(SystemState.initialized, SystemState.epoch, SystemState.revision,
+                    SystemParameter.id, SystemParameter.value).select_from(SystemState)
+                    .join(SystemParameter, true()).where(SystemState.id == 1,
+                        SystemParameter.id.in_(("PAR-01", "PAR-02")))).all()
+                if len(rows) != 2:
+                    raise SystemManagementError("运行参数尚未初始化或配置不完整", 5002, 503)
+                initialized, epoch, revision = rows[0][:3]
+                if (initialized is not True or type(epoch) is not str or not epoch or len(epoch) > 64
+                        or epoch != epoch.strip() or any(ord(char) < 32 or ord(char) == 127 for char in epoch)
+                        or type(revision) is not int or revision < 1):
+                    raise SystemManagementError("运行参数状态不可用", 5002, 503)
+                values = {}
+                for row in rows:
+                    key, value = row[3:]
+                    if (row[:3] != (initialized, epoch, revision) or key not in ("PAR-01", "PAR-02")
+                            or key in values or type(value) is not int
+                            or not PARAMETERS[key]["min"] <= value <= PARAMETERS[key]["max"]):
+                        raise SystemManagementError("运行参数持久化值不可用", 5002, 503)
+                    values[key] = value
+                return {"version": "runtime-parameters-v1", "epoch": epoch, "revision": "SYS-" + str(revision), "values": values}
+        except SQLAlchemyError:
+            raise SystemManagementError("运行参数数据库不可用", 5002, 503) from None
 
     def read(self, kind: str, actor: SystemActor, *, object_id: str | None = None, query: dict | None = None):
         permission = {"options": "system.view", "accounts": "system.accounts", "roles": "system.roles", "parameters": "system.parameters", "logs": "system.logs", "operations": None}[kind]

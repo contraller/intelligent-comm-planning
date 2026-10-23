@@ -1,16 +1,86 @@
 """只追加的服务端审计及归档视图；不接收浏览器自证成功。"""
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
+import math
 import re
+from typing import Callable
 import uuid
 
 from sqlalchemy import func, select
+from sqlalchemy.orm import Session, SessionTransaction
 
 from .system_management_models import LocalAccount, LocalRole, SystemAuditArchive, SystemAuditEvent
 from .system_management_schemas import SystemActor, SystemManagementError, safe_text
 
 _SECRET = ("password", "credential", "csrf", "cookie", "token", "digest", "salt", "secret")
+_TICKETS = "p05_prepared_audit_tickets"
+_SNAPSHOT_KEYS = ("id", "name", "roleId", "roleName")
+
+
+@dataclass(frozen=True, slots=True, repr=False)
+class PreparedAudit:
+    _session: Session
+    _transaction: SessionTransaction
+    _snapshot: tuple[str, str, str, str]
+    _token: object
+
+
+def _active_transaction(session: Session) -> SessionTransaction:
+    if not isinstance(session, Session) or not session.is_active:
+        raise SystemManagementError("审计需要调用方的活动事务", 5001, 503)
+    transaction = session.get_nested_transaction() or session.get_transaction()
+    if transaction is None or not transaction.is_active:
+        raise SystemManagementError("审计需要调用方的活动事务", 5001, 503)
+    return transaction
+
+
+def _snapshot_copy(snapshot: dict | None) -> dict | None:
+    if snapshot is None:
+        return None
+    if type(snapshot) is not dict or set(snapshot) != set(_SNAPSHOT_KEYS):
+        raise SystemManagementError("审计身份快照无效", 5001, 503)
+    return {key: safe_text(snapshot[key], maximum=40 if key in ("name", "roleName") else 120) for key in _SNAPSHOT_KEYS}
+
+
+def prepare_audit(session: Session, *, actor: SystemActor, permission: str, check_actor: Callable) -> PreparedAudit:
+    transaction = _active_transaction(session)
+    if not callable(check_actor):
+        raise SystemManagementError("审计身份检查未配置", 5001, 503)
+    if type(actor) is not SystemActor or actor.auth_source != "LOCAL_PASSWORD":
+        raise SystemManagementError("审计需要正式本地主体", 1101, 401)
+    permission = safe_text(permission)
+    with session.no_autoflush:
+        check_actor(session, actor, permission)
+        snapshot = _snapshot_copy(actor_snapshot(session, actor))
+    token = object()
+    tickets = session.info.setdefault(_TICKETS, set())
+    # Session复用时只清理已结束事务的内存票据，不触碰数据库历史。
+    tickets.difference_update(item for item in tuple(tickets) if not item[0].is_active)
+    tickets.add((transaction, token))
+    return PreparedAudit(session, transaction, tuple(snapshot[key] for key in _SNAPSHOT_KEYS), token)
+
+
+def append_business_audit(session: Session, prepared: PreparedAudit, *, now: int, module: str, action: str,
+                          object_id: str = "", request_id: str | None = None, outcome: str = "SUCCESS",
+                          error_code: str = "", changes: dict | None = None, summary: str | None = None) -> str:
+    transaction = _active_transaction(session)
+    if (type(prepared) is not PreparedAudit or prepared._session is not session
+            or prepared._transaction is not transaction):
+        raise SystemManagementError("审计票据不属于当前事务", 5001, 503)
+    ticket = (transaction, prepared._token)
+    tickets = session.info.get(_TICKETS, set())
+    if ticket not in tickets:
+        raise SystemManagementError("审计票据已消费或不可用", 5001, 503)
+    # 即使浅复制票据也只消费一次；追加失败必须由调用方回滚整个事务。
+    tickets.remove(ticket)
+    if type(now) is not int or now < 0:
+        raise SystemManagementError("审计时间无效")
+    row = append_system_audit(session, None, now=now, module=safe_text(module, maximum=40), action=action,
+        object_id=object_id, request_id=request_id, outcome=outcome, error_code=error_code, changes=changes,
+        snapshot=dict(zip(_SNAPSHOT_KEYS, prepared._snapshot)), summary=summary)
+    return row.id
 
 
 def actor_snapshot(session, actor: SystemActor | None) -> dict | None:
@@ -35,6 +105,8 @@ def _safe_changes(value, depth=0):
         return result
     if isinstance(value, list):
         return [_safe_changes(item, depth + 1) for item in value]
+    if type(value) is float and not math.isfinite(value):
+        raise SystemManagementError("审计不能包含非有限JSON数字")
     if value is None or type(value) in (bool, int, float):
         return value
     if type(value) is str:
@@ -45,15 +117,19 @@ def _safe_changes(value, depth=0):
 def append_system_audit(session, actor: SystemActor | None, *, now: int, action: str,
                         object_id: str = "", request_id: str | None = None,
                         outcome: str = "SUCCESS", error_code: str = "", changes: dict | None = None,
-                        snapshot: dict | None = None, module: str | None = None) -> SystemAuditEvent:
+                        snapshot: dict | None = None, module: str | None = None,
+                        summary: str | None = None) -> SystemAuditEvent:
     if outcome not in ("SUCCESS", "FAILED", "DENIED", "UNCHANGED"):
         raise SystemManagementError("审计结果无效")
+    if changes is not None and type(changes) is not dict:
+        raise SystemManagementError("审计变更必须为对象")
+    frozen_actor = _snapshot_copy(snapshot if snapshot is not None else actor_snapshot(session, actor))
     row = SystemAuditEvent(id="AUD-" + uuid.uuid4().hex, time=now,
-        actor=snapshot if snapshot is not None else actor_snapshot(session, actor), module=safe_text(module, maximum=40) if module else "auth" if action.startswith("auth.") else "system",
+        actor=frozen_actor, module=safe_text(module, maximum=40) if module else "auth" if action.startswith("auth.") else "system",
         action=safe_text(action, maximum=80), object_id=safe_text(object_id, empty=True),
         request_id=safe_text(request_id) if request_id is not None else None,
         outcome=outcome, error_code=safe_text(error_code, maximum=40, empty=True),
-        summary={"SUCCESS": "请求已完成", "FAILED": "请求失败", "DENIED": "请求被拒绝", "UNCHANGED": "内容未变化"}[outcome],
+        summary=safe_text(summary, maximum=500) if summary is not None else {"SUCCESS": "请求已完成", "FAILED": "请求失败", "DENIED": "请求被拒绝", "UNCHANGED": "内容未变化"}[outcome],
         changes=_safe_changes(changes or {}))
     session.add(row)
     session.flush()

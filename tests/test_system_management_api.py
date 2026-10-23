@@ -10,7 +10,8 @@ from types import SimpleNamespace
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine, event, select
+from sqlalchemy import create_engine, event, func, select, update
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import sessionmaker
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -22,7 +23,7 @@ from app.local_identity_router import create_local_identity_router
 from app.local_identity_schemas import LocalIdentitySettings
 from app.local_identity_service import LocalIdentityService
 from app.system_audit_service import IMMUTABLE_SQLITE_DDL
-from app.system_management_models import SYSTEM_TABLES, LocalAccount, LocalRole, SystemAuditEvent
+from app.system_management_models import SYSTEM_TABLES, LocalAccount, LocalRole, SystemAuditEvent, SystemOperation, SystemParameter, SystemState
 from app.system_management_router import create_system_management_router
 from app.system_management_schemas import ADMIN_PERMISSIONS, SystemActor, SystemManagementError
 from app.system_management_service import SystemManagementService
@@ -290,3 +291,152 @@ def test_concurrent_admin_changes_keep_one_usable_admin(local_system, action):
     with pytest.raises(SystemManagementError) as last_admin:
         e.system.execute(action, remaining, {"baseRevision": e.system.read("options", remaining)["revision"], "requestId": "last-admin-retry", **final_body}, object_id=target)
     assert last_admin.value.data["reason"] == "LAST_ADMIN"
+
+
+def test_runtime_parameters_are_exact_readonly_snapshot_and_detached(local_system):
+    e, statements = local_system, []
+    with e.factory() as session:
+        state = session.get(SystemState, 1)
+        expected_epoch = state.epoch
+        audit_count = session.scalar(select(func.count()).select_from(SystemAuditEvent))
+        operation_count = session.scalar(select(func.count()).select_from(SystemOperation))
+    def record(connection, cursor, statement, parameters, context, many):
+        statements.append(statement)
+    event.listen(e.engine, "before_cursor_execute", record)
+    try:
+        value = e.system.runtime_parameters(e.actor)
+    finally:
+        event.remove(e.engine, "before_cursor_execute", record)
+    assert value == {"version": "runtime-parameters-v1", "epoch": expected_epoch,
+        "revision": "SYS-1", "values": {"PAR-01": 30, "PAR-02": 15}}
+    assert all(statement.lstrip().upper().startswith("SELECT") for statement in statements)
+    assert sum("system_parameters" in statement and "system_state" in statement for statement in statements) == 1
+    value["values"]["PAR-01"] = 999
+    assert e.system.runtime_parameters(e.actor)["values"]["PAR-01"] == 30
+    with e.factory() as session:
+        assert session.get(SystemState, 1).revision == 1
+        assert session.scalar(select(func.count()).select_from(SystemAuditEvent)) == audit_count
+        assert session.scalar(select(func.count()).select_from(SystemOperation)) == operation_count
+
+
+def test_runtime_parameters_ordinary_real_account_needs_no_management_permission(local_system):
+    e = local_system
+    role = create_role(e)
+    password = secrets.token_urlsafe(24)
+    e.system.execute("account.create", e.actor, {**mutation(e, "runtime-reader"),
+        "account": dict(username="runtime.reader", name="只读参数主体", department="隔离测试", roleId=role["objectId"]), "initialPassword": password})
+    challenge = e.client.get("/api/v1/auth/csrf").json()["data"]
+    signed_in = e.client.post("/api/v1/auth/login", json={"username": "runtime.reader", "password": password},
+        headers={"Origin": ORIGIN, "X-CSRF-Token": challenge["csrf_token"], "X-Session-Id": ""})
+    assert signed_in.status_code == 200
+    response = e.client.get("/api/v1/system/runtime-parameters")
+    assert response.status_code == 200
+    assert response.headers["Cache-Control"] == "no-store"
+    data = response.json()["data"]
+    assert set(data) == {"version", "epoch", "revision", "values"}
+    assert data["values"] == {"PAR-01": 30, "PAR-02": 15}
+    assert password not in response.text
+    assert e.client.get("/api/v1/system/accounts").status_code == 403
+    assert e.client.get("/api/v1/system/parameters").status_code == 403
+
+
+def test_runtime_route_rejects_anonymous_and_query_fields(local_system):
+    e = local_system
+    assert e.client.get("/api/v1/system/runtime-parameters").status_code == 401
+    login(e)
+    for query in ("?pageNum=1", "?context=ledger", "?revision=SYS-1&revision=SYS-1"):
+        response = e.client.get("/api/v1/system/runtime-parameters" + query)
+        assert response.status_code == 422
+        assert response.json()["code"] == 1001
+
+
+def test_runtime_snapshot_advances_after_save_without_claiming_consumer_applied(local_system):
+    e = local_system
+    before = e.system.runtime_parameters(e.actor)
+    saved = e.system.execute("parameter.save", e.actor, {**mutation(e, "runtime-parameter-save"), "value": 45}, object_id="PAR-01")
+    after = e.system.runtime_parameters(e.actor)
+    assert after["revision"] == saved["revision"] != before["revision"]
+    assert after["epoch"] == before["epoch"]
+    assert after["values"] == {"PAR-01": 45, "PAR-02": 15}
+    assert saved["applicationState"] == "STORED_ONLY"
+
+
+@pytest.mark.parametrize("field,value", [("PAR-01", True), ("PAR-01", "30"), ("PAR-01", 0),
+    ("PAR-01", 3601), ("PAR-01", None), ("PAR-01", []), ("PAR-01", {}), ("PAR-02", 121)])
+def test_runtime_rejects_corrupt_persisted_parameter_without_fallback(local_system, field, value):
+    e = local_system
+    with e.factory() as session, session.begin():
+        session.get(SystemParameter, field).value = value
+    with pytest.raises(SystemManagementError) as error:
+        e.system.runtime_parameters(e.actor)
+    assert (error.value.code, error.value.status) == (5002, 503)
+    assert error.value.data is None
+
+
+@pytest.mark.parametrize("corruption", ["missing", "uninitialized", "epoch"])
+def test_runtime_rejects_incomplete_configuration_without_repair(local_system, corruption):
+    e = local_system
+    with e.factory() as session, session.begin():
+        if corruption == "missing":
+            # 仅更新本轮测试行的主键模拟缺失，不删除行或文件。
+            session.get(SystemParameter, "PAR-02").id = "UNRECOGNIZED-PARAMETER"
+        elif corruption == "uninitialized":
+            session.get(SystemState, 1).initialized = False
+        else:
+            session.get(SystemState, 1).epoch = ""
+    with pytest.raises(SystemManagementError) as error:
+        e.system.runtime_parameters(e.actor)
+    assert (error.value.code, error.value.status) == (5002, 503)
+    with e.factory() as session:
+        assert session.get(SystemState, 1).revision == 1
+        assert session.scalar(select(func.count()).select_from(SystemParameter)) == 3
+
+
+@pytest.mark.parametrize("enabled,revision,code", [(False, 1, 1103), (True, 2, 1106)])
+def test_runtime_rechecks_current_actor(local_system, enabled, revision, code):
+    e = local_system
+    with e.factory() as session, session.begin():
+        account = session.get(LocalAccount, e.account_id)
+        account.enabled, account.identity_revision = enabled, revision
+    with pytest.raises(SystemManagementError) as error:
+        e.system.runtime_parameters(e.actor)
+    assert error.value.code == code
+
+
+def test_runtime_data_remains_one_snapshot_when_another_connection_commits(local_system):
+    e = local_system
+    with e.engine.connect() as connection:
+        assert connection.exec_driver_sql("PRAGMA journal_mode=WAL").scalar() == "wal"
+    changed = []
+    def interleave(connection, cursor, statement, parameters, context, many):
+        if not changed and statement.lstrip().upper().startswith("SELECT") and "system_parameters" in statement and "system_state" in statement:
+            changed.append(True)
+            with e.engine.begin() as writer:
+                writer.execute(update(SystemState).where(SystemState.id == 1).values(revision=2))
+                writer.execute(update(SystemParameter).where(SystemParameter.id == "PAR-01").values(value=45))
+                writer.execute(update(SystemParameter).where(SystemParameter.id == "PAR-02").values(value=20))
+    event.listen(e.engine, "after_cursor_execute", interleave)
+    try:
+        captured = e.system.runtime_parameters(e.actor)
+    finally:
+        event.remove(e.engine, "after_cursor_execute", interleave)
+    assert changed == [True]
+    assert captured["revision"] == "SYS-1" and captured["values"] == {"PAR-01": 30, "PAR-02": 15}
+    latest = e.system.runtime_parameters(e.actor)
+    assert latest["revision"] == "SYS-2" and latest["values"] == {"PAR-01": 45, "PAR-02": 20}
+
+
+def test_runtime_database_errors_are_redacted(local_system):
+    e = local_system
+    marker = secrets.token_urlsafe(24)
+    def unavailable(connection, cursor, statement, parameters, context, many):
+        if "system_parameters" in statement:
+            raise SQLAlchemyError(marker)
+    event.listen(e.engine, "before_cursor_execute", unavailable)
+    try:
+        with pytest.raises(SystemManagementError) as error:
+            e.system.runtime_parameters(e.actor)
+    finally:
+        event.remove(e.engine, "before_cursor_execute", unavailable)
+    assert (error.value.code, error.value.status) == (5002, 503)
+    assert marker not in str(error.value)

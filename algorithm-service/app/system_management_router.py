@@ -80,6 +80,15 @@ def create_system_management_router(*, authorize, service) -> APIRouter:
                 return run(request, response, body)
         return endpoint
 
+    def runtime_endpoint(request: Request, response: Response):
+        def operation():
+            actor = authorize(request, None)
+            if request.query_params:
+                raise SystemManagementError("运行参数不接受查询字段")
+            return service.runtime_parameters(actor)
+        return invoke(response, operation)
+
+    router.add_api_route("/runtime-parameters", runtime_endpoint, methods=["GET"])
     router.add_api_route("/options", list_endpoint("options", "system.view"), methods=["GET"])
     for kind, permission in (("accounts", "system.accounts"), ("roles", "system.roles"), ("parameters", "system.parameters"), ("logs", "system.logs")):
         router.add_api_route("/" + kind, list_endpoint(kind, permission), methods=["GET"])
