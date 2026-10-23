@@ -101,9 +101,9 @@
           :loaded="!!maintenanceState.data.value"
           :busy="maintenanceState.busy.value"
           :error="maintenanceState.error.value"
-          :editable="maintenanceBinding.editable"
+          :editable="!httpMode && maintenanceBinding.editable"
           @load="maintenanceState.load"
-          @edit="emit('ports')"
+          @edit="!httpMode && emit('ports')"
         />
         <p
           v-if="knowledgeSummary"
@@ -229,11 +229,7 @@
         ><dl class="kv"
           ><dt>工作频率</dt><dd>{{ quantity(device.workFreqKhz, 'kHz') }}</dd
           ><dt>当前工作模式</dt
-          ><dd>{{
-            maintenanceModes.find((m) => m.value === device.currentWorkMode)?.label ??
-            device.currentWorkMode ??
-            '未提供'
-          }}</dd
+          ><dd>{{ currentModeLabel }}</dd
           ><dt>发射功率</dt><dd>{{ quantity(device.txPowerDbm, 'dBm') }}</dd
           ><dt>天线高度</dt><dd>{{ quantity(device.antennaHeightM, 'm') }}</dd
           ><dt>倾角 / 方位角</dt
@@ -286,6 +282,7 @@
 
 <script setup lang="ts">
 import { computed, ref, inject, watch } from 'vue';
+import { env } from '../config/env';
 import { useDeviceMaintenance } from '../composables/useDeviceMaintenance';
 import { useDeviceNetworkDetail } from '../composables/useDeviceNetworkDetail';
 import { maintenanceModes } from '../services/device-maintenance';
@@ -353,10 +350,17 @@ const maintenanceQuery = () =>
         deviceId: props.device.id,
       }
     : null;
-const maintenanceState = useDeviceMaintenance(maintenanceQuery),
+const httpMode = env.mode === 'http';
+// HTTP未约定端口/模式协议，不进入旧教学维护读取；网络和新追溯保留原绑定。
+const maintenanceState = useDeviceMaintenance(() => httpMode ? null : maintenanceQuery()),
   drill = useDeviceNetworkDetail(maintenanceQuery, () => props.network),
   traceOpen = ref(false);
 const auth = useAuthStore();
+const currentModeLabel = computed(() => {
+  if (httpMode) return '未知（模式协议待确认）';
+  const mode = 'currentWorkMode' in props.device ? props.device.currentWorkMode : null;
+  return maintenanceModes.find(item => item.value === mode)?.label ?? mode ?? '未提供';
+});
 const traceEditable = computed(() => !!props.maintenanceBinding?.editable && auth.can('resources.device.edit') && !auth.blocked && props.device.availability !== 'OFF_SHELF');
 const trace = useDeviceTrace(() => props.maintenanceBinding ? {
   device_id: props.device.id, resource_revision: props.maintenanceBinding.revision,
