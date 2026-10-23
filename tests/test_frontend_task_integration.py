@@ -4,12 +4,12 @@ from __future__ import annotations
 import json
 import sys
 from pathlib import Path
+from uuid import uuid4
 
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, func, select
 from sqlalchemy.orm import sessionmaker
-from sqlalchemy.pool import StaticPool
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -18,23 +18,42 @@ if str(SERVICE_ROOT) not in sys.path:
     sys.path.insert(0, str(SERVICE_ROOT))
 
 from app import frontend_integration, task_input_models, task_input_service  # noqa: E402
+from app import database, integration_identity_service as identity, resource_dataset_service as datasets  # noqa: E402
 from app.database import Base  # noqa: E402
 from app.main import app  # noqa: E402
 
 
 @pytest.fixture
-def api(monkeypatch):
+def empty_api(monkeypatch):
+    directory = ROOT / "data/runtime/tmp" / ("frontend-task-" + uuid4().hex)
+    directory.mkdir(parents=True, exist_ok=False)
+    path = directory / "frontend-task.sqlite"
+    assert not path.exists(), "仅使用新 GUID 目录下的新测试库"
+    monkeypatch.setenv("AUTH_MODE", "INTEGRATION")
     monkeypatch.setenv("FRONTEND_INTEGRATION_DEMO", "1")
+    monkeypatch.setenv("RESOURCE_DATASET_MODE", "database")
+    monkeypatch.setenv("INTERFERENCE_WORKBENCH_ENABLED", "0")
+    monkeypatch.setenv("FROZEN_COVERAGE_ENABLED", "0")
     engine = create_engine(
-        "sqlite+pysqlite:///:memory:",
+        "sqlite+pysqlite:///" + str(path),
         connect_args={"check_same_thread": False},
-        poolclass=StaticPool,
     )
     Base.metadata.create_all(engine)
     factory = sessionmaker(bind=engine, expire_on_commit=False)
-    monkeypatch.setattr(task_input_service, "get_session_factory", lambda: factory)
-    yield TestClient(app), factory
-    engine.dispose()
+    for module in (database, datasets, identity, task_input_service):
+        monkeypatch.setattr(module, "get_session_factory", lambda: factory)
+    try:
+        with TestClient(app) as client:
+            yield client, factory
+    finally:
+        engine.dispose()
+
+
+@pytest.fixture
+def api(empty_api):
+    client, factory = empty_api
+    datasets.initialize(factory)
+    return client, factory
 
 
 def test_integration_identity_is_explicitly_gated(monkeypatch):
@@ -249,9 +268,9 @@ def test_database_resource_contract_matches_files(api, monkeypatch):
     assert client.get("/api/v1/resource/context").json() == before
 
 
-def test_database_resource_errors_have_api_envelope(api, monkeypatch):
+def test_database_resource_errors_have_api_envelope(empty_api, monkeypatch):
     from app import resource_dataset_service as datasets
-    client, factory = api
+    client, factory = empty_api
     monkeypatch.setattr(datasets, "get_session_factory", lambda: factory)
     monkeypatch.setenv("RESOURCE_DATASET_MODE", "database")
     response = client.get("/api/v1/resource/context")
