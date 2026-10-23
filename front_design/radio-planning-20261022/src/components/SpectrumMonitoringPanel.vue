@@ -43,7 +43,7 @@
         <div class="toolbar"><button class="btn" :disabled="s.framePage <= 1 || s.frameLoading" title="前页帧" aria-label="前页帧" @click="store.frames(s.framePage - 1)"><i class="pi pi-chevron-left" /></button><span>{{ s.framePage }} · {{ s.frameTotal }} 帧</span><button class="btn" :disabled="s.framePage * s.framePageSize >= s.frameTotal || s.frameLoading" title="后页帧" aria-label="后页帧" @click="store.frames(s.framePage + 1)"><i class="pi pi-chevron-right" /></button></div>
       </template>
     </template>
-    <SpectrumObservationImportDialog ref="importDialog" :visible="importVisible" :services="services" :resource-revision="s.selected?.resourceRevision ?? ''" :source-selection="s.selected?.source ?? null" :can-import="canView && canImport" :session-generation="sessionGeneration" @update:visible="importVisible = $event" @dirty-change="importDirty = $event" @busy-change="importBusy = $event" @committed="imported" />
+    <SpectrumObservationImportDialog ref="importDialog" :visible="importVisible" :services="services" :resource-revision="s.selected?.resourceRevision ?? resourceRevision ?? ''" :source-selection="s.selected?.source ?? null" :can-import="canView && canImport" :session-generation="sessionGeneration" @update:visible="importVisible = $event" @dirty-change="importDirty = $event" @busy-change="importBusy = $event" @committed="imported" />
   </section>
 </template>
 <script setup lang="ts">
@@ -52,7 +52,7 @@ import ChartCanvas from './ChartCanvas.vue';
 import SpectrumObservationImportDialog from './SpectrumObservationImportDialog.vue';
 import { createSpectrumObservationsStore } from '../stores/spectrum-observations';
 import type { ObservationServices, ObservationSelection, ObservationImportReceipt } from '../types/observation';
-const props = defineProps<{ services: ObservationServices; canView: boolean; canImport: boolean; sessionGeneration: string; initialSelection?: { datasetId: string; datasetRevision: string } }>();
+const props = defineProps<{ services: ObservationServices; canView: boolean; canImport: boolean; sessionGeneration: string; initialSelection?: { datasetId: string; datasetRevision: string }; resourceRevision?: string }>();
 const emit = defineEmits<{ 'select-dataset': [value: { datasetId: string; datasetRevision: string }]; 'select-frame': [value: { datasetId: string; datasetRevision: string; index: number }]; 'dirty-change': [value: boolean]; 'busy-change': [value: boolean]; imported: [value: ObservationImportReceipt] }>();
 const store = createSpectrumObservationsStore(props.services, () => props.canView, value => emit('select-frame', { datasetId: value.datasetId, datasetRevision: value.datasetRevision, index: value.index })), s = store.state;
 const importVisible = ref(false), importDirty = ref(false), importBusy = ref(false), exporting = ref(false);

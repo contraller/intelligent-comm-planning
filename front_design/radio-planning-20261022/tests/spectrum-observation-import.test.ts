@@ -29,4 +29,13 @@ describe('显式导入预检/确认/回执', () => {
     const store = createObservationImportStore(api, () => true); store.choose(file()); await store.preview(); await store.submit();
     expect(store.state.pending).toBeNull(); expect(store.state.preview).toBeNull(); expect(store.state.file?.dataset.datasetId).toBe('obs-A');
   });
+  it('上传原文件的历史R在选择和预检中保持原值，不补成current', async () => {
+    const input = file(); input.dataset.resourceRevision = 'resource-uploaded-historical';
+    const previewObservationImport = vi.fn(async () => ({ datasetId: 'obs-A', previewHash: 'a'.repeat(64) }));
+    const store = createObservationImportStore({ previewObservationImport } as unknown as ObservationServices, () => true);
+    store.choose(input); await store.preview();
+    expect(store.state.file?.dataset.resourceRevision).toBe('resource-uploaded-historical');
+    expect(previewObservationImport).toHaveBeenCalledWith(expect.objectContaining({ file: expect.objectContaining({ dataset: expect.objectContaining({ resourceRevision: 'resource-uploaded-historical' }) }) }));
+    expect(input.dataset.resourceRevision).toBe('resource-uploaded-historical');
+  });
 });
