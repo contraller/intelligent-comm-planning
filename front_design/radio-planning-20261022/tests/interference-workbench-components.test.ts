@@ -13,7 +13,9 @@ import type { RunDetail, AdoptionDetail } from '../src/types/interference-workbe
 vi.mock('../src/components/AppDrawer.vue', () => ({ default: defineComponent({ props: ['visible'], setup: (props, { slots }) => () => props.visible ? h('aside', [slots.default?.(), slots.footer?.()]) : null }) }));
 let pinia: ReturnType<typeof createPinia>, app: App | undefined;
 beforeAll(async () => { for (const [component, name] of [[Panel, 'InterferenceAnalysisPanel'], [SceneDrawer, 'InterferenceSceneDrawer'], [MeasureDrawer, 'InterferenceMeasureDrawer'], [HistoryDrawer, 'InterferenceHistoryDrawer']] as const) await clientTemplate(component, 'src/components/' + name + '.vue', 'interference-r2-render.ts'); });
-beforeEach(() => { vi.stubGlobal('window', { confirm: vi.fn(() => false) }); vi.stubGlobal('document', { activeElement: null }); pinia = createPinia(); setActivePinia(pinia); authorizeStore(); });
+class FixtureDocument { activeElement = null; }
+class FixtureShadowRoot {}
+beforeEach(() => { vi.stubGlobal('window', { confirm: vi.fn(() => false) }); vi.stubGlobal('Document', FixtureDocument); vi.stubGlobal('ShadowRoot', FixtureShadowRoot); vi.stubGlobal('document', new FixtureDocument()); pinia = createPinia(); setActivePinia(pinia); authorizeStore(); });
 afterEach(() => { app?.unmount(); app = undefined; disposePinia(pinia); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 function mount(component: Parameters<typeof h>[0], props = {}) { app = renderer.createApp({ render: () => h(component, props) }); app.use(pinia); app.provide(ssrContextKey, { modules: new Set() }); const root = node('root'); app.mount(root); return root; }
 function successful(): RunDetail {
@@ -31,6 +33,12 @@ function successful(): RunDetail {
       summary: { links: 0, jammers: 0, affected_nodes: 0, affected_links: 0, by_level: { SEVERE: 0, MODERATE: 0, MINOR: 0 } } },
     adoption_capabilities: { FREQ_ADJUST: { enabled: false, reasons: [] }, CHANNEL_SWITCH: { enabled: false, reasons: [] },
       POWER_OPT: { enabled: false, reasons: ['共享冻结重算桥未接'] }, ROUTE_REBUILD: { enabled: false, reasons: [] }, NODE_REDEPLOY: { enabled: false, reasons: [] } } };
+}
+function sourceContext(rows: Record<string, string>[]) {
+  useInterferenceStore().context = { task_id: 'T1', resource_revision: 'RES1', source_options: [], scene_count: 0,
+    run_count: 0, active_run_ids: [], data_origin: 'SYNTHETIC_INTEGRATION', interference_sources: rows,
+    capabilities: { scene_save: { enabled: false, reasons: [] }, analyze: { enabled: false, reasons: [] },
+      cancel: { enabled: false, reasons: [] }, preview: { enabled: false, reasons: [] }, adopt_replan: { enabled: false, reasons: [] } } };
 }
 
 describe('专用干扰组件，不替代GIS宿主页验收', () => {
@@ -60,5 +68,30 @@ describe('专用干扰组件，不替代GIS宿主页验收', () => {
     const store = useInterferenceStore(); store.taskContext = { taskId: 'T1', planId: 'P1', planVersion: 'V1' };
     const root = mount(SceneDrawer, { visible: true, taskContext: store.taskContext }); const save = find(root, row => row.tag === 'button' && textOf(row).includes('保存版本')); expect(save?.props.disabled).toBe(true);
     app?.unmount(); store.historyOpen = true; const history = mount(HistoryDrawer); expect(textOf(history)).toContain('规划重置不清除');
+  });
+  it('inactive和未知源不能新选，历史已选inactive允许取消但不能再加入', async () => {
+    const store = useInterferenceStore(); store.taskContext = { taskId: 'T1', planId: 'P1', planVersion: 'V1' };
+    sourceContext([{ interference_id: 'IF-OFF', name: '未生效', active: 'false' },
+      { interference_id: 'IF-ON', name: '生效', active: 'true' }, { interference_id: 'IF-UNKNOWN', name: '未知', active: '' }]);
+    const root = mount(SceneDrawer, { visible: true, taskContext: store.taskContext });
+    const control = (id: string) => find(root, row => row.tag === 'input' && row.props.type === 'checkbox' && row.props.value === id)!;
+    expect(control('IF-OFF').props.disabled).toBe(true); expect(control('IF-UNKNOWN').props.disabled).toBe(true);
+    expect(control('IF-ON').props.disabled).toBe(false);
+    store.draft.interferenceIds = ['IF-OFF']; await nextTick(); expect(control('IF-OFF').props.disabled).toBe(false);
+    store.draft.interferenceIds = []; await nextTick(); expect(control('IF-OFF').props.disabled).toBe(true);
+  });
+  it('定位发出冻结干扰源ID，不用当前目录补历史空选源或缺失坐标', async () => {
+    const store = useInterferenceStore(), view = successful(), selected = vi.fn();
+    sourceContext([{ interference_id: 'IF-LIVE', name: '当前资源', active: 'true', lon: '114', lat: '38' }]);
+    view.source.sourceCount = 1; view.source.interferenceIds = ['IF-FROZEN'];
+    view.source.interferenceSources = [{ interferenceId: 'IF-FROZEN', sourceRow: { interference_id: 'IF-FROZEN', name: '冻结源', active: 'false', lon: '114', lat: '38' } }];
+    store.selected = view;
+    const root = mount(Panel, { sourceEditable: false, selectedNodeId: '', selectedLinkId: '', onSelectSource: selected });
+    const button = find(root, row => row.props['aria-label'] === '定位干扰源 IF-FROZEN')!;
+    expect(button.props.disabled).toBe(false); (button.props.onClick as () => void)(); expect(selected).toHaveBeenCalledWith('IF-FROZEN');
+    expect(find(root, row => row.props['aria-label'] === '定位干扰源 IF-LIVE')).toBeUndefined();
+    const invalid = successful(); invalid.source.interferenceSources = [{ interferenceId: 'IF-FROZEN', sourceRow: { interference_id: 'IF-FROZEN', lon: '', lat: '38', active: 'false' } }];
+    store.selected = invalid; await nextTick(); expect(find(root, row => row.props['aria-label'] === '定位干扰源 IF-FROZEN')?.props.disabled).toBe(true);
+    store.selected = successful(); await nextTick(); expect(find(root, row => row.props['aria-label'] === '定位干扰源 IF-LIVE')).toBeUndefined();
   });
 });

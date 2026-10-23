@@ -9,8 +9,15 @@
     <template v-else>
       <details v-if="source"><summary>{{ source.name }} · {{ source.id }}</summary>
         <p>{{ source.coordinate.join(', ') }} · {{ source.active ? '生效' : '未生效' }}</p>
+        <button class="icon-button" title="定位干扰源" aria-label="定位干扰源" @click="emit('selectSource', source.id)"><i class="pi pi-map-marker" aria-hidden="true" /></button>
         <button v-if="sourceEditable" class="btn small" @click="emit('editSource', source.id)">编辑主资源参数</button>
         <button class="btn small" :disabled="!store.executable || store.locked" @click="emit('analyzeSource', source.id)">选择此干扰源</button>
+      </details>
+      <details v-if="sourceRows.length"><summary>干扰源 {{ sourceRows.length }}</summary>
+        <div v-for="row in sourceRows" :key="row.interference_id" class="source-row">
+          <span>{{ row.name || row.interference_id }} · {{ row.interference_id }} · {{ row.active === 'true' ? '生效' : row.active === 'false' ? '未生效' : '状态未知' }}</span>
+          <button class="icon-button" :aria-label="'定位干扰源 ' + row.interference_id" :title="canLocate(row) ? '定位干扰源 ' + row.interference_id : '缺少有效冻结坐标'" :disabled="!canLocate(row)" @click="emit('selectSource', row.interference_id)"><i class="pi pi-map-marker" aria-hidden="true" /></button>
+        </div>
       </details>
       <label>当前确认方案<select :value="store.taskContext?.planId ?? ''" :disabled="store.locked" @change="choosePlan">
         <option value="">请选择方案</option>
@@ -75,7 +82,7 @@
   </section>
 </template>
 <script setup lang="ts">
-import { watch } from 'vue';
+import { computed, watch } from 'vue';
 import { useInterferenceStore } from '../stores/interference';
 import InterferenceSceneDrawer from './InterferenceSceneDrawer.vue';
 import type { InterferenceSource } from '../types/domain';
@@ -85,6 +92,14 @@ const props = defineProps<{ source?: InterferenceSource; sourceEditable: boolean
   measureTargets?: InterferenceTargetEntry[]; targetNotice?: string; taskContext?: TaskContext | null }>();
 const emit = defineEmits<{ selectSource: [id: string]; editSource: [id: string]; analyzeSource: [id: string]; selectNode: [id: string]; selectLink: [id: string] }>();
 const store = useInterferenceStore();
+// 已有运行/场景只列其冻结选源；空选源不能回退成当前资源目录。
+const sourceRows = computed(() => store.selected ? store.selected.source.interferenceSources.map(row => row.sourceRow)
+  : store.scene ? store.scene.version.interferenceSources.map(row => row.sourceRow) : store.context?.interference_sources ?? []);
+function canLocate(row: Record<string, string>) {
+  if (!row.lon?.trim() || !row.lat?.trim()) return false;
+  const lon = Number(row.lon), lat = Number(row.lat);
+  return Number.isFinite(lon) && Number.isFinite(lat) && lon >= -180 && lon <= 180 && lat >= -90 && lat <= 90;
+}
 const labels = { PENDING: '等待计算', RUNNING: '分析中', CANCEL_REQUESTED: '取消请求中', SUCCESS: '分析完成', FAILED: '分析失败', CANCELLED: '已取消' };
 const levelNames = { SEVERE: '严重', MODERATE: '中等', MINOR: '轻微' };
 watch(() => props.taskContext, value => { if (value && (value.planId !== store.taskContext?.planId || value.taskId !== store.taskContext?.taskId || value.planVersion !== store.taskContext?.planVersion)) void store.enterPlan(value); }, { immediate: true });
@@ -92,5 +107,5 @@ async function choosePlan(event: Event) { const control = event.target as HTMLSe
 function openHistory() { store.historyOpen = true; void store.loadHistory(1); }
 </script>
 <style scoped>
-.analysis-panel{display:grid;gap:12px;padding:14px;font-size:12px;min-width:0}h4,p{margin:0;overflow-wrap:anywhere}p{line-height:1.7}label{display:grid;gap:6px}select{width:100%;min-width:0}.toolbar{display:flex;flex-wrap:wrap;align-items:center;gap:8px}.toolbar h4{flex:1}.icon-button{width:32px;height:32px;flex:0 0 32px}.levels{display:flex;flex-wrap:wrap;gap:10px;border:0;padding:0;min-width:0}.levels label{display:flex;align-items:center;gap:5px}.impact-list,.measure-row{display:grid;gap:8px}.measure-row{padding:10px 0;border-bottom:1px solid var(--line)}.measure-row span,.measure-row strong{display:block;text-align:left;overflow-wrap:anywhere}.text-link{text-align:left;white-space:normal}progress{width:100%;height:8px}pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:11px;max-height:260px;overflow:auto}.muted{color:var(--muted)}
+.analysis-panel{display:grid;gap:12px;padding:14px;font-size:12px;min-width:0}h4,p{margin:0;overflow-wrap:anywhere}p{line-height:1.7}label{display:grid;gap:6px}select{width:100%;min-width:0}.toolbar{display:flex;flex-wrap:wrap;align-items:center;gap:8px}.toolbar h4{flex:1}.icon-button{width:32px;height:32px;flex:0 0 32px}.levels{display:flex;flex-wrap:wrap;gap:10px;border:0;padding:0;min-width:0}.levels label{display:flex;align-items:center;gap:5px}.impact-list,.measure-row{display:grid;gap:8px}.measure-row{padding:10px 0;border-bottom:1px solid var(--line)}.measure-row span,.measure-row strong{display:block;text-align:left;overflow-wrap:anywhere}.source-row{display:grid;grid-template-columns:minmax(0,1fr) 32px;align-items:center;gap:8px;padding:6px 0}.source-row span{overflow-wrap:anywhere}.text-link{text-align:left;white-space:normal}progress{width:100%;height:8px}pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:11px;max-height:260px;overflow:auto}.muted{color:var(--muted)}
 </style>

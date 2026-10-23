@@ -10,7 +10,8 @@
           <p>已选 {{ store.draft.interferenceIds.length }} 项</p>
           <div class="source-list">
             <label v-for="row in filtered" :key="row.interference_id" class="source-option">
-              <input v-model="store.draft.interferenceIds" type="checkbox" :value="row.interference_id" />
+              <input v-model="store.draft.interferenceIds" type="checkbox" :value="row.interference_id"
+                :disabled="row.active !== 'true' && !store.draft.interferenceIds.includes(row.interference_id)" />
               <span>{{ row.name || row.interference_id }}<small>{{ row.interference_id }} · {{ row.active === 'true' ? '生效' : row.active === 'false' ? '未生效' : '状态未知' }}</small></span>
             </label>
             <p v-if="!filtered.length">没有匹配的干扰源。</p>
