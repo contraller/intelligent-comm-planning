@@ -92,6 +92,100 @@ def assert_atomic_failure(tables, result):
     assert all(set(issue) == {"sheet", "row", "objectId", "field", "message"} for issue in result["issues"])
 
 
+def utf16_length(value):
+    return len(value.encode("utf-16-le")) // 2
+
+
+def assert_displayable_issue(issue):
+    for field, limit in (("sheet", 128), ("field", 128), ("objectId", 512), ("message", 4096)):
+        label = issue[field]
+        assert isinstance(label, str) and utf16_length(label) <= limit
+        assert not re.search(r"[\x00-\x1f\x7f-\x9f]", label)
+        label.encode("utf-8")
+
+
+@pytest.mark.parametrize("field,limit", [("sheet", 128), ("field", 128), ("objectId", 512), ("message", 4096)])
+def test_issue_labels_escape_controls_and_bound_js_utf16_length(field, limit):
+    value = "L\x00\t\n\r\x7f\x85\u202e" + "\U00020000" * limit
+    labels = {"sheet": "nodes", "field": "node_id", "objectId": "N1", "message": "原始诊断"}
+    labels[field] = value
+    issue = parser._issue(labels["sheet"], 5002, labels["objectId"], labels["field"], labels["message"])
+    assert_displayable_issue(issue)
+    assert issue["row"] == 5002
+    assert issue[field].startswith(r"L\u0000\u0009\u000a\u000d\u007f\u0085\u202e")
+    assert "已截断" in issue[field] and "原长" + str(utf16_length(value)) in issue[field]
+    assert labels[field] == value
+    assert all(issue[key] == label for key, label in labels.items() if key != field)
+
+
+@pytest.mark.parametrize("field,limit", [("sheet", 128), ("field", 128), ("objectId", 512), ("message", 4096)])
+def test_issue_utf16_boundary_preserves_complete_supplementary_characters(field, limit):
+    labels = {"sheet": "nodes", "field": "node_id", "objectId": "N1", "message": "诊断"}
+    exact = "\U00020000" * (limit // 2)
+    labels[field] = exact
+    issue = parser._issue(labels["sheet"], 2, labels["objectId"], labels["field"], labels["message"])
+    assert issue[field] == exact and utf16_length(issue[field]) == limit
+    labels[field] += "\U00020000"
+    issue = parser._issue(labels["sheet"], 2, labels["objectId"], labels["field"], labels["message"])
+    assert_displayable_issue(issue)
+    prefix, marker = issue[field].split("... ", 1)
+    assert prefix and all(ord(char) == 0x20000 for char in prefix)
+    assert "原长" + str(limit + 2) in marker
+
+
+def test_issue_controls_and_surrogates_are_visible_and_json_safe():
+    controls = "".join(chr(code) for code in (*range(32), *range(127, 160), 0x2028, 0x2029, 0x202e))
+    issue = parser._issue("file", 0, "\ud840\udc00\ud800X\udfff", "field", controls)
+    assert_displayable_issue(issue)
+    assert issue["objectId"] == "\U00020000" + r"\ud800X\udfff"
+    assert issue["message"] == "".join("\\u" + format(ord(char), "04x") for char in controls)
+    assert json.loads(json.dumps(issue, ensure_ascii=False).encode("utf-8")) == issue
+
+
+def test_issue_does_not_split_visible_control_escapes_when_truncated():
+    issue = parser._issue("\n" * 100, 0, "N1", "field", "message")
+    assert_displayable_issue(issue)
+    prefix, marker = issue["sheet"].split("... ", 1)
+    assert prefix == r"\u000a" * (len(prefix) // 6)
+    assert "原长100" in marker
+
+
+@pytest.mark.parametrize("identifier", ["I" * 513, "\U00020000" * 300, "I" * 510 + "\x00\t"])
+def test_invalid_long_ids_have_bounded_diagnostics_without_mutating_input(tables, identifier):
+    row = {**tables["node.csv"][0], "node_id": identifier}
+    original = deepcopy(tables)
+    data = csv_bytes("nodes", [row])
+    result = parser.parse_import(tables, "input.csv", data, "nodes")
+    assert_atomic_failure(tables, result)
+    assert tables == original and row["node_id"] == identifier
+    assert result["rows"] == []
+    issue = result["issues"][0]
+    assert_displayable_issue(issue)
+    assert issue["row"] == 2 and issue["field"] == "node_id"
+    assert "已截断" in issue["objectId"] and "原长" + str(utf16_length(identifier)) in issue["objectId"]
+
+
+def test_sanitized_issues_do_not_rewrite_raw_row_differences_or_candidate(tables):
+    remark = "\x00" + "R" * 700
+    row = {**tables["node.csv"][0], "remark": remark}
+    result = parse(tables, "nodes", [row])
+    assert_atomic_failure(tables, result)
+    assert result["rows"][0]["id"] == "N1"
+    assert result["rows"][0]["differences"] == [{"field": "remark", "before": "原备注", "after": remark}]
+    assert row["remark"] == remark
+    for issue in result["issues"]:
+        assert_displayable_issue(issue)
+
+
+@pytest.mark.parametrize("filename,data", [("bad\x00.xlsm", b"unsupported"), ("bad\n.xlsx", b"bad zip"), ("input.csv", b"")])
+def test_file_level_diagnostics_are_displayable_without_relabeling_business_rows(tables, filename, data):
+    result = parser.parse_import(tables, filename, data, "nodes")
+    assert_atomic_failure(tables, result)
+    assert result["rows"] == []
+    assert result["issues"][0]["sheet"] == "file" and result["issues"][0]["row"] == 0
+    assert_displayable_issue(result["issues"][0])
+
+
 def test_update_retains_ten_tables_and_input_is_deeply_immutable(tables):
     original = deepcopy(tables)
     updated = {**tables["node.csv"][0], "node_name": "更名,含逗号\n第二行"}
@@ -452,6 +546,44 @@ def rewrite_archive(data, transform, extra=None):
     return output.getvalue()
 
 
+@pytest.mark.parametrize("title", ["bad\n\x7f\x85\u202esheet", "\U00020000" * 100 + "\x85"])
+def test_hidden_invalid_sheet_names_are_sanitized_only_in_diagnostics(tables, title):
+    def transform(name, raw):
+        if name != "xl/workbook.xml":
+            return raw
+        root = ET.fromstring(raw)
+        sheet = next(element for element in root.iter() if element.tag.rsplit("}", 1)[-1] == "sheet")
+        sheet.set("name", title)
+        sheet.set("state", "hidden")
+        return ET.tostring(root, encoding="utf-8")
+
+    data = rewrite_archive(workbook_bytes(tables), transform)
+    result = parser.parse_import(tables, "input.xlsx", data, "nodes")
+    assert_atomic_failure(tables, result)
+    assert result["rows"] == []
+    issue = result["issues"][0]
+    assert_displayable_issue(issue)
+    assert issue["row"] == 1 and issue["field"] == "sheet"
+    if "\n" in title:
+        assert issue["sheet"] == r"bad\u000a\u007f\u0085\u202esheet"
+    else:
+        assert "已截断" in issue["sheet"] and "原长201" in issue["sheet"]
+
+
+def test_xlsx_row_5002_is_preserved_as_diagnostic_position(tables):
+    def transform(name, raw):
+        if name == "xl/worksheets/sheet1.xml":
+            return raw.replace(b"</sheetData>", b'<row r="5002"><c r="A5002" t="inlineStr"><is><t>overflow</t></is></c></row></sheetData>')
+        return raw
+
+    data = rewrite_archive(workbook_bytes(tables), transform)
+    result = parser.parse_import(tables, "input.xlsx", data, "nodes")
+    assert_atomic_failure(tables, result)
+    assert result["rows"] == []
+    assert result["issues"][0]["sheet"] == "nodes" and result["issues"][0]["row"] == 5002
+    assert_displayable_issue(result["issues"][0])
+
+
 @pytest.mark.parametrize("attack", ["vba", "entity", "sparse_row", "empty_sparse_row", "bad_dimension", "external", "duplicate_cell", "duplicate_row", "bad_shared_string"])
 def test_xlsx_zip_and_xml_security(tables, attack):
     def transform(name, raw):
@@ -501,7 +633,11 @@ def test_file_encoding_extension_size_and_record_limits(tables):
         assert_atomic_failure(tables, parser.parse_import(tables, filename, data, kind))
     row = tables["node.csv"][0]
     data = csv_bytes("nodes", [{**row, "node_id": "N" + str(i)} for i in range(parser.MAX_ROWS + 1)])
-    assert_atomic_failure(tables, parser.parse_import(tables, "input.csv", data, "nodes"))
+    invalid = parser.parse_import(tables, "input.csv", data, "nodes")
+    assert_atomic_failure(tables, invalid)
+    assert invalid["rows"] == []
+    assert invalid["issues"][0]["sheet"] == "nodes" and invalid["issues"][0]["row"] == 5002
+    assert_displayable_issue(invalid["issues"][0])
     data = csv_bytes("nodes", [{**row, "node_id": "N" + str(i)} for i in range(parser.MAX_ROWS)])
     result = parser.parse_import(tables, "input.csv", data, "nodes")
     assert not result["issues"], result["issues"][:2]

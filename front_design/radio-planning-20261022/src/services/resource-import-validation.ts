@@ -1,13 +1,13 @@
 import type { ResourceFile, ResourceFormat, ResourceImportPreview, ResourceImportRequest, ResourceImportRow, ResourceKind } from '../types/resource-edit';
 import { ApiError } from './types';
-import { readWorkspaceChanges, readWorkspaceIssues, readWorkspaceResources, workspaceFailure, workspaceId, workspaceKeys, workspaceRecord, workspaceRevision, workspaceText } from './resource-workspace-validation';
+import { readWorkspaceChanges, readWorkspaceIssues, readWorkspaceResources, workspaceEqual, workspaceFailure, workspaceId, workspaceKeys, workspaceRecord, workspaceRevision, workspaceText } from './resource-workspace-validation';
 
 export const maxResourceImportBytes = 5 * 1024 * 1024;
 export const resourceXlsxMime = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
-export const resourceImportKinds = ['nodes', 'devices', 'interference_sources'] as const;
+export const resourceImportKinds = ['nodes', 'devices', 'interference_sources', 'topology_links'] as const;
 export type ResourceImportKind = typeof resourceImportKinds[number];
 export function importKind(value: unknown): ResourceImportKind {
-  if (value !== 'nodes' && value !== 'devices' && value !== 'interference_sources') return workspaceFailure('import.kind');
+  if (value !== 'nodes' && value !== 'devices' && value !== 'interference_sources' && value !== 'topology_links') return workspaceFailure('import.kind');
   return value;
 }
 export function importSignature(value: unknown): string {
@@ -22,11 +22,13 @@ export function snapshotImportRequest(input: ResourceImportRequest): ResourceImp
     const name = workspaceText(file.name, 'file.name', false, 255);
     if (!/\.(csv|xlsx)$/i.test(name) || /[\\/]/.test(name) || !(file.bytes instanceof Uint8Array) || !file.bytes.byteLength || file.bytes.byteLength > maxResourceImportBytes) throw importValidationError();
     if (v.context !== 'ledger' && v.context !== 'gis') throw importValidationError();
+    const kind = importKind(v.kind);
+    if (kind === 'topology_links' && v.context !== 'gis') throw importValidationError();
     if (v.draftChanges !== undefined) {
       const draft = readWorkspaceChanges(v.draftChanges, 'MANUAL');
       if (Object.values(draft).some(rows => Array.isArray(rows) && rows.length > 0)) throw importValidationError();
     }
-    return { file: { name, bytes: new Uint8Array(file.bytes) }, kind: importKind(v.kind), baseRevision: workspaceRevision(v.baseRevision), context: v.context };
+    return { file: { name, bytes: new Uint8Array(file.bytes) }, kind, baseRevision: workspaceRevision(v.baseRevision), context: v.context };
   } catch (error) {
     if (!(error instanceof ApiError) || !['INVALID_RESOURCE_RESPONSE', 'VALIDATION_ERROR'].includes(String(error.code))) throw error;
     throw importValidationError();
@@ -58,6 +60,7 @@ export function readResourceImportPreview(value: unknown, input: ResourceImportR
   const rows: ResourceImportRow[] = Array.from(v.rows, value => {
     const row = workspaceRecord(value); workspaceKeys(row, ['sheet', 'row', 'id', 'action', 'differences']);
     const sheet = importKind(row.sheet);
+    if (input.kind === 'topology_links' ? sheet !== 'topology_links' : sheet === 'topology_links') workspaceFailure('import sheet scope');
     if (isCsv && sheet !== input.kind || typeof row.row !== 'number' || !Number.isSafeInteger(row.row) || row.row < 2 || row.row > 5001
       || !['NEW', 'UPDATE', 'UNCHANGED'].includes(String(row.action)) || !Array.isArray(row.differences)) workspaceFailure('import row');
     const position = sheet + ':' + row.row;
@@ -75,6 +78,7 @@ export function readResourceImportPreview(value: unknown, input: ResourceImportR
     return { sheet, row: row.row, id: issues.length ? workspaceText(row.id, 'row.id', true) : workspaceId(row.id), action: row.action as ResourceImportRow['action'], differences };
   });
   const candidate = readWorkspaceResources(v.candidate, input.baseRevision), changes = readWorkspaceChanges(v.changes, 'IMPORT');
+  if (input.kind === 'topology_links' && !Array.isArray(candidate.candidateLinks)) workspaceFailure('missing candidate collection');
   if (issues.length && Object.values(changes).some(rows => Array.isArray(rows) && rows.length)) workspaceFailure('invalid preview changes');
   if (!issues.length) {
     const seen = new Set<string>();
@@ -82,14 +86,28 @@ export function readResourceImportPreview(value: unknown, input: ResourceImportR
       const key = row.sheet + ':' + row.id;
       if (seen.has(key)) workspaceFailure('duplicate import id');
       seen.add(key);
-      const table = row.sheet === 'nodes' ? candidate.stations : row.sheet === 'devices' ? candidate.devices : candidate.interferences ?? [];
+      const table = row.sheet === 'nodes' ? candidate.stations : row.sheet === 'devices' ? candidate.devices
+        : row.sheet === 'topology_links' ? candidate.candidateLinks ?? [] : candidate.interferences ?? [];
       const item = table.find(item => item.id === row.id);
-      if (!item || row.action === 'NEW' && item.origin !== 'IMPORT') workspaceFailure('import candidate reference');
+      if (!item || row.sheet !== 'topology_links' && row.action === 'NEW' && (!('origin' in item) || item.origin !== 'IMPORT')) workspaceFailure('import candidate reference');
+      if (row.sheet === 'topology_links') {
+        if (!('assessmentState' in item) || item.source.kind !== 'IMPORT' || item.source.file !== input.file.name || item.source.row !== row.row
+          || item.assessmentState === 'PENDING' && item.reference !== null) workspaceFailure('import candidate source');
+        if (row.action !== 'UNCHANGED') {
+          const canonical = (row.action === 'NEW' ? changes.newCandidateLinks : changes.importedCandidateLinks)?.find(item => item.id === row.id);
+          if (!canonical || !workspaceEqual(canonical, item)) workspaceFailure('import candidate changes');
+        }
+      }
     }
     for (const [field, sheet] of [['stations', 'nodes'], ['newStations', 'nodes'], ['devices', 'devices'], ['newDevices', 'devices'], ['interferences', 'interference_sources'], ['newInterferences', 'interference_sources']] as const) {
       for (const item of changes[field] ?? []) if (!rows.some(row => row.sheet === sheet && row.id === item.id && row.action !== 'UNCHANGED')) workspaceFailure('import changes reference');
     }
-    if (changes.newCandidateLinks?.length || changes.importedCandidateLinks?.length || changes.candidateLinks?.length) workspaceFailure('unsupported candidate import');
+    if (input.kind === 'topology_links') {
+      if (Object.entries(changes).some(([key, rows]) => !['newCandidateLinks', 'importedCandidateLinks'].includes(key) && rows?.length)) workspaceFailure('mixed candidate import changes');
+      for (const [field, action] of [['newCandidateLinks', 'NEW'], ['importedCandidateLinks', 'UPDATE']] as const) {
+        for (const item of changes[field] ?? []) if (!rows.some(row => row.sheet === 'topology_links' && row.id === item.id && row.action === action)) workspaceFailure('candidate change action');
+      }
+    } else if (changes.newCandidateLinks?.length || changes.importedCandidateLinks?.length || changes.candidateLinks?.length) workspaceFailure('unsupported candidate import');
   }
   // 返回的请求副本与调用方原始缓冲区无共享内存。
   return { request: snapshotImportRequest(input), signature, rows, issues, warnings, candidate, changes };
@@ -97,7 +115,8 @@ export function readResourceImportPreview(value: unknown, input: ResourceImportR
 export function templateArguments(format: ResourceFormat, kind: ResourceKind) {
   try {
     if (format !== 'csv' && format !== 'xlsx') throw importValidationError();
-    return { format, kind: importKind(kind) };
+    const acceptedKind = importKind(kind), context: 'gis' | 'ledger' = acceptedKind === 'topology_links' ? 'gis' : 'ledger';
+    return { format, kind: acceptedKind, context };
   } catch { throw importValidationError(); }
 }
 export async function readResourceTemplate(value: unknown, format: ResourceFormat, kind: ResourceImportKind, revision: string): Promise<ResourceFile> {
@@ -109,7 +128,7 @@ export async function readResourceTemplate(value: unknown, format: ResourceForma
   } else {
     let text: string;
     try { text = new TextDecoder('utf-8', { fatal: true }).decode(bytes); } catch { return workspaceFailure('template UTF-8'); }
-    const first = { nodes: 'node_id,', devices: 'device_id,', interference_sources: 'interference_id,' };
+    const first = { nodes: 'node_id,', devices: 'device_id,', interference_sources: 'interference_id,', topology_links: 'link_id,' };
     if (!text.startsWith(first[kind])) workspaceFailure('template header');
   }
   return { name: `SYNTHETIC_INTEGRATION-resource-template-${kind}-${revision}.${format}`, mime, bytes };

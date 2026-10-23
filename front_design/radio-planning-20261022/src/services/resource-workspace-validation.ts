@@ -132,16 +132,20 @@ function interference(value: unknown): InterferenceSource {
 const candidateConfig = ['nodeAId', 'nodeBId', 'deviceAId', 'deviceBId', 'deviceClass', 'freqKhz', 'bandwidthKhz', 'isBackup'] as const;
 const candidateAssessment = ['distanceM', 'pathLossDb', 'rxPowerDbm', 'linkMarginDb', 'isAvailable', 'linkState'] as const;
 function candidateData(v: Record<string, unknown>): CandidateLinkData {
-  return { id: workspaceId(v.id), nodeAId: workspaceId(v.nodeAId), nodeBId: workspaceId(v.nodeBId), deviceAId: workspaceId(v.deviceAId), deviceBId: workspaceId(v.deviceBId),
+  const result = { id: workspaceId(v.id), nodeAId: workspaceId(v.nodeAId), nodeBId: workspaceId(v.nodeBId), deviceAId: workspaceId(v.deviceAId), deviceBId: workspaceId(v.deviceBId),
     deviceClass: deviceClass(v.deviceClass), freqKhz: nullableNumber(v.freqKhz), bandwidthKhz: nullableNumber(v.bandwidthKhz), isBackup: nullableBoolean(v.isBackup),
     distanceM: nullableNumber(v.distanceM), pathLossDb: nullableNumber(v.pathLossDb), rxPowerDbm: nullableNumber(v.rxPowerDbm), linkMarginDb: nullableNumber(v.linkMarginDb),
     isAvailable: nullableBoolean(v.isAvailable), linkState: v.linkState === null ? null : choice(v.linkState, ['EXCELLENT', 'GOOD', 'WARNING', 'FAULT']) };
+  if (result.nodeAId === result.nodeBId || result.deviceAId === result.deviceBId
+    || [result.freqKhz, result.bandwidthKhz].some(value => value !== null && value <= 0)) workspaceFailure('candidate config');
+  return result;
 }
 function candidateSource(value: unknown): CandidateLinkSource {
   const v = workspaceRecord(value); workspaceKeys(v, ['kind', 'file', 'row']);
-  const kind = origin(v.kind), file = v.file === null ? null : workspaceText(v.file, 'source.file');
+  const kind = origin(v.kind), file = v.file === null ? null : workspaceText(v.file, 'source.file', false, 255);
   if (v.row !== null && (typeof v.row !== 'number' || !Number.isSafeInteger(v.row) || v.row < 2)) workspaceFailure('source.row');
   if (kind === 'MANUAL' ? file !== null || v.row !== null : file === null || v.row === null) workspaceFailure('source');
+  if (file !== null && file !== file.trim()) workspaceFailure('source.file');
   return { kind, file, row: v.row as number | null };
 }
 function candidate(value: unknown): CandidateLink {
@@ -151,13 +155,15 @@ function candidate(value: unknown): CandidateLink {
     const ref = workspaceRecord(v.reference); workspaceKeys(ref, ['data', 'source']);
     const data = workspaceRecord(ref.data); workspaceKeys(data, ['id', ...candidateConfig, ...candidateAssessment]);
     result.reference = { data: candidateData(data), source: candidateSource(ref.source) };
-    if (result.reference.data.id !== result.id) workspaceFailure('reference.id');
+    if (result.reference.data.id !== result.id || result.reference.source.kind === 'MANUAL'
+      || !candidateAssessment.some(key => result.reference!.data[key] !== null)) workspaceFailure('reference');
   }
   if (v.notices !== undefined) result.notices = array(v.notices, s => workspaceText(s, 'notice'));
   const evaluated = candidateAssessment.some(key => result[key] !== null);
   if (result.assessmentState === 'PENDING' && evaluated || result.assessmentState === 'REFERENCE' && (!evaluated || !result.reference
-    || candidateAssessment.some(key => result[key] !== result.reference!.data[key]))
-    || result.source.kind === 'MANUAL' && (evaluated || result.reference !== null)) workspaceFailure('candidate assessment');
+    || [...candidateConfig.filter(key => key !== 'isBackup'), ...candidateAssessment].some(key => result[key] !== result.reference!.data[key])
+    || !workspaceEqual(result.source, result.reference.source))
+    || result.source.kind === 'MANUAL' && (result.assessmentState !== 'PENDING' || evaluated || result.reference !== null)) workspaceFailure('candidate assessment');
   return result;
 }
 export function readWorkspaceResources(value: unknown, expectedRevision?: string): ResourcesData {
@@ -253,13 +259,17 @@ function patch(value: unknown, fields: readonly string[]): Record<string, unknow
     else if (['name', 'region', 'remark', 'interferenceType'].includes(key)) workspaceText(value, key, key === 'region' || key === 'remark');
     else if (['currentWorkMode', 'patternType'].includes(key)) { if (value !== null) workspaceText(value, key); }
     else if (fields === interferenceFields && ['antennaHeightM', 'centerFreqKhz', 'bandwidthKhz', 'txPowerDbm'].includes(key)) numeric(value);
-    else nullableNumber(value);
+    else {
+      const number = nullableNumber(value);
+      if (fields === candidateConfig && number !== null && number <= 0) workspaceFailure('candidate frequency/bandwidth');
+    }
   }
   return structuredClone(v);
 }
 export const workspaceChangeKeys = ['stations', 'devices', 'newStations', 'newDevices', 'newInterferences', 'interferences', 'candidateLinks', 'newCandidateLinks', 'importedCandidateLinks'] as const;
 export function readWorkspaceChanges(value: unknown, newOrigin: 'MANUAL' | 'IMPORT'): ResourceChanges {
   const v = workspaceRecord(value); workspaceKeys(v, ['stations', 'devices'], workspaceChangeKeys);
+  if (newOrigin === 'MANUAL' && Object.hasOwn(v, 'importedCandidateLinks')) workspaceFailure('imported candidate');
   for (const [key, rows] of Object.entries(v)) {
     let decoded: { id: string }[];
     if (key === 'stations' || key === 'devices' || key === 'interferences' || key === 'candidateLinks') {
@@ -268,7 +278,6 @@ export function readWorkspaceChanges(value: unknown, newOrigin: 'MANUAL' | 'IMPO
       decoded = array(rows, row => {
         const result = key === 'newStations' ? station(row) : key === 'newDevices' ? device(row) : key === 'newInterferences' ? interference(row) : candidate(row);
         if ('source' in result ? result.source.kind !== newOrigin : result.origin !== newOrigin) workspaceFailure('new object origin');
-        if (key === 'importedCandidateLinks' && newOrigin !== 'IMPORT') workspaceFailure('imported candidate');
         return result;
       });
     }
@@ -278,6 +287,8 @@ export function readWorkspaceChanges(value: unknown, newOrigin: 'MANUAL' | 'IMPO
     const additions = (v[created] ?? []) as { id: string }[], patches = (v[updated] ?? []) as { id: string }[];
     if (additions.some(row => patches.some(p => p.id === row.id))) workspaceFailure('duplicate changed object');
   }
+  const candidateIds = ['newCandidateLinks', 'candidateLinks', 'importedCandidateLinks'].flatMap(key => ((v[key] ?? []) as { id: string }[]).map(row => row.id));
+  if (new Set(candidateIds).size !== candidateIds.length) workspaceFailure('duplicate changed candidate');
   // 所有嵌套字段已校验，复制后不保留页面可变对象。
   return structuredClone(v) as unknown as ResourceChanges;
 }
@@ -285,11 +296,22 @@ export function workspaceCommitBody(input: ResourceCommit) {
   try {
     const v = workspaceRecord(input); workspaceKeys(v, ['context', 'baseRevision', 'requestId', 'stations', 'devices'], workspaceChangeKeys);
     const context = choice(v.context, ['ledger', 'gis']), baseRevision = workspaceRevision(v.baseRevision), requestId = workspaceId(v.requestId);
+    if (context !== 'gis' && ['newCandidateLinks', 'candidateLinks'].some(key => Object.hasOwn(v, key))) workspaceFailure('candidate context');
     const changes = readWorkspaceChanges(Object.fromEntries(Object.entries(v).filter(([key]) => workspaceChangeKeys.includes(key as typeof workspaceChangeKeys[number]))), 'MANUAL');
     return { context, base_revision: baseRevision, request_id: requestId, changes };
   } catch (error) {
     if (!(error instanceof ApiError) || error.code !== 'INVALID_RESOURCE_RESPONSE') throw error;
     throw new ApiError('资源工作区请求字段无效', 'VALIDATION_ERROR');
+  }
+}
+export function assertWorkspaceCandidateSave(resources: ResourcesData, changes: ResourceChanges): void {
+  for (const expected of [...changes.newCandidateLinks ?? [], ...changes.candidateLinks ?? []]) {
+    const saved = resources.candidateLinks?.find(row => row.id === expected.id);
+    if (!saved || candidateConfig.some(key => Object.hasOwn(expected, key) && saved[key] !== expected[key])) workspaceFailure('saved candidate config');
+  }
+  for (const expected of changes.newCandidateLinks ?? []) {
+    const saved = resources.candidateLinks!.find(row => row.id === expected.id)!;
+    if (saved.source.kind !== 'MANUAL' || saved.assessmentState !== 'PENDING' || saved.reference !== null) workspaceFailure('saved manual candidate');
   }
 }
 export type WorkspaceContext = ResourceMaintenanceContext & { resources: ResourcesData; meta: ResourceMeta };

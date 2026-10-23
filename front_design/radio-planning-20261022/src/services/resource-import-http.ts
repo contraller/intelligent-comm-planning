@@ -2,7 +2,7 @@ import type { AuthenticatedRequest } from './auth-http';
 import type { ResourceImportPreview, ResourceServices } from '../types/resource-edit';
 import { createResourceWorkspaceHttp, resourceWorkspaceCall } from './resource-workspace-http';
 import { importSignature, importValidationError, readResourceImportPreview, readResourceTemplate, resourceImportBody, snapshotImportRequest, templateArguments } from './resource-import-validation';
-import { readWorkspaceMutation, workspaceEqual, workspaceId, workspaceKeys, workspaceRecord, workspaceRevision } from './resource-workspace-validation';
+import { readWorkspaceMutation, workspaceEqual, workspaceFailure, workspaceId, workspaceKeys, workspaceRecord, workspaceRevision } from './resource-workspace-validation';
 
 type ImportServices = Pick<ResourceServices, 'getResourceTemplate' | 'previewResourceImport' | 'applyResourceImport' | 'commitResourceImport'>;
 export function createResourceImportHttp(request: AuthenticatedRequest): ImportServices {
@@ -22,12 +22,14 @@ export function createResourceImportHttp(request: AuthenticatedRequest): ImportS
     const payload = { ...resourceImportBody(preview.request), signature: preview.signature, request_id: requestId };
     // 一次调用只发送一次提交；超时后的原 requestId 由 store 保留并核实。
     const value = await resourceWorkspaceCall(request, '/resource/import/commit', { method: 'POST', body: JSON.stringify(payload) });
-    return readWorkspaceMutation(value, preview.request.baseRevision, 'resource-import', preview.rows.filter(row => row.action !== 'UNCHANGED').map(row => row.id));
+    const result = readWorkspaceMutation(value, preview.request.baseRevision, 'resource-import', preview.rows.filter(row => row.action !== 'UNCHANGED').map(row => row.id));
+    if (preview.request.kind === 'topology_links' && !workspaceEqual(result.result.resources.candidateLinks, preview.candidate.candidateLinks)) workspaceFailure('candidate commit binding');
+    return result;
   }
   return {
     async getResourceTemplate(format, kind = 'nodes') {
-      const expected = templateArguments(format, kind), current = await workspace.loadWorkspace('ledger');
-      const params = new URLSearchParams({ context: 'ledger', revision: current.revision, format: expected.format, kind: expected.kind });
+      const expected = templateArguments(format, kind), current = await workspace.loadWorkspace(expected.context);
+      const params = new URLSearchParams({ context: expected.context, revision: current.revision, format: expected.format, kind: expected.kind });
       const value = await resourceWorkspaceCall(request, '/resource/import/template?' + params, undefined, 'blob');
       return readResourceTemplate(value, expected.format, expected.kind, current.revision);
     },

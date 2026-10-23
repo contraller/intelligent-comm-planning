@@ -40,6 +40,24 @@ function service(value: unknown) {
   return { request, api: createResourceWorkspaceHttp(request as AuthenticatedRequest) };
 }
 function body(call: [string, RequestInit?, ('json' | 'blob')?]) { return JSON.parse(String(call[1]?.body)); }
+function manualCandidate(): CandidateLink {
+  return { id: 'C1', nodeAId: 'N1', nodeBId: 'N2', deviceAId: 'D1', deviceBId: 'D2', deviceClass: 'HF',
+    freqKhz: null, bandwidthKhz: null, isBackup: null, distanceM: null, pathLossDb: null, rxPowerDbm: null, linkMarginDb: null,
+    isAvailable: null, linkState: null, assessmentState: 'PENDING', source: { kind: 'MANUAL', file: null, row: null }, reference: null };
+}
+function candidateResources(links: CandidateLink[], revision = next): ResourcesData {
+  const data = resources(revision);
+  data.stations.push({ ...structuredClone(data.stations[0]), id: 'N2' });
+  data.devices.push({ ...structuredClone(data.devices[0]), id: 'D2', stationId: 'N2' });
+  data.candidateLinks = structuredClone(links);
+  return data;
+}
+function candidateMutation(links: CandidateLink[]) {
+  const data = candidateResources(links);
+  return { receipt: { objectId: 'resource-workspace', changed: true, revision: next, readRevision: next, warnings: [], affectedIds: ['C1'] },
+    result: { resources: data, meta: meta(data), changed: true, warnings: [] } };
+}
+const candidateInput = (): ResourceCommit => ({ context: 'gis', baseRevision: old, requestId: 'manual-candidate-1', stations: [], devices: [], newCandidateLinks: [manualCandidate()] });
 
 describe('资源工作区 HTTP 请求桩契约', () => {
   it('完整 canonical 台账上下文保留未知值和真实来源，不读本地资料', async () => {
@@ -159,6 +177,74 @@ describe('资源工作区 HTTP 请求桩契约', () => {
       await expect(s.api.saveResourceChanges({ ...input(), ...patch } as ResourceCommit)).rejects.toMatchObject({ code: 'VALIDATION_ERROR' });
     }
     expect(s.request).not.toHaveBeenCalled();
+  });
+  it('GIS 手工候选仅以 MANUAL/PENDING/null 评估及 null reference 新建，回执和完整入口一致', async () => {
+    const value = candidateMutation([{ ...manualCandidate(), notices: [] }]), s = service(value), request = candidateInput();
+    expect(await s.api.saveResourceChanges(request)).toEqual(value.receipt);
+    expect(body(s.request.mock.calls[0])).toEqual({ context: 'gis', base_revision: old, request_id: 'manual-candidate-1',
+      changes: { stations: [], devices: [], newCandidateLinks: [manualCandidate()] } });
+    const saved = await s.api.commitResources(request), link = saved.resources.candidateLinks![0];
+    expect(link).toMatchObject({ assessmentState: 'PENDING', source: { kind: 'MANUAL', file: null, row: null }, reference: null });
+    for (const field of ['freqKhz', 'bandwidthKhz', 'isBackup', 'distanceM', 'pathLossDb', 'rxPowerDbm', 'linkMarginDb', 'isAvailable', 'linkState'] as const) expect(link[field]).toBeNull();
+  });
+  it('已有候选只接受八项配置 patch，nullable 不改成默认频率或备用标记', async () => {
+    const { id, nodeAId, nodeBId, deviceAId, deviceBId, deviceClass } = manualCandidate();
+    const patch = { id, nodeAId, nodeBId, deviceAId, deviceBId, deviceClass, freqKhz: 8000, bandwidthKhz: null, isBackup: false };
+    const saved = { ...manualCandidate(), freqKhz: 8000, isBackup: false }, s = service(candidateMutation([saved]));
+    const result = await s.api.commitResources({ context: 'gis', baseRevision: old, requestId: 'patch-candidate', stations: [], devices: [], candidateLinks: [patch] });
+    expect(body(s.request.mock.calls[0]).changes).toEqual({ stations: [], devices: [], candidateLinks: [patch] });
+    expect(result.resources.candidateLinks).toEqual([saved]);
+  });
+  it('候选 patch 拒绝全部评估、来源、参考和状态字段', async () => {
+    const s = service(candidateMutation([manualCandidate()]));
+    for (const fields of [{ distanceM: 0 }, { pathLossDb: 0 }, { rxPowerDbm: 0 }, { linkMarginDb: 0 }, { isAvailable: false }, { linkState: null },
+      { assessmentState: 'REFERENCE' }, { source: { kind: 'IMPORT', file: 'fake.csv', row: 2 } }, { reference: null }]) {
+      await expect(s.api.saveResourceChanges({ context: 'gis', baseRevision: old, requestId: 'forbidden-patch', stations: [], devices: [],
+        candidateLinks: [{ id: 'C1', ...fields }] } as ResourceCommit)).rejects.toMatchObject({ code: 'VALIDATION_ERROR' });
+    }
+    expect(s.request).not.toHaveBeenCalled();
+  });
+  it('手工新候选拒绝伪评估、伪参考、IMPORT/SOURCE 来源和零频率', async () => {
+    const s = service(candidateMutation([manualCandidate()])), manual = manualCandidate();
+    const { assessmentState: _state, source: _source, reference: _reference, notices: _notices, ...data } = manual;
+    const reference = { data: { ...data, distanceM: 1 }, source: { kind: 'IMPORT', file: 'external.csv', row: 2 } };
+    for (const fields of [{ distanceM: 0 }, { pathLossDb: 0 }, { rxPowerDbm: 0 }, { linkMarginDb: 0 }, { isAvailable: false }, { linkState: 'GOOD' },
+      { assessmentState: 'REFERENCE' }, { reference }, { freqKhz: 0 }, { bandwidthKhz: 0 },
+      { source: { kind: 'IMPORT', file: 'external.csv', row: 2 } }, { source: { kind: 'SOURCE', file: 'source.csv', row: 2 } }]) {
+      const row = manualCandidate(); Object.assign(row, fields);
+      await expect(s.api.saveResourceChanges({ ...candidateInput(), newCandidateLinks: [row] })).rejects.toMatchObject({ code: 'VALIDATION_ERROR' });
+    }
+    expect(s.request).not.toHaveBeenCalled();
+  });
+  it('ledger 不能保存候选，普通 workspace 不能携带 importedCandidateLinks（含空集合）', async () => {
+    const s = service(candidateMutation([manualCandidate()]));
+    for (const request of [{ ...candidateInput(), context: 'ledger' },
+      { ...input(), candidateLinks: [{ id: 'C1', isBackup: true }] },
+      { ...candidateInput(), importedCandidateLinks: [] }, { ...candidateInput(), importedCandidateLinks: [manualCandidate()] },
+      { ...candidateInput(), candidateLinks: [{ id: 'C1', isBackup: true }] },
+      { ...candidateInput(), newCandidateLinks: [manualCandidate(), manualCandidate()] }]) {
+      await expect(s.api.saveResourceChanges(request as ResourceCommit)).rejects.toMatchObject({ code: 'VALIDATION_ERROR' });
+    }
+    expect(s.request).not.toHaveBeenCalled();
+  });
+  it('保存回读不能忽略候选配置或把新手工来源变成 IMPORT', async () => {
+    const wrongConfig = candidateMutation([{ ...manualCandidate(), freqKhz: 8000 }]);
+    await expect(service(wrongConfig).api.commitResources(candidateInput())).rejects.toMatchObject({ code: 'INVALID_RESOURCE_RESPONSE' });
+    const imported = manualCandidate(); imported.source = { kind: 'IMPORT', file: 'fake.csv', row: 2 };
+    await expect(service(candidateMutation([imported])).api.commitResources(candidateInput())).rejects.toMatchObject({ code: 'INVALID_RESOURCE_RESPONSE' });
+    const dropped = candidateMutation([]);
+    await expect(service(dropped).api.commitResources(candidateInput())).rejects.toMatchObject({ code: 'INVALID_RESOURCE_RESPONSE' });
+    await expect(service(candidateMutation([manualCandidate()])).api.commitResources({ context: 'gis', baseRevision: old, requestId: 'ignored-patch',
+      stations: [], devices: [], candidateLinks: [{ id: 'C1', isBackup: true }] })).rejects.toMatchObject({ code: 'INVALID_RESOURCE_RESPONSE' });
+  });
+  it('读取旧 PENDING 候选可保留合法外部历史参考，不冒充当前评估', async () => {
+    const link = manualCandidate();
+    link.source = { kind: 'IMPORT', file: 'old.csv', row: 2 };
+    const { assessmentState: _state, source, reference: _reference, notices: _notices, ...data } = link;
+    link.reference = { data: { ...data, distanceM: 42, freqKhz: 8000 }, source: { ...source } };
+    const dataResources = candidateResources([link], old);
+    const value = { ...context(), stations: dataResources.stations, resources: dataResources, meta: meta(dataResources), resourceMeta: meta(dataResources), validationSource: structuredClone(dataResources) };
+    expect((await service(value).api.loadGisResourceEditContext({ context: 'gis', revision: old })).resources.candidateLinks).toEqual([link]);
   });
   it.each([[1001, 'VALIDATION_ERROR'], [1002, 'RESOURCE_NOT_FOUND'], [1205, 'RESOURCE_VERSION_CHANGED'], [1206, 'REQUEST_CONFLICT'], ['REQUEST_TIMEOUT', 'REQUEST_TIMEOUT']])('错误 %s 保留追踪信息且不重发', async (code, expected) => {
     const s = service(null), error = new ApiError('明确失败', code, { detail: 1 }, 'trace-1', 409);

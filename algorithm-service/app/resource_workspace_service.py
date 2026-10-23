@@ -12,6 +12,7 @@ from . import frontend_integration as frontend, resource_dataset_service as data
 from .planning_plan_models import PlanningPlan
 from .resource_dataset_models import ResourceDatasetVersion
 from .resource_export_service import HEADERS, TABLES
+from . import resource_candidate_service as candidates
 
 NODE_FIELDS = {"name": "node_name", "coordinate": None, "elevationM": "elevation_m",
                "region": "region", "remark": "remark"}
@@ -76,7 +77,7 @@ def resources(snapshot):
             "modulation": list(filter(None, row.get("modulation", "").split(";"))),
             "workMode": list(filter(None, row.get("work_mode", "").split(";")))} for row in models],
         "antennas": [{"id": row["antenna_id"], "name": row["antenna_name"]} for row in antennas],
-        "source": datasets.SOURCE, "version": snapshot["revision"]}
+        "candidateLinks": candidates.get_links(snapshot), "source": datasets.SOURCE, "version": snapshot["revision"]}
 
 
 def meta(snapshot):
@@ -134,6 +135,12 @@ def changes_between(before, after):
                 patch = {key: item[key] for key in fields if item[key] != original[key]}
                 if patch:
                     changes.setdefault(changed_key, []).append({"id": item["id"], **patch})
+    previous = {row["id"]: row for row in old["candidateLinks"]}
+    for row in new["candidateLinks"]:
+        if row["id"] not in previous:
+            changes.setdefault("newCandidateLinks", []).append(row)
+        elif row != previous[row["id"]]:
+            changes.setdefault("importedCandidateLinks", []).append(row)
     return changes
 
 
@@ -164,9 +171,12 @@ def _scalar(key, value):
 def apply_changes(snapshot, changes):
     from .resource_import_parser import parse_import
 
-    allowed = {"stations", "devices", "interferences", "newStations", "newDevices", "newInterferences"}
+    allowed = {"stations", "devices", "interferences", "newStations", "newDevices", "newInterferences",
+        "newCandidateLinks", "candidateLinks", "importedCandidateLinks"}
     if set(changes) - allowed:
         fail("包含未接入或只读的资源操作")
+    if sum(len(value) for value in changes.values() if isinstance(value, list)) > 5000:
+        fail("一次最多提交5000条资源增量")
     parsed_tables = deepcopy(snapshot["tables"])
     warnings, touched = [], []
     for kind, patch_key, new_key, fields, new_fields in (
@@ -251,15 +261,21 @@ def save(request, actor_id):
         # JSON NaN/Infinity 必须在哈希与事务之前拒绝，不能泄漏为未捕获异常。
         fail("资源变更必须为有限数值和有效 JSON 字段")
     def apply(snapshot):
-        candidate, warnings = apply_changes(snapshot, request.changes)
-        changed = candidate != snapshot["tables"]
         before = {**deepcopy(snapshot), "revision": request.base_revision}
+        candidate, warnings = apply_changes(snapshot, request.changes)
         after = {**snapshot, "tables": candidate, "revision": request.base_revision}
+        links = candidates.apply_candidate_changes(after, request.changes)
+        links_changed = links != candidates.get_links(snapshot)
+        if links_changed:
+            after[candidates.SNAPSHOT_KEY] = links
+        changed = candidate != snapshot["tables"] or links_changed
         differences = changes_between(before, after)
         affected = sorted({item["id"] for values in differences.values() for item in values})
         snapshot["tables"] = candidate
+        if links_changed:
+            snapshot[candidates.SNAPSHOT_KEY] = links
         devices = [item["id"] for key in ("devices", "newDevices") for item in request.changes.get(key, [])]
-        object_id = devices[0] if len(devices) == 1 and not any(request.changes.get(key) for key in ("stations", "newStations", "interferences", "newInterferences")) else "resource-workspace"
+        object_id = devices[0] if len(devices) == 1 and not any(request.changes.get(key) for key in ("stations", "newStations", "interferences", "newInterferences", "newCandidateLinks", "candidateLinks")) else "resource-workspace"
         return changed, {"object_id": object_id, "affected_ids": affected, "warnings": warnings}
 
     receipt = datasets.commit_device_change(request.base_revision, request.request_id, digest, actor_id, apply)

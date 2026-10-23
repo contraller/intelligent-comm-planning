@@ -2,7 +2,7 @@ import type { AuthenticatedRequest } from './auth-http';
 import type { GisResourceEditContext, GisResourceServices } from '../types/gis-workspace';
 import type { ResourceCommit, ResourceMaintenanceRequest } from '../types/resource-edit';
 import { ApiError } from './types';
-import { readWorkspaceContext, readWorkspaceMutation, workspaceCommitBody, workspaceKeys, workspaceRecord, workspaceRevision } from './resource-workspace-validation';
+import { assertWorkspaceCandidateSave, readWorkspaceContext, readWorkspaceMutation, workspaceCommitBody, workspaceKeys, workspaceRecord, workspaceRevision } from './resource-workspace-validation';
 
 export async function resourceWorkspaceCall(request: AuthenticatedRequest, path: string, init?: RequestInit, responseType: 'json' | 'blob' = 'json'): Promise<unknown> {
   try { return await request<unknown>(path, init, responseType); }
@@ -39,7 +39,9 @@ export function createResourceWorkspaceHttp(request: AuthenticatedRequest) {
     const objectId = deviceOnly ? devices[0].id : 'resource-workspace';
     const submittedIds = Object.values(payload.changes).flatMap(rows => rows?.map((row: { id: string }) => row.id) ?? []);
     const value = await resourceWorkspaceCall(request, '/resource/workspace/changes', { method: 'POST', body: JSON.stringify(payload) });
-    return readWorkspaceMutation(value, payload.base_revision, objectId, submittedIds);
+    const result = readWorkspaceMutation(value, payload.base_revision, objectId, submittedIds);
+    assertWorkspaceCandidateSave(result.result.resources, payload.changes);
+    return result;
   }
   return {
     loadWorkspace,

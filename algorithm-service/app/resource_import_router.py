@@ -11,10 +11,12 @@ from .resource_import_schemas import ImportCommit, ImportPreview, ImportTemplate
 router = APIRouter(prefix="/api/v1/resource/import", tags=["resource-import"])
 
 
-def _call(request, action):
+def _call(request, action, context=None):
     try:
         identity.require(request, "resources.view")
         actor = identity.require(request, "resources.import", writing=request.method != "GET")
+        if (context if context is not None else request.query_params.get("context")) == "gis":
+            identity.require(request, "situation.view")
         return action(actor)
     except (identity.IdentityError, ResourceDatasetError) as exc:
         return JSONResponse({"code": exc.code, "message": str(exc), "data": None}, status_code=exc.status)
@@ -39,10 +41,10 @@ def template(request: Request):
 
 @router.post("/preview")
 def preview(payload: dict, request: Request):
-    return _call(request, lambda actor: {"code": 0, "message": "success", "data": service.preview(ImportPreview.model_validate(payload))})
+    return _call(request, lambda actor: {"code": 0, "message": "success", "data": service.preview(ImportPreview.model_validate(payload))}, payload.get("context"))
 
 
 @router.post("/commit")
 def commit(payload: dict, request: Request):
     return _call(request, lambda actor: {"code": 0, "message": "success",
-        "data": service.commit(ImportCommit.model_validate(payload), actor["account_id"])})
+        "data": service.commit(ImportCommit.model_validate(payload), actor["account_id"])}, payload.get("context"))

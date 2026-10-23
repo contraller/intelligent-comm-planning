@@ -286,12 +286,38 @@ def test_readonly_and_unsupported_fields_are_422_without_write(workspace_api, ke
     assert_unchanged(factory, baseline)
 
 
-@pytest.mark.parametrize("key", ["ports", "mode", "candidateLinks", "newCandidateLinks", "importedCandidateLinks", "availability", "models", "devices_extra"])
+@pytest.mark.parametrize("key", ["ports", "mode", "availability", "models", "devices_extra"])
 def test_unsupported_change_categories_are_explicit_422(workspace_api, key):
     client, factory, baseline, _ = workspace_api
     switch(client)
     response = save(client, body(baseline, {key: []}))
     assert response.status_code == 422 and response.json()["code"] == 1001
+    assert_unchanged(factory, baseline)
+
+
+@pytest.mark.parametrize("key", ["newCandidateLinks", "candidateLinks"])
+def test_empty_candidate_changes_are_noops_without_new_version(workspace_api, key):
+    client, factory, baseline, _ = workspace_api
+    switch(client)
+    payload = body(baseline, {key: []}, request_id="empty-" + key)
+    response = save(client, payload)
+    assert response.status_code == 200, response.text
+    data = response.json()["data"]
+    receipt = data["receipt"]
+    assert receipt["changed"] is False and receipt["affectedIds"] == []
+    assert receipt["revision"] == receipt["readRevision"] == baseline["revision"]
+    assert data["result"]["resources"]["version"] == baseline["revision"]
+    assert save(client, payload).json()["data"] == data
+    assert_unchanged(factory, baseline, (1, 1))
+
+
+def test_nonempty_imported_candidate_changes_cannot_forge_import_source(workspace_api):
+    client, factory, baseline, _ = workspace_api
+    switch(client)
+    changes = {"importedCandidateLinks": [{"id": "FORGED-IMPORT", "source": {"kind": "IMPORT"}}]}
+    response = save(client, body(baseline, changes))
+    assert response.status_code == 422 and response.json()["code"] == 1001, response.text
+    assert "导入候选只能由服务器重新解析原文件产生" in response.json()["message"]
     assert_unchanged(factory, baseline)
 
 

@@ -7,6 +7,7 @@ from pathlib import PureWindowsPath
 
 from . import resource_dataset_service as datasets
 from . import resource_workspace_service as workspace
+from . import resource_candidate_service as candidates
 from .resource_export_service import HEADERS, TABLES
 from .resource_import_parser import make_template, parse_import
 
@@ -33,6 +34,12 @@ def signature(request, data):
 
 
 def _parse(snapshot, request, data):
+    if request.kind == "topology_links":
+        parsed = candidates.parse_candidate_import(snapshot, request.file.name, data)
+        candidate = deepcopy(snapshot)
+        if not parsed["issues"]:
+            candidate[candidates.SNAPSHOT_KEY] = parsed["links"]
+        return parsed, candidate
     parsed = parse_import(snapshot["tables"], request.file.name, data, request.kind)
     candidate = {**deepcopy(snapshot), "tables": parsed["tables"]}
     # 有错误的候选不能投影为可应用资源；差异和逐行错误仍完整返回。
@@ -69,9 +76,12 @@ def commit(request, actor_id):
         parsed, candidate = _parse({**snapshot, "revision": request.base_revision}, request, data)
         if parsed["issues"]:
             workspace.fail("导入校验未通过：" + parsed["issues"][0]["message"])
-        changed = candidate["tables"] != snapshot["tables"]
+        links_changed = candidates.get_links(candidate) != candidates.get_links(snapshot)
+        changed = candidate["tables"] != snapshot["tables"] or links_changed
         affected = sorted({row["id"] for row in parsed["rows"] if row["action"] != "UNCHANGED"})
         snapshot["tables"] = candidate["tables"]
+        if links_changed:
+            snapshot[candidates.SNAPSHOT_KEY] = candidate[candidates.SNAPSHOT_KEY]
         return changed, {"object_id": "resource-import", "affected_ids": affected, "warnings": parsed["warnings"]}
 
     receipt = datasets.commit_device_change(request.base_revision, request.request_id,
@@ -81,4 +91,6 @@ def commit(request, actor_id):
 
 def template(query):
     snapshot = workspace.require_snapshot(query.revision)
+    if query.kind == "topology_links":
+        return candidates.make_candidate_template(snapshot, query.format)
     return make_template(snapshot["tables"], query.format, query.kind)

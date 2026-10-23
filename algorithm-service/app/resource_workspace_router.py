@@ -26,6 +26,8 @@ def context(request: Request):
         if len(request.query_params.multi_items()) != len(set(request.query_params.keys())):
             raise ResourceDatasetError("查询字段不能重复", 1001, 422)
         query = WorkspaceQuery.model_validate(dict(request.query_params))
+        if query.context == "gis":
+            identity.require(request, "situation.view")
         return service.context(query)
     return _call(request, action)
 
@@ -34,12 +36,14 @@ def context(request: Request):
 def changes(payload: dict, request: Request):
     def action():
         query = WorkspaceChanges.model_validate(payload)
+        if query.context == "gis":
+            identity.require(request, "situation.view")
         # 不把资源新增权限当作任意设备参数或观测写权限。
         keys = {key for key, value in query.changes.items() if value}
         needed = set()
-        if keys & {"newStations", "newDevices", "newInterferences"}:
+        if keys & {"newStations", "newDevices", "newInterferences", "newCandidateLinks"}:
             needed.add("resources.create")
-        if keys & {"stations", "devices", "interferences"} or not needed:
+        if keys & {"stations", "devices", "interferences", "candidateLinks"} or not needed:
             needed.add("resources.workspace.edit")
         for permission in needed:
             identity.require(request, permission, writing=True)
