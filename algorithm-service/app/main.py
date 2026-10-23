@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import os
-from contextlib import asynccontextmanager
+from contextlib import ExitStack, asynccontextmanager
 from pathlib import Path
 from typing import Any
 
@@ -23,14 +23,18 @@ from . import resource_maintenance_service
 from .resource_export_router import router as resource_export_router
 from .resource_import_router import router as resource_import_router
 from .resource_workspace_router import router as resource_workspace_router
+from .task_file_router import create_task_file_router
 from .resource_reset_router import router as resource_reset_router
 from .gis_plan_router import router as gis_plan_router
 from .interference_frontend_router import router as interference_frontend_router
 from .interference_workbench_router import router as interference_workbench_router
 from .frequency_resource_router import router as frequency_resource_router
-from .device_configuration_router import router as device_configuration_router
-from .device_status_router import router as device_status_router
-from .device_trace_router import router as device_trace_router
+from .device_configuration_router import (router as device_configuration_router,
+    create_device_configuration_router)
+from .device_status_router import (router as device_status_router,
+    create_device_status_router)
+from .device_trace_router import (router as device_trace_router,
+    create_device_trace_router)
 from .observation_routes import router as observation_router
 from .spectrum_source_routes import router as spectrum_source_router
 from . import resource_read_projection
@@ -92,53 +96,77 @@ except ImportError as exc:  # pragma: no cover - exercised only without runtime 
 
 @asynccontextmanager
 async def application_lifespan(application):
-    worker = None
-    enabled = os.environ.get("INTERFERENCE_WORKBENCH_ENABLED", "0")
-    if enabled not in ("0", "1"):
-        raise RuntimeError("INTERFERENCE_WORKBENCH_ENABLED只能为0或1")
-    if enabled == "1":
-        from .interference_workbench_service import (InterferenceWorkbenchService,
-            start_interference_worker, stop_interference_worker)
-        from .interference_replan_service import FrozenPlanningReplanner
-        from .interference_workbench_models import InterferenceWorkbenchRun
-        from sqlalchemy import select
-        if not resource_dataset.database_mode():
-            raise RuntimeError("干扰工作流要求显式数据库资源模式")
-        factory = get_session_factory()
-        root = Path(__file__).resolve().parents[2] / "data/runtime/r2"
-        bridge = FrozenPlanningReplanner(factory, runtime_root=root)
-        service = InterferenceWorkbenchService(factory, runtime_root=root, replanner=bridge)
-        # 先验证表及实际隔离路径，禁止启动时自动建表或落到旧运行库。
-        with service.transaction() as session:
-            session.execute(select(InterferenceWorkbenchRun).limit(0))
-        application.state.interference_workbench = service
-        worker = start_interference_worker(service)
-        application.state.interference_worker = worker
-    try:
-        yield
-    finally:
-        if worker is not None:
-            dispatcher_stopped = stop_interference_worker(worker, timeout=5)
-            children_stopped = worker.service.replanner.bridge.shutdown(timeout=5)
-            if not dispatcher_stopped or not children_stopped:
-                raise RuntimeError("干扰调度或重算子线程未在检查点停止，不能宣称已安全关服")
+    with ExitStack() as ownership:
+        worker = None
+        enabled = os.environ.get("INTERFERENCE_WORKBENCH_ENABLED", "0")
+        if enabled not in ("0", "1"):
+            raise RuntimeError("INTERFERENCE_WORKBENCH_ENABLED只能为0或1")
+        if enabled == "1":
+            from .interference_workbench_service import (InterferenceWorkbenchService,
+                start_interference_worker, stop_interference_worker)
+            from .interference_replan_service import FrozenPlanningReplanner
+            from .interference_workbench_models import InterferenceWorkbenchRun
+            from .runtime_ownership import exclusive_runtime_directory
+            from sqlalchemy import select
+            if not resource_dataset.database_mode():
+                raise RuntimeError("干扰工作流要求显式数据库资源模式")
+            factory = get_session_factory()
+            root = Path(__file__).resolve().parents[2] / "data/runtime/r2"
+            ownership.enter_context(exclusive_runtime_directory(root))
+            bridge = FrozenPlanningReplanner(factory, runtime_root=root)
+            service = InterferenceWorkbenchService(factory, runtime_root=root, replanner=bridge)
+            # 先验证表及实际路径，只有拿到进程排他锁才能恢复中断作业。
+            with service.transaction() as session:
+                session.execute(select(InterferenceWorkbenchRun).limit(0))
+            application.state.interference_recovered_jobs = bridge.recover_interrupted(exclusive_runtime=True)
+            application.state.interference_workbench = service
+            worker = start_interference_worker(service)
+            application.state.interference_worker = worker
+        try:
+            yield
+        finally:
+            if worker is not None:
+                try:
+                    dispatcher_stopped = stop_interference_worker(worker, timeout=5)
+                    children_stopped = worker.service.replanner.bridge.shutdown(timeout=5)
+                    if not dispatcher_stopped or not children_stopped:
+                        raise RuntimeError("干扰调度或重算子线程未在检查点停止，不能宣称已安全关服")
+                except BaseException:
+                    # 未停的线程仍占用目录；保留锁直至进程退出，避免新实例误恢复。
+                    application.state.interference_runtime_ownership = ownership.pop_all()
+                    raise
 
 
 app = FastAPI(title="短波/超短波智能规划算法服务", version="0.1.0", lifespan=application_lifespan)
 # 正式身份在旧联调路由注册前显式安装，配置错误不降级为演示身份。
 local_identity_adapter = install_local_identity(app)
+
+
+def _frontend_device_actor(request, permission, *, writing=False):
+    actor = integration_identity.require(request, permission, writing=writing)
+    adapter = getattr(request.app.state, "local_identity_adapter", None)
+    if adapter is None or adapter.auth_mode != "LOCAL_PASSWORD":
+        raise integration_identity.IdentityError("设备正式身份未装配", 5001, 503)
+    # 设备受理a2冻结真实认证来源，不把本地账号冒充旧联调principal。
+    return {**actor, "authentication_mode": "LOCAL_PASSWORD"}
+
+
 app.include_router(resource_export_router)
 app.include_router(resource_import_router)
 app.include_router(resource_workspace_router)
 app.include_router(resource_reset_router)
+app.include_router(create_task_file_router(integration_identity.require))
 # 并行模块在此统一挂载；各模块保留自己的严格契约和错误包络。
 app.include_router(gis_plan_router)
 app.include_router(interference_frontend_router)
 app.include_router(interference_workbench_router)
 app.include_router(frequency_resource_router)
-app.include_router(device_configuration_router)
-app.include_router(device_status_router)
-app.include_router(device_trace_router)
+app.include_router(create_device_configuration_router(_frontend_device_actor)
+                   if local_identity_adapter is not None else device_configuration_router)
+app.include_router(create_device_status_router(_frontend_device_actor)
+                   if local_identity_adapter is not None else device_status_router)
+app.include_router(create_device_trace_router(_frontend_device_actor)
+                   if local_identity_adapter is not None else device_trace_router)
 app.include_router(observation_router)
 app.include_router(spectrum_source_router)
 
