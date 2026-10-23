@@ -48,6 +48,19 @@ function deferredService() {
 }
 
 describe('P06 system acceptance HTTP contract', () => {
+  it('reads a2 identity mode without rewriting historical a1 or fabricating integration identity', async () => {
+    const old = acceptance(), { integration_mode: _, ...actor } = old.actor as { account_id: string; display_name: string; role_id: string; identity_revision: string; integration_mode: true };
+    const a2 = { ...old, schema_version: 'device-configuration-a2', actor: { ...actor, authentication_mode: 'LOCAL_PASSWORD' } };
+    expect(await service(a2).api.getRequest({ context: 'ledger', request_id: old.request_id })).toEqual(a2);
+    await expect(service({ ...a2, actor: { ...a2.actor, integration_mode: true } }).api.getRequest({ context: 'ledger', request_id: old.request_id })).rejects.toThrow();
+    expect(await service(old).api.getRequest({ context: 'ledger', request_id: old.request_id })).toEqual(old);
+  });
+  it('forwards AbortSignal without adding it to the validated wire body', async () => {
+    const s = service(acceptance()), control = new AbortController();
+    await s.api.submitRequest(input(), { signal: control.signal });
+    expect(s.request.mock.calls[0]![1]?.signal).toBe(control.signal);
+    expect(JSON.parse(s.request.mock.calls[0]![1]?.body as string)).toEqual(input());
+  });
   it('loads version-bound context and preserves unknown source and protocol fields', async () => {
     const s = service(context());
     expect(await s.api.loadContext({ context: 'ledger', device_id: 'DV-1', revision })).toEqual(context());

@@ -108,6 +108,14 @@ class AcceptanceActor(InputModel):
     integration_mode: Literal[True]
 
 
+class AcceptanceActorV2(InputModel):
+    account_id: Identifier
+    display_name: Annotated[StrictStr, Field(min_length=1)]
+    role_id: Identifier
+    identity_revision: Identifier
+    authentication_mode: Literal["INTEGRATION", "LOCAL_PASSWORD"]
+
+
 class ConfigurationAcceptance(InputModel):
     schema_version: Literal["device-configuration-a1"] = SCHEMA_VERSION
     configuration_id: Annotated[StrictStr, Field(pattern=r"^DC-[0-9a-f]{32}$")]
@@ -153,3 +161,9 @@ class ConfigurationAcceptance(InputModel):
                 or not limits.freq_min_khz <= self.requested_values.work_freq_khz <= limits.freq_max_khz):
             raise ValueError("受理值不满足冻结型号约束")
         return self
+
+
+class ConfigurationAcceptanceV2(ConfigurationAcceptance):
+    """业务来源仍为构造数据，身份模式不再被强制伪装为联调。"""
+    schema_version: Literal["device-configuration-a2"] = "device-configuration-a2"
+    actor: AcceptanceActorV2

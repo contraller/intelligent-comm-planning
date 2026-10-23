@@ -22,6 +22,7 @@ from app import device_configuration_service as service
 from app.database import Base
 from app.device_configuration_models import DeviceConfigurationRequest as Record
 from app.device_configuration_router import router
+from app.device_configuration_router import create_device_configuration_router
 from app.device_configuration_schemas import ConfigurationSubmission, SCHEMA_VERSION
 from app.integration_identity_models import IntegrationSession
 from app.resource_dataset_models import ResourceDatasetCurrent, ResourceDatasetVersion, ResourceDatasetOperation
@@ -148,6 +149,62 @@ def test_context_validate_acceptance_replay_and_resources_unchanged(api):
     assert submit(client, payload).json()["data"] == accepted
     assert count(factory) == 1 and count(factory, ResourceDatasetVersion) == 1 and count(factory, ResourceDatasetOperation) == 0
     assert datasets.current() == baseline
+
+
+def test_a2_injected_principal_preserves_a1_receipt_and_request_digest(api):
+    client, factory, baseline, _ = api
+    actor = editor(client)
+    original = body(baseline, "old-a1")
+    old = submit(client, original).json()["data"]
+    permissions = []
+    def principal(request, permission, writing=False):
+        permissions.append((permission, writing))
+        return {**actor, "authentication_mode": "INTEGRATION"}
+    app = FastAPI()
+    app.include_router(create_device_configuration_router(principal))
+    with TestClient(app) as isolated:
+        replay = isolated.post("/api/v1/device-configurations", json=original)
+        assert replay.json()["data"] == old and old["schema_version"] == SCHEMA_VERSION
+        payload = {**original, "request_id": "new-a2"}
+        accepted = isolated.post("/api/v1/device-configurations", json=payload)
+        assert accepted.status_code == 200, accepted.text
+        data = accepted.json()["data"]
+        assert data["schema_version"] == "device-configuration-a2"
+        assert data["actor"]["authentication_mode"] == "INTEGRATION" and "integration_mode" not in data["actor"]
+        assert data["request_digest"] == old["request_digest"]
+        assert data["status"] == "ACCEPTED" and data["dispatch_status"] == "NOT_DISPATCHED"
+        assert isolated.get("/api/v1/device-configurations/new-a2?context=ledger").json()["data"] == data
+        assert isolated.post("/api/v1/device-configurations", json=payload).json()["data"] == data
+    assert ("resources.view", False) in permissions and ("resources.device.edit", True) in permissions
+    assert count(factory) == 2
+
+
+def test_a2_local_actor_snapshot_is_not_a_formal_login_test(api):
+    client, factory, baseline, _ = api
+    # 只核验已授权适配字段，不连接 P05 凭据库或声称正式身份联调。
+    actor = {"account_id": "local-fixture", "display_name": "本地身份测试桩", "role_id": "role-fixture",
+        "identity_revision": "fixture-r1", "authentication_mode": "LOCAL_PASSWORD"}
+    app = FastAPI()
+    app.include_router(create_device_configuration_router(lambda *args, **kwargs: actor))
+    with TestClient(app) as isolated:
+        result = isolated.post("/api/v1/device-configurations", json=body(baseline, "local-a2")).json()["data"]
+        assert result["actor"] == actor and result["schema_version"] == "device-configuration-a2"
+        assert result["provenance"]["data_origin"] == "SYNTHETIC_INTEGRATION"
+
+
+def test_injected_auth_error_is_not_reported_as_validation_or_success(api):
+    _, factory, baseline, _ = api
+    class PrincipalError(ValueError):
+        code, status, data = 1104, 403, {"reason": "PASSWORD_CHANGE_REQUIRED"}
+    def reject(*args, **kwargs):
+        raise PrincipalError("请维护密码")
+    app = FastAPI()
+    app.include_router(create_device_configuration_router(reject))
+    with TestClient(app) as isolated:
+        response = isolated.post("/api/v1/device-configurations", json=body(baseline))
+        assert response.status_code == 403 and response.json()["code"] == 1104
+        assert response.json()["data"] == {"reason": "PASSWORD_CHANGE_REQUIRED"}
+    assert count(factory) == 0
 
 
 @pytest.mark.parametrize("patch", [

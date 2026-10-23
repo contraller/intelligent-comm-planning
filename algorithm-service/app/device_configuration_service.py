@@ -16,7 +16,7 @@ from . import resource_dataset_service as datasets
 from .resource_dataset_models import ResourceDatasetCurrent, ResourceDatasetVersion
 from .device_configuration_models import DeviceConfigurationRequest
 from .device_configuration_schemas import (
-    AcceptanceActor, ConfigurationAcceptance, ConfigurationContext, ConfigurationSubmission,
+    AcceptanceActor, AcceptanceActorV2, ConfigurationAcceptance, ConfigurationAcceptanceV2, ConfigurationContext, ConfigurationSubmission,
     ConfigurationValidation, DeviceSnapshot, ModelConstraints, Provenance, SCHEMA_VERSION,
 )
 
@@ -129,9 +129,10 @@ def request_digest(payload: ConfigurationValidation):
 
 def _receipt(row: DeviceConfigurationRequest):
     try:
-        if not isinstance(row.receipt, dict) or set(row.receipt) != set(ConfigurationAcceptance.model_fields):
+        model = {SCHEMA_VERSION: ConfigurationAcceptance, "device-configuration-a2": ConfigurationAcceptanceV2}.get(row.schema_version)
+        if model is None or not isinstance(row.receipt, dict) or set(row.receipt) != set(model.model_fields):
             raise ValueError("冻结回执字段缺失或未约定")
-        result = ConfigurationAcceptance.model_validate(row.receipt).model_dump(mode="json")
+        result = model.model_validate(row.receipt).model_dump(mode="json")
         columns = ("schema_version", "configuration_id", "request_id", "request_digest", "device_id",
                    "model_id", "base_revision", "resource_content_hash")
         if any(result[key] != getattr(row, key) for key in columns) or result["actor"]["account_id"] != row.actor_id:
@@ -139,7 +140,8 @@ def _receipt(row: DeviceConfigurationRequest):
         accepted = datetime.fromisoformat(result["accepted_at"].replace("Z", "+00:00"))
         if row.accepted_at.replace(tzinfo=timezone.utc) != accepted:
             raise ValueError("受理时间不一致")
-        original = ConfigurationValidation(schema_version=result["schema_version"], context=result["context"],
+        # a2 只升级受理身份快照；原请求业务 wire 仍为 a1，摘要和幂等不改写。
+        original = ConfigurationValidation(schema_version=SCHEMA_VERSION, context=result["context"],
             base_revision=result["base_revision"], device_id=result["device_id"], model_id=result["model_id"],
             values=result["requested_values"])
         if request_digest(original) != row.request_digest:
@@ -164,16 +166,22 @@ def submit_request(payload: ConfigurationSubmission, actor: dict):
                 return _replay(previous, digest, actor["account_id"])
             context = _validate(session, payload)
             stamp = datetime.now(timezone.utc)
-            receipt = ConfigurationAcceptance(
+            try:
+                actor_model = AcceptanceActorV2 if "authentication_mode" in actor else AcceptanceActor
+                frozen_actor = actor_model(**{key: actor[key] for key in actor_model.model_fields})
+            except (KeyError, ValidationError) as exc:
+                raise ConfigurationError("可信身份快照接线缺失或不符", 5001, 503) from exc
+            receipt_model = ConfigurationAcceptanceV2 if isinstance(frozen_actor, AcceptanceActorV2) else ConfigurationAcceptance
+            receipt = receipt_model(
                 configuration_id="DC-" + uuid4().hex, request_id=payload.request_id, request_digest=digest,
                 device_id=payload.device_id, model_id=payload.model_id, base_revision=payload.base_revision,
                 resource_content_hash=context.resource_content_hash, requested_values=payload.values,
                 device_snapshot=context.device, model_constraints=context.model, provenance=context.provenance,
-                actor=AcceptanceActor(**{key: actor[key] for key in AcceptanceActor.model_fields}),
+                actor=frozen_actor,
                 accepted_at=stamp.isoformat().replace("+00:00", "Z"),
             ).model_dump(mode="json")
             session.add(DeviceConfigurationRequest(
-                request_id=payload.request_id, configuration_id=receipt["configuration_id"], schema_version=SCHEMA_VERSION,
+                request_id=payload.request_id, configuration_id=receipt["configuration_id"], schema_version=receipt["schema_version"],
                 request_digest=digest, actor_id=actor["account_id"], device_id=payload.device_id,
                 model_id=payload.model_id, base_revision=payload.base_revision,
                 resource_content_hash=context.resource_content_hash, accepted_at=stamp, receipt=receipt,

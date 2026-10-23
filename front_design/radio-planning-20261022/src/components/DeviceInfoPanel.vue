@@ -64,6 +64,8 @@
               :status="device.status ?? 'UNKNOWN'"
               :alert="device.alert ?? undefined"
             /><span v-if="detailContext && device.alert === null"> · 告警未提供</span></dd
+          ><dt v-if="statusSnapshotRef">状态快照引用</dt
+          ><dd v-if="statusSnapshotRef">{{ statusSnapshotRef.deviceId === device.id && statusSnapshotRef.resourceRevision === maintenanceBinding?.revision ? statusSnapshotRef.snapshotId : '引用未对齐，未关联' }}</dd
           ><dt>在架状态</dt
           ><dd>{{
             detailContext && device.availability == null
@@ -213,7 +215,7 @@
             class="btn small"
             :disabled="configuration.disabled || device.availability === 'OFF_SHELF'"
             @click="$emit('configure', false)"
-            >{{ gisPresentation ? '配置工作参数' : '配置演示' }}</button
+            >配置请求</button
           ><button
             class="btn small"
             :disabled="configuration.disabled"
@@ -221,11 +223,9 @@
             >配置记录</button
           ><p class="detail-note">{{
             configuration.reason ||
-            (gisPresentation
-              ? '保存台账参数与配置下发分别操作。'
-              : '教学配置只记录回执，台账需单独保存。')
+            '配置请求仅系统受理，未下发；台账参数需经资源维护另行保存。'
           }}</p></div
-        ><h5 class="parameter-heading">设备当前配置</h5
+        ><h5 class="parameter-heading">台账保存参数</h5
         ><dl class="kv"
           ><dt>工作频率</dt><dd>{{ quantity(device.workFreqKhz, 'kHz') }}</dd
           ><dt>当前工作模式</dt
@@ -267,22 +267,19 @@
     ><DeviceTraceDrawer
       v-if="maintenanceBinding && traceOpen"
       :visible="traceOpen"
-      :busy="maintenanceState.busy.value"
-      :error="maintenanceState.error.value"
-      :editable="maintenanceBinding.editable"
-      :history="maintenanceState.history.value"
-      :record="maintenanceState.record.value"
-      :restore="maintenanceState.restore.value"
-      :configurations="maintenanceState.configurations.value"
-      :configuration="maintenanceState.configuration.value"
+      :busy="trace.busy.value"
+      :error="trace.error.value"
+      :editable="traceEditable"
+      :history="trace.history.value"
+      :record="trace.detail.value"
+      :selected="trace.selected.value"
+      :restore="trace.restore.value"
       @close="closeTrace"
-      @refresh="maintenanceState.openHistory"
-      @page="maintenanceState.loadHistory"
-      @select="maintenanceState.selectHistory"
-      @preview="maintenanceState.previewRestore"
+      @refresh="trace.query"
+      @page="trace.query"
+      @select="trace.select"
+      @preview="trace.preview"
       @restore="acceptRestore"
-      @configuration="maintenanceState.selectConfiguration"
-      @configuration-page="maintenanceState.loadConfigurations"
     />
   </section>
 </template>
@@ -309,6 +306,10 @@ import DeviceNetworkPanel from './DeviceNetworkPanel.vue';
 import StatusBadge from './StatusBadge.vue';
 import ResourceStatusBadge from './ResourceStatusBadge.vue';
 import type { DeviceStatusDisplay } from '../types/resource-status';
+import { useDeviceTrace } from '../composables/useDeviceTrace';
+import type { DeviceTraceClient } from '../services/device-trace-http';
+import type { RestoreProposal } from '../types/device-trace';
+import type { DeviceStatusSnapshotRef } from '../types/device-status-snapshot';
 
 // 只展示父级传入的当前设备：GIS 可传草稿，台账传已保存资源，不自行改写或提交。
 const gisPresentation = inject('gisPresentation', false);
@@ -333,12 +334,15 @@ const props = defineProps<{
   statusDisplay?: DeviceStatusDisplay;
   configuration?: { editable: boolean; disabled: boolean; reason: string };
   maintenanceBinding?: MaintenanceBinding;
+  traceServices?: DeviceTraceClient;
+  statusSnapshotRef?: DeviceStatusSnapshotRef | null;
 }>();
 // 仅父级明确开放时显示入口，快照详情与旧调用不自动读取配置服务。
 const emit = defineEmits<{
   configure: [history: boolean];
   ports: [];
   restore: [value: DeviceRestorePreview];
+  'restore-candidate': [value: RestoreProposal];
   'locate-network': [value: { snapshotId: string; linkIds: string[]; stationIds: string[] }];
 }>();
 const maintenanceQuery = () =>
@@ -352,17 +356,25 @@ const maintenanceQuery = () =>
 const maintenanceState = useDeviceMaintenance(maintenanceQuery),
   drill = useDeviceNetworkDetail(maintenanceQuery, () => props.network),
   traceOpen = ref(false);
+const auth = useAuthStore();
+const traceEditable = computed(() => !!props.maintenanceBinding?.editable && auth.can('resources.device.edit') && !auth.blocked && props.device.availability !== 'OFF_SHELF');
+const trace = useDeviceTrace(() => props.maintenanceBinding ? {
+  device_id: props.device.id, resource_revision: props.maintenanceBinding.revision,
+  readable: auth.can('resources.view') && !auth.blocked,
+  editable: traceEditable.value,
+} : null, () => props.traceServices);
 function openTrace() {
   traceOpen.value = true;
-  void maintenanceState.openHistory();
+  void trace.query();
 }
-function acceptRestore(value: DeviceRestorePreview) {
-  emit('restore', value);
-  closeTrace();
+function acceptRestore(value: RestoreProposal) {
+  // 仅交候选；保存成功由宿主的统一资源回执决定，失败时仍保留候选。
+  emit('restore-candidate', value);
 }
 function closeTrace() {
   traceOpen.value = false;
   maintenanceState.cancel();
+  trace.cancel();
 }
 function closeDrill() {
   drill.close();
@@ -451,7 +463,6 @@ const antennaDetail = computed(() =>
   props.catalog?.antennas.find((row) => row.antennaId === props.device.antennaId),
 );
 // 网络角色沿关联网络查看权限；不能从所属节点角色推定。
-const auth = useAuthStore();
 const networkRole = computed(() =>
   selectDeviceRole(
     auth.can('situation.view') && !auth.blocked ? props.network : undefined,

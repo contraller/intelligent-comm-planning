@@ -57,7 +57,11 @@ def create_device_status_router(actor_resolver=require_actor):
 
     def call(request, response, operation, writing=False):
         try:
-            actor = actor_resolver(request, "resources.device.status.import" if writing else "resources.view", writing=writing)
+            actor = actor_resolver(request, "resources.view", writing=False)
+            if writing:
+                actor = actor_resolver(request, "resources.device.status.import", writing=True)
+            if not isinstance(actor, dict) or not actor.get("account_id"):
+                raise service.DeviceStatusError("可信身份接线未返回账号", 5001, 503)
             return {"code": 0, "message": "success", "data": operation(actor)}
         except (service.DeviceStatusError, identity.IdentityError, ResourceDatasetError) as exc:
             response.status_code = exc.status
@@ -71,6 +75,11 @@ def create_device_status_router(actor_resolver=require_actor):
         except SQLAlchemyError:
             response.status_code = 503
             return {"code": 5002, "message": "数据库操作失败", "data": None}
+        except Exception as exc:
+            if getattr(exc, "code", None) not in (1101, 1104, 1105, 1106) or getattr(exc, "status", None) not in (401, 403, 409, 429):
+                raise
+            response.status_code = exc.status
+            return {"code": exc.code, "message": str(exc), "data": getattr(exc, "data", None)}
 
     @result.post("/imports")
     def import_status(request: Request, response: Response, payload: dict = Body(...)):

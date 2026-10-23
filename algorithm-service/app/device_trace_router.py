@@ -17,14 +17,23 @@ def create_device_trace_router(actor_resolver=require_actor):
 
     def call(request, response, operation, writing=False):
         try:
-            actor_resolver(request, "resources.device.edit" if writing else "resources.view", writing=writing)
+            actor = actor_resolver(request, "resources.view", writing=False)
+            if writing:
+                actor = actor_resolver(request, "resources.device.edit", writing=True)
+            if not isinstance(actor, dict) or not actor.get("account_id"):
+                raise service.DeviceTraceError("可信身份接线未返回账号", 5001, 503)
             return {"code": 0, "message": "success", "data": operation()}
         except (service.DeviceTraceError, DeviceStatusError, ResourceDatasetError, IdentityError) as exc:
             response.status_code = exc.status
             return {"code": exc.code, "message": str(exc), "data": None}
-        except (ValidationError, ValueError):
+        except ValidationError:
             response.status_code = 422
             return {"code": 1001, "message": "设备追溯请求无效", "data": None}
+        except Exception as exc:
+            if getattr(exc, "code", None) not in (1101, 1104, 1105, 1106) or getattr(exc, "status", None) not in (401, 403, 409, 429):
+                raise
+            response.status_code = exc.status
+            return {"code": exc.code, "message": str(exc), "data": getattr(exc, "data", None)}
 
     @router.get("/{device_id}/history")
     def history(device_id: str, request: Request, response: Response):
@@ -38,7 +47,10 @@ def create_device_trace_router(actor_resolver=require_actor):
     def detail(device_id: str, request_id: str, request: Request, response: Response):
         def operation():
             TypeAdapter(Identifier).validate_python(device_id)
-            check_request_id(TypeAdapter(RequestId).validate_python(request_id))
+            try:
+                check_request_id(TypeAdapter(RequestId).validate_python(request_id))
+            except ValueError as exc:
+                raise service.DeviceTraceError("操作编号无效") from exc
             query = _query(request, ("context", "resource_revision"), ("context", "resource_revision"))
             return service.detail(device_id, query["resource_revision"], request_id)
         return call(request, response, operation)

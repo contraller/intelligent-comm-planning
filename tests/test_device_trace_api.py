@@ -183,3 +183,32 @@ def test_damaged_parent_or_receipt_does_not_fall_back(api):
     response = history(client, baseline, current)
     assert response.status_code == 503 and response.json()["code"] == 5002, response.text
     assert counts(factory) == [2, 1]
+
+
+def test_injected_principal_error_not_misclassified_as_validation():
+    class PrincipalError(ValueError):
+        code, status, data = 1104, 403, {"reason": "PASSWORD_CHANGE_REQUIRED"}
+    def reject(*args, **kwargs):
+        raise PrincipalError("password required")
+    app = FastAPI()
+    app.include_router(create_device_trace_router(reject))
+    with TestClient(app) as client:
+        reply = client.get("/api/v1/device-traces/D1/history?context=ledger&resource_revision=R")
+        assert reply.status_code == 403 and reply.json()["code"] == 1104
+
+
+def test_preview_checks_read_permission_and_rejects_missing_actor():
+    calls = []
+    def reject_read(request, permission, writing=False):
+        calls.append((permission, writing))
+        raise IdentityError("read denied", 1104, 403)
+    app = FastAPI()
+    app.include_router(create_device_trace_router(reject_read))
+    with TestClient(app) as client:
+        assert client.post("/api/v1/device-traces/D1/restore-preview", json={}).status_code == 403
+    assert calls == [("resources.view", False)]
+    app = FastAPI()
+    app.include_router(create_device_trace_router(lambda *args, **kwargs: None))
+    with TestClient(app) as client:
+        response = client.get("/api/v1/device-traces/D1/history?context=ledger&resource_revision=R")
+        assert response.status_code == 503 and response.json()["code"] == 5001

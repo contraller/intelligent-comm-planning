@@ -255,3 +255,32 @@ def test_concurrent_same_request_is_one_immutable_batch(api):
     assert values[0]["code"] == values[1]["code"] == 0
     assert values[0]["data"] == values[1]["data"]
     assert count(factory, Snapshot) == count(factory, Operation) == 1
+
+
+def test_injected_principal_error_retains_auth_status():
+    class PrincipalError(ValueError):
+        code, status, data = 1105, 403, {"reason": "CSRF"}
+    def reject(*args, **kwargs):
+        raise PrincipalError("csrf rejected")
+    app = FastAPI()
+    app.include_router(create_device_status_router(reject))
+    with TestClient(app) as client:
+        reply = client.post(PREFIX + "/imports", json={})
+        assert reply.status_code == 403 and reply.json()["code"] == 1105
+
+
+def test_import_checks_read_permission_before_write_and_missing_actor():
+    calls = []
+    def reject_read(request, permission, writing=False):
+        calls.append((permission, writing))
+        raise IdentityError("read denied", 1104, 403)
+    app = FastAPI()
+    app.include_router(create_device_status_router(reject_read))
+    with TestClient(app) as client:
+        assert client.post(PREFIX + "/imports", json={}).status_code == 403
+    assert calls == [("resources.view", False)]
+    app = FastAPI()
+    app.include_router(create_device_status_router(lambda *args, **kwargs: None))
+    with TestClient(app) as client:
+        response = client.get(PREFIX + "/snapshots?context=ledger")
+        assert response.status_code == 503 and response.json()["code"] == 5001

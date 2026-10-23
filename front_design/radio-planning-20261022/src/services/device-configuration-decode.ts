@@ -26,10 +26,11 @@ export interface ConfigurationAcceptanceContext {
   protocol: { port_options: null; mode_options: null; confirmation: '待确认' };
 }
 export interface ConfigurationSystemAcceptance {
-  schema_version: typeof deviceConfigurationSchema; configuration_id: string; request_id: string; request_digest: string;
+  schema_version: typeof deviceConfigurationSchema | 'device-configuration-a2'; configuration_id: string; request_id: string; request_digest: string;
   context: 'ledger'; device_id: string; model_id: string; base_revision: string; resource_content_hash: string;
   requested_values: RequestValues; device_snapshot: DeviceSnapshot; model_constraints: ModelConstraints; provenance: Provenance;
-  actor: { account_id: string; display_name: string; role_id: string; identity_revision: string; integration_mode: true };
+  actor: { account_id: string; display_name: string; role_id: string; identity_revision: string } &
+    ({ integration_mode: true } | { authentication_mode: 'LOCAL_PASSWORD' | 'INTEGRATION' });
   accepted_at: string; status: 'ACCEPTED'; receipt_scope: 'SYSTEM_ACCEPTANCE'; dispatch_status: 'NOT_DISPATCHED';
   device_execution_status: 'UNKNOWN'; applied_values: null; online: null; effective: null; device_reported_at: null; message: string;
 }
@@ -140,7 +141,7 @@ export function readConfigurationAcceptance(v: unknown, expected: ConfigurationD
   const row = object(v, ['schema_version', 'configuration_id', 'request_id', 'request_digest', 'context', 'device_id', 'model_id', 'base_revision',
     'resource_content_hash', 'requested_values', 'device_snapshot', 'model_constraints', 'provenance', 'actor', 'accepted_at', 'status', 'receipt_scope',
     'dispatch_status', 'device_execution_status', 'applied_values', 'online', 'effective', 'device_reported_at', 'message']);
-  if (row.schema_version !== deviceConfigurationSchema || row.context !== 'ledger' || !configurationId(row.configuration_id) || !isRequestId(row.request_id)
+  if (![deviceConfigurationSchema, 'device-configuration-a2'].includes(row.schema_version as string) || row.context !== 'ledger' || !configurationId(row.configuration_id) || !isRequestId(row.request_id)
     || row.request_id !== expected.request_id || !hash(row.request_digest) || !revision(row.base_revision) || !hash(row.resource_content_hash)
     || !stamp(row.accepted_at) || row.status !== 'ACCEPTED' || row.receipt_scope !== 'SYSTEM_ACCEPTANCE' || row.dispatch_status !== 'NOT_DISPATCHED'
     || row.device_execution_status !== 'UNKNOWN' || row.message !== acceptanceMessage
@@ -148,8 +149,10 @@ export function readConfigurationAcceptance(v: unknown, expected: ConfigurationD
   const d = device(row.device_snapshot), m = model(row.model_constraints), requested = values(row.requested_values);
   if (row.device_id !== d.device_id || row.model_id !== d.model_id || m.model_id !== d.model_id) fail();
   within(requested, m); provenance(row.provenance);
-  const actor = object(row.actor, ['account_id', 'display_name', 'role_id', 'identity_revision', 'integration_mode']);
-  if (![actor.account_id, actor.role_id, actor.identity_revision].every(isId) || typeof actor.display_name !== 'string' || !actor.display_name.trim() || actor.integration_mode !== true) fail();
+  const a1 = row.schema_version === deviceConfigurationSchema;
+  const actor = object(row.actor, ['account_id', 'display_name', 'role_id', 'identity_revision', a1 ? 'integration_mode' : 'authentication_mode']);
+  if (![actor.account_id, actor.role_id, actor.identity_revision].every(isId) || typeof actor.display_name !== 'string' || !actor.display_name.trim()
+    || (a1 ? actor.integration_mode !== true : !['LOCAL_PASSWORD', 'INTEGRATION'].includes(actor.authentication_mode as string))) fail();
   if ('base_revision' in expected && (row.base_revision !== expected.base_revision || row.device_id !== expected.device_id || row.model_id !== expected.model_id
     || requested.tx_power_dbm !== expected.values.tx_power_dbm || requested.work_freq_khz !== expected.values.work_freq_khz)) fail();
   return structuredClone(row) as unknown as ConfigurationSystemAcceptance;

@@ -31,8 +31,6 @@ class _EnvelopeRoute(APIRoute):
         return wrapped
 
 
-router = APIRouter(prefix="/api/v1/device-configurations", tags=["device-configurations"], route_class=_EnvelopeRoute)
-
 
 def _authorize(request, writing):
     identity.enabled()
@@ -63,9 +61,16 @@ def _identifier(value):
     return TypeAdapter(Identifier).validate_python(value)
 
 
-def _call(request, response, operation, *, writing=False):
+def _call(request, response, operation, *, writing=False, actor_resolver=None):
     try:
-        actor = _authorize(request, writing)
+        if actor_resolver is None:
+            actor = _authorize(request, writing)
+        else:
+            actor = actor_resolver(request, "resources.view", writing=False)
+            if writing:
+                actor = actor_resolver(request, "resources.device.edit", writing=True)
+            if not isinstance(actor, dict) or not actor.get("account_id"):
+                raise service.ConfigurationError("可信身份接线未返回账号", 5001, 503)
         return {"code": 0, "message": "success", "data": operation(actor)}
     except (identity.IdentityError, ResourceDatasetError, service.ConfigurationError) as exc:
         response.status_code = exc.status
@@ -81,53 +86,70 @@ def _call(request, response, operation, *, writing=False):
     except SQLAlchemyError:
         response.status_code = 503
         return {"code": 5002, "message": "联调会话数据库不可用", "data": None}
+    except Exception as exc:
+        # 正式身份依赖可提供自己的异常类型；只透传明确的认证拒绝，不吞未知错误。
+        if getattr(exc, "code", None) not in (1101, 1104, 1105, 1106) or getattr(exc, "status", None) not in (401, 403, 409, 429):
+            raise
+        response.status_code = exc.status
+        return {"code": exc.code, "message": str(exc), "data": getattr(exc, "data", None)}
 
 
-@router.get("/context")
-def context(request: Request, response: Response):
-    def operation(actor):
-        query = _query(request, ("context", "device_id", "revision"), ("context", "device_id", "revision"))
-        return service.load_context(_identifier(query["revision"]), _identifier(query["device_id"]))
-    return _call(request, response, operation)
+def create_device_configuration_router(actor_resolver=None):
+    router = APIRouter(prefix="/api/v1/device-configurations", tags=["device-configurations"], route_class=_EnvelopeRoute)
+
+    def call(request, response, operation, *, writing=False):
+        return _call(request, response, operation, writing=writing, actor_resolver=actor_resolver)
+
+    @router.get("/context")
+    def context(request: Request, response: Response):
+        def operation(actor):
+            query = _query(request, ("context", "device_id", "revision"), ("context", "device_id", "revision"))
+            return service.load_context(_identifier(query["revision"]), _identifier(query["device_id"]))
+        return call(request, response, operation)
 
 
-@router.post("/validate")
-def validate(request: Request, response: Response, payload: dict = Body(...)):
-    def operation(actor):
-        _query(request, (), ())
-        return service.validate_request(ConfigurationValidation.model_validate(payload))
-    return _call(request, response, operation, writing=True)
+    @router.post("/validate")
+    def validate(request: Request, response: Response, payload: dict = Body(...)):
+        def operation(actor):
+            _query(request, (), ())
+            return service.validate_request(ConfigurationValidation.model_validate(payload))
+        return call(request, response, operation, writing=True)
 
 
-@router.post("")
-def submit(request: Request, response: Response, payload: dict = Body(...)):
-    def operation(actor):
-        _query(request, (), ())
-        return service.submit_request(ConfigurationSubmission.model_validate(payload), actor)
-    return _call(request, response, operation, writing=True)
+    @router.post("")
+    def submit(request: Request, response: Response, payload: dict = Body(...)):
+        def operation(actor):
+            _query(request, (), ())
+            return service.submit_request(ConfigurationSubmission.model_validate(payload), actor)
+        return call(request, response, operation, writing=True)
 
 
-@router.get("/history")
-def history(request: Request, response: Response):
-    def operation(actor):
-        query = _query(request, ("context", "device_id", "page", "page_size"), ("context",))
-        for name, default, maximum in (("page", "1", None), ("page_size", "20", 100)):
-            value = query.get(name, default)
-            if not re.fullmatch(r"[0-9]{1,10}", value) or int(value) < 1 or maximum and int(value) > maximum:
-                raise service.ConfigurationError("分页参数无效")
-            query[name] = int(value)
-        device_id = _identifier(query["device_id"]) if "device_id" in query else None
-        return service.query_history(actor["account_id"], device_id=device_id, page=query["page"], page_size=query["page_size"])
-    return _call(request, response, operation)
+    @router.get("/history")
+    def history(request: Request, response: Response):
+        def operation(actor):
+            query = _query(request, ("context", "device_id", "page", "page_size"), ("context",))
+            for name, default, maximum in (("page", "1", None), ("page_size", "20", 100)):
+                value = query.get(name, default)
+                if not re.fullmatch(r"[0-9]{1,10}", value) or int(value) < 1 or maximum and int(value) > maximum:
+                    raise service.ConfigurationError("分页参数无效")
+                query[name] = int(value)
+            device_id = _identifier(query["device_id"]) if "device_id" in query else None
+            return service.query_history(actor["account_id"], device_id=device_id, page=query["page"], page_size=query["page_size"])
+        return call(request, response, operation)
 
 
-@router.get("/{request_id}")
-def detail(request_id: str, request: Request, response: Response):
-    def operation(actor):
-        _query(request, ("context",), ("context",))
-        try:
-            key = check_request_id(TypeAdapter(RequestId).validate_python(request_id))
-        except ValueError as exc:
-            raise service.ConfigurationError("配置请求编号无效") from exc
-        return service.get_request(key, actor["account_id"])
-    return _call(request, response, operation)
+    @router.get("/{request_id}")
+    def detail(request_id: str, request: Request, response: Response):
+        def operation(actor):
+            _query(request, ("context",), ("context",))
+            try:
+                key = check_request_id(TypeAdapter(RequestId).validate_python(request_id))
+            except ValueError as exc:
+                raise service.ConfigurationError("配置请求编号无效") from exc
+            return service.get_request(key, actor["account_id"])
+        return call(request, response, operation)
+
+    return router
+
+
+router = create_device_configuration_router()

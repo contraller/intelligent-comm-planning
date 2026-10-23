@@ -1,226 +1,159 @@
 <template>
-  <section
-    class="resource-status-panel"
-    aria-label="设备状态同步"
-  >
-    <details class="status-controls">
-      <summary
-        >设备状态同步 · {{ status.mode === 'observed' ? '同步观测' : '台账基线'
-        }}<span v-if="status.source"> · {{ status.source.label }}</span></summary
-      >
-      <div class="toolbar">
-        <strong>设备状态同步</strong>
-        <label
-          >状态来源
-          <select
-            aria-label="设备状态来源"
-            :value="status.mode"
-            :disabled="!entry.available.value || status.busy"
-            @change="
-              entry.available.value &&
-              !status.busy &&
-              status.setMode(($event.target as HTMLSelectElement).value as 'baseline' | 'observed')
-            "
-          >
-            <option value="baseline">台账基线</option
-            ><option
-              value="observed"
-              :disabled="!status.batch"
-              >同步观测</option
-            >
-          </select></label
-        >
-        <label v-if="status.catalog?.examples?.length"
-          >教学样例
-          <select
-            aria-label="设备状态教学样例"
-            :value="status.exampleId"
-            :disabled="!entry.available.value || status.busy"
-            @change="
-              entry.available.value &&
-              !status.busy &&
-              status.setExample(($event.target as HTMLSelectElement).value)
-            "
-          >
-            <option
-              v-for="example in status.catalog.examples"
-              :key="example.id"
-              :value="example.id"
-              >{{ example.label }}</option
-            >
-          </select></label
-        >
-        <button
-          class="btn small"
-          :disabled="disabled || !allCount"
-          @click="entry.syncAll()"
-          >同步全部设备状态（{{ allCount }}）</button
-        >
-        <button
-          v-if="selectedIds"
-          class="btn small"
-          :disabled="disabled || !selectedIds.length"
-          @click="entry.sync(selectedIds)"
-          >同步勾选设备状态（{{ selectedIds.length }}）</button
-        >
-        <span v-if="hiddenCount">包含筛选外 {{ hiddenCount }} 台</span>
-        <button
-          v-if="!status.catalog"
-          class="btn small"
-          :disabled="!entry.available.value || status.busy"
-          @click="entry.retry"
-          >重试状态目录</button
-        >
+  <section class="resource-status-panel" aria-label="设备状态快照">
+    <div class="toolbar">
+      <strong>设备状态快照</strong>
+      <label>显示来源
+        <select aria-label="状态显示来源" :value="status.mode" :disabled="!entry.available.value || status.busy" @change="status.setMode(($event.target as HTMLSelectElement).value as 'baseline' | 'observed')">
+          <option value="baseline">台账基线</option><option value="observed" :disabled="!status.batch">构造状态快照</option>
+        </select>
+      </label>
+      <button class="btn small" :disabled="!entry.available.value || status.busy" @click="entry.retry">读取批次</button>
+      <button class="btn small" :disabled="!status.batch || status.busy" @click="clear">清除选择</button>
+      <span>当前资源设备 {{ total ?? '未知' }} 台</span>
+    </div>
+    <p v-if="!services" role="status">状态服务未接入。</p>
+    <p v-if="pausedReason" role="status">{{ pausedReason }}</p>
+    <p v-if="status.busy" role="status">正在读取或核验快照…</p>
+    <p v-if="status.error || parseError" role="alert">{{ parseError || status.error }}</p>
+    <p v-if="status.notice" role="status">{{ status.notice }}</p>
+    <p v-if="leaveNotice" role="status">{{ leaveNotice }}</p>
+    <button v-if="dirtyInput" class="btn small" :disabled="localBusy || !!status.pendingImport" @click="discardInput">放弃未提交导入输入</button>
+    <details>
+      <summary>已导入批次 · {{ status.snapshots?.total ?? '未知' }}</summary>
+      <p v-if="status.snapshots?.total === 0">尚无同版状态快照</p>
+      <ul>
+        <li v-for="item in status.snapshots?.items ?? []" :key="item.snapshot_id">
+          <button class="btn small" :disabled="!entry.available.value || status.busy" @click="status.select(item)">{{ item.source_label }}</button>
+          <span>{{ item.snapshot_id }} · 导入 {{ item.imported_at }} · {{ item.total }} 台</span>
+        </li>
+      </ul>
+      <div v-if="status.snapshots" class="toolbar">
+        <button class="btn small" :disabled="status.busy || status.snapshots.page <= 1" @click="status.list(status.snapshots.page - 1)">上一批次页</button>
+        <span>{{ status.snapshots.page }}</span>
+        <button class="btn small" :disabled="status.busy || status.snapshots.page * status.snapshots.page_size >= status.snapshots.total" @click="status.list(status.snapshots.page + 1)">下一批次页</button>
       </div>
-      <!-- 来源说明取服务数据，不能由传输模式猜测。 -->
-      <p v-if="status.source?.kind === 'MOCK'"
-        >预生成状态样例，未连接真实设备。同步只刷新观测展示；台账基线为已保存状态。</p
-      >
     </details>
-    <p
-      v-if="pausedReason"
-      role="status"
-      >{{ pausedReason }}</p
-    >
-    <p
-      v-if="status.busy"
-      role="status"
-      >正在读取设备状态…</p
-    >
-    <p
-      v-if="status.notice"
-      role="status"
-      >{{ status.notice }}</p
-    >
-    <p
-      v-if="status.error"
-      role="alert"
-      >{{ status.error }}</p
-    >
-    <details
-      v-if="status.batch && entry.available.value"
-      @toggle="detailsOpen = ($event.target as HTMLDetailsElement).open"
-    >
-      <summary
-        >最近批次：已上报 {{ count('REPORTED') }} / 未上报 {{ count('NO_REPORT') }} / 失败
-        {{ count('FAILED') }}（{{ status.source?.label }}）</summary
-      >
-      <ul
-        ><li
-          v-for="item in status.batchDetails?.items ?? []"
-          :key="item.deviceId"
-          >{{ item.deviceId }}：{{
-            item.outcome === 'REPORTED' ? '已上报' : item.outcome === 'FAILED' ? '失败' : '未上报'
-          }}
-          {{ item.reason || ''
-          }}<template v-if="item.outcome === 'REPORTED'">
-            · 采集 {{ item.observation.observedAt }}</template
-          >
-          · 最近获取 {{ status.records[item.deviceId]?.fetchedAt
-          }}<span v-if="status.records[item.deviceId]?.retained">
-            · 上次记录（{{ status.records[item.deviceId]?.reason }}）</span
-          >
-        </li></ul
-      >
-      <div class="toolbar"
-        ><button
-          class="btn small"
-          :disabled="
-            status.detailsLoading || !status.batchDetails || status.batchDetails.pageNum <= 1
-          "
-          @click="status.loadBatch((status.batchDetails?.pageNum ?? 1) - 1)"
-          >上页</button
-        ><span
-          >{{ status.batchDetails?.total ?? 0 }} 条 · 第
-          {{ status.batchDetails?.pageNum ?? 1 }} 页</span
-        ><button
-          class="btn small"
-          :disabled="
-            status.detailsLoading ||
-            !status.batchDetails ||
-            status.batchDetails.pageNum * status.batchDetails.pageSize >= status.batchDetails.total
-          "
-          @click="status.loadBatch((status.batchDetails?.pageNum ?? 1) + 1)"
-          >下页</button
-        ></div
-      >
+    <section v-if="status.batch" aria-label="快照明细">
+      <h3>{{ status.batch.source_label }} · 构造数据／非真实遥测</h3>
+      <p>{{ status.batch.provenance_note }}</p>
+      <p>采集范围 {{ status.batch.first_observed_at ?? '未知' }} 至 {{ status.batch.last_observed_at ?? '未知' }}；导入 {{ status.batch.imported_at }}</p>
+      <p>正常 {{ status.batch.counts.NORMAL }} · 故障 {{ status.batch.counts.FAULT }} · 离线 {{ status.batch.counts.OFFLINE }} · 未知 {{ status.batch.counts.UNKNOWN }}</p>
+      <label>快照状态
+        <select aria-label="快照状态筛选" :value="status.filter" :disabled="status.busy || !entry.available.value" @change="status.setFilter(($event.target as HTMLSelectElement).value as StatusFilter)">
+          <option value="ALL">全部</option><option value="NORMAL">正常</option><option value="FAULT">故障</option><option value="OFFLINE">离线</option><option value="UNKNOWN">未知</option>
+        </select>
+      </label>
+      <div class="table-scroll"><table>
+        <thead><tr><th>设备</th><th>状态</th><th>告警</th><th>采集时间</th><th>未知原因</th></tr></thead>
+        <tbody><tr v-for="item in status.batchDetails?.items ?? []" :key="item.device_id">
+          <td>{{ item.device_id }}</td><td>{{ item.status === null ? '未知' : names[item.status] }}</td>
+          <td>{{ item.alert === null ? '未知' : item.alert ? '有' : '无' }}</td>
+          <td>{{ item.observed_at ?? '未知' }}</td><td>{{ item.unknown_reasons.join('；') || '无' }}</td>
+        </tr></tbody>
+      </table></div>
+      <p v-if="status.batchDetails?.total === 0">该筛选下无记录</p>
+      <div v-if="status.batchDetails" class="toolbar">
+        <button class="btn small" :disabled="status.busy || status.batchDetails.page <= 1" @click="status.loadBatch(status.batchDetails.page - 1)">上一明细页</button>
+        <span>{{ status.batchDetails.page }} · 共 {{ status.batchDetails.total }} 条</span>
+        <button class="btn small" :disabled="status.busy || status.batchDetails.page * status.batchDetails.page_size >= status.batchDetails.total" @click="status.loadBatch(status.batchDetails.page + 1)">下一明细页</button>
+      </div>
+    </section>
+    <details v-if="status.importable">
+      <summary>显式导入构造状态</summary>
+      <label>构造状态 JSON 文件<input ref="fileInput" type="file" accept=".json,application/json" :disabled="localBusy || !!status.pendingImport" @change="readFile" /></label>
+      <label>原始导入请求<textarea v-model="raw" aria-label="状态导入 JSON" rows="8" :disabled="localBusy || !!status.pendingImport" /></label>
+      <div class="toolbar">
+        <button class="btn" :disabled="!entry.available.value || localBusy || !!status.pendingImport" @click="submit">校验并导入</button>
+        <button v-if="status.pendingImport" class="btn" :disabled="status.busy" @click="status.verifyImport">核实原导入编号</button>
+        <button v-if="status.importNotFound && status.pendingImport" class="btn" :disabled="status.busy" @click="status.submitImport(status.pendingImport)">原号重试导入</button>
+        <button v-if="status.importNotFound" class="btn" :disabled="localBusy" @click="status.discardImportNotFound">放弃未查到导入（仅本地）</button>
+      </div>
+      <p v-if="status.pendingImport">待核实编号 {{ status.pendingImport.request_id }}</p>
+      <p v-if="status.receipt">持久化回执 {{ status.receipt.request_id }} · {{ status.receipt.snapshot_id }}</p>
     </details>
   </section>
 </template>
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue';
-import type { DeviceStatusItem } from '../types/resource-status';
+import { computed, onScopeDispose, ref, watch } from 'vue';
 import { useResourceStatusEntry } from '../stores/resource-status';
-const props = withDefaults(
-  defineProps<{
-    enabled?: boolean;
-    selectedIds?: string[];
-    hiddenCount?: number;
-    pausedReason?: string;
-    resourceRevision: string | undefined;
-    total: number | null;
-    queryBusy?: boolean;
-  }>(),
-  { enabled: true, hiddenCount: 0 },
-);
-// 版本与全库数量来自台账读取结果，不借用完整预览作回退。
-const entry = useResourceStatusEntry(
-    () => props.enabled,
-    () => props.resourceRevision ?? '',
-  ),
-  status = entry.status;
-const allCount = computed(() => props.total ?? 0);
-const count = (outcome: DeviceStatusItem['outcome']) => status.batch?.counts[outcome] ?? 0;
-const detailsOpen = ref(false);
-watch([detailsOpen, () => status.batch?.batchId], () => {
-  if (detailsOpen.value) void status.loadBatch();
+import type { DeviceStatusClient } from '../services/device-status-http';
+import { validateStatusImport } from '../services/device-status-decode';
+import type { DeviceStatusReceipt, StatusFilter } from '../types/device-status-snapshot';
+const props = withDefaults(defineProps<{
+  enabled?: boolean; selectedIds?: string[]; hiddenCount?: number; pausedReason?: string;
+  resourceRevision: string | undefined; total: number | null; queryBusy?: boolean; services?: DeviceStatusClient; allowImport?: boolean;
+}>(), { enabled: true, hiddenCount: 0, allowImport: false });
+const emit = defineEmits<{
+  'snapshot-selected': [value: { snapshot_id: string; snapshot_revision: string; resource_revision: string }];
+  imported: [value: DeviceStatusReceipt]; 'clear-snapshot': [];
+  dirty: [value: boolean]; busy: [value: boolean];
+}>();
+const entry = useResourceStatusEntry(() => props.enabled && !props.queryBusy, () => props.resourceRevision ?? '', () => props.services, () => props.allowImport);
+const status = entry.status, raw = ref(''), parseError = ref('');
+const fileInput = ref<HTMLInputElement | null>(null), fileName = ref(''), fileBusy = ref(false), leaveNotice = ref('');
+const acceptedInput = ref({ raw: '', fileName: '' });
+let submittedInput: { requestId: string; raw: string; fileName: string } | null = null;
+const dirtyInput = computed(() => raw.value !== acceptedInput.value.raw || fileName.value !== acceptedInput.value.fileName);
+const localBusy = computed(() => status.busy || fileBusy.value);
+let fileSerial = 0;
+const names = { NORMAL: '正常', FAULT: '故障', OFFLINE: '离线' };
+watch(() => status.batch, value => { if (value) emit('snapshot-selected', { snapshot_id: value.snapshot_id, snapshot_revision: value.snapshot_revision, resource_revision: value.resource_revision }); });
+watch(() => status.receipt, value => {
+  if (value) {
+    if (submittedInput?.requestId === value.request_id) acceptedInput.value = { raw: submittedInput.raw, fileName: submittedInput.fileName };
+    emit('imported', value);
+  }
 });
-// 台账全库范围交给服务解析；勾选始终只来自当前页。
-const disabled = computed(
-  () => !entry.available.value || status.busy || !status.catalog || props.queryBusy,
-);
+watch(() => dirtyInput.value || !!status.pendingImport, value => emit('dirty', value), { immediate: true });
+watch(localBusy, value => emit('busy', value), { immediate: true });
+function clear() { status.clearSnapshot(); emit('clear-snapshot'); }
+async function readFile(event: Event) {
+  const file = (event.target as HTMLInputElement).files?.[0]; if (!file) return;
+  fileName.value = file.name;
+  const serial = ++fileSerial; fileBusy.value = false;
+  if (file.size > 2 * 1024 * 1024) { parseError.value = '导入文件不能超过 2 MiB'; return; }
+  fileBusy.value = true;
+  try { const content = await file.text(); if (serial === fileSerial) { raw.value = content; parseError.value = ''; } }
+  catch { if (serial === fileSerial) parseError.value = '文件读取失败'; }
+  finally { if (serial === fileSerial) fileBusy.value = false; }
+}
+async function submit() {
+  if (!entry.available.value || localBusy.value) return;
+  try {
+    const value: unknown = JSON.parse(raw.value); validateStatusImport(value); parseError.value = '';
+    submittedInput = { requestId: value.request_id, raw: raw.value, fileName: fileName.value };
+    await status.submitImport(value);
+  }
+  catch (e) { parseError.value = e instanceof Error ? e.message : '导入 JSON 无效'; }
+}
+function discardInput() {
+  if (localBusy.value || status.pendingImport) return false;
+  raw.value = ''; fileName.value = ''; parseError.value = ''; acceptedInput.value = { raw: '', fileName: '' }; leaveNotice.value = '';
+  submittedInput = null;
+  if (fileInput.value) fileInput.value.value = '';
+  return true;
+}
+async function requestLeave(): Promise<boolean> {
+  if (localBusy.value || status.pendingImport || dirtyInput.value) {
+    leaveNotice.value = '尚有文件读取、待核实原号或未提交导入输入，请先核实或明确放弃本地输入。'; return false;
+  }
+  return true;
+}
+defineExpose({ requestLeave });
+onScopeDispose(() => { fileSerial++; });
 </script>
 <style scoped>
-.resource-status-panel {
-  padding: 12px 16px;
-  border: 1px solid var(--line);
-  border-radius: 5px;
-  background: #101e30;
-  font-size: 12px;
-}
-.toolbar {
-  flex-wrap: wrap;
-  gap: 10px;
-}
-.toolbar label {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-.toolbar select {
-  width: auto;
-}
-p {
-  margin: 8px 0 0;
-  color: var(--muted);
-}
-[role='alert'] {
-  color: #f5a6b2;
-}
-summary {
-  cursor: pointer;
-  margin-top: 8px;
-}
-.status-controls > summary {
-  margin: 0;
-}
-.status-controls[open] > summary {
-  margin-bottom: 12px;
-}
-ul {
-  max-height: 190px;
-  overflow: auto;
-  padding-left: 22px;
-  line-height: 1.8;
-}
+.resource-status-panel { padding: 12px 0; font-size: 12px; border-top: 1px solid var(--line, #d5d9de); }
+.toolbar { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin: 8px 0; }
+label { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 8px 0; }
+textarea { width: 100%; min-width: 0; resize: vertical; }
+summary { cursor: pointer; margin: 10px 0; }
+h3 { font-size: 14px; }
+ul { list-style: none; padding: 0; max-height: 240px; overflow: auto; }
+li { display: flex; gap: 8px; flex-wrap: wrap; margin: 8px 0; }
+p, td, li { overflow-wrap: anywhere; }
+.table-scroll { overflow: auto; }
+table { width: 100%; min-width: 580px; border-collapse: collapse; }
+th, td { padding: 8px; text-align: left; border-bottom: 1px solid var(--line, #d5d9de); }
+[role='alert'] { color: var(--danger, #c52442); }
 </style>
