@@ -23,6 +23,8 @@ export interface GisSelectedTask {
 export function useGisTaskSelection() {
   const auth = useAuthStore(), planning = usePlanningStore(), taskInput = useTaskInputStore(), resources = useResourceReadStore();
   const pageSize = 10;
+  // 正式任务由规划页保存；GIS只是另一读取页面，资源查询仍使用GIS上下文。
+  const taskContext = () => env.mode === 'http' ? 'planning' as const : 'gis' as const;
   const readable = computed(() => auth.can('situation.view') && auth.can('planning.view'));
   const library = ref<Pick<GisSelectedTask,'taskId'|'name'|'version'|'updatedAt'>[]>([]), selected = ref<GisSelectedTask | null>(null);
   const loading = ref(false), selecting = ref(false), error = ref('');
@@ -45,7 +47,7 @@ export function useGisTaskSelection() {
     controllers.add(controller); loading.value = true; error.value = ''; search.value = query;
     try {
       // 两种数据源都返回同一分页契约，GIS 不再自行扫描完整任务库。
-      const value = await previewService.queryTaskSummaries({ context: 'gis', pageNum: nextPage, pageSize, search: query || undefined, signal: controller.signal });
+      const value = await previewService.queryTaskSummaries({ context: taskContext(), pageNum: nextPage, pageSize, search: query || undefined, signal: controller.signal });
       if (!current(owner) || token !== listSerial) return false;
       library.value = value.items.map(row=>({...row,version:row.inputVersion})); total.value = value.total; page.value = value.pageNum; return true;
     } catch (reason) {
@@ -65,7 +67,7 @@ export function useGisTaskSelection() {
     const token = selectionSerial, owner = auth.generation, controller = new AbortController();
     controllers.add(controller); selecting.value = true;
     try {
-      const value = apiTask(await previewService.getTaskInput({ context: 'gis', taskId, signal: controller.signal }));
+      const value = apiTask(await previewService.getTaskInput({ context: taskContext(), taskId, signal: controller.signal }));
       if (!current(owner) || token !== selectionSerial) return false;
       if (!value) { error.value = '所选任务不存在或暂不可用'; return false; }
       selected.value = value;

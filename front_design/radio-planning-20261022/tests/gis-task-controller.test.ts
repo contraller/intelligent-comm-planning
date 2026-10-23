@@ -34,7 +34,7 @@ describe('GIS 保存任务只读选择', () => {
     const save = vi.spyOn(previewService, 'saveTaskInput'), combined = vi.spyOn(previewService, 'commitGisWorkspace');
     expect(await s.controller.initialize('T2')).toBe(true);
     expect(s.controller.selected).toMatchObject({ taskId: 'T2', name: '已保存任务二', version: 'i1' });
-    expect(vi.mocked(previewService.getTaskInput).mock.calls.at(-1)![0]).toMatchObject({ context: 'gis', taskId: 'T2' });
+    expect(vi.mocked(previewService.getTaskInput).mock.calls.at(-1)![0]).toMatchObject({ context: 'planning', taskId: 'T2' });
     expect(s.task.taskId).toBe('T1'); expect(s.task.draft!.name).toBe('规划未保存输入'); expect(s.task.context).toBe('planning');
     expect(save).not.toHaveBeenCalled(); expect(combined).not.toHaveBeenCalled();
   });
@@ -63,7 +63,7 @@ describe('GIS 保存任务只读选择', () => {
   it('分页和搜索只读取HTTP任务目录，查询失败不保留旧目标', async () => {
     const s = await setup(); await s.controller.initialize('T1');
     await s.controller.queryLibrary(2, '通信');
-    expect(vi.mocked(previewService.queryTaskInputs).mock.calls.at(-1)![0]).toMatchObject({ context: 'gis', pageNum: 2, pageSize: 10, search: '通信' });
+    expect(vi.mocked(previewService.queryTaskInputs).mock.calls.at(-1)![0]).toMatchObject({ context: 'planning', pageNum: 2, pageSize: 10, search: '通信' });
     vi.mocked(previewService.queryTaskInputs).mockRejectedValue(new ApiError('禁止查看', 'FORBIDDEN'));
     expect(await s.controller.queryLibrary()).toBe(false); expect(s.controller.selected).toBeNull(); expect(s.controller.library).toEqual([]);
   });
@@ -74,6 +74,19 @@ describe('GIS 保存任务只读选择', () => {
     read.mockResolvedValue({ revision: 'wrong', object: readNode(), model: null, antenna: null });
     await s.controller.loadReferences(); expect(s.controller.nodes).toEqual([]); expect(s.controller.referenceNotice).toContain('身份或资源版本不一致');
     s.resources.workspace!.revision = 'r2'; await nextTick(); expect(s.controller.nodes).toEqual([]); expect(s.controller.referenceNotice).toContain('资源版本不一致');
+  });
+  it('正式任务按规划分区保存后，GIS沿同一任务上下文回读，节点仍为GIS', async () => {
+    const s = await setup(), nodes = vi.mocked(previewService.getResourceObject); nodes.mockClear();
+    vi.mocked(previewService.getTaskInput).mockImplementation(async request => {
+      if (request.context !== 'planning') throw new ApiError('该分区没有任务', 'TASK_NOT_FOUND');
+      return apiTask();
+    });
+    expect(await s.controller.initialize('T1')).toBe(true);
+    expect(s.controller.selected?.taskId).toBe('T1');
+    expect(vi.mocked(previewService.queryTaskInputs).mock.calls.at(-1)![0].context).toBe('planning');
+    expect(nodes.mock.calls).not.toHaveLength(0);
+    expect(nodes.mock.calls.every(([request]) => request.context === 'gis')).toBe(true);
+    expect(s.task.context).toBe('planning');
   });
   it('节点引用失权清空选择，失效引用只提示缺失且不补造节点', async () => {
     const s = await setup(), read = vi.mocked(previewService.getResourceObject);
