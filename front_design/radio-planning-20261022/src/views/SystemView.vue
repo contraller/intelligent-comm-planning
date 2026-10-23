@@ -22,6 +22,7 @@
             v-for="t in visibleTabs"
             :key="t.key"
             :class="{ active: store.tab === t.key }"
+            :disabled="store.busy"
             @click="store.changeTab(t.key)"
             >{{ t.name }}</button
           ></div
