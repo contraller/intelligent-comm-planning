@@ -104,6 +104,29 @@ def _digest(payload: PlanningJobSubmitRequest | PlanningJobCancelRequest) -> str
     return hashlib.sha256(raw).hexdigest()
 
 
+def _owner_digest(body_digest: str, *, operation: str,
+                  actor_id: str | None, local_owner: bool) -> str:
+    if type(local_owner) is not bool:
+        raise PlanningJobError(5001, "规划幂等主体范围接线无效", 503)
+    if not local_owner:
+        return body_digest
+    if type(actor_id) is not str or not actor_id.strip():
+        raise PlanningJobError(5001, "LOCAL规划幂等缺少可信账号接线", 503)
+    # helper由P05独立交付；LOCAL接线失败不能回退未绑定摘要。
+    try:
+        from .local_operation_digest import bind_local_operation_digest
+        return bind_local_operation_digest(body_digest, operation=operation, account_id=actor_id)
+    except (ImportError, TypeError, ValueError) as exc:
+        raise PlanningJobError(5001, "LOCAL规划幂等主体摘要接线失败", 503) from exc
+
+
+def _cancel_digest(job_id: str, payload: PlanningJobCancelRequest, *,
+                   actor_id: str | None, local_owner: bool) -> str:
+    body_digest = hashlib.sha256(f"{job_id}:{_digest(payload)}".encode("utf-8")).hexdigest()
+    return _owner_digest(body_digest, operation="planning.cancel",
+        actor_id=actor_id, local_owner=local_owner)
+
+
 def _phases(progress: float) -> list[dict[str, str]]:
     result = []
     for name, threshold in _PHASES:
@@ -378,11 +401,13 @@ def _reserve(factory: sessionmaker[Session], payload: PlanningJobSubmitRequest,
 
 
 def submit_planning_job(payload: PlanningJobSubmitRequest,
-                        factory: sessionmaker[Session] | None = None) -> dict[str, Any]:
-    factory = factory or get_session_factory()
+                        factory: sessionmaker[Session] | None = None, *,
+                        actor_id: str | None = None, local_owner: bool = False) -> dict[str, Any]:
     if payload.adjustment is not None and payload.adjustment.interference_origin is not None:
         raise PlanningJobError(1001, "干扰绑定仅允许已受理工作台的服务端专用入口", 422)
-    digest = _digest(payload)
+    digest = _owner_digest(_digest(payload), operation="planning.submit",
+        actor_id=actor_id, local_owner=local_owner)
+    factory = factory or get_session_factory()
     try:
         job, revision, created, algorithm_payload = _reserve(factory, payload, digest)
     except IntegrityError:
@@ -586,12 +611,18 @@ def recover_interrupted_interference_jobs(factory=None, *, runtime_root=None,
         return [job.job_id for job in jobs]
 
 
-def request_interference_cancellation(job_id, payload, factory=None, *, actor_id=None, runtime_root=None):
-    factory = factory or get_session_factory()
-    validate_interference_runtime(factory, runtime_root)
+def request_interference_cancellation(job_id, payload, factory=None, *, actor_id=None,
+                                      runtime_root=None, local_owner=False):
     raw = {"job_id": job_id, "body": payload.model_dump(), "actor_id": actor_id}
     from .interference_analysis_engine import digest
-    request_digest = digest(raw)
+    if local_owner is True:
+        request_digest = _cancel_digest(job_id, payload, actor_id=actor_id, local_owner=local_owner)
+    else:
+        # 内部采纳/shutdown保留既有origin actor摘要，与公共LOCAL请求域分离。
+        request_digest = _owner_digest(digest(raw), operation="planning.cancel",
+            actor_id=actor_id, local_owner=local_owner)
+    factory = factory or get_session_factory()
+    validate_interference_runtime(factory, runtime_root)
     with _SUBMIT_LOCK, factory() as session, session.begin():
         session.connection().exec_driver_sql("BEGIN IMMEDIATE")
         job = session.get(PlanningJob, job_id)
@@ -640,19 +671,21 @@ def stop_frozen_planning_jobs(factory=None, *, runtime_root=None, timeout=5.0) -
 
 
 def cancel_planning_job(job_id: str, payload: PlanningJobCancelRequest,
-                        factory: sessionmaker[Session] | None = None
+                        factory: sessionmaker[Session] | None = None, *,
+                        actor_id: str | None = None, local_owner: bool = False
                         ) -> dict[str, Any]:
     """按作业冻结版本取消计算，并保存请求编号供重试识别。"""
+    digest = _cancel_digest(job_id, payload, actor_id=actor_id, local_owner=local_owner)
     factory = factory or get_session_factory()
     with factory() as session:
         source_job = session.get(PlanningJob, job_id)
         interference_job = source_job is not None and bool((source_job.adjustment or {}).get("interference_origin"))
     if interference_job:
-        request_interference_cancellation(job_id, payload, factory)
+        request_interference_cancellation(job_id, payload, factory,
+            actor_id=actor_id if local_owner else None, local_owner=local_owner)
         result = query_planning_job(job_id, payload.task_id, factory)
         result.update(code=0, request_id=payload.request_id)
         return result
-    digest = hashlib.sha256(f"{job_id}:{_digest(payload)}".encode("utf-8")).hexdigest()
     with _SUBMIT_LOCK, factory() as session, session.begin():
         receipt = session.get(PlanningJobCancellation, payload.request_id)
         if receipt is not None:

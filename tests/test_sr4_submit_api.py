@@ -1130,3 +1130,211 @@ def test_sr4_checks_cancellation_before_saving_plan(monkeypatch):
     with pytest.raises(planning_w3.PlanningTaskCancelled):
         planning_w4._do_sr4({"task_id": "T1"}, checkpoint)
     assert stages[-1] == (0.99, "正在保存方案")
+
+
+@pytest.fixture
+def local_owner_api(monkeypatch, tmp_path):
+    """R10仅验证数据库/受理语义，算法运行记录为显式桩，不启动线程。"""
+    from app import database, resource_dataset_service
+    assert tmp_path.resolve().is_relative_to((ROOT / "data/runtime/tmp").resolve())
+    path = tmp_path / "local-owner.sqlite"
+    assert not path.exists(), "每轮使用新GUID基目录，不重建已有库"
+    engine = create_engine("sqlite:///" + str(path), connect_args={"check_same_thread": False})
+    Base.metadata.create_all(engine)
+    factory = sessionmaker(bind=engine, expire_on_commit=False)
+    for module in (database, resource_dataset_service, task_input_service,
+                   planning_job_service, planning_plan_service):
+        monkeypatch.setattr(module, "get_session_factory", lambda: factory)
+    monkeypatch.setenv("FRONTEND_INTEGRATION_DEMO", "1")
+    monkeypatch.setenv("RESOURCE_DATASET_MODE", "database")
+    resource_dataset_service.initialize(factory)
+    runtime_root = ROOT / "data/runtime/r2"
+    monkeypatch.setattr(planning_job_service.planning_w3, "TASK_DIR", runtime_root / "owner-tests/tasks")
+    monkeypatch.setattr(planning_job_service.planning_w4, "PLAN_DIR", runtime_root / "owner-tests/plans")
+    submitted, cancelled, records = [], [], {}
+    def fake_submit(payload, *, job_id, on_update):
+        submitted.append(job_id)
+        records[job_id] = {"status": "PENDING", "progress": 0, "stage": "显式R10测试桩"}
+        on_update(deepcopy(records[job_id]))
+        return {"code": 0, "data": {"task_id": job_id}}
+    def fake_cancel(job_id):
+        cancelled.append(job_id)
+        records[job_id].update(status="CANCELLED", progress=1, stage="桩取消请求，不是CPU确认")
+        return deepcopy(records[job_id])
+    monkeypatch.setattr(planning_job_service.planning_w4, "submit_sr4", fake_submit)
+    monkeypatch.setattr(planning_job_service.planning_w3, "get_task_record", lambda job_id: deepcopy(records.get(job_id)))
+    monkeypatch.setattr(planning_job_service.planning_w3, "cancel_task", fake_cancel)
+    try:
+        yield TestClient(app), factory, submitted, cancelled
+    finally:
+        engine.dispose()
+
+
+def _local_owner_case(local_owner_api, kind):
+    import hashlib
+    from app.planning_job_schemas import PlanningJobCancelRequest, PlanningJobSubmitRequest
+    client, factory, _, _ = local_owner_api
+    saved = _save_task(client)
+    submission = PlanningJobSubmitRequest.model_validate(_submit(saved, "R10-SUBMIT"))
+    if kind == "submit":
+        def invoke(*, actor_id=None, local_owner=False, factory_override=None):
+            return planning_job_service.submit_planning_job(submission, factory_override or factory,
+                actor_id=actor_id, local_owner=local_owner)
+        return invoke, planning_job_models.PlanningJob, planning_job_service._digest(submission), "planning.submit"
+    job = planning_job_service.submit_planning_job(submission, factory)
+    payload = PlanningJobCancelRequest.model_validate(_cancel(saved, "R10-CANCEL"))
+    if kind == "child_cancel":
+        with factory.begin() as session:
+            session.get(planning_job_models.PlanningJob, job["job_id"]).adjustment = {
+                "interference_origin": {"adoption_id": "UNIT-OWNER", "actor_id": "ORIGIN-OWNER"}}
+    def invoke(*, actor_id=None, local_owner=False, factory_override=None):
+        return planning_job_service.cancel_planning_job(job["job_id"], payload, factory_override or factory,
+            actor_id=actor_id, local_owner=local_owner)
+    digest = hashlib.sha256(f"{job['job_id']}:{planning_job_service._digest(payload)}".encode("utf-8")).hexdigest()
+    return invoke, planning_job_models.PlanningJobCancellation, digest, "planning.cancel"
+
+
+@pytest.mark.parametrize("kind", ["submit", "cancel", "child_cancel"])
+def test_local_owner_same_account_replays_and_other_account_conflicts(local_owner_api, kind):
+    from app.local_operation_digest import bind_local_operation_digest
+    invoke, model, body_digest, operation = _local_owner_case(local_owner_api, kind)
+    _, factory, submitted, cancelled = local_owner_api
+    first = invoke(actor_id="ACCOUNT-A", local_owner=True)
+    assert invoke(actor_id="ACCOUNT-A", local_owner=True) == first
+    side_effects = (len(submitted), len(cancelled))
+    with pytest.raises(planning_job_service.PlanningJobError) as rejected:
+        invoke(actor_id="ACCOUNT-B", local_owner=True)
+    assert (rejected.value.code, rejected.value.status) == (1204, 409)
+    assert (len(submitted), len(cancelled)) == side_effects
+    with factory() as session:
+        rows = session.scalars(select(model)).all()
+        assert len(rows) == 1
+        assert rows[0].request_digest == bind_local_operation_digest(
+            body_digest, operation=operation, account_id="ACCOUNT-A")
+    assert len(submitted) == 1
+
+
+@pytest.mark.parametrize("kind", ["submit", "cancel", "child_cancel"])
+def test_local_owner_never_replays_legacy_unbound_receipt(local_owner_api, kind):
+    invoke, model, _, _ = _local_owner_case(local_owner_api, kind)
+    _, factory, submitted, cancelled = local_owner_api
+    invoke()
+    with factory() as session:
+        legacy = session.scalar(select(model)).request_digest
+    side_effects = (len(submitted), len(cancelled))
+    with pytest.raises(planning_job_service.PlanningJobError) as rejected:
+        invoke(actor_id="ACCOUNT-A", local_owner=True)
+    assert (rejected.value.code, rejected.value.status) == (1204, 409)
+    assert (len(submitted), len(cancelled)) == side_effects
+    with factory() as session:
+        assert session.scalar(select(model)).request_digest == legacy
+
+
+@pytest.mark.parametrize("kind", ["submit", "cancel", "child_cancel"])
+def test_local_owner_off_keeps_legacy_digest_and_ignores_public_actor(local_owner_api, kind):
+    from app.interference_analysis_engine import digest
+    invoke, model, body_digest, _ = _local_owner_case(local_owner_api, kind)
+    _, factory, _, _ = local_owner_api
+    first = invoke()
+    assert invoke(actor_id="IGNORED-OFF-ACCOUNT", local_owner=False) == first
+    with factory() as session:
+        row = session.scalar(select(model))
+        if kind == "child_cancel":
+            from app.planning_job_schemas import PlanningJobCancelRequest
+            job = session.get(planning_job_models.PlanningJob, row.job_id)
+            payload = PlanningJobCancelRequest(context="planning", request_id="R10-CANCEL",
+                task_id=job.task_id, expected_revision=job.revision_id)
+            expected = digest({"job_id": job.job_id, "body": payload.model_dump(), "actor_id": None})
+        else:
+            expected = body_digest
+        assert row.request_digest == expected
+
+
+@pytest.mark.parametrize("kind", ["submit", "cancel", "child_cancel"])
+@pytest.mark.parametrize("actor_id", [None, "", "   "])
+def test_local_owner_missing_actor_fails_closed_before_database(local_owner_api, kind, actor_id):
+    invoke, model, _, _ = _local_owner_case(local_owner_api, kind)
+    _, factory, submitted, cancelled = local_owner_api
+    def forbidden_factory():
+        pytest.fail("LOCAL缺可信actor必须在访问数据库前503")
+    side_effects = (len(submitted), len(cancelled))
+    with pytest.raises(planning_job_service.PlanningJobError) as rejected:
+        invoke(actor_id=actor_id, local_owner=True, factory_override=forbidden_factory)
+    assert (rejected.value.code, rejected.value.status) == (5001, 503)
+    assert (len(submitted), len(cancelled)) == side_effects
+    with factory() as session:
+        assert session.scalar(select(func.count()).select_from(model)) == 0
+
+
+@pytest.mark.parametrize("bound_actor", [None, "ACCOUNT-A"])
+@pytest.mark.parametrize("replay_actor", ["ACCOUNT-A", "ACCOUNT-B"])
+def test_local_owner_submit_integrity_race_rechecks_same_owner_digest(local_owner_api, monkeypatch, bound_actor, replay_actor):
+    from sqlalchemy.exc import IntegrityError
+    invoke, model, _, _ = _local_owner_case(local_owner_api, "submit")
+    _, factory, submitted, _ = local_owner_api
+    first = invoke(actor_id=bound_actor, local_owner=bound_actor is not None)
+    def race(*args):
+        raise IntegrityError("显式模拟唯一号竞争回读", {}, RuntimeError("UNIT-RACE"))
+    monkeypatch.setattr(planning_job_service, "_reserve", race)
+    if replay_actor == bound_actor:
+        assert invoke(actor_id=replay_actor, local_owner=True) == first
+    else:
+        with pytest.raises(planning_job_service.PlanningJobError) as rejected:
+            invoke(actor_id=replay_actor, local_owner=True)
+        assert (rejected.value.code, rejected.value.status) == (1204, 409)
+    assert len(submitted) == 1
+    with factory() as session:
+        assert session.scalar(select(func.count()).select_from(model)) == 1
+
+
+@pytest.mark.parametrize("replay_actor", ["ACCOUNT-A", "ACCOUNT-B"])
+def test_local_owner_cancel_second_receipt_read_rechecks_owner(local_owner_api, monkeypatch, replay_actor):
+    invoke, model, _, _ = _local_owner_case(local_owner_api, "cancel")
+    _, factory, _, cancelled = local_owner_api
+    first = invoke(actor_id="ACCOUNT-A", local_owner=True)
+    real_get = factory.class_.get
+    reads = []
+    def raced_get(session, entity, ident, *args, **kwargs):
+        if entity is model and ident == "R10-CANCEL":
+            reads.append(ident)
+            if len(reads) == 1:
+                return None
+        return real_get(session, entity, ident, *args, **kwargs)
+    monkeypatch.setattr(factory.class_, "get", raced_get)
+    if replay_actor == "ACCOUNT-A":
+        assert invoke(actor_id=replay_actor, local_owner=True) == first
+    else:
+        with pytest.raises(planning_job_service.PlanningJobError) as rejected:
+            invoke(actor_id=replay_actor, local_owner=True)
+        assert (rejected.value.code, rejected.value.status) == (1204, 409)
+    assert len(reads) == 2 and len(cancelled) == 1
+
+
+def test_local_owner_internal_adoption_and_shutdown_keep_origin_digest(local_owner_api, monkeypatch):
+    from app.interference_analysis_engine import digest
+    from app.planning_job_schemas import PlanningJobCancelRequest
+    _, model, _, _ = _local_owner_case(local_owner_api, "child_cancel")
+    _, factory, _, _ = local_owner_api
+    with factory() as session:
+        job = session.scalar(select(planning_job_models.PlanningJob))
+    monkeypatch.setenv("AUTH_MODE", "LOCAL_PASSWORD")
+    payload = PlanningJobCancelRequest(context="planning", request_id="UNIT-INTERNAL-CANCEL",
+        task_id=job.task_id, expected_revision=job.revision_id)
+    planning_job_service.request_interference_cancellation(job.job_id, payload, factory, actor_id="ORIGIN-OWNER")
+    planning_job_service.request_interference_cancellation(job.job_id, payload, factory, actor_id="ORIGIN-OWNER")
+    assert planning_job_service.stop_frozen_planning_jobs(factory, timeout=0) is False
+    with factory() as session:
+        rows = session.scalars(select(model)).all()
+        assert len(rows) == 2
+        for row in rows:
+            body = payload.model_copy(update={"request_id": row.request_id})
+            assert row.request_digest == digest({"job_id": job.job_id, "body": body.model_dump(),
+                "actor_id": "ORIGIN-OWNER"})
+            assert row.outcome_status == "CANCEL_REQUESTED"
+
+
+def test_local_owner_invalid_scope_flag_is_wiring_failure(local_owner_api):
+    invoke, _, _, _ = _local_owner_case(local_owner_api, "submit")
+    with pytest.raises(planning_job_service.PlanningJobError) as rejected:
+        invoke(actor_id="ACCOUNT-A", local_owner="false")
+    assert (rejected.value.code, rejected.value.status) == (5001, 503)
