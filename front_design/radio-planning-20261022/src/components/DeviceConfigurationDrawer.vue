@@ -28,8 +28,8 @@
         <dt>功率上限</dt><dd>{{ config.data.model.tx_power_max_dbm }} dBm</dd>
         <dt>模式／端口协议</dt><dd>待确认</dd>
       </dl>
-      <label>请求功率（dBm）<input v-model="config.power" aria-label="请求功率" type="number" step="any" :disabled="config.locked" /></label>
-      <label>请求频率（kHz）<input v-model="config.frequency" aria-label="请求频率" type="number" step="any" :disabled="config.locked" /></label>
+      <label>请求功率（dBm）<input :value="config.power" @input="updateValue('power', $event)" aria-label="请求功率" type="number" step="any" :disabled="config.locked" /></label>
+      <label>请求频率（kHz）<input :value="config.frequency" @input="updateValue('frequency', $event)" aria-label="请求频率" type="number" step="any" :disabled="config.locked" /></label>
       <div class="toolbar">
         <button class="btn" :disabled="config.busy || !!config.pending || !config.readable" @click="config.refreshContext">重新读取来源</button>
         <button class="btn" :disabled="config.locked" @click="config.validate">校验</button>
@@ -76,6 +76,10 @@ const props = withDefaults(defineProps<{
 }>(), { editable: false });
 const emit = defineEmits<{ close: []; accepted: [value: { request_id: string; device_id: string; base_revision: string }]; dirty: [value: boolean]; busy: [value: boolean] }>();
 const config = useDeviceConfigurationAcceptanceStore();
+// 数字v-model会转number；原生value保留store约定的字符串输入缓冲。
+function updateValue(field: 'power' | 'frequency', event: Event) {
+  if (!config.locked) config[field] = (event.target as HTMLInputElement).value;
+}
 watch([() => props.services, () => props.visible, () => props.deviceId, () => props.resourceRevision, () => props.editable, () => props.disabledReason], () => {
   config.bind(props.services ?? null);
   if (props.visible === false) { config.close(); return; }
