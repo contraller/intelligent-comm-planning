@@ -22,8 +22,9 @@ const renderer=createRenderer<HostNode,HostNode>({
   patchProp(target,key,_before,value){target.props[key]=value;},
   insertStaticContent(text,parent,anchor){const child=sized('#static',text);child.parent=parent;const index=anchor?parent.children.indexOf(anchor):-1;parent.children.splice(index<0?parent.children.length:index,0,child);return [child,child];},
 });
-const charts:{host:SizedHost;setOption:ReturnType<typeof vi.fn>;resize:ReturnType<typeof vi.fn>;on:ReturnType<typeof vi.fn>;dispose:ReturnType<typeof vi.fn>}[]=[];
-const observers:{notify:()=>void;disconnect:ReturnType<typeof vi.fn>}[]=[];
+type GraphClick=(event:{data:{id:string};dataType:'node'|'edge'})=>void;
+const charts:{host:SizedHost;setOption:ReturnType<typeof vi.fn>;resize:ReturnType<typeof vi.fn>;on:ReturnType<typeof vi.fn<(name:string,handler:GraphClick)=>void>>;dispose:ReturnType<typeof vi.fn>}[]=[];
+const observers:{notify:()=>void;disconnect:ReturnType<typeof vi.fn<()=>void>>}[]=[];
 const apps:App[]=[];
 const panel=ref<ComponentPublicInstance&{resetView:()=>void}>();
 function graph():KnowledgeGraph {
@@ -43,10 +44,10 @@ beforeEach(()=>{
   vi.stubGlobal('Document',TestDocument);vi.stubGlobal('document',new TestDocument());vi.stubGlobal('ShadowRoot',class {});
   vi.stubGlobal('ResizeObserver',class {
     entry:typeof observers[number];
-    constructor(notify:()=>void){this.entry={notify,disconnect:vi.fn()};observers.push(this.entry);}
+    constructor(notify:()=>void){this.entry={notify,disconnect:vi.fn<()=>void>()};observers.push(this.entry);}
     observe(){} disconnect(){this.entry.disconnect();}
   });
-  probe.init.mockImplementation((host:SizedHost)=>{const chart={host,setOption:vi.fn(),resize:vi.fn(),on:vi.fn(),dispose:vi.fn()};charts.push(chart);return chart;});
+  probe.init.mockImplementation((host:SizedHost)=>{const chart={host,setOption:vi.fn(),resize:vi.fn(),on:vi.fn<(name:string,handler:GraphClick)=>void>(),dispose:vi.fn()};charts.push(chart);return chart;});
 });
 afterEach(()=>{apps.splice(0).forEach(app=>app.unmount());charts.splice(0);observers.splice(0);vi.clearAllMocks();vi.unstubAllGlobals();});
 
