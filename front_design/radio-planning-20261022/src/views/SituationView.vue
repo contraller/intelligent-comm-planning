@@ -2454,6 +2454,7 @@ let directoryRequest = 0;
 watch(
   [
     () => gis.mapMode,
+    () => frozenView.value,
     () => fault.active.value,
     () => taskViewing.value,
     () => auth.generation,
@@ -2542,7 +2543,8 @@ watch(
 );
 const topologyActions = computed(() => {
   const epoch = topologyEpoch.value;
-  const current = () => epoch === topologyEpoch.value && topologyAvailable.value;
+  // 冻结页隐藏资源控件；即使模式名称未变，旧事件也不能改写返回后的偏好。
+  const current = () => !frozenView.value && epoch === topologyEpoch.value && topologyAvailable.value;
   return {
     visible: (event: Event) => {
       if (current()) links.value = (event.target as HTMLInputElement).checked;

@@ -110,4 +110,12 @@ describe('GIS跨组宿主静态边界', () => {
     expect(legacyMonitoring).toContain(':services="observations.services"');
     expect(legacyMonitoring).not.toContain('createHttpClient');
   });
+  it('冻结页使隐藏资源控件旧回调失效，往返也不恢复旧代次', () => {
+    const directory=situation.slice(situation.indexOf('const directoryEpoch = ref(0)'),situation.indexOf('const drawableTopologyIds'));
+    expect(directory).toContain('() => frozenView.value');
+    const actions=situation.slice(situation.indexOf('const topologyActions = computed'),situation.indexOf('const mapLayerInputs'));
+    expect(actions).toMatch(/!frozenView\.value\s*&&\s*epoch === topologyEpoch\.value/);
+    expect(actions).toContain('if (!current()) return');
+    expect(actions).toContain('if (current()) links.value');
+  });
 });
