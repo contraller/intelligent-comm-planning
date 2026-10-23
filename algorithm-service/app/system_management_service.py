@@ -25,8 +25,8 @@ from .system_management_schemas import (
 )
 
 PARAMETERS = {
-    "PAR-01": dict(name="状态展示间隔", value=30, unit="s", description="持久化的展示周期；消费者未接线时不表示实际采集生效。", readonly=False, min=1, max=3600, applicationState="STORED_ONLY", appliesTo="状态展示/回放"),
-    "PAR-02": dict(name="接口请求超时", value=15, unit="s", description="持久化的超时配置；共享客户端接线后只作用于新请求。", readonly=False, min=1, max=120, applicationState="STORED_ONLY", appliesTo="后续HTTP请求"),
+    "PAR-01": dict(name="状态目录刷新间隔", value=30, unit="s", description="仅刷新可见设备状态快照目录；不控制设备采集、不自动切换批次、不控制帧回放。", readonly=False, min=1, max=3600, applicationState="STORED_ONLY", appliesTo="可见设备状态快照目录",),
+    "PAR-02": dict(name="接口请求超时", value=15, unit="s", description="共享客户端对后续新请求采用的超时；在途请求保持原值，服务端存储不代表所有标签已应用。", readonly=False, min=1, max=120, applicationState="STORED_ONLY", appliesTo="共享客户端后续新请求"),
     "PAR-03": dict(name="默认坐标系", value="EPSG:4326", unit="", description="固定WGS84，经度在前、纬度在后。", readonly=True, min=None, max=None, applicationState="APPLIED", appliesTo="坐标约定"),
 }
 _ACTIONS = {
