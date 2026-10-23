@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { initialKnowledgeWorkspace, knowledgeRelationTypes, knowledgeTypes } from '../src/mocks/knowledge-presets';
 import { queryKnowledgeSnapshot } from '../src/services/knowledge-query';
 import { knowledgeGraphModel } from '../src/graphs/knowledge-graph';
+import type { KnowledgeGraph } from '../src/types/knowledge';
 const types=knowledgeTypes.map(t=>t.id),names=Object.fromEntries(knowledgeRelationTypes.map(t=>[t.id,t.name]));
 describe('知识图形展示数据',()=>{
   // 上限限制绘制数量，命中优先和图例仍需保持完整可辨。
@@ -46,5 +47,38 @@ describe('知识图形展示数据',()=>{
     expect(selected.nodes.find(n=>n.id==='KGE-POWER')).toMatchObject({symbolSize:48,itemStyle:{borderWidth:1,opacity:0.55}});
     expect(knowledgeGraphModel(graph,'',types,names,[])).toEqual(knowledgeGraphModel(graph,'',types,names));
     expect(knowledgeGraphModel({...graph,entities:[],relations:[],totalNodes:0,totalEdges:0},'',types,names,[]).nodes).toEqual([]);
+  });
+  const denseGraph=():KnowledgeGraph=>{
+    const w=initialKnowledgeWorkspace(),graph=queryKnowledgeSnapshot(w,{versionId:w.currentVersionId,categories:['设备知识']});
+    const entities=Array.from({length:100},(_,i)=>({...graph.entities[0],id:`dense-${i}`}));
+    return {...graph,entities,relations:Array.from({length:99},(_,i)=>({...graph.relations[0],id:`edge-${i}`,head:entities[i].id,tail:entities[i+1].id})),totalNodes:100,totalEdges:99};
+  };
+  it.each([{width:600,height:425},{width:326,height:425},{width:1000,height:550}])('100节点在视口%j保留节点间隙，关系仍可见且不改变业务或布局',viewport=>{
+    const graph=denseGraph(),before=JSON.stringify(graph),base=knowledgeGraphModel(graph,'',types,names);
+    const model=knowledgeGraphModel(graph,'',types,names,[],viewport);
+    const scale=Math.min((viewport.width-40)/1170,(viewport.height-40)/1170);
+    expect(model.nodes).toHaveLength(100);expect(model.links).toHaveLength(99);
+    for(let i=0;i<model.nodes.length;i++) {
+      const node=model.nodes[i];
+      expect(node.symbolSize).toBeGreaterThan(0);expect(node.symbolSize).toBeLessThanOrEqual(130*scale*0.43);
+      expect({...node,symbolSize:base.nodes[i].symbolSize,itemStyle:base.nodes[i].itemStyle}).toEqual(base.nodes[i]);
+    }
+    expect(model.links.every(link=>link.lineStyle.opacity>=0.4)).toBe(true);
+    expect(model.edgeSymbolSize).toBeLessThanOrEqual(7);expect(JSON.stringify(graph)).toBe(before);
+  });
+  it('有效视口缩放保留选中与命中优先级，无效尺寸不产生非有限图形',()=>{
+    const graph=denseGraph(),viewport={width:326,height:425};
+    const hit=knowledgeGraphModel(graph,'',types,names,['dense-2'],viewport);
+    expect(hit.nodes[2].symbolSize).toBeGreaterThan(hit.nodes[3].symbolSize);
+    expect(hit.nodes[2].itemStyle.borderColor).toBe('#f0ce79');
+    const selected=knowledgeGraphModel(graph,'dense-1',types,names,['dense-2'],viewport);
+    expect(selected.nodes[1].symbolSize).toBeGreaterThan(selected.nodes[2].symbolSize);
+    expect(selected.nodes[1]).toMatchObject({x:450,y:300,itemStyle:{borderColor:'#eef9ff'}});
+    for(const size of [{width:0,height:0},{width:NaN,height:100},{width:Infinity,height:100}]) {
+      expect(knowledgeGraphModel(graph,'',types,names,[],size)).toEqual(knowledgeGraphModel(graph,'',types,names));
+    }
+    expect(knowledgeGraphModel({...graph,entities:[],relations:[]},'',types,names,[],viewport).edgeSymbolSize).toBe(7);
+    const single=knowledgeGraphModel({...graph,entities:graph.entities.slice(0,1),relations:[]},'dense-0',types,names,[],viewport);
+    expect(single.nodes[0].symbolSize).toBe(76);
   });
 });

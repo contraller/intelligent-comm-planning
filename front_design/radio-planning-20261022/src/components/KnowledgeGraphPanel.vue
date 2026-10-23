@@ -45,7 +45,10 @@ const props = defineProps<{
 }>();
 const emit = defineEmits<{ entity: [id: string]; relation: [id: string] }>();
 const host = ref<HTMLDivElement>();
+const viewport = ref({ width: 0, height: 0 });
 let chart: ECharts | undefined, observer: ResizeObserver | undefined;
+let disposed = false,
+  renderedKey: string | undefined;
 const model = computed(() =>
   knowledgeGraphModel(
     props.graph,
@@ -53,9 +56,21 @@ const model = computed(() =>
     props.catalog.types.map((t) => t.id),
     Object.fromEntries(props.catalog.relationTypes.map((t) => [t.id, t.name])),
     props.matchedIds,
+    viewport.value,
   ),
 );
 function update() {
+  if (!readViewport()) return;
+  if (!chart) {
+    chart = init(host.value!);
+    chart.on('click', (event) => {
+      const item = event.data as { id?: string };
+      if (item?.id) {
+        if (event.dataType === 'edge') emit('relation', item.id);
+        else emit('entity', item.id);
+      }
+    });
+  }
   // 画布中心取命中范围；点选实体居中，少量邻居留出边距。
   const focused = model.value.nodes.filter((node) =>
     props.selectedId ? node.id === props.selectedId : props.matchedIds?.includes(node.id),
@@ -75,6 +90,7 @@ function update() {
       series: [
         {
           type: 'graph',
+          id: 'knowledge-graph',
           layout: 'none',
           roam: true,
           scaleLimit: { min: 0.35, max: 4 },
@@ -83,7 +99,7 @@ function update() {
           data: model.value.nodes,
           links: model.value.links,
           edgeSymbol: ['none', 'arrow'],
-          edgeSymbolSize: 7,
+          edgeSymbolSize: model.value.edgeSymbolSize,
           edgeLabel: { show: false, formatter: '{c}', color: '#96b9d5', fontSize: 10 },
           lineStyle: { color: '#537f9e', width: 1.5, curveness: 0.12 },
           emphasis: {
@@ -96,18 +112,37 @@ function update() {
     },
     true,
   );
+  renderedKey = renderKey.value;
+}
+function readViewport() {
+  if (disposed || !host.value || host.value.clientWidth <= 0 || host.value.clientHeight <= 0)
+    return false;
+  const { clientWidth: width, clientHeight: height } = host.value;
+  if (viewport.value.width !== width || viewport.value.height !== height)
+    viewport.value = { width, height };
+  return true;
+}
+function resize() {
+  if (!readViewport()) return;
+  chart?.resize();
+  if (!chart || renderedKey !== renderKey.value) {
+    update();
+    return;
+  }
+  // 尺寸变化只更新像素样式，省略 center/zoom，保留用户当前的平移缩放。
+  chart.setOption({
+    series: [
+      {
+        id: 'knowledge-graph',
+        data: model.value.nodes,
+        edgeSymbolSize: model.value.edgeSymbolSize,
+      },
+    ],
+  });
 }
 onMounted(() => {
-  chart = init(host.value!);
   update();
-  chart.on('click', (event) => {
-    const item = event.data as { id?: string };
-    if (item?.id) {
-      if (event.dataType === 'edge') emit('relation', item.id);
-      else emit('entity', item.id);
-    }
-  });
-  observer = new ResizeObserver(() => chart?.resize());
+  observer = new ResizeObserver(resize);
   observer.observe(host.value!);
 });
 // 相同绘图内容不重建，列表翻页保留平移与缩放；显式重置仍直接调用 update。
@@ -117,6 +152,7 @@ const renderKey = computed(() =>
 watch(renderKey, update);
 // 专用画布独立释放事件与观察器，不改变其他页面图表的交互。
 onBeforeUnmount(() => {
+  disposed = true;
   observer?.disconnect();
   chart?.dispose();
 });
