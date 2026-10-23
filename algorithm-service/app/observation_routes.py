@@ -1,9 +1,10 @@
-"""独立只读路由；由总集成挂载，不修改主入口。"""
+"""显式标源导入与只读查询路由；由总集成挂载，不修改主入口。"""
 from __future__ import annotations
 
 import re
+import json
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, Request, Response
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from fastapi.routing import APIRoute
@@ -12,8 +13,9 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from . import integration_identity_service as identities, observation_service as service
-from .database import DatabaseConfigurationError, get_db
-from .observation_schemas import ObservationPage, ObservationSelection
+from .database import DatabaseConfigurationError, get_db, get_session_factory
+from .observation_schemas import Identifier, ObservationPage, ObservationSelection, ObservationImportPreview, ObservationImportCommand
+from pydantic import TypeAdapter
 from .resource_dataset_service import ResourceDatasetError
 
 
@@ -98,3 +100,58 @@ def get_frames(request: Request, dataset_id: str, session: Session = Depends(get
 def get_frame(request: Request, dataset_id: str, index: str, session: Session = Depends(get_db)):
     selected = _selection(dataset_id, _query(request, {"dataset_revision"}))
     return _ok(service.frame(session, selected.dataset_id, selected.dataset_revision, _integer(index)))
+
+
+def _import_actor(request: Request):
+    return identities.require(request, "situation.observation.import", writing=request.method == "POST")
+
+
+async def _public_body(request, model):
+    _query(request, set())
+    payload = bytearray()
+    async for chunk in request.stream():
+        payload.extend(chunk)
+        if len(payload) > service.MAX_PUBLIC_FILE_BYTES:
+            raise service.ObservationError("观测JSON请求超过2MiB保护限制", 1001, 413)
+
+    def unique_pairs(pairs):
+        value = {}
+        for key, item in pairs:
+            if key in value:
+                raise ValueError("重复JSON字段")
+            value[key] = item
+        return value
+
+    try:
+        value = json.loads(payload.decode("utf-8-sig"), object_pairs_hook=unique_pairs,
+            parse_constant=lambda _: (_ for _ in ()).throw(ValueError("非有限数字")))
+    except (UnicodeError, ValueError, RecursionError) as exc:
+        raise service.ObservationError("观测JSON编码、字段或数值无效", 1001, 422) from exc
+    return model.model_validate(value)
+
+
+@router.post("/import-preview")
+async def preview_import(request: Request, actor: dict = Depends(_import_actor)):
+    body = await _public_body(request, ObservationImportPreview)
+    return _ok(service.preview_import(body.file, factory=get_session_factory()))
+
+
+@router.post("/imports")
+async def import_dataset(request: Request, actor: dict = Depends(_import_actor)):
+    body = await _public_body(request, ObservationImportCommand)
+    return _ok(service.import_file(body, actor_id=actor["account_id"], factory=get_session_factory()))
+
+
+@router.get("/imports/{request_id}")
+def get_import_receipt(request: Request, request_id: str, actor: dict = Depends(_import_actor), session: Session = Depends(get_db)):
+    _query(request, set())
+    request_id = TypeAdapter(Identifier).validate_python(request_id, strict=True)
+    return _ok(service.import_receipt(session, request_id, actor["account_id"]))
+
+
+@router.get("/datasets/{dataset_id}/export")
+def export_dataset(request: Request, dataset_id: str, session: Session = Depends(get_db)):
+    selected = _selection(dataset_id, _query(request, {"dataset_revision"}))
+    raw = service.export_dataset(session, selected.dataset_id, selected.dataset_revision)
+    return Response(raw, media_type="application/json", headers={"Content-Disposition":
+        f'attachment; filename="spectrum-observation-{selected.dataset_revision}.json"', "Cache-Control": "no-store"})

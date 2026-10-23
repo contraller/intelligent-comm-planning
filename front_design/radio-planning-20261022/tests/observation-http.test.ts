@@ -4,6 +4,31 @@ import { assertObservationQuery } from '../src/services/observation-validation';
 import { OBSERVATION_ORIGIN } from '../src/types/observation';
 import type { ObservationFrame, ObservationServices } from '../src/types/observation';
 import type { AuthenticatedRequest } from '../src/services/auth-http';
+import type { ObservationImportFile } from '../src/types/observation';
+
+describe('R2显式导入已认证适配', () => {
+  function file(): ObservationImportFile {
+    const { datasetId: _id, datasetRevision: _rev, dataOrigin: _origin, ...raw } = frame();
+    return { schemaVersion: 1, fileKind: 'SPECTRUM_OBSERVATION_DATASET', dataOrigin: OBSERVATION_ORIGIN,
+      dataset: { datasetId: selection.datasetId, provenanceNote: '显式构造，非实测', resourceRevision: 'resource-v1',
+        deviceStatusSnapshotId: null, source: summary().source, frames: [raw] } };
+  }
+  it('新增写入口禁止无会话工厂降级fetch', async () => {
+    const fetcher = vi.fn(), api = createObservationHttp({ baseUrl: () => '/api/v1', fetcher });
+    await expect(api.previewObservationImport({ file: file() })).rejects.toMatchObject({ code: 'AUTH_REQUIRED' }); expect(fetcher).not.toHaveBeenCalled();
+  });
+  it('预检发起时冻结嵌套文件，保留同一signal', async () => {
+    let finish!: (value: unknown) => void;
+    const request = vi.fn((_path: string, _init?: RequestInit) => new Promise(resolve => { finish = resolve; }));
+    const api = createObservationHttp({ baseUrl: () => '/api/v1', authenticatedRequest: request as AuthenticatedRequest });
+    const controller = new AbortController(), input = { file: file(), signal: controller.signal }, original = structuredClone(input.file);
+    const pending = api.previewObservationImport(input); input.file.dataset.source.name = '晚到修改'; input.file.dataset.frames[0].label = '晚到修改';
+    finish({ schemaVersion: 1, dataOrigin: OBSERVATION_ORIGIN, previewHash: hash, datasetId: original.dataset.datasetId, resourceRevision: original.dataset.resourceRevision,
+      source: original.dataset.source, frameCount: 1, sourceBinding: 'DECLARED_ONLY', warnings: ['来源声明，非实测'] });
+    expect((await pending).source.name).toBe(original.dataset.source.name);
+    expect(request.mock.calls[0][1]?.signal).toBe(controller.signal); expect(JSON.parse(request.mock.calls[0][1]?.body as string).file).toEqual(original);
+  });
+});
 
 const hash = 'a'.repeat(64), revision = 'observation-' + hash;
 const selection = { datasetId: 'obs:A', datasetRevision: revision };

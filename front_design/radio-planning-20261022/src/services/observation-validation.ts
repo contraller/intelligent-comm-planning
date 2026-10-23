@@ -1,6 +1,7 @@
 import { OBSERVATION_ORIGIN } from '../types/observation';
 import type { ObservationContext, ObservationDataset, ObservationFrame, ObservationFramePage, ObservationFrameQuery, ObservationFrameResult, ObservationIndexQuery, ObservationPage, ObservationPageQuery, ObservationSelection } from '../types/observation';
 import { ApiError } from './types';
+import type { ObservationImportFile, ObservationImportOperation, ObservationImportPreview } from '../types/observation';
 
 type RecordValue = Record<string, unknown>;
 const idPattern = /^[A-Za-z0-9_.:-]{1,120}$/;
@@ -130,4 +131,70 @@ export function decodeObservationFrame(value: unknown, input: ObservationIndexQu
   check(data.hasPrevious === (input.index > 0) && data.hasNext === (input.index + 1 < data.frameCount));
   frame(data.frame, input, input.index);
   return value as ObservationFrameResult;
+}
+
+// 文件可保留带时区原文，规范化仅用于校验，不改写调用者资料。
+function fileTime(value: unknown): string | null {
+  if (value === null) return null;
+  check(typeof value === 'string');
+  const match = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.(\d{1,6}))?(Z|[+-]\d{2}:\d{2})$/.exec(value);
+  check(match && Number(match[1]) >= 1 && Number(match[4]) < 24 && Number(match[5]) < 60 && Number(match[6]) < 60);
+  const local = new Date(`${match[1]}-${match[2]}-${match[3]}T00:00:00.000Z`);
+  check(Number.isFinite(local.getTime()) && local.toISOString().slice(0, 10) === value.slice(0, 10));
+  if (match[8] !== 'Z') check(Number(match[8].slice(1, 3)) < 24 && Number(match[8].slice(4, 6)) < 60);
+  const parsed = new Date(value); check(Number.isFinite(parsed.getTime()));
+  const iso = parsed.toISOString(); check(/^\d{4}-/.test(iso) && Number(iso.slice(0, 4)) >= 1);
+  return iso.slice(0, 19) + '.' + (match[7] ?? '').padEnd(6, '0') + 'Z';
+}
+
+export function decodeObservationImportFile(value: unknown): ObservationImportFile {
+  const data = record(value, ['schemaVersion', 'fileKind', 'dataOrigin', 'dataset']); header(data);
+  check(data.fileKind === 'SPECTRUM_OBSERVATION_DATASET');
+  const ds = record(data.dataset, ['datasetId', 'provenanceNote', 'resourceRevision', 'deviceStatusSnapshotId', 'source', 'frames']);
+  check(identifier(ds.datasetId) && identifier(ds.resourceRevision) && text(ds.provenanceNote, 500) && ds.deviceStatusSnapshotId === null);
+  const source = record(ds.source, ['sourceId', 'name', 'configRevision', 'minKhz', 'maxKhz', 'intervalSeconds']);
+  check(identifier(source.sourceId) && identifier(source.configRevision) && text(source.name, 60) && source.name === source.name.trim());
+  check(finite(source.minKhz) && finite(source.maxKhz) && source.minKhz > 0 && source.minKhz < source.maxKhz);
+  check(source.intervalSeconds === null || integer(source.intervalSeconds, 1, 3600));
+  check(Array.isArray(ds.frames) && ds.frames.length > 0 && ds.frames.length <= 256);
+  const ids = new Set<string>(); let previous = '';
+  const selection = { datasetId: ds.datasetId, datasetRevision: 'observation-' + '0'.repeat(64) };
+  for (const [index, item] of ds.frames.entries()) {
+    const raw = record(item, frameFields.filter(key => !['datasetId', 'datasetRevision', 'dataOrigin'].includes(key)));
+    const normalized = fileTime(raw.observedAt);
+    const row = frame({ ...raw, ...selection, dataOrigin: OBSERVATION_ORIGIN, observedAt: normalized }, selection, index);
+    check(!ids.has(row.frameId)); ids.add(row.frameId);
+    if (normalized !== null) { check(previous <= normalized); previous = normalized; }
+    check(row.bins.every(bin => bin.minKhz >= (source.minKhz as number) && bin.maxKhz <= (source.maxKhz as number)));
+  }
+  check(new TextEncoder().encode(JSON.stringify(value)).byteLength <= 2 * 1024 * 1024);
+  return value as ObservationImportFile;
+}
+
+export function decodeObservationImportPreview(value: unknown, file: ObservationImportFile): ObservationImportPreview {
+  const data = record(value, ['schemaVersion', 'dataOrigin', 'previewHash', 'datasetId', 'resourceRevision', 'source', 'frameCount', 'sourceBinding', 'warnings']); header(data);
+  check(typeof data.previewHash === 'string' && /^[0-9a-f]{64}$/.test(data.previewHash));
+  check(data.datasetId === file.dataset.datasetId && data.resourceRevision === file.dataset.resourceRevision && data.frameCount === file.dataset.frames.length);
+  const source = record(data.source, ['sourceId', 'name', 'configRevision', 'minKhz', 'maxKhz', 'intervalSeconds']);
+  check(Object.entries(file.dataset.source).every(([key, item]) => source[key] === item));
+  check(['REGISTERED_VERSION', 'DECLARED_ONLY'].includes(String(data.sourceBinding)) && reasons(data.warnings) && data.warnings.length > 0);
+  return value as ObservationImportPreview;
+}
+
+export function decodeObservationImportOperation(value: unknown, requestId: string): ObservationImportOperation {
+  const data = record(value, ['schemaVersion', 'dataOrigin', 'requestId', 'operationType', 'status', 'receipt']); header(data);
+  check(data.requestId === requestId && data.operationType === 'OBSERVATION_IMPORT');
+  if (data.status === 'NOT_FOUND') check(data.receipt === null);
+  else {
+    check(data.status === 'COMMITTED');
+    const receipt = record(data.receipt, ['requestId', 'actorId', 'datasetId', 'datasetRevision', 'dataOrigin', 'resourceRevision', 'frameCount', 'changed', 'importedAt']);
+    check(receipt.requestId === requestId && identifier(receipt.actorId) && identifier(receipt.datasetId) && revision(receipt.datasetRevision));
+    check(receipt.dataOrigin === OBSERVATION_ORIGIN && identifier(receipt.resourceRevision) && integer(receipt.frameCount, 1, 256));
+    check(typeof receipt.changed === 'boolean' && time(receipt.importedAt, false));
+  }
+  return value as ObservationImportOperation;
+}
+
+export function assertObservationImportKey(input: { requestId: string; signal?: AbortSignal }) {
+  if (!identifier(input.requestId) || input.signal !== undefined && !(input.signal instanceof AbortSignal)) throw new ApiError('导入请求参数无效', 'INVALID_OBSERVATION_QUERY');
 }

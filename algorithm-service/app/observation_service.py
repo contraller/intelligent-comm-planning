@@ -14,8 +14,11 @@ from . import frontend_integration, resource_dataset_service as resources
 from .observation_models import ObservationDataset, ObservationFrame, ObservationImportOperation
 from .observation_schemas import (
     MAX_BINS, MAX_FRAMES, ORIGIN, DatasetSummary, ImportedFrame,
-    ObservationImportReceipt, ObservationImportRequest, StoredFrame,
+    ObservationImportReceipt, ObservationImportRequest, StoredFrame, ObservationImportFile,
+    ObservationImportCommand,
 )
+
+MAX_PUBLIC_FILE_BYTES = 2 * 1024 * 1024
 
 
 class ObservationError(ValueError):
@@ -215,3 +218,91 @@ def frame(session: Session, dataset_id: str, revision: str, index: int):
         raise ObservationError("观测帧缺失")
     return {**_identity(row), "index": index, "hasPrevious": index > 0,
         "hasNext": index + 1 < row.frame_count, "frame": _frame(item, row)}
+
+
+def _source_binding(session, source):
+    # 登记版本仅用于身份比对，未登记来源和真实连通性不能互相替代。
+    if not source.configRevision.startswith("SPV-"):
+        return "DECLARED_ONLY"
+    from .spectrum_source_models import SpectrumSourceVersion
+    from .spectrum_source_service import decode_version
+    row = session.get(SpectrumSourceVersion, source.configRevision)
+    if row is None:
+        return "DECLARED_ONLY"
+    saved = decode_version(row)
+    values = {"sourceId": saved["sourceId"], "configRevision": saved["configRevision"],
+        "name": saved["draft"]["name"], "minKhz": saved["draft"]["minKhz"],
+        "maxKhz": saved["draft"]["maxKhz"], "intervalSeconds": saved["draft"]["intervalSeconds"]}
+    if source.model_dump(mode="json") != values:
+        raise ObservationError("观测来源声明与登记配置版本不一致", 1204, 409)
+    return "REGISTERED_VERSION"
+
+
+def preview_import(file: ObservationImportFile, *, factory):
+    file = ObservationImportFile.model_validate(file.model_dump(mode="json") if isinstance(file, ObservationImportFile) else file)
+    payload = file.to_request("preview-only").model_dump(mode="json", exclude={"requestId"})
+    _assert_file_size(file.model_dump(mode="json"))
+    snapshot = resources.current(factory=factory)
+    if file.dataset.resourceRevision != snapshot["revision"]:
+        raise ObservationError("预检时资源来源已变化，请保留输入并刷新来源", 1205, 409)
+    with factory() as session:
+        binding = _source_binding(session, file.dataset.source)
+    return {"schemaVersion": 1, "dataOrigin": ORIGIN, "previewHash": content_hash(payload),
+        "datasetId": file.dataset.datasetId, "resourceRevision": file.dataset.resourceRevision,
+        "source": payload["source"], "frameCount": len(file.dataset.frames), "sourceBinding": binding,
+        "warnings": ["来源只是导入声明，未登记采集配置；未核实真实采集"] if binding == "DECLARED_ONLY" else ["登记配置只作身份比对，未核实真实采集"]}
+
+
+def _assert_file_size(value):
+    raw = json.dumps(value, ensure_ascii=False, separators=(",", ":"), allow_nan=False).encode("utf-8")
+    if len(raw) > MAX_PUBLIC_FILE_BYTES:
+        raise ObservationError("观测JSON超过2MiB保护限制，未截断或保存", 1001, 413)
+    return raw
+
+
+def import_file(command: ObservationImportCommand, *, actor_id, factory):
+    command = ObservationImportCommand.model_validate(command.model_dump(mode="json") if isinstance(command, ObservationImportCommand) else command)
+    request = command.file.to_request(command.requestId)
+    digest = content_hash(request.model_dump(mode="json", exclude={"requestId"}))
+    if digest != command.previewHash:
+        raise ObservationError("提交内容与预检摘要不一致，请重新预检", 1206, 409)
+    _assert_file_size(command.file.model_dump(mode="json"))
+    # 原键回放先核实已提交事实，不能被新的当前资源/配置误拒绝。
+    with factory() as session:
+        existed = session.get(ObservationImportOperation, command.requestId) is not None
+    if not existed:
+        preview_import(command.file, factory=factory)
+    receipt = import_synthetic_dataset(request, actor_id=actor_id, factory=factory)
+    return {"schemaVersion": 1, "dataOrigin": ORIGIN, "requestId": command.requestId,
+        "operationType": "OBSERVATION_IMPORT", "status": "COMMITTED", "receipt": receipt.model_dump(mode="json")}
+
+
+def import_receipt(session, request_id, actor_id):
+    row = session.get(ObservationImportOperation, request_id)
+    value = None
+    if row is not None:
+        if row.actor_id != actor_id:
+            raise ObservationError("无权读取其他身份的导入回执", 1104, 403)
+        value = _receipt(session, request_id, row.request_digest, actor_id).model_dump(mode="json")
+    return {"schemaVersion": 1, "dataOrigin": ORIGIN, "requestId": request_id,
+        "operationType": "OBSERVATION_IMPORT", "status": "COMMITTED" if value else "NOT_FOUND", "receipt": value}
+
+
+def export_dataset(session, dataset_id, revision):
+    row, summary = _dataset(session, dataset_id, revision)
+    rows = session.scalars(select(ObservationFrame).where(ObservationFrame.dataset_id == dataset_id).order_by(ObservationFrame.frame_index))
+    values = []
+    for item in rows:
+        stored = _frame(item, row)
+        values.append({key: stored[key] for key in ImportedFrame.model_fields})
+    dataset = {"datasetId": dataset_id, "provenanceNote": summary["provenanceNote"],
+        "resourceRevision": row.resource_revision, "deviceStatusSnapshotId": None,
+        "source": summary["source"], "frames": values}
+    try:
+        file = ObservationImportFile.model_validate({"schemaVersion": 1, "fileKind": "SPECTRUM_OBSERVATION_DATASET",
+            "dataOrigin": ORIGIN, "dataset": dataset})
+        if content_hash(file.to_request("export-validation").model_dump(mode="json", exclude={"requestId"})) != row.content_hash:
+            raise ValueError("集合内容摘要不一致")
+    except (ValidationError, TypeError, ValueError) as exc:
+        raise ObservationError("观测集完整内容校验失败，未导出替代值") from exc
+    return _assert_file_size(file.model_dump(mode="json"))

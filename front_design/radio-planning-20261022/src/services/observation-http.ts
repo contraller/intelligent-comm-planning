@@ -4,6 +4,7 @@ import { createHttpClient } from './http-client';
 import { assertObservationQuery, decodeObservationContext, decodeObservationDatasets, decodeObservationFrame, decodeObservationFrames } from './observation-validation';
 import { ApiError } from './types';
 import type { AuthenticatedRequest } from './auth-http';
+import { assertObservationImportKey, decodeObservationImportFile, decodeObservationImportOperation, decodeObservationImportPreview } from './observation-validation';
 
 interface Options { baseUrl: () => string; fetcher?: typeof fetch; origin?: () => string | undefined; timeoutMs?: number; authenticatedRequest?: AuthenticatedRequest }
 const prefix = '/observations/spectrum';
@@ -11,6 +12,16 @@ const prefix = '/observations/spectrum';
 export function createObservationHttp(options: Options): ObservationServices {
   if (options.timeoutMs !== undefined && (!Number.isFinite(options.timeoutMs) || options.timeoutMs <= 0)) throw new ApiError('观测超时设置无效', 'INVALID_OBSERVATION_QUERY');
   const fetcher = options.fetcher ?? ((input, init) => globalThis.fetch(input, init));
+  function importQuery(input: unknown, fields: string[]) {
+    if (!input || typeof input !== 'object' || Array.isArray(input)) throw new ApiError('导入参数无效', 'INVALID_OBSERVATION_QUERY');
+    const value = input as Record<string, unknown>;
+    if (Object.keys(value).some(key => ![...fields, 'signal'].includes(key)) || fields.some(key => !Object.hasOwn(value, key)) || value.signal !== undefined && !(value.signal instanceof AbortSignal)) throw new ApiError('导入参数含未知、缺失或无效字段', 'INVALID_OBSERVATION_QUERY');
+  }
+  function bound<T>(path: string, init: RequestInit, responseType: 'json' | 'blob' = 'json'): Promise<T> {
+    if (!options.authenticatedRequest) throw new ApiError('显式导入需注入当前认证会话', 'AUTH_REQUIRED');
+    if (init.signal?.aborted) throw new ApiError('请求已取消；写入结果须另查回执', 'REQUEST_ABORTED');
+    return options.authenticatedRequest<T>(prefix + path, init, responseType);
+  }
   async function get(path: string, params: Record<string, string | number | undefined>, input: ObservationRead): Promise<unknown> {
     if (input.signal?.aborted) throw new ApiError('观测读取已取消', 'REQUEST_ABORTED');
     const base = options.authenticatedRequest ? '' : resolveAuthApiBaseUrl(options.baseUrl(), options.origin?.() ?? globalThis.location?.origin);
@@ -60,6 +71,39 @@ export function createObservationHttp(options: Options): ObservationServices {
       return decodeObservationFrame(await get(`/datasets/${encodeURIComponent(query.datasetId)}/frames/${query.index}`, {
         dataset_revision: query.datasetRevision,
       }, query), query);
+    },
+    async previewObservationImport(input) {
+      importQuery(input, ['file']);
+      decodeObservationImportFile(input.file);
+      const file = structuredClone(input.file), signal = input.signal;
+      return decodeObservationImportPreview(await bound('/import-preview', { method: 'POST', signal, body: JSON.stringify({ file }) }), file);
+    },
+    async importObservation(input) {
+      importQuery(input, ['requestId', 'previewHash', 'file']);
+      assertObservationImportKey(input); decodeObservationImportFile(input.file);
+      if (!/^[0-9a-f]{64}$/.test(input.previewHash)) throw new ApiError('预检摘要无效', 'INVALID_OBSERVATION_QUERY');
+      const file = structuredClone(input.file), requestId = input.requestId, previewHash = input.previewHash, signal = input.signal;
+      const result = decodeObservationImportOperation(await bound('/imports', { method: 'POST', signal, body: JSON.stringify({ requestId, previewHash, file }) }), requestId);
+      if (!result.receipt || result.receipt.datasetId !== file.dataset.datasetId || result.receipt.resourceRevision !== file.dataset.resourceRevision || result.receipt.frameCount !== file.dataset.frames.length || result.receipt.datasetRevision !== 'observation-' + previewHash) throw new ApiError('导入回执与提交内容不一致', 'INVALID_OBSERVATION_RESPONSE');
+      return result;
+    },
+    async getObservationImportReceipt(input) {
+      importQuery(input, ['requestId']);
+      assertObservationImportKey(input);
+      const query = Object.freeze({ ...input });
+      return decodeObservationImportOperation(await bound(`/imports/${encodeURIComponent(query.requestId)}`, { method: 'GET', signal: query.signal }), query.requestId);
+    },
+    async exportObservationDataset(input) {
+      assertObservationQuery(input, 'context');
+      const query = Object.freeze({ ...input });
+      if (!query.datasetId || !query.datasetRevision) throw new ApiError('请选择精确观测版本', 'INVALID_OBSERVATION_QUERY');
+      const blob = await bound<Blob>(`/datasets/${encodeURIComponent(query.datasetId)}/export?dataset_revision=${encodeURIComponent(query.datasetRevision)}`, { method: 'GET', signal: query.signal }, 'blob');
+      if (!(blob instanceof Blob) || blob.size > 2 * 1024 * 1024) throw new ApiError('导出文件无效或超过2MiB', 'INVALID_OBSERVATION_RESPONSE');
+      let file;
+      try { file = decodeObservationImportFile(JSON.parse(await blob.text())); }
+      catch { throw new ApiError('导出文件未通过完整校验', 'INVALID_OBSERVATION_RESPONSE'); }
+      if (file.dataset.datasetId !== query.datasetId) throw new ApiError('导出观测编号不一致', 'INVALID_OBSERVATION_RESPONSE');
+      return blob;
     },
   };
 }

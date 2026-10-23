@@ -2,6 +2,7 @@
 from concurrent.futures import ThreadPoolExecutor
 from copy import deepcopy
 import hashlib
+import json
 from pathlib import Path
 import sqlite3
 import sys
@@ -27,6 +28,7 @@ from app.observation_models import (
     sqlite_immutability_ddl,
 )
 from app.observation_routes import router
+from app import observation_routes
 from app.observation_schemas import ObservationImportRequest
 from app.resource_dataset_models import ResourceDatasetCurrent, ResourceDatasetVersion
 
@@ -110,7 +112,7 @@ def get(db, path, revision=None, **params):
     return db["client"].get(PREFIX + path, params=params)
 
 
-def test_empty_context_and_only_four_get_routes(database):
+def test_empty_context_and_preserved_four_get_routes(database):
     db = database
     value = get(db, "/context").json()["data"]
     assert value["selected"] is None and value["datasetCount"] == 0
@@ -118,8 +120,92 @@ def test_empty_context_and_only_four_get_routes(database):
     assert value["replay"]["loop"] is False
     assert get(db, "/datasets").json()["data"]["items"] == []
     assert counts(db) == (0, 0, 0)
-    assert len(router.routes) == 4
-    assert all(route.methods == {"GET"} for route in router.routes)
+    assert len(router.routes) == 8
+    assert sum(route.methods == {"POST"} for route in router.routes) == 2
+    assert {PREFIX + path for path in ("/context", "/datasets", "/datasets/{dataset_id}/frames", "/datasets/{dataset_id}/frames/{index}")} <= {route.path for route in router.routes if route.methods == {"GET"}}
+
+
+@pytest.fixture
+def public_api(database, monkeypatch):
+    db = database
+    from app.spectrum_source_models import SPECTRUM_SOURCE_METADATA
+    SPECTRUM_SOURCE_METADATA.create_all(db["engine"])
+    monkeypatch.setattr(observation_routes, "get_session_factory", lambda: db["factory"])
+    original = frontend_integration.session_identity()
+    monkeypatch.setattr(frontend_integration, "session_identity", lambda: {
+        **original, "permissions": [*original["permissions"], "situation.observation.import"]})
+    return db
+
+
+def portable(db):
+    value = payload(db)
+    return {"schemaVersion": 1, "fileKind": "SPECTRUM_OBSERVATION_DATASET",
+        "dataOrigin": "SYNTHETIC_INTEGRATION", "dataset": {key: value[key] for key in (
+            "datasetId", "provenanceNote", "resourceRevision", "deviceStatusSnapshotId", "source", "frames")}}
+
+
+def post(db, path, value):
+    # 使用原联调 principal 的 CSRF，真实权限依赖仍执行。
+    return db["client"].post(PREFIX + path, json=value,
+        headers={"X-CSRF-Token": frontend_integration.CSRF_TOKEN, "X-Session-Id": frontend_integration.SESSION_ID})
+
+
+def test_public_preview_import_receipt_export(public_api):
+    db = public_api
+    file = portable(db)
+    preview = post(db, "/import-preview", {"file": file})
+    assert preview.status_code == 200, preview.text
+    info = preview.json()["data"]
+    assert info["sourceBinding"] == "DECLARED_ONLY" and info["warnings"]
+    assert counts(db) == (0, 0, 0)
+    command = {"requestId": "public-import", "previewHash": info["previewHash"], "file": file}
+    response = post(db, "/imports", command)
+    assert response.status_code == 200, response.text
+    result = response.json()["data"]
+    assert result["status"] == "COMMITTED" and result["receipt"]["changed"] is True
+    assert post(db, "/imports", command).json()["data"] == result
+    assert get(db, "/imports/public-import").json()["data"] == result
+    assert get(db, "/imports/missing-import").json()["data"]["status"] == "NOT_FOUND"
+    revision = result["receipt"]["datasetRevision"]
+    exported = get(db, "/datasets/obs-A/export", revision)
+    assert exported.status_code == 200 and "attachment" in exported.headers["content-disposition"]
+    saved = exported.json()
+    assert saved["dataset"]["frames"][0]["observedAt"] == "2026-10-05T01:00:00.000000Z"
+    assert saved["dataset"]["frames"][1]["observedAt"] is None
+    assert post(db, "/imports", {**command, "file": saved}).json()["data"] == result
+    assert counts(db) == (1, 3, 1)
+
+
+def test_public_validation_and_permissions(public_api, monkeypatch):
+    db = public_api
+    file = portable(db)
+    assert post(db, "/imports", {"requestId": "bad-hash", "previewHash": "0" * 64, "file": file}).json()["code"] == 1206
+    assert db["client"].post(PREFIX + "/import-preview", content='{"file":null,"file":null}',
+        headers={"X-CSRF-Token": frontend_integration.CSRF_TOKEN, "X-Session-Id": frontend_integration.SESSION_ID}).status_code == 422
+    assert db["client"].post(PREFIX + "/import-preview", content=b" " * (2 * 1024 * 1024 + 1),
+        headers={"X-CSRF-Token": frontend_integration.CSRF_TOKEN, "X-Session-Id": frontend_integration.SESSION_ID}).status_code == 413
+    assert db["client"].post(PREFIX + "/import-preview", json={"file": file}, headers={"X-Session-Id": frontend_integration.SESSION_ID}).status_code == 403
+    original = frontend_integration.session_identity()
+    monkeypatch.setattr(frontend_integration, "session_identity", lambda: {**original, "permissions": ["situation.view"]})
+    assert post(db, "/import-preview", {"file": file}).status_code == 403
+    assert counts(db) == (0, 0, 0)
+
+
+def test_public_registered_source_binding(public_api):
+    db = public_api
+    from app.spectrum_source_schemas import SourceSave
+    from app.spectrum_source_service import save_source
+    file = portable(db)
+    source = file["dataset"]["source"]
+    receipt = save_source(SourceSave(schemaVersion=1, requestId="save-binding", sourceId=source["sourceId"],
+        baseConfigRevision=None, draft={"name": source["name"], "protocolHint": None, "endpoint": None,
+            "intervalSeconds": source["intervalSeconds"], "minKhz": source["minKhz"], "maxKhz": source["maxKhz"],
+            "enabled": False, "provenanceNote": "测试配置，非采集"}), actor_id="test", factory=db["factory"])
+    source["configRevision"] = receipt["configRevision"]
+    assert post(db, "/import-preview", {"file": file}).json()["data"]["sourceBinding"] == "REGISTERED_VERSION"
+    source["name"] = "错误来源"
+    assert post(db, "/import-preview", {"file": file}).json()["code"] == 1204
+    assert counts(db) == (0, 0, 0)
 
 
 def test_import_reopen_and_finite_frame_reads(database):

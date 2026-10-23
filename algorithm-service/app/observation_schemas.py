@@ -189,3 +189,45 @@ class ObservationPage(ObservationModel):
 class ObservationSelection(ObservationModel):
     dataset_id: Identifier
     dataset_revision: Revision
+
+
+class ObservationFileDataset(ObservationModel):
+    datasetId: Identifier
+    provenanceNote: str = Field(min_length=1, max_length=500)
+    resourceRevision: Identifier
+    deviceStatusSnapshotId: None
+    source: SourceSnapshot
+    frames: list[ImportedFrame] = Field(min_length=1, max_length=MAX_FRAMES)
+
+    @model_validator(mode="after")
+    def complete_dataset(self):
+        ObservationImportRequest.model_validate({"schemaVersion": 1, "requestId": "validation-only",
+            "dataOrigin": ORIGIN, **self.model_dump(mode="json")})
+        return self
+
+
+class ObservationImportFile(ObservationModel):
+    schemaVersion: Literal[1]
+    fileKind: Literal["SPECTRUM_OBSERVATION_DATASET"]
+    dataOrigin: Literal["SYNTHETIC_INTEGRATION"]
+    dataset: ObservationFileDataset
+
+    @field_validator("schemaVersion", mode="before")
+    @classmethod
+    def strict_version(cls, value):
+        if type(value) is not int:
+            raise ValueError("schemaVersion须为整数1")
+        return value
+
+    def to_request(self, request_id: str):
+        return ObservationImportRequest.model_validate({"schemaVersion": 1, "requestId": request_id,
+            "dataOrigin": ORIGIN, **self.dataset.model_dump(mode="json")})
+
+
+class ObservationImportPreview(ObservationModel):
+    file: ObservationImportFile
+
+
+class ObservationImportCommand(ObservationImportPreview):
+    requestId: Identifier
+    previewHash: str = Field(pattern=r"^[0-9a-f]{64}$")
