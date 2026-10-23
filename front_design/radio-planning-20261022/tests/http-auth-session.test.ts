@@ -41,6 +41,9 @@ beforeEach(() => {
   state = { identity: dto() };
   fetcher = vi.fn<typeof fetch>(async (input, init) => {
     const path = String(input);
+    if (path.endsWith('/auth/capabilities')) return response({ authMode: 'LOCAL_PASSWORD', initialized: true,
+      passwordChangeRequired: false, passwordPolicy: { minScalars: 15, maxScalars: 128 },
+      capabilities: { passwordMaintenance: true, anonymousRecovery: false } });
     if (path.endsWith('/auth/session')) return response(state.identity);
     if (path.endsWith('/auth/csrf')) return response({ csrf_token: 'nonce', session_id: state.identity?.session_id ?? null });
     if (path.endsWith('/auth/login')) { state.identity = dto(JSON.parse(String(init?.body)).username); return response(state.identity); }
@@ -49,6 +52,8 @@ beforeEach(() => {
   });
   vi.stubGlobal('fetch', fetcher);
   vi.stubGlobal('window', { addEventListener: vi.fn(), removeEventListener: vi.fn() });
+  // 内存宿主仍是Node；动态导入的图表不能把它当作完整浏览器DOM。
+  vi.stubGlobal('navigator', { userAgent: 'Node.js auth-session-test' });
   vi.stubGlobal('document', { title: '' });
   // 为 v-model 提供宿主类型判定；实际 DOM 和焦点行为仍由浏览器验证。
   vi.stubGlobal('Document', class {});
@@ -181,7 +186,8 @@ describe('HTTP 共享会话与实际状态层', () => {
     expect(applicationRouter.currentRoute.value.path).toBe('/resources'); expect(auth.sessionReplaced).toBe(true);
     await auth.discardRestricted(); await applicationRouter.push('/resources');
     expect(auth.identity?.id).toBe('beta'); expect(auth.error).toBe('');
-  });
+  // 真实资源视图首次动态加载含地图/图表模块，F盘冷缓存允许有限加载余量。
+  }, 30_000);
 });
 
 describe('HTTP 登录与冻结界面挂载', () => {
@@ -194,10 +200,14 @@ describe('HTTP 登录与冻结界面挂载', () => {
   });
   it('实际登录表单发送认证请求，完成后清空密码并跳到有权页面', async () => {
     state.identity = null; const { root, route } = await mount(MountedLogin);
+    await vi.waitFor(() => expect(find(root, n => n.tag === 'button' && text(n).startsWith('登录工作区'))?.props.disabled).toBe(false));
+    expect(fetcher.mock.calls.some(([url]) => String(url).endsWith('/auth/capabilities'))).toBe(true);
     const account = find(root, n => n.tag === 'input' && n.props['aria-label'] === '账号')!;
     const password = find(root, n => n.tag === 'input' && n.props['aria-label'] === '密码')!;
     account.props['onUpdate:modelValue']('beta'); password.props['onUpdate:modelValue']('test-password'); await nextTick();
     await find(root, n => n.tag === 'form')!.props.onSubmit({ preventDefault() {} }); await nextTick();
+    const loginRequest = fetcher.mock.calls.find(([url]) => String(url).endsWith('/auth/login'));
+    expect(loginRequest).toBeDefined(); expect(JSON.parse(String(loginRequest![1]?.body)).username).toBe('beta');
     expect(useAuthStore().identity?.id).toBe('beta'); expect(route.currentRoute.value.path).toBe('/resources'); expect(password.value).toBe('');
   });
   it('冻结对话框明确丢弃按钮清理现场且不向新身份发送退出', async () => {
