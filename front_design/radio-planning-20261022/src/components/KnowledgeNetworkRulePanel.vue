@@ -4,19 +4,19 @@
     class="network-rule"
     aria-label="网络状态规则说明"
   >
-    <h4>网络状态规则说明</h4><p class="source">{{ context }}</p>
+    <h4>网络状态规则说明</h4><p class="source">{{ knowledgeText(context) }}</p>
     <template v-if="resolved">
       <p class="source">{{ '状态等级与变化依据' }}。</p>
-      <p>{{ resolved.rule.scope }}</p
-      ><p class="source">来源：{{ resolved.rule.source }}</p>
+      <p>{{ knowledgeText(resolved.rule.scope) }}</p
+      ><p class="source">来源：{{ knowledgeSource(resolved.rule.source) }}</p>
       <article
         v-for="row in resolved.rule.criteria"
         :key="row.state"
         ><strong :style="{ color: LINK_STATUS_STYLES[row.state].color }">{{
           LINK_STATUS_STYLES[row.state].label
         }}</strong
-        ><p>{{ row.condition }}</p
-        ><p>{{ row.meaning }}</p></article
+        ><p>{{ knowledgeText(row.condition) }}</p
+        ><p>{{ knowledgeText(row.meaning) }}</p></article
       >
       <h5>状态变化说明</h5><p v-if="!resolved.rule.transitions.length">暂无状态变化说明</p>
       <article
@@ -24,15 +24,17 @@
         :key="i"
         ><strong
           >{{ LINK_STATUS_STYLES[row.from].label }} → {{ LINK_STATUS_STYLES[row.to].label }}</strong
-        ><p>{{ row.description }}</p></article
+        ><p>{{ knowledgeText(row.description) }}</p></article
       >
     </template>
     <p
       v-else
       role="status"
       >{{
-        networkRuleIssues(entity)[0]?.message ??
-        (entity.networkRule === null ? '本条知识已明确移除规则说明' : '未提供状态规则说明')
+        knowledgeText(
+          networkRuleIssues(entity)[0]?.message ??
+            (entity.networkRule === null ? '本条知识已明确移除规则说明' : '未提供状态规则说明'),
+        )
       }}</p
     >
   </section>
@@ -42,6 +44,7 @@ import { computed } from 'vue';
 import { useAuthStore } from '../stores/auth';
 import { LINK_STATUS_STYLES } from '../config/link-status';
 import { resolveNetworkRule, networkRuleIssues } from '../services/knowledge-network-rule';
+import { knowledgeSource, knowledgeText } from '../services/knowledge-display';
 import type { KnowledgeEntity } from '../types/knowledge';
 const props = defineProps<{ entity: KnowledgeEntity; context: string }>();
 const auth = useAuthStore(),

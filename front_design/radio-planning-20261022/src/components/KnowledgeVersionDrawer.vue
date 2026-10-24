@@ -20,7 +20,7 @@
         ><dt>恢复来源</dt><dd>{{ version.restoredFromVersionId ?? '不适用' }}</dd
         ><dt>发布人</dt><dd>{{ store.actorName(version.actorId, 'version:' + version.id) }}</dd
         ><dt>发布时间</dt><dd>{{ version.time }}</dd
-        ><dt>摘要</dt><dd>{{ version.summary }}</dd
+        ><dt>摘要</dt><dd>{{ knowledgeText(version.summary) }}</dd
         ><dt>关联变更单</dt><dd>{{ version.changeId ?? '无' }}</dd></dl
       ><p class="notice section-gap"
         >{{ version.entities.length }} 个实体 · {{ version.relations.length }} 条关系；
@@ -50,7 +50,7 @@
               ? store.actorName(s.review.actorId, 'review:' + version.changeId + ':' + s.number)
               : '未审核'
           }}
-          / {{ s.review?.opinion || '无附加意见' }}</p
+          / {{ knowledgeText(s.review?.opinion ?? '') || '无附加意见' }}</p
         ></details
       ><details class="item" data-snapshot="differences" :open="opened.differences" @toggle="toggleSection('differences', $event)"
         ><summary>查看变更前后</summary
@@ -82,7 +82,7 @@
           v-for="e in entityPage.rows"
           :key="e.id"
           class="item" :data-entity-id="e.id"
-          ><summary>{{ e.name }} · {{ e.id }}</summary
+          ><summary>{{ knowledgeEntityName(e) }} · {{ e.id }}</summary
           ><pre>{{ describe(e) }}</pre
           ><KnowledgePrincipleFlow
             :entity="e"
@@ -122,7 +122,7 @@
         v-if="store.error"
         class="error"
         role="alert"
-        >{{ store.error }}</p
+        >{{ knowledgeText(store.error) }}</p
       ></template
     ><template #footer
       ><button
@@ -151,12 +151,14 @@ const auth = useAuthStore();
 import { computed, reactive, watch } from 'vue';
 import { useKnowledgeStore } from '../stores/knowledge';
 import { knowledgeDiff } from '../services/knowledge-validation';
-import type { KnowledgeEntity, KnowledgeRelation } from '../types/knowledge';
+import {
+  describeKnowledge as describe,
+  knowledgeEntityName,
+  knowledgeText,
+} from '../services/knowledge-display';
 import AppDrawer from './AppDrawer.vue';
 import KnowledgePrincipleFlow from './KnowledgePrincipleFlow.vue';
-import { describeKnowledgePrinciple } from '../services/knowledge-principle';
 import KnowledgeNetworkRulePanel from './KnowledgeNetworkRulePanel.vue';
-import { describeNetworkRule } from '../services/knowledge-network-rule';
 const store = useKnowledgeStore();
 const version = computed(() => store.historyVersion);
 type SnapshotSection = 'entities' | 'relations' | 'differences';
@@ -198,22 +200,6 @@ const differences = computed(() =>
 const differencePage = computed(() => paginate(differences.value, pages.differences, opened.differences));
 // 审核来源按提交／审核事件读取历史身份，后续改名不改写历史显示。
 // 回滚原因由 store 管理，抽屉关闭和路由离开共用未保存保护。
-function describe(row: KnowledgeEntity | KnowledgeRelation | null) {
-  if (!row) return '无';
-  return 'name' in row
-    ? [
-        row.name,
-        row.category + ' / ' + row.type,
-        row.description,
-        describeKnowledgePrinciple(row),
-        describeNetworkRule(row),
-        '来源：' + row.source,
-        '关键词：' + row.keywords.join('、'),
-        '型号：' + row.modelIds.join('、'),
-        ...row.attributes.map((a) => a.name + '：' + a.value + (a.unit ? ' ' + a.unit : '')),
-      ].join('\n')
-    : `${row.head} → ${row.type} → ${row.tail}\n权重：${row.weight ?? '未提供'}\n来源：${row.source}`;
-}
 async function rollback() {
   if (await store.rollback(store.rollbackReason))
     await store.showVersion({ id: store.workspace!.currentVersionId });

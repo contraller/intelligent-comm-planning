@@ -26,7 +26,7 @@
       v-else-if="store.loadError || error"
       class="error"
       role="alert"
-      >{{ store.loadError || error
+      >{{ knowledgeText(store.loadError || error)
       }}<button
         class="text-link"
         @click="retry"
@@ -55,8 +55,8 @@
           v-for="item in group.items"
           :key="item.entity.id"
         >
-          <strong>{{ item.entity.name }}</strong
-          ><p>{{ item.entity.description }}</p>
+          <strong>{{ knowledgeEntityName(item.entity) }}</strong
+          ><p>{{ knowledgeText(item.entity.description) }}</p>
           <!-- 图与文字来自同一次型号知识查询；重查卸载旧全屏。 -->
           <KnowledgePrincipleFlow
             :entity="item.entity"
@@ -65,17 +65,16 @@
           <p
             v-for="a in item.entity.attributes"
             :key="a.name"
-            >{{ a.name }}：{{ a.value }} {{ a.unit }}</p
+            >{{ knowledgeAttributeName(a.name) }}：{{ knowledgeAttributeValue(a.value, a.name) }} {{ a.unit }}</p
           >
-          <small>来源：{{ item.entity.source }}</small>
+          <small>来源：{{ knowledgeSource(item.entity.source) }}</small>
           <p
             v-for="r in applicableRelations(item)"
             :key="r.id"
             class="related"
-            >{{ store.catalog.relationTypes.find((t) => t.id === r.type)?.name }} ·
+            >{{ knowledgeRelationName(r.type, store.catalog.relationTypes.find((t) => t.id === r.type)?.name) }} ·
             {{
-              item.neighbors.find((n) => n.id === (r.head === item.entity.id ? r.tail : r.head))
-                ?.name
+              knowledgeEntityName(item.neighbors.find((n) => n.id === (r.head === item.entity.id ? r.tail : r.head)))
             }}</p
           >
           <RouterLink
@@ -96,6 +95,15 @@ const auth = useAuthStore();
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useKnowledgeStore } from '../stores/knowledge';
 import { previewService } from '../services';
+import {
+  knowledgeAttributeName,
+  knowledgeAttributeValue,
+  knowledgeEntityName,
+  knowledgeRelationName,
+  knowledgeSource,
+  knowledgeText,
+  knowledgeTypeName,
+} from '../services/knowledge-display';
 import type { DeviceKnowledge, KnowledgeDetail } from '../types/knowledge';
 import KnowledgePrincipleFlow from './KnowledgePrincipleFlow.vue';
 const props = defineProps<{ modelId: string }>();
@@ -108,7 +116,7 @@ let generation = 0;
 const groups = computed(() =>
   [...new Set(data.value?.items.map((x) => x.entity.type) ?? [])].map((type) => ({
     type,
-    name: store.catalog.types.find((t) => t.id === type)?.name ?? type,
+    name: knowledgeTypeName(type, store.catalog.types.find((t) => t.id === type)?.name),
     items: data.value!.items.filter((x) => x.entity.type === type),
   })),
 );

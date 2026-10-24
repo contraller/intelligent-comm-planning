@@ -23,8 +23,8 @@
           >{{ index + 1 }}</span
         >
         <div
-          ><strong>{{ step.title }}</strong
-          ><p v-if="step.description">{{ step.description }}</p></div
+          ><strong>{{ knowledgeText(step.title) }}</strong
+          ><p v-if="step.description">{{ knowledgeText(step.description) }}</p></div
         >
         <span
           v-if="index < resolved.flow.steps.length - 1"
@@ -34,7 +34,7 @@
         >
       </li>
     </ol>
-    <p class="principle-note">工作原理 · {{ context }}</p>
+    <p class="principle-note">工作原理 · {{ knowledgeText(context) }}</p>
     <!-- 应用内全屏，复用 Dialog 的模态、Esc 和焦点约束，不申请系统全屏。 -->
     <Dialog
       v-model:visible="fullscreen"
@@ -43,7 +43,7 @@
       :draggable="false"
       :dismissable-mask="false"
       close-on-escape
-      :header="entity.name + ' · 工作原理'"
+      :header="knowledgeEntityName(entity) + ' · 工作原理'"
       :style="{
         width: '100vw',
         maxWidth: '100vw',
@@ -55,7 +55,7 @@
       :content-style="{ flex: '1', overflow: 'auto' }"
     >
       <div class="principle-fullscreen">
-        <p class="principle-note">{{ context }} · 工作原理</p>
+        <p class="principle-note">{{ knowledgeText(context) }} · 工作原理</p>
         <ol class="principle-steps">
           <li
             v-for="(step, index) in resolved.flow.steps"
@@ -67,8 +67,8 @@
               >{{ index + 1 }}</span
             >
             <div
-              ><strong>{{ step.title }}</strong
-              ><p v-if="step.description">{{ step.description }}</p></div
+              ><strong>{{ knowledgeText(step.title) }}</strong
+              ><p v-if="step.description">{{ knowledgeText(step.description) }}</p></div
             >
             <span
               v-if="index < resolved.flow.steps.length - 1"
@@ -78,7 +78,7 @@
             >
           </li>
         </ol>
-        <p class="principle-note">来源：{{ entity.source }}</p>
+        <p class="principle-note">来源：{{ knowledgeSource(entity.source) }}</p>
       </div>
       <template #footer
         ><button
@@ -95,6 +95,7 @@ import { computed, ref, watch } from 'vue';
 import Dialog from 'primevue/dialog';
 import { useAuthStore } from '../stores/auth';
 import { resolveKnowledgePrinciple } from '../services/knowledge-principle';
+import { knowledgeEntityName, knowledgeSource, knowledgeText } from '../services/knowledge-display';
 import type { KnowledgeEntity } from '../types/knowledge';
 
 const props = defineProps<{ entity: KnowledgeEntity; context: string }>();

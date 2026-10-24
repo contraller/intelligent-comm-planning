@@ -24,7 +24,7 @@
         v-if="store.error"
         class="error"
         role="alert"
-        >{{ store.error }}</p
+        >{{ knowledgeText(store.error) }}</p
       >
       <ul
         v-if="store.issues.length"
@@ -35,16 +35,17 @@
           ><button
             class="text-link"
             @click="locate(issue.objectId)"
-            >{{ issue.objectId }} · {{ issue.field }}：{{ issue.message }}</button
+            >{{ issue.objectId }} · {{ knowledgeAttributeName(issue.field) }}：{{ knowledgeText(issue.message) }}</button
           ></li
         ></ul
       >
       <label class="section-gap"
         >变更摘要<input
-          v-model="store.draft.summary"
+          :value="knowledgeText(store.draft.summary)"
           :readonly="locked"
           maxlength="120"
           placeholder="说明本次修改目的"
+          @input="!locked && (store.draft.summary = ($event.target as HTMLInputElement).value)"
       /></label>
       <div
         v-if="store.canEdit"
@@ -73,7 +74,7 @@
             )"
             :key="e.id"
             :value="e.id"
-            >{{ e.name }}</option
+            >{{ knowledgeEntityName(e) }}</option
           ></select
         >
         <select
@@ -89,7 +90,7 @@
             :key="r.id"
             :value="r.id"
             >{{ r.id }} ·
-            {{ store.catalog.relationTypes.find((t) => t.id === r.type)?.name }}</option
+            {{ knowledgeRelationName(r.type, store.catalog.relationTypes.find((t) => t.id === r.type)?.name) }}</option
           ></select
         >
       </div>
@@ -100,14 +101,15 @@
         class="edit-card"
         open
       >
-        <summary>实体 {{ i + 1 }} · {{ e.name || '待填写名称' }}</summary
+        <summary>实体 {{ i + 1 }} · {{ knowledgeEntityName(e) || '待填写名称' }}</summary
         ><small>{{ e.id.startsWith('new:') ? '保存时分配实体编号' : e.id }}</small>
         <div class="form-grid section-gap">
           <label class="full"
             >名称<input
-              v-model="e.name"
+              :value="knowledgeEntityName(e)"
               :readonly="locked"
               maxlength="80"
+              @input="!locked && (e.name = ($event.target as HTMLInputElement).value)"
           /></label>
           <label class="full"
             >类型 / 图谱<select
@@ -118,29 +120,31 @@
                 v-for="t in store.catalog.types"
                 :key="t.id"
                 :value="t.id"
-                >{{ t.category }} · {{ t.name }}</option
+                >{{ t.category }} · {{ knowledgeTypeName(t.id, t.name) }}</option
               ></select
             ></label
           >
           <label class="full"
             >描述<textarea
-              v-model="e.description"
+              :value="knowledgeText(e.description)"
               :readonly="locked"
               maxlength="2000"
               rows="4"
+              @input="!locked && (e.description = ($event.target as HTMLTextAreaElement).value)"
             />
           </label>
           <label class="full"
             >关键词（逗号分隔，最多 10 项）<input
-              :value="keywordInputs.get(e) ?? e.keywords.join(',')"
+              :value="keywordInputs.get(e) ?? e.keywords.map(knowledgeText).join(',')"
               :readonly="locked"
               @input="keywords(e, $event)"
           /></label>
           <label class="full"
             >来源说明<input
-              v-model="e.source"
+              :value="knowledgeSource(e.source)"
               :readonly="locked"
               maxlength="200"
+              @input="!locked && (e.source = ($event.target as HTMLInputElement).value)"
           /></label>
           <label
             v-if="e.category === '设备知识'"
@@ -155,7 +159,7 @@
                 v-for="m in store.catalog.models"
                 :key="m.id"
                 :value="m.id"
-                >{{ m.id }} · {{ m.name }}</option
+                >{{ m.id }} · {{ knowledgeAttributeValue(m.name, 'model_name') }}</option
               ></select
             ></label
           >
@@ -195,15 +199,17 @@
           class="attribute-row"
           ><label
             >字段<input
-              v-model="a.name"
+              :value="knowledgeAttributeName(a.name)"
               :readonly="locked"
-              maxlength="40" /></label
+              maxlength="40"
+              @input="!locked && (a.name = ($event.target as HTMLInputElement).value)" /></label
           ><label
             >内容<textarea
-              v-model="a.value"
+              :value="knowledgeAttributeValue(a.value, a.name)"
               :readonly="locked"
               maxlength="500"
               rows="2"
+              @input="!locked && (a.value = ($event.target as HTMLTextAreaElement).value)"
             /></label
           ><label
             >单位<input
@@ -252,7 +258,7 @@
                 v-for="e in endpoints"
                 :key="e.id"
                 :value="e.id"
-                >{{ e.name || '未命名实体' }} ·
+                >{{ knowledgeEntityName(e) || '未命名实体' }} ·
                 {{ e.id.startsWith('new:') ? '本单新增' : e.id }}</option
               ></select
             ></label
@@ -265,7 +271,7 @@
                 v-for="t in store.catalog.relationTypes"
                 :key="t.id"
                 :value="t.id"
-                >{{ t.name }}</option
+                >{{ knowledgeRelationName(t.id, t.name) }}</option
               ></select
             ></label
           >
@@ -278,7 +284,7 @@
                 v-for="e in endpoints"
                 :key="e.id"
                 :value="e.id"
-                >{{ e.name || '未命名实体' }} ·
+                >{{ knowledgeEntityName(e) || '未命名实体' }} ·
                 {{ e.id.startsWith('new:') ? '本单新增' : e.id }}</option
               ></select
             ></label
@@ -301,9 +307,10 @@
           /></label>
           <label class="full"
             >来源说明<input
-              v-model="r.source"
+              :value="knowledgeSource(r.source)"
               :readonly="locked"
               maxlength="200"
+              @input="!locked && (r.source = ($event.target as HTMLInputElement).value)"
           /></label> </div
         ><button
           v-if="!locked && canRemove(r.id)"
@@ -344,9 +351,9 @@
             >{{
               store.actorName(s.review!.actorId, 'review:' + store.change.id + ':' + s.number)
             }}
-            · {{ s.review.opinion || '无附加意见' }} · {{ s.review.time }}</p
+            · {{ knowledgeText(s.review.opinion) || '无附加意见' }} · {{ s.review.time }}</p
           ><p
-            >{{ s.content.summary }}（{{ s.content.entities.length }} 项实体 /
+            >{{ knowledgeText(s.content.summary) }}（{{ s.content.entities.length }} 项实体 /
             {{ s.content.relations.length }} 项关系）</p
           ></article
         ></details
@@ -435,16 +442,25 @@ import {
   knowledgeClone,
   knowledgeDiff,
 } from '../services/knowledge-validation';
-import type { KnowledgeEntity, KnowledgeRelation } from '../types/knowledge';
+import type { KnowledgeEntity } from '../types/knowledge';
+import {
+  describeKnowledge as describe,
+  knowledgeAttributeName,
+  knowledgeAttributeValue,
+  knowledgeEntityName,
+  knowledgeRelationName,
+  knowledgeSource,
+  knowledgeText,
+  knowledgeTypeName,
+} from '../services/knowledge-display';
 import AppDrawer from './AppDrawer.vue';
 import KnowledgeStateBadge from './KnowledgeStateBadge.vue';
 import KnowledgePrincipleEditor from './KnowledgePrincipleEditor.vue';
-import { describeKnowledgePrinciple } from '../services/knowledge-principle';
 import KnowledgeNetworkRuleEditor from './KnowledgeNetworkRuleEditor.vue';
-import { describeNetworkRule } from '../services/knowledge-network-rule';
 import { env } from '../config/env';
 import { canSelfReviewKnowledge } from '../services/knowledge-identity';
 const store = useKnowledgeStore();
+// 中文仅用于显示；只有用户输入事件才更新原始草稿字段。
 // 保留正在输入的分隔符；草稿仍即时更新数组，新草稿不沿用旧输入文本。
 const keywordInputs = ref(new Map<KnowledgeEntity, string>());
 watch(
@@ -548,22 +564,6 @@ function remove(kind: 'entities' | 'relations', id: string) {
     if (kind === 'entities') store.draft.entities = store.draft.entities.filter((e) => e.id !== id);
     else store.draft.relations = store.draft.relations.filter((r) => r.id !== id);
   }
-}
-function describe(row: KnowledgeEntity | KnowledgeRelation | null) {
-  if (!row) return '无';
-  if ('name' in row)
-    return [
-      row.name,
-      `${row.category} / ${row.type}`,
-      row.description,
-      describeKnowledgePrinciple(row),
-      describeNetworkRule(row),
-      '关键词：' + (row.keywords.join('、') || '无'),
-      '来源：' + row.source,
-      '型号：' + (row.modelIds.join('、') || '无'),
-      ...row.attributes.map((a) => `${a.name}：${a.value}${a.unit ? ' ' + a.unit : ''}`),
-    ].join('\n');
-  return `${row.head} → ${row.type} → ${row.tail}\n权重：${row.weight ?? '未提供'}\n来源：${row.source}`;
 }
 function locate(id: string) {
   document
