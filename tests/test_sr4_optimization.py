@@ -4,6 +4,8 @@ import sys
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
+
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
@@ -152,3 +154,21 @@ def test_actual_hard_checks_outrank_approximate_connectivity():
         sr4_flow._candidate_score(lower_power, failed, clean, [], constraints)
     assert sr4_flow._candidate_score(viable, passed, clean, [], constraints) < \
         sr4_flow._candidate_score(lower_power, passed, conflict, [], constraints)
+
+
+@pytest.mark.parametrize("edges,demands,expected", [
+    ([(0, 1), (1, 2), (2, 0)], [(0, 1, True, "OK"), (0, 3, True, "LOST")], 0.5),
+    ([], [(0, 1, True, "LOST")], 0.0),
+    ([(0, 1), (1, 2), (2, 0)], [(0, 1, True, "OK")], 1.0),
+])
+def test_approximate_survivability_never_hides_preexisting_disconnection(
+        monkeypatch, edges, demands, expected):
+    links = [(a, b, E.HF) for a, b in edges]
+    pb = SimpleNamespace(demands=demands, mandatory=demands, base_relays=set())
+    monkeypatch.setattr(MO, "decode", lambda *_: (links, [], 6.0, {}))
+    monkeypatch.setattr(MO, "_usable", lambda *_: [(*edge, 12.0) for edge in links])
+    monkeypatch.setattr(MO, "_total_power_w", lambda *_: (10.0, 2))
+    monkeypatch.setattr(MO, "_max_relay_chain", lambda *_: 0)
+    result = MO.evaluate(pb, ([], 0))
+    assert result["survivability"] == expected
+    assert result["survivability"] <= result["mandatory_connectivity"]

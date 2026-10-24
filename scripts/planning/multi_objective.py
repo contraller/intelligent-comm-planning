@@ -538,7 +538,8 @@ def evaluate(pb, genome):
     mandatory_conn = man_ok / max(1, len(pb.mandatory))
 
     # 抗毁性：对每座桥，统计跨桥（一端在子树里、一端不在）的必要通联
-    worst, worst_bridge = 1.0, None
+    # 原本已断开的必要通联不能因图中没有桥而被计为抗毁成功。
+    worst, worst_bridge = (mandatory_conn if pb.mandatory else 1.0), None
     base_man = [(s, t) for s, t, _m, _d in pb.mandatory if conn(s, t)]
     for u, v in bridges:
         lo, hi = tin[v], tout[v]
