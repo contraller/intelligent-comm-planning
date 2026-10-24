@@ -347,7 +347,10 @@ def _check_candidate(pb, solution, stations, nodes, devices, models, antennas,
                    for row in demands for route in routes["routes"]
                    if route["demand_id"] == row["demand_id"] and route.get("reachable")
                    and (row.get("source_device_id") or row.get("target_device_id"))]
-    graph = routing.graph_from_links(links, metrics_rows)[0]
+    # 原拓扑保留审计；最终主路由只能使用实际达到本候选余量门槛的边。
+    route_links = [row for row in links
+                   if float(row["link_margin_db"]) >= params["fade_margin_db"]]
+    graph = routing.graph_from_links(route_links, metrics_rows)[0]
     routes = routing.plan_routes(graph, demands, default_strategy=strategy,
                                  manual_paths=fixed_paths)
     binding_errors.extend(endpoint_binding_errors(links, demands, routes))
@@ -691,7 +694,7 @@ def run(task_id=None, preset="TERRAIN", strategy="MAX_RELIABILITY",
     # ── 2 电台部署（第 2 周 P1）──
     t0 = time.time()
     fm, sol, links0, nodes1, devices1 = topology_from_deployment(
-        stations, terrain, nodes, devices, models, [])
+        stations, terrain, nodes, devices, models, cand_rows)
     steps.append(("2 电台部署（新增 %d 台）" % len(sol.added), time.time() - t0))
     if progress:
         progress(0.30, "电台部署完成")
@@ -711,7 +714,7 @@ def run(task_id=None, preset="TERRAIN", strategy="MAX_RELIABILITY",
     cons.update(constraints or {})
     opt_demands = demands if (task_id is None or survivability_scope == "TASK") else demands_all
     pb = MO.Problem(fm, sol, opt_demands, caps1,
-                    survivability_threshold=cons["survivability_threshold"], candidate_relays=0)
+                    survivability_threshold=cons["survivability_threshold"])
     opt = MO.optimize(pb, constraints=cons, pop_size=pop_size, generations=generations)
     steps.append(("4 多目标优化（评估 %d 次）" % opt["evaluations"], time.time() - t0))
     if progress:
@@ -722,7 +725,7 @@ def run(task_id=None, preset="TERRAIN", strategy="MAX_RELIABILITY",
     selected = None
     seen_topologies = set()
     checked = 0
-    from actual_search import ChannelSearch
+    from actual_search import ChannelSearch, bandwidth_audit
     search = ChannelSearch(models, antennas, terrain, jam_rows,
         deadline=monotonic_start + TIME_LIMIT_S - 30,
         progress=(lambda: progress(0.72, "实际频点与物理备份搜索")) if progress else None)
@@ -772,7 +775,7 @@ def run(task_id=None, preset="TERRAIN", strategy="MAX_RELIABILITY",
             if time.time() - T > TIME_LIMIT_S - 90:
                 break
             alt_pb = MO.Problem(fm, alt, opt_demands, caps1,
-                                survivability_threshold=cons["survivability_threshold"], candidate_relays=0)
+                                survivability_threshold=cons["survivability_threshold"])
             alt_opt = MO.optimize(alt_pb, constraints=cons,
                                   pop_size=max(12, min(pop_size // 2, 20)),
                                   generations=max(8, min(generations // 2, 16)))
@@ -821,7 +824,14 @@ def run(task_id=None, preset="TERRAIN", strategy="MAX_RELIABILITY",
                optimization=dict(feasible=feasible, uplinks=copy.deepcopy(selected["uplinks"]),
                                  actual_search={"evaluations": search.evaluations,
                                                 "budget_exhausted": search.exhausted,
-                                                "checked_candidates": checked},
+                                                "checked_candidates": checked,
+                                                "radio_bandwidth": bandwidth_audit(sc, devices2, models),
+                                                "planned_devices": [{"device_id": row["device_id"],
+                                                    "node_id": row["node_id"], "source_model_id": row["model_id"],
+                                                    "deployment_state": "PLANNED",
+                                                    "source_policy": "EXISTING_P1_MO_DEVICE_TEMPLATE"}
+                                                    for row in devices2 if row["node_id"] in {
+                                                        node["node_id"] for node in nodes2 if node.get("_added_relay")}]},
                                  infeasible=(None if feasible else {
                                      "conflicting_constraints": failed_constraints,
                                      "suggestions": binding_errors or

@@ -78,7 +78,7 @@ def native_case(monkeypatch):
     devices = [{"device_id": "D-" + row["node_id"], "node_id": row["node_id"], "model_id": "UNIT-M",
                 "antenna_id": "UNIT-ANT", "tx_power_dbm": "30", "antenna_height_m": "10"} for row in nodes]
     links = [{"link_id": "L0", "node_a_id": "UNIT-A", "node_b_id": "UNIT-B", "device_class": "HF",
-              "device_a_id": "D-UNIT-A", "device_b_id": "D-UNIT-B", "is_available": "true"}]
+              "device_a_id": "D-UNIT-A", "device_b_id": "D-UNIT-B", "is_available": "true", "distance_m": "1000"}]
     stations = flow.stations_from_nodes(nodes, devices, [model], antennas)
     monkeypatch.setattr(flow.IF, "hf_path_loss", lambda _terrain, _pa, _pb, frequency, *_args:
                         (140.0 if frequency == 5000 else 105.0, True, 0, 1000))
@@ -157,7 +157,7 @@ def test_new_task_runs_native_actual_frequency_refinement_without_creating_devic
     tables = {"node.csv": nodes, "device.csv": result["devices"], "device_model.csv": models,
               "antenna_model.csv": antennas, "frequency_resource.csv": pool_rows(), "interference_source.csv": [],
               "comm_demand.csv": [dict(demands[0], task_id="UNIT-TASK")], "link_metric.csv": [],
-              "candidate_site.csv": [{"site_id": "UNFUNDED", "lon": 114.01, "lat": 38.01}]}
+              "candidate_site.csv": []}
     before = copy.deepcopy(tables)
     monkeypatch.setattr(flow, "default_terrain", lambda **_: SyntheticTerrain((113.9, 37.9, 114.2, 38.1)))
     monkeypatch.setattr(feasibility, "link_margin", lambda *_args, **_kwargs: (12.0, 1000.0, 80.0))
@@ -173,4 +173,88 @@ def test_new_task_runs_native_actual_frequency_refinement_without_creating_devic
     assert actual["params"]["margin_basis"] == "ASSIGNED_FREQUENCY_WITH_INTERFERENCE"
     assert {row["device_id"] for row in actual["devices"]} == {row["device_id"] for row in tables["device.csv"]}
     assert actual["deployment"]["added"] == [] and actual["within_limit"]
+    assert actual["optimization"]["actual_search"]["radio_bandwidth"]["devices"]
+    assert actual["optimization"]["actual_search"]["planned_devices"] == []
     assert tables == before
+
+
+def test_new_task_keeps_frozen_candidate_sites_for_original_deployment(native_case, monkeypatch):
+    from terrain import SyntheticTerrain
+    result, models, antennas, demands = native_case
+    nodes = [{"node_id": station.sid, "node_subtype": station.subtype, "lon": station.lon, "lat": station.lat}
+             for station in result["stations"]]
+    sites = [{"site_id": "UNIT-PLANNED-SITE", "lon": 114.01, "lat": 38.01}]
+    tables = {"node.csv": nodes, "device.csv": result["devices"], "device_model.csv": models,
+              "antenna_model.csv": antennas, "frequency_resource.csv": pool_rows(), "interference_source.csv": [],
+              "comm_demand.csv": [dict(demands[0], task_id="UNIT-TASK")], "link_metric.csv": [],
+              "candidate_site.csv": sites}
+    monkeypatch.setattr(flow, "default_terrain", lambda **_: SyntheticTerrain((113.9, 37.9, 114.2, 38.1)))
+    def original_deployment(*args):
+        assert args[5] == sites
+        raise RuntimeError("UNIT original deployment received frozen sites")
+    monkeypatch.setattr(flow, "topology_from_deployment", original_deployment)
+    with pytest.raises(RuntimeError, match="original deployment received frozen sites"):
+        flow.run("UNIT-TASK", resource_rows=tables, pop_size=4, generations=1, verbose=False)
+
+
+@pytest.mark.parametrize("margin", [0.0, 5.99, 6.0, 7.0])
+def test_final_candidate_routes_only_use_actual_margin_qualified_edges(native_case, monkeypatch, margin):
+    from types import SimpleNamespace
+    result, models, antennas, demands = native_case
+    models[0]["tx_power_levels_dbm"] = "30"
+    required_snr = flow.IF.REQUIRED_SNR_DB[flow.IF.SERVICE_OF_BAND["HF"]]
+    monkeypatch.setattr(flow.IF, "hf_path_loss", lambda *_args: (130.0 - required_snr - margin, True, 0, 1000))
+    nodes = [{"node_id": station.sid, "node_subtype": station.subtype, "lon": station.lon, "lat": station.lat}
+             for station in result["stations"]]
+    monkeypatch.setattr(flow, "rows_from_solution", lambda *_args: copy.deepcopy((result["links"], nodes, result["devices"])))
+    candidate = flow._check_candidate(SimpleNamespace(fm=SimpleNamespace(stations=result["stations"])),
+        {"relays": [], "m_req": 6.0, "uplinks": {1: 0}}, result["stations"], nodes, result["devices"],
+        models, antennas, None, demands, demands, "MAX_RELIABILITY", "TERRAIN", pool_rows(), [],
+        dict(flow.MO.DEFAULT_CONSTRAINTS), interference_rows=[])
+    by_id = {row["link_id"]: row for row in candidate["links"]}
+    assert candidate["routes"]["routes"][0]["reachable"] == (margin >= 6)
+    for route in candidate["routes"]["routes"]:
+        if route["reachable"]:
+            assert all(float(by_id[lid]["link_margin_db"]) >= 6 for lid in route["primary"]["link_path"])
+    assert all(row["is_available"] == "true" for row in candidate["links"])
+
+
+def test_binding_proposals_skip_equivalent_device_permutations_but_keep_exact_ids():
+    models = {"M": {"model_id": "M", "freq_min_khz": "4000", "freq_max_khz": "8000"}}
+    devices = {"D%d" % index: {"model_id": "M"} for index in range(18)}
+    original = ("D7", "D3", "D8", "D12")
+    assert list(search.binding_proposals(sorted(devices), original, devices, models)) == [original]
+    models["N"] = {"model_id": "N", "freq_min_khz": "6000", "freq_max_khz": "8000"}
+    devices["N1"] = {"model_id": "N"}
+    proposals = list(search.binding_proposals(sorted(devices), original, devices, models))
+    assert len(proposals) == 5
+    assert all(len(set(row)) == 4 for row in proposals)
+
+
+@pytest.mark.parametrize("raw,other,rule,effective", [
+    ("3", None, "MODEL_SINGLE_VALUE", 3.0),
+    ("0.5;3;6", None, "IMPLICIT_FIRST_OPTION_ASSUMPTION", 0.5),
+    ("", "6", "SAME_BAND_MEDIAN_ASSUMPTION", 6.0),
+    ("", None, "STANDARD_DEFAULT_ASSUMPTION", 3.0),
+])
+def test_raw_bandwidth_audit_exposes_legacy_assumption_without_selecting(native_case, raw, other, rule, effective):
+    result, models, antennas, _ = native_case
+    models[0]["bandwidth_khz"] = raw
+    if other:
+        models.append(dict(models[0], model_id="OTHER", bandwidth_khz=other))
+    frozen = copy.deepcopy((models, result["devices"], result["params"]))
+    scenario = flow.IF.scenario_from_plan({"stations": result["stations"], "links": result["links"],
+        "devices": result["devices"], "models": models, "antennas": antennas, "terrain": None,
+        "params": result["params"], "freq_tasks": result["ftasks"],
+        "frequency": {"link_assignments": [{"link_id": "L0", "freq_khz": 5000}]}}, [])
+    audit = search.bandwidth_audit(scenario, result["devices"], models)
+    assert audit["policy"] == "LEGACY_SPECFILLER_NO_BANDWIDTH_SEARCH"
+    assert len(audit["devices"]) == 2
+    for radio in audit["devices"]:
+        assert radio["source_value"] == raw
+        assert radio["selection_rule"] == rule
+        assert radio["effective_bw_khz"] == effective
+        assert radio["matches_legacy_rule"] and not radio["device_configuration_verified"]
+    assert audit["links"][0]["aggregation"] == "MAX_ENDPOINT_NATIVE_RADIO_BW"
+    assert audit["links"][0]["effective_bw_khz"] == effective
+    assert (models, result["devices"], result["params"]) == frozen

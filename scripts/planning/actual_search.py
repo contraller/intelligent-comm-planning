@@ -6,6 +6,63 @@ import time
 import frequency as FQ
 import interference as IF
 import multi_objective as MO
+from devicespec import SpecFiller
+
+
+def binding_proposals(available, original, device_of, model_of):
+    groups = {}
+    for did in available:
+        model = model_of[device_of[did]["model_id"]]
+        signature = (model["model_id"], model.get("freq_min_khz"), model.get("freq_max_khz"))
+        groups.setdefault(signature, []).append(did)
+
+    def visit(chosen):
+        if len(chosen) == len(original):
+            yield tuple(chosen)
+            return
+        for group in groups.values():
+            if not group:
+                continue
+            # 同型号/频率范围只评估一次；优先保留该网系原来的实物身份。
+            preferred = original[len(chosen)]
+            did = preferred if preferred in group else group[0]
+            index = group.index(did)
+            group.pop(index)
+            yield from visit(chosen + [did])
+            group.insert(index, did)
+
+    yield from visit([])
+
+
+def bandwidth_audit(scenario, devices, models):
+    """只记录已使用的原生带宽及假设来源，不配置或重新选择带宽。"""
+    device_of = {row["device_id"]: row for row in devices}
+    model_of = {row["model_id"]: row for row in models}
+    filler = SpecFiller(models)
+    radios, links = {}, []
+    for link in scenario.links:
+        for station in (link.st_a, link.st_b):
+            did = link.device.get(station.sid)
+            if not did or did in radios:
+                continue
+            model = model_of[device_of[did]["model_id"]]
+            raw = model.get("bandwidth_khz") or ""
+            before = len(filler.substitutions)
+            expected = filler.bandwidth(model)
+            if len(filler.substitutions) != before:
+                reason = filler.substitutions[-1][3]
+                rule = "SAME_BAND_MEDIAN_ASSUMPTION" if reason.startswith("同类推定") else "STANDARD_DEFAULT_ASSUMPTION"
+            else:
+                reason = "原型号单值" if ";" not in raw else "沿用原生SpecFiller首项，非显式配置选择"
+                rule = "MODEL_SINGLE_VALUE" if ";" not in raw else "IMPLICIT_FIRST_OPTION_ASSUMPTION"
+            actual = station.radio[link.band]["bw"]
+            radios[did] = {"device_id": did, "model_id": model["model_id"], "band": link.band,
+                "effective_bw_khz": actual, "source_field": "bandwidth_khz", "source_value": raw,
+                "selection_rule": rule, "reason": reason, "matches_legacy_rule": actual == expected,
+                "device_configuration_verified": False}
+        links.append({"link_id": link.link_id, "effective_bw_khz": link.bw,
+                      "aggregation": "MAX_ENDPOINT_NATIVE_RADIO_BW", "device_ids": sorted(link.device.values())})
+    return {"policy": "LEGACY_SPECFILLER_NO_BANDWIDTH_SEARCH", "devices": list(radios.values()), "links": links}
 
 
 def failure_context(links, demands, required):
@@ -82,9 +139,13 @@ def improve_bindings(links, nodes, devices, models, pool_rows, locked=(), checkp
         return sum(all(lo <= channel["freq_khz"] <= hi for lo, hi in ranges)
                    for channel in pool.of_band(task.band))
 
-    changes = 0
+    changes, exhausted = 0, False
     for _round in range(2):
+        round_changed = False
         for station, available in sorted(inventory.items()):
+            if checkpoint and not checkpoint():
+                exhausted = True
+                break
             keys = sorted(key for key in bindings if key[:2] == station and key not in locked)
             reserved = {did for key, did in bindings.items() if key[:2] == station and key in locked}
             available = sorted(did for did in available if did not in reserved)
@@ -98,7 +159,8 @@ def improve_bindings(links, nodes, devices, models, pool_rows, locked=(), checkp
 
             original = tuple(bindings[key] for key in keys)
             best, best_score = original, score()
-            for proposal in itertools.islice(itertools.permutations(available, len(keys)), 2000):
+            proposals = binding_proposals(available, original, device_of, model_of)
+            for proposal in itertools.islice(proposals, 2000):
                 if checkpoint and not checkpoint():
                     break
                 bindings.update(zip(keys, proposal))
@@ -107,6 +169,9 @@ def improve_bindings(links, nodes, devices, models, pool_rows, locked=(), checkp
                     best, best_score = proposal, value
             bindings.update(zip(keys, best))
             changes += best != original
+            round_changed |= best != original
+        if exhausted or not round_changed:
+            break
     net_of = {lid: task.task_id for task in tasks for lid in task.members}
     for row in links:
         for side in ("a", "b"):
