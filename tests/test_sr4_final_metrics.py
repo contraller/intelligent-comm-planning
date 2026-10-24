@@ -28,11 +28,11 @@ def _connected(edges, source, target):
     return target in seen
 
 
-def _brute_metrics(links, demands):
+def _brute_metrics(links, demands, fade_margin_db=6.0):
     # 不调用生产桥算法，分别删除每条达到实际余量的物理链路。
     usable = [(row["node_a_id"], row["node_b_id"]) for row in links
               if row.get("is_available", "true") != "false"
-              and row["link_margin_db"] >= 6.0]
+              and row["link_margin_db"] >= fade_margin_db]
     mandatory = [row for row in demands if row["is_mandatory"] == "true"]
 
     def ratio(rows, edges):
