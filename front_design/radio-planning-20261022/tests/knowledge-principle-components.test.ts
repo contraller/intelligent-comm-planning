@@ -84,6 +84,12 @@ async function input(root: HostNode, label: string, value: string) {
   (element.props.onInput as (event: { target: { value: string } }) => void)({ target: { value } }); await settle();
 }
 const dialog = (root: HostNode) => find(root, n => n.tag === 'dialog-probe');
+async function expandEntities(root: HostNode) {
+  const section = find(root, n => n.tag === 'details' && n.props['data-snapshot'] === 'entities');
+  expect(section, '完整实体快照').toBeDefined();
+  (section!.props.onToggle as (event: unknown) => void)({ currentTarget: { open: true } });
+  await settle();
+}
 let app: App<HostNode> | undefined, pinia: ReturnType<typeof createPinia> | undefined;
 afterEach(() => { app?.unmount(); app = undefined; if (pinia) disposePinia(pinia); pinia = undefined; vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 function fixture() {
@@ -217,8 +223,10 @@ describe('工作原理维护与展示组件', () => {
     w.versions.push({ ...knowledgeClone(w.versions[1]), id: 'test-history', number: 3, parentId: w.versions[1].id });
     w.versions[2].entities.find(e => e.id === 'KGE-PRINCIPLE')!.principleFlow = { steps: [{ title: '历史新步骤', description: '' }, { title: '末步', description: '' }] };
     s.store.historyVersionId = 'test-history'; const root = await s.mount(KnowledgeVersionDrawer);
+    await expandEntities(root);
     expect(textOf(root)).toContain('1. 历史新步骤'); await click(root, '全屏查看'); expect(dialog(root)).toBeDefined();
     s.store.historyVersionId = w.versions[0].id; await settle();
-    expect(dialog(root)).toBeUndefined(); expect(textOf(root)).not.toContain('历史新步骤'); expect(textOf(root)).toContain('输入信号');
+    expect(dialog(root)).toBeUndefined(); await expandEntities(root);
+    expect(textOf(root)).not.toContain('历史新步骤'); expect(textOf(root)).toContain('输入信号');
   });
 });

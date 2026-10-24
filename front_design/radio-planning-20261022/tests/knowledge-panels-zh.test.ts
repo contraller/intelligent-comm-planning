@@ -1,7 +1,7 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createPinia, disposePinia, setActivePinia } from 'pinia';
 import { defineComponent, h, nextTick, reactive, ssrContextKey, type App, type Component } from 'vue';
-import type { KnowledgeDraft, KnowledgeEntity, KnowledgeRelation, KnowledgeVersion } from '../src/types/knowledge';
+import type { KnowledgeDraft, KnowledgeEntity, KnowledgeNetworkRule, KnowledgePrincipleFlow as PrincipleFlow, KnowledgeRelation, KnowledgeVersion } from '../src/types/knowledge';
 
 const service = vi.hoisted(() => ({ getDeviceKnowledge: vi.fn(), saveKnowledgeReceipt: vi.fn() }));
 vi.mock('../src/services', () => ({ previewService: service, releasePageSessionBinding: vi.fn(), switchIntegrationIdentity: vi.fn() }));
@@ -20,9 +20,6 @@ vi.mock('primevue/dialog', async () => {
     return () => props.visible ? h('dialog-probe', { header: props.header }, [slots.default?.(), slots.footer?.()]) : null;
   } }) };
 });
-// 维护子编辑器已有独立守卫测试；本组只隔离它们的编辑事件。
-vi.mock('../src/components/KnowledgePrincipleEditor.vue', () => ({ default: { render: () => null } }));
-vi.mock('../src/components/KnowledgeNetworkRuleEditor.vue', () => ({ default: { render: () => null } }));
 vi.mock('../src/components/KnowledgeStateBadge.vue', () => ({ default: { render: () => null } }));
 
 import KnowledgeChangeDrawer from '../src/components/KnowledgeChangeDrawer.vue';
@@ -30,6 +27,8 @@ import KnowledgeVersionDrawer from '../src/components/KnowledgeVersionDrawer.vue
 import DeviceKnowledgePanel from '../src/components/DeviceKnowledgePanel.vue';
 import KnowledgePrincipleFlow from '../src/components/KnowledgePrincipleFlow.vue';
 import KnowledgeNetworkRulePanel from '../src/components/KnowledgeNetworkRulePanel.vue';
+import KnowledgePrincipleEditor from '../src/components/KnowledgePrincipleEditor.vue';
+import KnowledgeNetworkRuleEditor from '../src/components/KnowledgeNetworkRuleEditor.vue';
 import { useAuthStore } from '../src/stores/auth';
 import { useKnowledgeStore } from '../src/stores/knowledge';
 import { knowledgeClone } from '../src/services/knowledge-validation';
@@ -46,6 +45,7 @@ beforeAll(async () => {
     [KnowledgeChangeDrawer, 'KnowledgeChangeDrawer'], [KnowledgeVersionDrawer, 'KnowledgeVersionDrawer'],
     [DeviceKnowledgePanel, 'DeviceKnowledgePanel'], [KnowledgePrincipleFlow, 'KnowledgePrincipleFlow'],
     [KnowledgeNetworkRulePanel, 'KnowledgeNetworkRulePanel'],
+    [KnowledgePrincipleEditor, 'KnowledgePrincipleEditor'], [KnowledgeNetworkRuleEditor, 'KnowledgeNetworkRuleEditor'],
   ] as const) await clientTemplate(component, `src/components/${name}.vue`, `${name}-zh-render.ts`);
 });
 beforeEach(() => {
@@ -79,6 +79,13 @@ function entity(): KnowledgeEntity {
 function relation(): KnowledgeRelation {
   return { id: 'KGR-0001', head: 'KGE-DM-0001', tail: 'KGE-DV-0001', type: 'hasComponent', weight: null, source: 'MANUAL' };
 }
+function networkEntity(): KnowledgeEntity {
+  const rule = knowledgeClone(knowledgeNetworkRule);
+  rule.scope = 'NORMAL'; rule.source = 'MANUAL';
+  rule.criteria[0]!.condition = 'EXCELLENT'; rule.criteria[0]!.meaning = 'unmapped custom phrase';
+  rule.transitions[0]!.description = 'FAULT';
+  return { ...entity(), type: 'NetRule', category: '网络态势知识', principleFlow: undefined, networkRule: rule };
+}
 function fixture() {
   const store = useKnowledgeStore(), item = entity(), link = relation();
   const version: KnowledgeVersion = { id: 'KGV-TEST', number: 2, kind: 'PUBLISH', parentId: 'KGV-PARENT', restoredFromVersionId: null,
@@ -104,6 +111,10 @@ function field(root: HostNode, label: string) {
   const parent = find(root, n => n.tag === 'label' && textOf(n).startsWith(label));
   expect(parent, label).toBeDefined();
   return find(parent!, n => n.tag === 'input' || n.tag === 'textarea' || n.tag === 'select')!;
+}
+function labelled(root: HostNode, label: string) {
+  const target = find(root, n => n.props['aria-label'] === label);
+  expect(target, label).toBeDefined(); return target!;
 }
 async function input(target: HostNode, value: string) {
   (target.props.onInput as (event: unknown) => void)({ target: { value } }); await settle();
@@ -254,5 +265,86 @@ describe('知识面板中文纯显示', () => {
     expect(textOf(root)).toContain(knowledgeText('WARNING')); expect(textOf(root)).toContain('unmapped custom phrase');
     expect(textOf(root)).not.toContain('EXCELLENT'); expect(JSON.stringify(item)).toBe(before);
     useAuthStore().identity!.permissions = []; await settle(); expect(textOf(root)).not.toContain('网络状态规则说明');
+  });
+
+  it.each([false, true])('原理编辑器中文显示不回写，仅输入更新原文，readonly=%s', async readonly => {
+    const state = reactive({ entity: entity(), readonly, context: 'KGV-TEST' });
+    const update = vi.fn((value: PrincipleFlow | null) => { state.entity.principleFlow = value; });
+    const before = knowledgeClone(state.entity);
+    const root = await mount({ render: () => h(KnowledgePrincipleEditor, { ...state, 'onUpdate:flow': update }) });
+    expect(labelled(root, '第 1 步标题').props.value).toBe('正常');
+    expect(labelled(root, '第 1 步说明').props.value).toBe('优秀');
+    expect(labelled(root, '第 2 步说明').props.value).toBe('unmapped custom phrase');
+    expect(labelled(root, '第 1 步标题').props.readonly).toBe(readonly);
+    expect(state.entity).toEqual(before); expect(update).not.toHaveBeenCalled();
+    await input(labelled(root, '第 1 步标题'), 'GOOD');
+    await input(labelled(root, '第 1 步说明'), 'WARNING');
+    if (readonly) { expect(state.entity).toEqual(before); expect(update).not.toHaveBeenCalled(); }
+    else {
+      expect(update).toHaveBeenCalledTimes(2);
+      expect(state.entity.principleFlow!.steps[0]).toEqual({ title: 'GOOD', description: 'WARNING' });
+      expect(state.entity.principleFlow!.steps[1]).toEqual(before.principleFlow!.steps[1]);
+      expect(labelled(root, '第 1 步标题').props.value).toBe('良好');
+      const oldInput = labelled(root, '第 1 步标题').props.onInput as (event: unknown) => void;
+      state.readonly = true; await settle(); const locked = knowledgeClone(state.entity);
+      oldInput({ target: { value: '迟到写入' } }); await settle(); expect(state.entity).toEqual(locked);
+    }
+  });
+
+  it('新增原理流程及新增步骤保持空标题和说明，不填入占位内容', async () => {
+    const state = reactive({ entity: { ...entity(), principleFlow: undefined } as KnowledgeEntity, readonly: false, context: 'KGV-TEST' });
+    const update = vi.fn((value: PrincipleFlow | null) => { state.entity.principleFlow = value; });
+    const root = await mount({ render: () => h(KnowledgePrincipleEditor, { ...state, 'onUpdate:flow': update }) });
+    expect(update).not.toHaveBeenCalled(); await click(root, '添加工作原理流程'); await click(root, '添加步骤');
+    expect(update).toHaveBeenCalledTimes(2);
+    expect(state.entity.principleFlow!.steps).toEqual(Array.from({ length: 3 }, () => ({ title: '', description: '' })));
+    for (let i = 1; i <= 3; i++) {
+      expect(labelled(root, `第 ${i} 步标题`).props.value).toBe('');
+      expect(labelled(root, `第 ${i} 步说明`).props.value).toBe('');
+    }
+  });
+
+  it.each([false, true])('规则编辑器各文字字段中文显示，输入原值与选项ID保留，readonly=%s', async readonly => {
+    const state = reactive({ entity: networkEntity(), readonly, context: 'KGV-TEST' });
+    const update = vi.fn((value: KnowledgeNetworkRule | null) => { state.entity.networkRule = value; });
+    const before = knowledgeClone(state.entity);
+    const root = await mount({ render: () => h(KnowledgeNetworkRuleEditor, { ...state, 'onUpdate:rule': update }) });
+    for (const [label, value] of [['规则适用范围', '正常'], ['规则来源', '人工录入'], ['优秀 条件', '优秀'],
+      ['优秀 含义', 'unmapped custom phrase'], ['变化 1 说明', '故障']]) {
+      expect(labelled(root, label!).props.value).toBe(value); expect(labelled(root, label!).props.readonly).toBe(readonly);
+    }
+    const options = all(root, n => n.tag === 'option');
+    expect(new Set(options.map(n => n.props.value))).toEqual(new Set(['EXCELLENT', 'GOOD', 'WARNING', 'FAULT']));
+    expect(options.every(n => /^(优秀|良好|预警|故障)$/.test(textOf(n)))).toBe(true);
+    expect(labelled(root, '变化 1 起始状态').props.value).toBe('GOOD');
+    expect(labelled(root, '变化 1 目标状态').props.value).toBe('WARNING');
+    expect(state.entity).toEqual(before); expect(update).not.toHaveBeenCalled();
+    for (const [label, value] of [['规则适用范围', 'WARNING'], ['规则来源', 'IMPORT'], ['优秀 条件', 'GOOD'],
+      ['优秀 含义', 'Operator custom rule'], ['变化 1 说明', 'EXCELLENT']]) await input(labelled(root, label!), value!);
+    if (readonly) { expect(state.entity).toEqual(before); expect(update).not.toHaveBeenCalled(); }
+    else {
+      expect(update).toHaveBeenCalledTimes(5);
+      expect(state.entity.networkRule).toMatchObject({ scope: 'WARNING', source: 'IMPORT' });
+      expect(state.entity.networkRule!.criteria[0]).toEqual({ state: 'EXCELLENT', condition: 'GOOD', meaning: 'Operator custom rule' });
+      expect(state.entity.networkRule!.transitions[0]).toEqual({ from: 'GOOD', to: 'WARNING', description: 'EXCELLENT' });
+      expect(state.entity.networkRule!.criteria.slice(1)).toEqual(before.networkRule!.criteria.slice(1));
+      const oldInput = labelled(root, '规则适用范围').props.onInput as (event: unknown) => void;
+      state.context = 'KGV-NEXT'; await settle(); const switched = knowledgeClone(state.entity);
+      oldInput({ target: { value: '旧版本写入' } }); await settle(); expect(state.entity).toEqual(switched);
+      useAuthStore().identity!.permissions = ['knowledge.view']; await settle();
+      await input(labelled(root, '规则来源'), '失权写入'); expect(state.entity).toEqual(switched);
+    }
+  });
+
+  it('新增规则及变化说明保持空字段，打开和渲染不额外触发更新', async () => {
+    const state = reactive({ entity: { ...networkEntity(), networkRule: undefined } as KnowledgeEntity, readonly: false, context: 'KGV-TEST' });
+    const update = vi.fn((value: KnowledgeNetworkRule | null) => { state.entity.networkRule = value; });
+    const root = await mount({ render: () => h(KnowledgeNetworkRuleEditor, { ...state, 'onUpdate:rule': update }) });
+    expect(update).not.toHaveBeenCalled(); await click(root, '添加规则说明'); await click(root, '添加状态变化说明');
+    expect(update).toHaveBeenCalledTimes(2);
+    expect(state.entity.networkRule).toEqual({ scope: '', source: '', criteria: ['EXCELLENT', 'GOOD', 'WARNING', 'FAULT'].map(state =>
+      ({ state, condition: '', meaning: '' })), transitions: [{ from: 'GOOD', to: 'WARNING', description: '' }] });
+    for (const label of ['规则适用范围', '规则来源', '优秀 条件', '优秀 含义', '良好 条件', '良好 含义',
+      '预警 条件', '预警 含义', '故障 条件', '故障 含义', '变化 1 说明']) expect(labelled(root, label).props.value).toBe('');
   });
 });

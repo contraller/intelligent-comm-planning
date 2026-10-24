@@ -14,7 +14,7 @@
       >
         <label
           >第 {{ index + 1 }} 步标题<input
-            :value="step.title"
+            :value="knowledgeText(step.title)"
             :readonly="!editable"
             maxlength="40"
             :aria-label="'第 ' + (index + 1) + ' 步标题'"
@@ -22,7 +22,7 @@
         /></label>
         <label
           >步骤说明<textarea
-            :value="step.description"
+            :value="knowledgeText(step.description)"
             :readonly="!editable"
             maxlength="200"
             rows="2"
@@ -95,7 +95,7 @@
       :key="issue.message"
       class="step-error"
       role="alert"
-      >{{ issue.message }}</p
+      >{{ knowledgeText(issue.message) }}</p
     >
     <KnowledgePrincipleFlow
       :entity="entity"
@@ -116,6 +116,7 @@ import {
   resolveKnowledgePrinciple,
 } from '../services/knowledge-principle';
 import KnowledgePrincipleFlow from './KnowledgePrincipleFlow.vue';
+import { knowledgeText } from '../services/knowledge-display';
 
 const props = defineProps<{ entity: KnowledgeEntity; readonly: boolean; context: string }>();
 const emit = defineEmits<{ 'update:flow': [value: PrincipleFlow | null] }>();
@@ -123,6 +124,7 @@ const resolved = computed(() => resolveKnowledgePrinciple(props.entity));
 const steps = computed(() => props.entity.principleFlow?.steps ?? []);
 const issues = computed(() => principleIssues(props.entity));
 const editable = computed(() => !props.readonly && props.entity.category === '设备知识');
+// 中文仅适配显示，输入事件仍读取原文并沿用原有写入守卫。
 function replace(next: KnowledgePrincipleStep[]) {
   if (editable.value) emit('update:flow', { steps: next });
 }

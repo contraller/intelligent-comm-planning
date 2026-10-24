@@ -30,6 +30,12 @@ async function click(root: HostNode, label: string) {
   expect(el, label).toBeDefined(); await (el!.props.onClick as () => unknown)(); await nextTick();
 }
 async function settle() { for (let i = 0; i < 12; i++) await nextTick(); }
+async function expandEntities(root: HostNode) {
+  const section = find(root, n => n.tag === 'details' && n.props['data-snapshot'] === 'entities');
+  expect(section, '完整实体快照').toBeDefined();
+  (section!.props.onToggle as (event: unknown) => void)({ currentTarget: { open: true } });
+  await settle();
+}
 
 
 await Promise.all([
@@ -98,6 +104,7 @@ describe('网络规则实际模板与维护入口',()=>{
     s.store.draft!.summary='补充规则说明';await click(root,'保存草稿');expect(s.store.error).toBe('');expect(s.store.dirtyDraft).toBe(false);
     const saved=s.store.change!.content.entities[0];expect(saved.networkRule!.scope).toBe('草稿特有说明');
     await s.store.closeDrawer();await s.store.showVersion(s.store.current!);await settle();
+    await expandEntities(root);
     expect(textOf(root)).not.toContain('草稿特有说明');expect(textOf(root)).toContain('状态等级与变化依据');
   });
   it('当前知识页检索补充说明并显示来源，切实体不会借用旧说明',async()=>{

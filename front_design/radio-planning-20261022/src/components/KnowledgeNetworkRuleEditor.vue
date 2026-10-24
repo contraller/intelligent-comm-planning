@@ -8,7 +8,7 @@
     <template v-if="view.rule && applicable">
       <label
         >适用范围<textarea
-          :value="view.rule.scope"
+          :value="knowledgeText(view.rule.scope)"
           :readonly="!writable"
           maxlength="500"
           aria-label="规则适用范围"
@@ -17,7 +17,7 @@
       </label>
       <label
         >规则来源<input
-          :value="view.rule.source"
+          :value="knowledgeSource(view.rule.source)"
           :readonly="!writable"
           maxlength="200"
           aria-label="规则来源"
@@ -31,19 +31,19 @@
         <strong>{{ LINK_STATUS_STYLES[row.state]?.label ?? '无效状态' }}</strong>
         <label
           >文字条件<textarea
-            :value="row.condition"
+            :value="knowledgeText(row.condition)"
             :readonly="!writable"
             maxlength="500"
-            :aria-label="row.state + ' 条件'"
+            :aria-label="(LINK_STATUS_STYLES[row.state]?.label ?? '无效状态') + ' 条件'"
             :onInput="view.criterion(i, 'condition')"
           />
         </label>
         <label
           >状态含义<textarea
-            :value="row.meaning"
+            :value="knowledgeText(row.meaning)"
             :readonly="!writable"
             maxlength="500"
-            :aria-label="row.state + ' 含义'"
+            :aria-label="(LINK_STATUS_STYLES[row.state]?.label ?? '无效状态') + ' 含义'"
             :onInput="view.criterion(i, 'meaning')"
           />
         </label>
@@ -83,7 +83,7 @@
         >
         <label
           >变化说明<textarea
-            :value="row.description"
+            :value="knowledgeText(row.description)"
             :readonly="!writable"
             maxlength="500"
             :aria-label="'变化 ' + (i + 1) + ' 说明'"
@@ -127,7 +127,7 @@
       :key="issue.message"
       class="error"
       role="alert"
-      >{{ issue.message }}</p
+      >{{ knowledgeText(issue.message) }}</p
     >
     <KnowledgeNetworkRulePanel
       :entity="entity"
@@ -147,6 +147,7 @@ import {
 } from '../services/knowledge-network-rule';
 import { LINK_STATUS_STYLES } from '../config/link-status';
 import KnowledgeNetworkRulePanel from './KnowledgeNetworkRulePanel.vue';
+import { knowledgeSource, knowledgeText } from '../services/knowledge-display';
 const props = defineProps<{ entity: KnowledgeEntity; readonly: boolean; context: string }>();
 const emit = defineEmits<{ 'update:rule': [value: KnowledgeNetworkRule | null] }>();
 const auth = useAuthStore();
@@ -171,6 +172,7 @@ const owner = computed(
 );
 const canWrite = (captured: string) =>
   writable.value && captured === owner.value && applicable.value;
+// 中文仅适配显示，输入原文继续通过实体、修订和身份令牌校验。
 function emitRule(rule: KnowledgeNetworkRule | null, captured: string) {
   if (writable.value && captured === owner.value && (rule === null || applicable.value))
     emit('update:rule', rule);
