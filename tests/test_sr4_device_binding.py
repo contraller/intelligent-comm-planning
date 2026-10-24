@@ -1,6 +1,8 @@
 """固定网系中的物理电台分配与独立参数校验。"""
 from __future__ import annotations
 
+from copy import deepcopy
+
 from scripts.planning import sr4_flow
 
 
@@ -57,6 +59,26 @@ def test_device_endpoint_pins_the_first_route_network():
     assert sr4_flow.endpoint_binding_errors(links, demands, routes) == []
     links[0]["device_b_id"] = "B1"
     assert sr4_flow.endpoint_binding_errors(links, demands, routes)
+
+
+def test_legal_channel_matching_swaps_real_devices_without_reusing_or_rewriting_them():
+    links, nodes, devices, _ = _topology()
+    models = [{"model_id": name, "device_class": "HF", "freq_min_khz": low, "freq_max_khz": high}
+              for name, low, high in (("UPPER", "6000", "8000"), ("LOWER", "4000", "5000"), ("WIDE", "4000", "8000"))]
+    for device, model in zip(devices, ("UPPER", "LOWER", "WIDE", "LOWER")):
+        device["model_id"] = model
+    pool = [{"freq_id": "LOW", "device_class": "HF", "center_freq_khz": "4500"},
+            {"freq_id": "HIGH", "device_class": "HF", "center_freq_khz": "7000"}]
+    frozen = deepcopy((nodes, devices, models, pool))
+    assert sr4_flow.bind_links_to_devices(links, nodes, devices, models, pool_rows=pool) == []
+    assert links[0]["device_b_id"] == "B2"
+    assert links[1]["device_a_id"] == "B1"
+    assert (nodes, devices, models, pool) == frozen
+    demands = [{"demand_id": "PIN", "src_node_id": "B", "dst_node_id": "A", "source_device_id": "B1"}]
+    routes = {"routes": [{"demand_id": "PIN", "reachable": True, "primary": {"link_path": ["L1"]}}]}
+    assert sr4_flow.bind_links_to_devices(links, nodes, devices, models, demands, routes, pool_rows=pool) == []
+    assert links[0]["device_b_id"] == "B1"
+    assert links[1]["device_a_id"] == "B2"
 
 
 def test_power_override_changes_only_links_using_selected_radio(monkeypatch):

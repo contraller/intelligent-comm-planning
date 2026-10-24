@@ -95,11 +95,14 @@ def _endpoint_device_requests(links, demands, routes):
     return requests
 
 
-def bind_links_to_devices(links, nodes, devices, models, demands=None, routes=None):
+def bind_links_to_devices(links, nodes, devices, models, demands=None, routes=None, *,
+                          pool_rows=None, checkpoint=None):
     """按网系冻结链路两端的物理电台，同一设备不跨网系复用。"""
     model_band = {row["model_id"]: row["device_class"] for row in models}
     by_station = {}
     for device in devices:
+        if device.get("availability", "ACTIVE") != "ACTIVE":
+            continue
         band = model_band.get(device.get("model_id"))
         if band:
             by_station.setdefault((device["node_id"], band), []).append(device["device_id"])
@@ -158,6 +161,10 @@ def bind_links_to_devices(links, nodes, devices, models, demands=None, routes=No
         band = link["device_class"]
         link["device_a_id"] = bindings.get(((link["node_a_id"], band), net_id), "")
         link["device_b_id"] = bindings.get(((link["node_b_id"], band), net_id), "")
+    if pool_rows is not None and not errors:
+        from actual_search import improve_bindings
+        improve_bindings(links, nodes, devices, models, pool_rows,
+                         locked={(key[0], key[1], net_id) for key, net_id in preferred}, checkpoint=checkpoint)
     return errors
 
 
@@ -311,7 +318,8 @@ def _frozen_uplinks(detail):
 
 def _check_candidate(pb, solution, stations, nodes, devices, models, antennas,
                      terrain, demands, opt_demands, strategy, preset, pool_rows,
-                     metrics_rows, constraints, *, interference_rows=None):
+                     metrics_rows, constraints, *, interference_rows=None,
+                     channel_preference=None, optimize_bindings=False, search_checkpoint=None):
     """用实际设备、频点和链路余量复核优化器给出的拓扑。"""
     fm = pb.fm
     links, nodes2, devices2 = rows_from_solution(pb, solution, nodes, devices, models)
@@ -319,10 +327,11 @@ def _check_candidate(pb, solution, stations, nodes, devices, models, antennas,
     graph = routing.graph_from_links(links, metrics_rows)[0]
     routes = routing.plan_routes(graph, demands, default_strategy=strategy)
     binding_errors = bind_links_to_devices(
-        links, nodes2, devices2, models, demands=demands, routes=routes)
+        links, nodes2, devices2, models, demands=demands, routes=routes,
+        pool_rows=pool_rows if optimize_bindings else None, checkpoint=search_checkpoint)
     ftasks = FQ.tasks_from_nets(links, nodes2, devices2, models)
     FQ.fill_ranges_by_node(ftasks, links, nodes2, devices2, models)
-    freq = FQ.assign(ftasks, FQ.FreqPool(pool_rows))
+    freq = FQ.assign(ftasks, FQ.FreqPool(pool_rows), channel_preference=channel_preference)
     freq["link_assignments"] = FQ.expand_to_links(freq, ftasks)
     caps = RP.capabilities_by_device(st2, devices2, models, antennas)
     params = RP.plan_bound_devices(st2, links, devices2, models, antennas,
@@ -640,6 +649,7 @@ def run(task_id=None, preset="TERRAIN", strategy="MAX_RELIABILITY",
     read = _resource_reader(resource_rows)
     steps = []
     T = time.time()
+    monotonic_start = time.monotonic()
 
     # ── 1 任务条件输入 ──
     t0 = time.time()
@@ -681,7 +691,7 @@ def run(task_id=None, preset="TERRAIN", strategy="MAX_RELIABILITY",
     # ── 2 电台部署（第 2 周 P1）──
     t0 = time.time()
     fm, sol, links0, nodes1, devices1 = topology_from_deployment(
-        stations, terrain, nodes, devices, models, cand_rows)
+        stations, terrain, nodes, devices, models, [])
     steps.append(("2 电台部署（新增 %d 台）" % len(sol.added), time.time() - t0))
     if progress:
         progress(0.30, "电台部署完成")
@@ -701,7 +711,7 @@ def run(task_id=None, preset="TERRAIN", strategy="MAX_RELIABILITY",
     cons.update(constraints or {})
     opt_demands = demands if (task_id is None or survivability_scope == "TASK") else demands_all
     pb = MO.Problem(fm, sol, opt_demands, caps1,
-                    survivability_threshold=cons["survivability_threshold"])
+                    survivability_threshold=cons["survivability_threshold"], candidate_relays=0)
     opt = MO.optimize(pb, constraints=cons, pop_size=pop_size, generations=generations)
     steps.append(("4 多目标优化（评估 %d 次）" % opt["evaluations"], time.time() - t0))
     if progress:
@@ -712,6 +722,10 @@ def run(task_id=None, preset="TERRAIN", strategy="MAX_RELIABILITY",
     selected = None
     seen_topologies = set()
     checked = 0
+    from actual_search import ChannelSearch
+    search = ChannelSearch(models, antennas, terrain, jam_rows,
+        deadline=monotonic_start + TIME_LIMIT_S - 30,
+        progress=(lambda: progress(0.72, "实际频点与物理备份搜索")) if progress else None)
 
     def consider(problem, optimization, limit):
         nonlocal selected, pb, opt, checked
@@ -729,6 +743,17 @@ def run(task_id=None, preset="TERRAIN", strategy="MAX_RELIABILITY",
                 terrain, demands, opt_demands, strategy, preset, pool_rows,
                 metrics_rows, cons, interference_rows=jam_rows)
             checked += 1
+            if checked < 24 and search.checkpoint():
+                preference = search.preferences(result, pool_rows, opt_demands)
+                if preference and search.checkpoint():
+                    refined = _check_candidate(
+                        problem, solution, st1, nodes1, devices1, models, antennas,
+                        terrain, demands, opt_demands, strategy, preset, pool_rows,
+                        metrics_rows, cons, interference_rows=jam_rows,
+                        channel_preference=preference, optimize_bindings=True, search_checkpoint=search.checkpoint)
+                    checked += 1
+                    if refined["score"] < result["score"]:
+                        result = refined
             if selected is None or result["score"] < selected["score"]:
                 selected = dict(result, solution=solution)
                 pb, opt = problem, optimization
@@ -747,7 +772,7 @@ def run(task_id=None, preset="TERRAIN", strategy="MAX_RELIABILITY",
             if time.time() - T > TIME_LIMIT_S - 90:
                 break
             alt_pb = MO.Problem(fm, alt, opt_demands, caps1,
-                                survivability_threshold=cons["survivability_threshold"])
+                                survivability_threshold=cons["survivability_threshold"], candidate_relays=0)
             alt_opt = MO.optimize(alt_pb, constraints=cons,
                                   pop_size=max(12, min(pop_size // 2, 20)),
                                   generations=max(8, min(generations // 2, 16)))
@@ -794,6 +819,9 @@ def run(task_id=None, preset="TERRAIN", strategy="MAX_RELIABILITY",
     out = dict(task_id=task_id, steps=steps, total_s=total, within_limit=total <= TIME_LIMIT_S,
                deployment=dict(added=[fm.stations[i].sid for i, _s in sol.added]),
                optimization=dict(feasible=feasible, uplinks=copy.deepcopy(selected["uplinks"]),
+                                 actual_search={"evaluations": search.evaluations,
+                                                "budget_exhausted": search.exhausted,
+                                                "checked_candidates": checked},
                                  infeasible=(None if feasible else {
                                      "conflicting_constraints": failed_constraints,
                                      "suggestions": binding_errors or

@@ -491,12 +491,55 @@ def sub_band_gaps(tasks, adj):
     return out
 
 
-def assign(tasks, pool, manual=None):
+def _preference_repair(tasks, adj, sep, color, fixed, preferences):
+    """只接受冲突不增的改善，允许交换两个未固定对象的合法频点。"""
+    ranked = {i: {freq_id: rank for rank, freq_id in enumerate(preferences.get(task.task_id, []))}
+              for i, task in enumerate(tasks)}
+
+    def rank(i, channel):
+        return ranked[i].get(channel["freq_id"], len(ranked[i]))
+
+    moves = 0
+    for i in sorted(ranked, key=lambda index: -len(ranked[index])):
+        if i in fixed or i not in color or not ranked[i]:
+            continue
+        current = color[i]
+        conflicts = len(check_conflicts(tasks, adj, sep, color))
+        for channel in tasks[i].allowed:
+            if rank(i, channel) >= rank(i, current):
+                continue
+            blockers = [j for j in adj[i] if j in color and (
+                color[j]["freq_khz"] == channel["freq_khz"] or not _guard_ok(
+                    tasks[i], channel, color[j], sep[(min(i, j), max(i, j))],
+                    channel["reuse_min_distance_m"]))]
+            if len(blockers) > 1 or any(j in fixed for j in blockers):
+                continue
+            trial = dict(color)
+            trial[i] = channel
+            if blockers:
+                j = blockers[0]
+                replacement = next((option for option in tasks[j].allowed
+                                    if option["freq_id"] == current["freq_id"]), None)
+                if replacement is None or rank(i, channel) + rank(j, replacement) >= rank(i, current) + rank(j, color[j]):
+                    continue
+                trial[j] = replacement
+            if len(check_conflicts(tasks, adj, sep, trial)) <= conflicts:
+                color = trial
+                moves += 1
+                break
+    return color, moves
+
+
+def assign(tasks, pool, manual=None, *, channel_preference=None):
     """主入口。manual 为 [{link_id, freq_khz}]。
 
     返回 assignments / conflicts / gap / conflict_free。
     """
     _prepare(tasks, pool)
+    for task in tasks:
+        preference = {freq_id: rank for rank, freq_id in enumerate(
+            (channel_preference or {}).get(task.task_id, []))}
+        task.allowed.sort(key=lambda channel: preference.get(channel["freq_id"], len(preference)))
     adj, sep = build_interference(tasks, pool)
     idx_of = {t.link_id: i for i, t in enumerate(tasks)}
     fixed = {}
@@ -519,6 +562,9 @@ def assign(tasks, pool, manual=None):
     color, unresolved = dsatur(tasks, adj, sep, fixed)
     color = local_repair(tasks, adj, sep, color, fixed=set(fixed))
     color, exact_info = exact_repair(tasks, adj, sep, color, fixed=set(fixed))
+    preference_moves = 0
+    if channel_preference:
+        color, preference_moves = _preference_repair(tasks, adj, sep, color, set(fixed), channel_preference)
     conflicts = check_conflicts(tasks, adj, sep, color)
 
     # 复用分组：同一频点的链路归一组，便于前端着色
@@ -565,7 +611,8 @@ def assign(tasks, pool, manual=None):
         manual_errors=manual_errors,
         stats=dict(links=len(tasks), interference_edges=sum(len(a) for a in adj) // 2,
                    channels_used=len(groups), dsatur_unresolved=len(unresolved),
-                   exact_repair=exact_info))
+                   exact_repair=exact_info,
+                   **({"preference_moves": preference_moves} if channel_preference else {})))
     if total_short or not out["conflict_free"]:
         out["expansion_advice"] = _advice(gap, conflicts)
     return out
