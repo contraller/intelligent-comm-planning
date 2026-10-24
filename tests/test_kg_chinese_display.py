@@ -304,6 +304,7 @@ def test_current_and_previous_relation_names_match_same_endpoints(monkeypatch, r
     ("fault_triples_v1.csv", "故障三元组资料"), ("link_state_rules_v1.csv", "链路状态规则资料"),
     ("node.csv", "节点台账"), ("device.csv", "设备台账"),
     ("topology_links_v1.csv", "链路资料"), ("link_status_v1.csv", "链路指标资料"),
+    ("topology_links_v1.csv", "拓扑链路资料"), ("link_status_v1.csv", "链路状态资料"),
 ])
 def test_source_file_labels_search_entity_attribute_and_both_relation_ends(monkeypatch, source, label):
     raw_source = source + "#RAW-0001 [CONSTRUCTED]"

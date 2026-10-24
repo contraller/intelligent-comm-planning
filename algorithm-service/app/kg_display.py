@@ -127,7 +127,7 @@ SOURCE_FILES = {
     "nodes_v1.csv": "节点资料", "links_v1.csv": "链路资料", "link_metrics_v1.csv": "链路指标资料",
     "fault_cases_v1.csv": "故障案例资料", "fault_triples_v1.csv": "故障三元组资料",
     "link_state_rules_v1.csv": "链路状态规则资料", "node.csv": "节点台账", "device.csv": "设备台账",
-    "topology_links_v1.csv": "链路资料", "link_status_v1.csv": "链路指标资料",
+    "topology_links_v1.csv": "拓扑链路资料", "link_status_v1.csv": "链路状态资料",
 }
 OBJECT_TYPES = {"DEVICE": "设备", "LINK": "链路"}
 BANDS = {"HF": "短波", "VUHF": "超短波"}
@@ -168,7 +168,7 @@ DISPLAY_TERMS = {
     **ATTRIBUTE_VALUE_ALIASES["device_selftest"],
     "voice": "话音", "HW_FAILURE": "硬件故障", "NODE": "节点", "VHF": "甚高频", "UHF": "特高频",
     "FIXED": "固定", "VEHICLE": "车载机动", "TASK": "任务节点", "FIXED_STATION": "固定台站",
-    "CONSTRUCTED": "构造数据", "SAMPLE": "构造联调数据", "MEASURED": "实测数据",
+    "CONSTRUCTED": "构造数据", "DERIVED": "派生资料", "SAMPLE": "构造联调数据", "MEASURED": "实测数据",
     "IMPORT": "导入数据", "MANUAL": "人工录入", "UNKNOWN": "未知",
     "OMNI": "全向", "NVIS": "近垂直入射天波", "Digital": "数字",
     "LSB": "下边带（LSB）", "USB": "上边带（USB）", "AME": "兼容调幅（AME）",
@@ -231,6 +231,10 @@ def _source_aliases(source: str) -> set[str]:
     for file, label in SOURCE_FILES.items():
         if source.startswith(file):
             aliases.update((label, f"{label} · {translated}"))
+            # 标签细化后仍兼容旧中文检索词，不改写可追溯来源。
+            old_label = {"topology_links_v1.csv": "链路资料", "link_status_v1.csv": "链路指标资料"}.get(file)
+            if old_label:
+                aliases.update((old_label, f"{old_label} · {translated}"))
             break
     return aliases
 

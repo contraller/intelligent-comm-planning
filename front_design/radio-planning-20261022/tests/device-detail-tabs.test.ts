@@ -370,7 +370,7 @@ describe('设备资料与告警共用展示', () => {
     detail.bandwidthKhz = [0.5, 2.4, 3]; detail.dataRatesKbps = [9.6, 19.2]; detail.constraintNote = '条件一；条件二;仍是完整说明';
     s.catalog.antennas.find(row => row.antennaId === device.antennaId)!.gainDbi = 0;
     const root = await s.mount({ render: () => h(DeviceInfoPanel, { device, resources: s.resources, catalog: s.catalog }) }), text = textOf(root);
-    expect(text).toContain('设备当前配置工作频率未提供当前工作模式未提供发射功率0 dBm');
+    expect(text).toContain('台账保存参数工作频率未提供当前工作模式未提供发射功率0 dBm');
     expect(text).toContain('倾角 / 方位角0 ° / 0 °'); expect(text).toContain('天线型号增益0 dBi');
     expect(text).toContain('支持信道带宽0.5 / 2.4 / 3 kHz'); expect(text).toContain('支持数据速率9.6 / 19.2 kbps');
     expect(text).toContain('支持功率档位30 / 36.99 / 43.01 dBm'); expect(text).toContain(detail.constraintNote);
@@ -416,7 +416,8 @@ describe('设备资料与告警共用展示', () => {
     const s = await fixture(), root = await s.mount({ render: () => h(RouterView) }, '/resources');
     await click(root, s.device.id);
     expect(textOf(root)).toContain('电台类型背负电台'); expect(textOf(root)).toContain('接收灵敏度-113 dBm');
-    s.auth.accept({ ...s.auth.identity!, permissions: s.auth.identity!.permissions.filter(p => p !== 'resources.edit') });
+    // 移除所有可开启台账编辑的权限，保留只读资料与知识权限。
+    s.auth.accept({ ...s.auth.identity!, permissions: s.auth.identity!.permissions.filter(p => !['resources.edit','resources.device.edit','resources.workspace.edit','resources.create'].includes(p)) });
     await settle();
     expect(find(root, row => row.tag === 'button' && textOf(row).trim() === '编辑设备参数')!.props.disabled).toBe(true);
     expect(s.storage.writes).toBe(0);
@@ -424,6 +425,23 @@ describe('设备资料与告警共用展示', () => {
 });
 
 describe('设备型号知识摘要展示', () => {
+  it('英文功能和关系显示为中文，原知识响应与资源不被改写',async()=>{
+    const s=await fixture(),before=JSON.stringify(s.preview.data);
+    const original=await s.raw.getDeviceKnowledge({versionId:s.knowledge.current!.id,modelId:s.device.modelId});
+    const raw=structuredClone(original),root=raw.items.find(item=>item.entity.type==='DeviceModel')!;
+    const target=root.neighbors.find(item=>item.type==='Function')!;
+    // 同一实体可在多个明细中重复出现，夹具也必须遵守一致性校验。
+    for(const item of raw.items)for(const entity of [item.entity,...item.neighbors]) {
+      if(entity.id===root.entity.id){entity.name='DM-0001';entity.source='CONSTRUCTED';}
+      if(entity.id===target.id){entity.name='voice';entity.source='CONSTRUCTED';entity.description='hasFunction voice';}
+    }
+    s.query.mockResolvedValue(raw);const input=JSON.stringify(raw);
+    const view=await s.mount({render:()=>h(DeviceInfoPanel,{device:s.device,resources:s.resources,catalog:s.catalog})});
+    const text=textOf(knowledgeArea(view));
+    for(const term of ['话音','具有功能','构造数据','设备型号 DM-0001'])expect(text).toContain(term);
+    expect(text).not.toContain('hasFunction');expect(JSON.stringify(raw)).toBe(input);
+    expect(JSON.stringify(s.preview.data)).toBe(before);expect(s.storage.writes).toBe(0);
+  });
   it.each(['DM-0001', 'DM-0002'])('%s 显示明确部件和三项功能，来源与关系证据可折叠查看', async modelId => {
     const s = await fixture(), device = s.resources.devices.find(row => row.modelId === modelId)!;
     const before = JSON.stringify(s.preview.data), stored = [...s.storage.entries];
@@ -436,7 +454,7 @@ describe('设备型号知识摘要展示', () => {
     const evidence = find(parts, row => row.tag === 'details')!;
     expect(evidence.props.open).toBeUndefined(); expect(textOf(evidence)).toContain('KGE-POWER');
     expect(textOf(evidence)).toContain('短波电台型号知识（KGE-MODEL）');
-    expect(textOf(evidence)).toContain('hasComponent（KGR-001）');
+    expect(textOf(evidence)).toContain('包含部件（KGR-001）');
     expect(textOf(evidence)).toContain('知识关联资料');
     expect(textOf(root)).toContain('型号知识发布版本：KGV-SEED-2');
     expect(textOf(knowledgeArea(root, '设备接口知识'))).toContain(modelId==='DM-0001'?'射频与业务接口':'此发布版本未提供该型号的接口知识');
@@ -473,7 +491,7 @@ describe('设备型号知识摘要展示', () => {
     });
     const root = await s.mount({ render: () => h(DeviceInfoPanel, { device: s.device, resources: s.resources }) });
     expect(textOf(knowledgeArea(root))).toContain('型号知识读取失败：摘要读取暂不可用');
-    expect(textOf(root)).toContain('设备当前配置'); expect(s.knowledge.loadError).toBe(''); expect(s.preview.error).toBe('');
+    expect(textOf(root)).toContain('台账保存参数'); expect(s.knowledge.loadError).toBe(''); expect(s.preview.error).toBe('');
     await click(root, '运维知识'); expect(textOf(find(root, row => row.props.class === 'device-knowledge')!)).toContain('发布快照：KGV-SEED-2');
     failSummary = false; await click(root, '设备信息'); await click(root, '重试型号知识');
     expect(textOf(knowledgeArea(root))).toContain('日常维护要求'); expect(textOf(root)).not.toContain('摘要读取暂不可用');
@@ -483,12 +501,12 @@ describe('设备型号知识摘要展示', () => {
     const s = await fixture(); let finish!: (data: DeviceKnowledge) => void;
     s.query.mockImplementation(request => request.search === undefined ? new Promise(resolve => { finish = resolve; }) : s.raw.getDeviceKnowledge(request));
     const root = await s.mount({ render: () => h(DeviceInfoPanel, { device: s.device, resources: s.resources }) });
-    expect(textOf(knowledgeArea(root))).toBe('正在读取型号知识…'); expect(textOf(root)).toContain('设备当前配置');
+    expect(textOf(knowledgeArea(root))).toBe('正在读取型号知识…'); expect(textOf(root)).toContain('台账保存参数');
     const result = await s.raw.getDeviceKnowledge({ versionId: s.knowledge.current!.id, modelId: s.device.modelId });
     s.auth.accept({ ...s.auth.identity!, permissions: s.auth.identity!.permissions.filter(p => p !== 'knowledge.view') }); await settle();
     const calls = s.query.mock.calls.length; finish(result); await settle();
     expect(textOf(knowledgeArea(root))).toBe('当前角色没有知识查看权限'); expect(textOf(root)).not.toContain('型号知识发布版本：');
-    expect(s.query).toHaveBeenCalledTimes(calls); expect(textOf(root)).toContain('设备当前配置'); expect(s.storage.writes).toBe(0);
+    expect(s.query).toHaveBeenCalledTimes(calls); expect(textOf(root)).toContain('台账保存参数'); expect(s.storage.writes).toBe(0);
   });
   it('明确接口关系显示名称和来源，空描述保留未提供说明', async () => {
     const s = await fixture();
@@ -505,7 +523,7 @@ describe('设备型号知识摘要展示', () => {
     const before = [...s.storage.entries], root = await s.mount({ render: () => h(DeviceInfoPanel, { device: s.device, resources: s.resources }) });
     const text = textOf(knowledgeArea(root, '设备接口知识'));
     expect(text).toContain('测试接口知识'); expect(text).toContain('未提供说明'); expect(text).toContain('组件检查资料');
-    expect(text).toContain('hasInterface（KGR-TEST-INTERFACE）'); expect(text).toContain('组件检查明确关系');
+    expect(text).toContain('具有接口（KGR-TEST-INTERFACE）'); expect(text).toContain('组件检查明确关系');
     expect([...s.storage.entries]).toEqual(before);
   });
   it('实际回滚更新当前发布摘要和版本，不读取未发布草稿', async () => {
@@ -549,7 +567,7 @@ describe('设备关联分组展示', () => {
     expect(text).toContain('主路径参与'); expect(text).toContain('备用保障');
     expect(text).toContain('PL-002 → PL-003'); expect(text).toContain('PL-001 → PL-007');
     expect(text).toContain('备用保障不表示已切换或正在承载流量');
-    expect(textOf(root)).toContain('设备当前配置工作频率未提供'); expect(device.workFreqKhz).toBeNull(); expect(s.storage.writes).toBe(0);
+    expect(textOf(root)).toContain('台账保存参数工作频率未提供'); expect(device.workFreqKhz).toBeNull(); expect(s.storage.writes).toBe(0);
   });
   it('更换设备后主备参与关系更新，同站其他设备显示空态且不残留原业务', async () => {
     const s = await fixture(), selection = reactive({ id: 'DV-0037' });
@@ -569,7 +587,7 @@ describe('设备关联分组展示', () => {
     await click(root, 'DV-0001'); expect(textOf(networkPanel(root))).toContain('固定站话音保障');
     s.auth.accept({ ...s.auth.identity!, permissions: s.auth.identity!.permissions.filter(p => p !== 'situation.view') }); await settle();
     expect(textOf(networkPanel(root))).not.toContain('没有 GIS 查看权限'); expect(textOf(networkPanel(root))).toContain('PL-001');
-    expect(textOf(root)).toContain('设备当前配置'); await click(root, '编辑设备参数');
+    expect(textOf(root)).toContain('台账保存参数'); await click(root, '编辑设备参数');
     expect(s.editor.form?.id).toBe('DV-0001'); expect(s.storage.writes).toBe(0);
   });
   it('台账按保存状态展示关联，未提交表单保留；保存变更后暂停展示', async () => {
@@ -591,7 +609,7 @@ describe('设备关联分组展示', () => {
     s.preview.data!.situation.deviceNetwork!.snapshotId = 'NET-DEMO-01'; await settle();
     expect(textOf(networkPanel(root))).toContain('版本不匹配'); expect(textOf(networkPanel(root))).not.toContain('PL-001');
     delete s.preview.data!.situation.deviceNetwork; await settle();
-    expect(textOf(networkPanel(root))).toContain('暂无当前演示网络的关联资料'); expect(textOf(root)).toContain('设备当前配置'); expect(s.storage.writes).toBe(0);
+    expect(textOf(networkPanel(root))).toContain('暂无当前演示网络的关联资料'); expect(textOf(root)).toContain('台账保存参数'); expect(s.storage.writes).toBe(0);
   });
 });
 
@@ -738,6 +756,6 @@ describe('设备知识工作原理联动', () => {
     await click(root, s.device.id); await click(root, '运维知识'); await click(root, '全屏查看'); expect(full(root)).toBeDefined();
     s.auth.accept({ ...s.auth.identity!, permissions: s.auth.identity!.permissions.filter(p => p !== 'knowledge.view') }); await settle();
     expect(full(root)).toBeUndefined(); expect(chart(root)).toBeUndefined(); expect(textOf(root)).toContain('没有知识查看权限');
-    await click(root, '设备信息'); expect(textOf(root)).toContain('设备当前配置'); expect(s.storage.writes).toBe(0);
+    await click(root, '设备信息'); expect(textOf(root)).toContain('台账保存参数'); expect(s.storage.writes).toBe(0);
   });
 });

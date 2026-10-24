@@ -133,18 +133,18 @@
                 ><li
                   v-for="item in group.items"
                   :key="item.entityId"
-                  ><strong>{{ item.name }}</strong
-                  ><p>{{ item.description || '未提供说明' }}</p
-                  ><p class="detail-note">资料来源：{{ item.entitySource }}</p
+                  ><strong>{{ knowledgeText(item.name) }}</strong
+                  ><p>{{ knowledgeText(item.description) || '未提供说明' }}</p
+                  ><p class="detail-note">资料来源：{{ knowledgeSource(item.entitySource) }}</p
                   ><details class="knowledge-evidence"
                     ><summary>查看关联依据</summary><p>知识实体：{{ item.entityId }}</p
                     ><div
                       v-for="binding in item.bindings"
                       :key="`${binding.rootId}:${binding.relationId}`"
-                      ><p>型号知识根：{{ binding.rootName }}（{{ binding.rootId }}）</p
-                      ><p>型号根来源：{{ binding.rootSource }}</p
-                      ><p>关系：{{ binding.relationType }}（{{ binding.relationId }}）</p
-                      ><p>关系来源：{{ binding.relationSource }}</p></div
+                      ><p>型号知识根：{{ knowledgeEntityName({type:'DeviceModel',name:binding.rootName}) }}（{{ binding.rootId }}）</p
+                      ><p>型号根来源：{{ knowledgeSource(binding.rootSource) }}</p
+                      ><p>关系：{{ knowledgeRelationName(binding.relationType) }}（{{ binding.relationId }}）</p
+                      ><p>关系来源：{{ knowledgeSource(binding.relationSource) }}</p></div
                     ></details
                   ></li
                 ></ul
@@ -180,18 +180,18 @@
               ><li
                 v-for="item in knowledgeSummary.functions"
                 :key="item.entityId"
-                ><strong>{{ item.name }}</strong
-                ><p>{{ item.description || '未提供说明' }}</p
-                ><p class="detail-note">资料来源：{{ item.entitySource }}</p
+                ><strong>{{ knowledgeText(item.name) }}</strong
+                ><p>{{ knowledgeText(item.description) || '未提供说明' }}</p
+                ><p class="detail-note">资料来源：{{ knowledgeSource(item.entitySource) }}</p
                 ><details class="knowledge-evidence"
                   ><summary>查看关联依据</summary><p>知识实体：{{ item.entityId }}</p
                   ><div
                     v-for="binding in item.bindings"
                     :key="`${binding.rootId}:${binding.relationId}`"
-                    ><p>型号知识根：{{ binding.rootName }}（{{ binding.rootId }}）</p
-                    ><p>型号根来源：{{ binding.rootSource }}</p
-                    ><p>关系：{{ binding.relationType }}（{{ binding.relationId }}）</p
-                    ><p>关系来源：{{ binding.relationSource }}</p></div
+                    ><p>型号知识根：{{ knowledgeEntityName({type:'DeviceModel',name:binding.rootName}) }}（{{ binding.rootId }}）</p
+                    ><p>型号根来源：{{ knowledgeSource(binding.rootSource) }}</p
+                    ><p>关系：{{ knowledgeRelationName(binding.relationType) }}（{{ binding.relationId }}）</p
+                    ><p>关系来源：{{ knowledgeSource(binding.relationSource) }}</p></div
                   ></details
                 ></li
               ></ul
@@ -300,6 +300,7 @@ import type { DeviceDetailCatalog, DeviceReadDetailContext } from '../types/devi
 import type { ReadDevice } from '../types/resource-read';
 import type { DeviceNetworkContext } from '../types/device-network';
 import { useDeviceKnowledgeSummary } from '../composables/useDeviceKnowledgeSummary';
+import { knowledgeEntityName, knowledgeRelationName, knowledgeSource, knowledgeText } from '../services/knowledge-display';
 import { resourceOrigins } from '../config/resource-options';
 import DeviceDetailTabs from './DeviceDetailTabs.vue';
 import DeviceNetworkPanel from './DeviceNetworkPanel.vue';

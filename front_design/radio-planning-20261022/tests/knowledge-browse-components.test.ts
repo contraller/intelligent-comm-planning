@@ -120,6 +120,27 @@ async function graphClick(id:string,dataType='node') {
 }
 
 describe('知识图谱实际页面检索联动',()=>{
+  it('接口返回英文目录与业务值时，页面和图形显示中文但不改原始数据',async()=>{
+    const {root,store}=await mountPage();
+    const entity={id:'E-00001',name:'DM-0001',type:'DeviceModel',category:'设备知识' as const,
+      description:'CONSTRUCTED',keywords:['HF'],source:'device_models_v1.csv [CONSTRUCTED]',modelIds:['DM-0001'],
+      attributes:[{name:'device_class',value:'HF',unit:null},{name:'device_selftest',value:'ALARM_PA',unit:null}]};
+    const neighbor={...entity,id:'E-00002',name:'voice',type:'Function'};
+    const relation={id:'T-00001',head:entity.id,tail:neighbor.id,type:'hasFunction',weight:1,source:'CONSTRUCTED'};
+    store.catalog.types=[{id:'DeviceModel',name:'DeviceModel',category:'设备知识'},{id:'Function',name:'Function',category:'设备知识'}];
+    store.catalog.relationTypes=[{id:'hasFunction',name:'hasFunction'}];
+    store.search={items:[entity,neighbor],similar:[],total:2,pageNum:1,pageSize:20,code:0,versionId:store.workspace!.currentVersionId};
+    store.graph={entities:[entity,neighbor],relations:[relation],matchedIds:[],totalNodes:2,totalEdges:1,versionId:store.workspace!.currentVersionId};
+    store.detail={entity,neighbors:[neighbor],relations:[relation],versionId:store.workspace!.currentVersionId};
+    store.selectedId=entity.id;const before=JSON.stringify({entity,neighbor,relation});await settle();
+    expect(textOf(root)).toContain('设备型号 DM-0001');expect(textOf(root)).toContain('话音');
+    for(const term of ['设备频段','短波','功放告警','具有功能','构造数据'])expect(textOf(detail(root))).toContain(term);
+    const typeSelect=find(root,n=>n.tag==='select')!;
+    expect(all(typeSelect,n=>n.tag==='option').map(textOf)).toContain('设备型号');
+    expect(all(typeSelect,n=>n.tag==='option').map(n=>n.value)).toContain('DeviceModel');
+    expect(JSON.stringify({entity,neighbor,relation})).toBe(before);
+    expect(latestChart().setOption.mock.calls.at(-1)![0].series[0].links[0]).toMatchObject({id:relation.id,value:'具有功能'});
+  });
   it('输入不查询，提交后唯一命中自动居中并显示同一实体详情',async()=>{
     const {root,store,storage}=await mountPage();
     expect(store.selectedId).toBe('');expect(graphNodes().every(n=>n.itemStyle.borderWidth===1)).toBe(true);

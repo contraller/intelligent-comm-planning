@@ -12,7 +12,7 @@
           :key="item.type"
         >
           <i :style="{ color: item.color }">{{ item.glyph }}</i
-          >{{ catalog.types.find((t) => t.id === item.type)?.name ?? item.type }}
+          >{{ knowledgeTypeName(item.type, catalog.types.find((t) => t.id === item.type)?.name) }}
         </span>
       </div></div
     ><div
@@ -36,6 +36,7 @@ import { TooltipComponent } from 'echarts/components';
 import { CanvasRenderer } from 'echarts/renderers';
 import type { KnowledgeCatalog, KnowledgeGraph } from '../types/knowledge';
 import { knowledgeGraphModel } from '../graphs/knowledge-graph';
+import { knowledgeTypeName } from '../services/knowledge-display';
 use([GraphChart, TooltipComponent, CanvasRenderer]);
 const props = defineProps<{
   graph: KnowledgeGraph;

@@ -96,7 +96,7 @@
                 )"
                 :key="t.id"
                 :value="t.id"
-                >{{ t.name }}</option
+                >{{ typeName(t.id) }}</option
               ></select
             ></label
           >
@@ -129,7 +129,7 @@
             class="kg-entity"
             :class="{ selected: e.id === store.selectedId }"
             @click="store.selectEntity(e.id)"
-            ><strong>{{ e.name }}</strong
+            ><strong>{{ knowledgeEntityName(e) }}</strong
             ><small>{{ typeName(e.type) }} · {{ e.id }}</small></button
           >
           <div
@@ -142,7 +142,7 @@
                 :key="e.id"
                 class="kg-entity"
                 @click="store.selectEntity(e.id)"
-                >{{ e.name }}</button
+                >{{ knowledgeEntityName(e) }}</button
               ></template
             ><p v-else>暂无相似推荐</p></div
           >
@@ -237,7 +237,7 @@
           <template v-if="selectedRelation"
             ><p class="eyebrow">关联关系</p><h3>{{ relationName(selectedRelation.type) }}</h3
             ><dl class="kv section-gap"
-              ><dt>关系 ID</dt><dd>{{ selectedRelation.id }}</dd
+              ><dt>关系编号</dt><dd>{{ selectedRelation.id }}</dd
               ><dt>头实体</dt
               ><dd
                 ><button
@@ -253,7 +253,7 @@
                   >{{ entityName(selectedRelation!.tail) }}</button
                 ></dd
               ><dt>权重</dt><dd>{{ selectedRelation.weight ?? '未提供' }}</dd
-              ><dt>来源</dt><dd>{{ selectedRelation.source }}</dd></dl
+              ><dt>来源</dt><dd>{{ knowledgeSource(selectedRelation.source) }}</dd></dl
             ><button
               class="btn small section-gap"
               :disabled="!auth.can('knowledge.edit')"
@@ -263,15 +263,15 @@
           >
           <template v-else-if="store.detail"
             ><p class="eyebrow">{{ store.detail.entity.category }}</p
-            ><h3>{{ store.detail.entity.name }}</h3
+            ><h3>{{ knowledgeEntityName(store.detail.entity) }}</h3
             ><small>{{ store.detail.entity.id }}</small
             ><dl class="kv section-gap"
               ><dt>类型</dt><dd>{{ typeName(store.detail.entity.type) }}</dd
               ><dt>发布快照</dt><dd>{{ store.detail.versionId }}</dd
-              ><dt>关键词</dt><dd>{{ store.detail.entity.keywords.join('、') || '未提供' }}</dd
-              ><dt>来源</dt><dd>{{ store.detail.entity.source }}</dd></dl
+              ><dt>关键词</dt><dd>{{ store.detail.entity.keywords.map(knowledgeText).join('、') || '未提供' }}</dd
+              ><dt>来源</dt><dd>{{ knowledgeSource(store.detail.entity.source) }}</dd></dl
             ><h4 class="section-gap">知识说明</h4
-            ><p class="kg-description">{{ store.detail.entity.description || '未提供' }}</p
+            ><p class="kg-description">{{ knowledgeText(store.detail.entity.description) || '未提供' }}</p
             ><KnowledgePrincipleFlow
               :entity="store.detail.entity"
               :context="'已发布 · ' + store.detail.versionId"
@@ -284,8 +284,8 @@
               ><template
                 v-for="(a, i) in store.detail.entity.attributes"
                 :key="i"
-                ><dt>{{ a.name }}</dt
-                ><dd>{{ a.value }} {{ a.unit }}</dd></template
+                ><dt>{{ knowledgeAttributeName(a.name) }}</dt
+                ><dd>{{ knowledgeAttributeValue(a.value, a.name) || '未提供' }} {{ a.unit }}</dd></template
               ></dl
             ><p
               v-if="store.detail.entity.modelIds.length"
@@ -313,7 +313,7 @@
                     true,
                   )
                 "
-                >{{ neighbor?.name }}</button
+                >{{ knowledgeEntityName(neighbor) }}</button
               ><small v-if="!store.categories.includes(neighbor!.category)"
                 >跨类关系 · 点击后包含所属图谱</small
               ></div
@@ -468,6 +468,8 @@ import { computed, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import { useKnowledgeStore } from '../stores/knowledge';
 import { useKnowledgeLeaveGuard } from '../composables/useKnowledgeLeaveGuard';
+import { knowledgeEntityName, knowledgeTypeName, knowledgeRelationName, knowledgeText,
+  knowledgeAttributeName, knowledgeAttributeValue, knowledgeSource } from '../services/knowledge-display';
 import type { KnowledgeCategory, KnowledgeState } from '../types/knowledge';
 import AppTable from '../components/AppTable.vue';
 import RequestState from '../components/RequestState.vue';
@@ -575,18 +577,19 @@ const relatedRows = computed(() => {
 const changes = computed(() =>
   (store.workspace?.changes ?? []).map((c) => ({
     ...c,
-    summary: 'content' in c ? c.content.summary : c.summary,
-    author: store.actorName(c.authorId, 'change:' + c.id),
+    summary: knowledgeText('content' in c ? c.content.summary : c.summary),
+    author: knowledgeText(store.actorName(c.authorId, 'change:' + c.id)),
     base: 'content' in c ? c.content.baseVersionId : c.baseVersionId,
   })),
 );
 const versions = computed(() =>
   (store.workspace?.versions ?? []).map((v) => ({
     ...v,
+    summary: knowledgeText(v.summary),
     label: 'v' + v.number,
     state: v.id === store.current?.id ? '当前已发布' : '历史已发布',
     kindLabel: v.kind === 'ROLLBACK' ? '回滚发布' : v.kind === 'BASELINE' ? '初始基线' : '审核发布',
-    author: store.actorName(v.actorId, 'version:' + v.id),
+    author: knowledgeText(store.actorName(v.actorId, 'version:' + v.id)),
   })),
 );
 const actionNames: Record<string, string> = {
@@ -602,17 +605,17 @@ const actionNames: Record<string, string> = {
 const logs = computed(() =>
   (store.workspace?.logs ?? []).map((l) => ({
     ...l,
-    author: store.actorName(l.actorId, 'log:' + l.id),
-    actionName: actionNames[l.action] ?? l.action,
+    opinion: knowledgeAttributeValue(l.opinion),
+    author: knowledgeText(store.actorName(l.actorId, 'log:' + l.id)),
+    actionName: actionNames[l.action] ?? knowledgeText(l.action),
   })),
 );
 const entityName = (id: string) =>
-  store.graph?.entities.find((e) => e.id === id)?.name ??
-  store.detail?.neighbors.find((e) => e.id === id)?.name ??
-  id;
-const typeName = (id: string) => store.catalog.types.find((t) => t.id === id)?.name ?? id;
+  knowledgeEntityName(store.graph?.entities.find((e) => e.id === id) ??
+  store.detail?.neighbors.find((e) => e.id === id) ?? { name: id, type: '' });
+const typeName = (id: string) => knowledgeTypeName(id, store.catalog.types.find((t) => t.id === id)?.name);
 const relationName = (id: string) =>
-  store.catalog.relationTypes.find((t) => t.id === id)?.name ?? id;
+  knowledgeRelationName(id, store.catalog.relationTypes.find((t) => t.id === id)?.name);
 async function filtersChanged() {
   await store.applyFilters();
 }
