@@ -74,7 +74,7 @@ def uplinks_by_sid(fm, sol):
     return {fm.stations[c].sid: fm.stations[p].sid for c, (p, _b) in sol.parent_of.items()}
 
 
-def alternative_parent_solutions(fm, sol, max_variants=2, important_nodes=()):
+def alternative_parent_solutions(fm, sol, max_variants=2, important_nodes=(), *, failure_context=None):
     """在现有站址和端口内，生成少量合法的替代上级拓扑。"""
     from copy import copy
     from deployment import LAYER_PLAN
@@ -82,6 +82,16 @@ def alternative_parent_solutions(fm, sol, max_variants=2, important_nodes=()):
 
     if max_variants <= 0:
         return []
+
+    def creates_cycle(parent_of, child, parent):
+        seen = {child}
+        while parent not in seen:
+            seen.add(parent)
+            if parent not in parent_of:
+                return False
+            parent = parent_of[parent][0]
+        return True
+
     important = set(important_nodes)
     children_per_net = {}
     for _child, (parent, band) in sol.parent_of.items():
@@ -95,21 +105,32 @@ def alternative_parent_solutions(fm, sol, max_variants=2, important_nodes=()):
                         for parent_subtype in parent_subtypes}
         if not parent_types:
             continue
-        for new_parent in fm.neighbors(child, band):
+        neighbors = fm.neighbors(child, band) if failure_context is None else sorted(sol.connected)
+        for new_parent in neighbors:
             if (new_parent == old_parent or new_parent not in sol.connected
+                    or creates_cycle(sol.parent_of, child, new_parent)
                     or fm.stations[new_parent].subtype not in parent_types
                     or sol.ports.get((new_parent, band), 0)
                     >= E.capacity(fm.stations[new_parent].subtype, band)):
                 continue
+            if failure_context is not None and band not in fm.stations[new_parent].radio:
+                continue
             margin = fm.margin_of(child, new_parent, band)
-            if margin is None:
+            if margin is None and failure_context is None:
                 continue
             old_count = children_per_net[(old_parent, band)]
             new_count = children_per_net.get((new_parent, band), 0)
             # 把仅有一个下级的网并入已有网，可能减少频率着色对象。
             priority = (int(old_count == 1 and new_count > 0),
                         int(band == E.VUHF), int(child in important),
-                        int(old_count == 1), margin)
+                        int(old_count == 1), margin if margin is not None else -999.0)
+            if failure_context is not None:
+                cut_gain = sum(len(cut["lost"]) for cut in failure_context["cuts"]
+                               if (fm.stations[child].sid in cut["side"])
+                               != (fm.stations[new_parent].sid in cut["side"]))
+                hot_merge = (fm.stations[old_parent].sid in failure_context.get("hot_nodes", set())
+                             and old_count == 1 and new_count > 0)
+                priority = (int(hot_merge), int(fm.stations[child].sid in failure_context["failed_nodes"]), cut_gain) + priority
             swaps.append((priority, child, old_parent, new_parent, band))
     swaps.sort(key=lambda row: (row[0], -row[1], -row[3]), reverse=True)
 
@@ -138,6 +159,7 @@ def alternative_parent_solutions(fm, sol, max_variants=2, important_nodes=()):
         moved = set()
         for _priority, child, old_parent, new_parent, band in swaps:
             if (len(moved) >= limit or child in moved
+                    or creates_cycle(variant.parent_of, child, new_parent)
                     or counts[(old_parent, band)] != 1
                     or counts.get((new_parent, band), 0) == 0
                     or variant.ports.get((new_parent, band), 0)

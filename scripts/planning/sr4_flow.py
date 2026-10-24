@@ -725,54 +725,92 @@ def run(task_id=None, preset="TERRAIN", strategy="MAX_RELIABILITY",
     selected = None
     seen_topologies = set()
     checked = 0
-    from actual_search import ChannelSearch, bandwidth_audit
+    verified, check_cost = [], 0.0
+    from actual_search import ChannelSearch, bandwidth_audit, backup_solutions, failure_context
     search = ChannelSearch(models, antennas, terrain, jam_rows,
         deadline=monotonic_start + TIME_LIMIT_S - 30,
         progress=(lambda: progress(0.72, "实际频点与物理备份搜索")) if progress else None)
 
-    def consider(problem, optimization, limit):
-        nonlocal selected, pb, opt, checked
-        candidates = [optimization["solutions"][0]] + optimization.get("candidates", [])
+    def checked_candidate(problem, solution, preference=None, optimize_bindings=False):
+        nonlocal checked, check_cost
+        if not search.begin_check(check_cost, allow_initial=selected is None):
+            return None
+        checked = search.complete_checks
+        started = time.monotonic()
+        result = _check_candidate(problem, solution, st1, nodes1, devices1, models, antennas,
+            terrain, demands, opt_demands, strategy, preset, pool_rows, metrics_rows, cons,
+            interference_rows=jam_rows, channel_preference=preference,
+            optimize_bindings=optimize_bindings, search_checkpoint=search.checkpoint)
+        check_cost = max(0.25, time.monotonic() - started)
+        return result
+
+    def consider(problem, optimization, limit, candidates=None):
+        nonlocal selected, pb, opt, checked, check_cost
+        if candidates is None:
+            candidates = [optimization["solutions"][0]] + optimization.get("candidates", [])
         for solution in candidates[:limit]:
-            if selected is not None and time.time() - T > TIME_LIMIT_S - 55:
+            if selected is not None and (checked >= 24 or not search.checkpoint()
+                    or time.monotonic() + check_cost >= search.deadline):
                 break
             signature = (tuple(sorted((min(a, b), max(a, b), band)
-                                      for a, b, band in solution["links"])), solution["m_req"])
+                                      for a, b, band in solution["links"])), solution["m_req"],
+                         tuple(sorted(solution["uplinks"].items())))
             if signature in seen_topologies:
                 continue
             seen_topologies.add(signature)
-            result = _check_candidate(
-                problem, solution, st1, nodes1, devices1, models, antennas,
-                terrain, demands, opt_demands, strategy, preset, pool_rows,
-                metrics_rows, cons, interference_rows=jam_rows)
-            checked += 1
+            result = checked_candidate(problem, solution)
+            if result is None:
+                break
             if checked < 24 and search.checkpoint():
                 preference = search.preferences(result, pool_rows, opt_demands)
-                if preference and search.checkpoint():
-                    refined = _check_candidate(
-                        problem, solution, st1, nodes1, devices1, models, antennas,
-                        terrain, demands, opt_demands, strategy, preset, pool_rows,
-                        metrics_rows, cons, interference_rows=jam_rows,
-                        channel_preference=preference, optimize_bindings=True, search_checkpoint=search.checkpoint)
-                    checked += 1
-                    if refined["score"] < result["score"]:
+                if preference and search.checkpoint() and time.monotonic() + check_cost < search.deadline:
+                    refined = checked_candidate(problem, solution, preference, True)
+                    if refined is not None and refined["score"] < result["score"]:
                         result = refined
+            verified.append((problem, optimization, solution, result))
             if selected is None or result["score"] < selected["score"]:
                 selected = dict(result, solution=solution)
                 pb, opt = problem, optimization
-            if result["score"][0] == 0:
+            if result["score"][0] == 0 and result["objectives"]["e2e_connectivity"] == 1.0:
                 return True
         return False
 
     found = consider(pb, opt, 6)
-    if not found and time.time() - T < TIME_LIMIT_S - 120:
+    frontier = sorted(verified, key=lambda row: row[3]["score"])[:4]
+    for _round in range(3):
+        if found or checked >= 20 or not search.checkpoint():
+            break
+        expanded = []
+        for problem, optimization, solution, result in frontier:
+            proposals = backup_solutions(problem, solution, result, opt_demands, models, pool_rows,
+                                         max_variants=4, checkpoint=search.checkpoint)
+            for proposal in proposals:
+                before = len(verified)
+                found = consider(problem, optimization, 1, candidates=[proposal])
+                expanded.extend(verified[before:])
+                if found or checked >= 20 or not search.checkpoint():
+                    break
+            if found or checked >= 20 or not search.checkpoint():
+                break
+        if not expanded:
+            break
+        # 保留新一层候选，即使单步暂未改善最坏割；全局终选仍只接受实际更优解。
+        frontier = sorted(expanded, key=lambda row: row[3]["score"])[:4]
+    if not found and checked < 24 and search.checkpoint() and time.monotonic() + max(10, 3 * check_cost) < search.deadline:
         important = {fm.stations[i].sid for demand in opt_demands
                      for i in (pb.idx.get(demand["src_node_id"]),
                                pb.idx.get(demand["dst_node_id"])) if i is not None
                      and str(demand.get("is_mandatory", "false")).lower() == "true"}
+        parent_context = failure_context(selected["links"], opt_demands, selected["params"]["fade_margin_db"])
+        hot_nets = {task_id for row in selected["frequency"]["conflicts"] for task_id in row["link_ids"]}
+        hot_nets.update(task_id for band in selected["frequency"]["gap"].values()
+                        for sub_band in band["sub_bands"] for task_id in sub_band["clique_task_ids"])
+        parent_context["hot_nodes"] = {station.sid for station in fm.stations
+                                       if any("NET-%s-%s" % (station.sid, band) in hot_nets for band in station.radio)}
         for alt in alternative_parent_solutions(
-                fm, sol, max_variants=4, important_nodes=important):
-            if time.time() - T > TIME_LIMIT_S - 90:
+                fm, sol, max_variants=4, important_nodes=important,
+                failure_context=parent_context):
+            if checked >= 24 or not search.checkpoint() or time.monotonic() + max(10, 3 * check_cost) >= search.deadline:
                 break
             alt_pb = MO.Problem(fm, alt, opt_demands, caps1,
                                 survivability_threshold=cons["survivability_threshold"])
@@ -812,6 +850,11 @@ def run(task_id=None, preset="TERRAIN", strategy="MAX_RELIABILITY",
     described["objectives"] = objectives
     described["constraint_check"] = constraint_check
     described["links_usable"] = usable_count
+    actual_context = failure_context(links, opt_demands, params["fade_margin_db"])
+    described["bridges"] = len(actual_context["bridges"])
+    described["worst_single_failure"] = ({"link": list(actual_context["cuts"][0]["edge"])}
+                                          if actual_context["cuts"] else None)
+    task_objectives, task_checks, _task_usable = _fixed_topology_metrics(links, demands, routes, params, cons)
     failed_constraints = [key for key, row in constraint_check.items()
                           if not row["pass"]]
     if not chk["passed"]:
@@ -825,6 +868,8 @@ def run(task_id=None, preset="TERRAIN", strategy="MAX_RELIABILITY",
                                  actual_search={"evaluations": search.evaluations,
                                                 "budget_exhausted": search.exhausted,
                                                 "checked_candidates": checked,
+                                                "check_limit_reached": checked >= 24,
+                                                "repair_changes": copy.deepcopy(best.get("repair_changes", [])),
                                                 "radio_bandwidth": bandwidth_audit(sc, devices2, models),
                                                 "planned_devices": [{"device_id": row["device_id"],
                                                     "node_id": row["node_id"], "source_model_id": row["model_id"],
@@ -839,10 +884,15 @@ def run(task_id=None, preset="TERRAIN", strategy="MAX_RELIABILITY",
                                  }),
                                  survivability_scope=("TASK" if task_id and survivability_scope == "TASK"
                                                       else "NETWORK"),
-                                 task_view=(MO.subset_view(pb, best, [d["demand_id"] for d in demands])
-                                            if task_id else None),
+                                 task_view=({"demands": len(demands), "mandatory": sum(
+                                     str(row.get("is_mandatory", "false")).lower() == "true" for row in demands),
+                                     "connectivity": task_objectives["e2e_connectivity"],
+                                     "mandatory_connectivity": task_checks["mandatory_e2e_connectivity"]["value"],
+                                     "survivability": task_objectives["survivability"],
+                                     "note": "实际频点任务视角，仅供参考；硬约束仍按全网必要需求"} if task_id else None),
                                  best=described,
-                                 tradeoff=[MO.describe(pb, e, opt["constraints"])
+                                 tradeoff=[dict(MO.describe(pb, e, opt["constraints"]),
+                                                evaluation_basis="REPRESENTATIVE_FREQUENCY_PRESELECTION")
                                            for e in opt["tradeoff"]]),
                routes=routes, frequency=freq, params=params, check=chk,
                frequency_pool_extra=[dict(freq_id=r["freq_id"], band=r["device_class"],

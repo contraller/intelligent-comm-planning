@@ -136,6 +136,17 @@ def test_actual_channel_budget_and_cancel_do_not_mutate_snapshot(native_case):
     assert result["params"] == before
 
 
+def test_complete_check_gate_is_shared_and_never_accepts_the_twenty_fifth():
+    engine = search.ChannelSearch([], [], None, [], deadline=time.monotonic() + 10)
+    assert sum(engine.begin_check() for _ in range(30)) == 24
+    assert engine.complete_checks == 24
+    expired = search.ChannelSearch([], [], None, [], deadline=time.monotonic() - 1)
+    assert not expired.begin_check()
+    assert expired.begin_check(allow_initial=True)
+    assert not expired.begin_check(allow_initial=True)
+    assert expired.complete_checks == 1
+
+
 def test_actual_failure_weights_prioritize_bypass_not_healthy_bridge():
     links = [{"link_id": name, "node_a_id": a, "node_b_id": b, "link_margin_db": margin}
              for name, a, b, margin in (("BRIDGE", "A", "B", 23), ("BACKUP", "A", "C", -10),
@@ -258,3 +269,159 @@ def test_raw_bandwidth_audit_exposes_legacy_assumption_without_selecting(native_
     assert audit["links"][0]["aggregation"] == "MAX_ENDPOINT_NATIVE_RADIO_BW"
     assert audit["links"][0]["effective_bw_khz"] == effective
     assert (models, result["devices"], result["params"]) == frozen
+
+
+@pytest.fixture
+def physical_backup_case(native_case, monkeypatch):
+    from types import SimpleNamespace
+    _result, models, antennas, _demands = native_case
+    monkeypatch.setattr(flow.IF, "hf_path_loss", lambda *_args: (105.0, True, 0, 1000))
+    nodes = [{"node_id": name, "node_subtype": subtype, "lon": 114 + index * .01, "lat": 38}
+             for index, (name, subtype) in enumerate((("A", "I_FIXED"), ("B", "II_FIXED"),
+                                                     ("C", "II_FIXED"), ("D", "I_MOBILE")))]
+    devices = [{"device_id": "%s-%d" % (node["node_id"], index), "node_id": node["node_id"], "model_id": "UNIT-M",
+                "antenna_id": "UNIT-ANT", "tx_power_dbm": "30", "antenna_height_m": "10"}
+               for node in nodes for index in range(3)]
+    stations = flow.stations_from_nodes(nodes, devices, models, antennas)
+    base = [(0, 1, "HF"), (0, 2, "HF"), (0, 3, "HF")]
+    problem = SimpleNamespace(fm=SimpleNamespace(stations=stations), sid=[station.sid for station in stations],
+                              base=base, backups=[], margin_at_max=lambda *_args: 1.0)
+    solution = {"links": list(base), "relays": [], "m_req": 6.0, "uplinks": {1: 0, 2: 0}}
+    demands = [{"demand_id": "D-" + target, "src_node_id": "A", "dst_node_id": target, "is_mandatory": "true"}
+               for target in ("B", "C")]
+    def check(candidate, selected_demands=demands):
+        return flow._check_candidate(problem, candidate, stations, nodes, devices, models, antennas, None,
+            selected_demands, selected_demands, "MAX_RELIABILITY", "TERRAIN", pool_rows(), [],
+            dict(flow.MO.DEFAULT_CONSTRAINTS), interference_rows=[])
+    return problem, solution, demands, models, check
+
+
+def test_physical_backup_two_cuts_require_two_real_changes(physical_backup_case):
+    problem, source, demands, models, check = physical_backup_case
+    before = copy.deepcopy(source)
+    original = check(source)
+    assert original["objectives"]["survivability"] == 0.5
+    proposals = search.backup_solutions(problem, source, original, demands, models, pool_rows())
+    assert proposals and all(row["links"][:len(problem.base)] == problem.base for row in proposals)
+    first = proposals[0]
+    partial = check(first)
+    assert partial["objectives"]["survivability"] == 0.5
+    second = search.backup_solutions(problem, first, partial, demands, models, pool_rows())
+    assert second
+    completed = [check(row) for row in second]
+    best = min(completed, key=lambda row: row["score"])
+    assert best["score"][0] == 0 and best["objectives"]["survivability"] == 1.0
+    assert len(best["links"]) == len(source["links"]) + 2
+    assert {row["device_id"] for row in best["devices"]} == {row["device_id"] for row in original["devices"]}
+    assert source == before
+
+
+@pytest.mark.parametrize("spare_devices", [False, True])
+def test_physical_backup_counts_independent_nets_not_same_net_edges(
+        physical_backup_case, native_case, spare_devices):
+    problem, source, demands, models, check = physical_backup_case
+    original = check(source)
+    devices = [row for row in original["devices"]
+               if row["device_id"].endswith("-0")
+               or spare_devices and row["node_id"] != "A" and row["device_id"].endswith("-1")]
+    antennas = native_case[2]
+
+    def validate(candidate):
+        return flow._check_candidate(problem, candidate, original["stations"], original["nodes"],
+            devices, models, antennas, None, demands, demands, "MAX_RELIABILITY", "TERRAIN",
+            pool_rows(), [], dict(flow.MO.DEFAULT_CONSTRAINTS), interference_rows=[])
+
+    result = validate(source)
+    frozen = copy.deepcopy((source, result["links"], result["nodes"], result["devices"], devices))
+    assert not result["binding_errors"] and result["check"]["passed"]
+    proposals = search.backup_solutions(problem, source, result, demands, models, pool_rows())
+    if not spare_devices:
+        assert proposals == []
+    else:
+        assert proposals
+        for proposal in proposals:
+            verified = validate(proposal)
+            assert not verified["binding_errors"] and verified["check"]["passed"]
+            same_net = [row for row in verified["links"] if row["node_a_id"] == "A"]
+            assert len(same_net) == 3
+            assert {row["device_a_id"] for row in same_net} == {"A-0"}
+            assert verified["devices"] == devices
+            assert verified["nodes"] == result["nodes"]
+    assert (source, result["links"], result["nodes"], result["devices"], devices) == frozen
+
+
+@pytest.mark.parametrize("reason", ["no_pool", "full_ports", "cancelled"])
+def test_physical_backup_does_not_invent_capacity_frequency_or_ignore_cancel(physical_backup_case, monkeypatch, reason):
+    problem, source, demands, models, check = physical_backup_case
+    original = check(source)
+    pool = pool_rows()
+    checkpoint = None
+    if reason == "no_pool":
+        pool = []
+    elif reason == "full_ports":
+        real_capacity = search.E.capacity
+        monkeypatch.setattr(search.E, "capacity", lambda subtype, band: 1 if subtype == "II_FIXED" else real_capacity(subtype, band))
+    else:
+        def cancelled():
+            raise RuntimeError("UNIT cancelled backup search")
+        checkpoint = cancelled
+    if reason == "cancelled":
+        with pytest.raises(RuntimeError, match="cancelled backup search"):
+            search.backup_solutions(problem, source, original, demands, models, pool, checkpoint=checkpoint)
+    else:
+        assert search.backup_solutions(problem, source, original, demands, models, pool, checkpoint=checkpoint) == []
+
+
+def test_new_task_uses_two_step_actual_cut_search_not_only_single_step_greedy(physical_backup_case, monkeypatch):
+    from types import SimpleNamespace
+    problem, source, demands, models, check = physical_backup_case
+    initial = check(source)
+    nodes, devices = initial["nodes"], initial["devices"]
+    source.update(usable=[(*edge, 12.0) for edge in source["links"]], connectivity=1.0,
+                  mandatory_connectivity=1.0, survivability=0.5, total_power_w=1.0,
+                  bridges=3, worst_bridge=(0, 1), relay_hops=0)
+    solution = SimpleNamespace(added=[])
+    monkeypatch.setattr(flow, "default_terrain", lambda **_: None)
+    monkeypatch.setattr(flow, "topology_from_deployment", lambda *_args: (
+        problem.fm, solution, copy.deepcopy(initial["links"]), copy.deepcopy(nodes), copy.deepcopy(devices)))
+    monkeypatch.setattr(flow.RP, "plan", lambda *_args, **_kwargs: {})
+    monkeypatch.setattr(flow.MO, "Problem", lambda *_args, **_kwargs: problem)
+    monkeypatch.setattr(flow.MO, "optimize", lambda *_args, **kwargs: {
+        "solutions": [source], "candidates": [], "tradeoff": [source], "evaluations": 1,
+        "constraints": kwargs["constraints"]})
+    tables = {"node.csv": nodes, "device.csv": devices, "device_model.csv": models,
+              "antenna_model.csv": [{"antenna_id": "UNIT-ANT", "gain_dbi": "0", "pattern_type": "OMNI"}],
+              "frequency_resource.csv": pool_rows(), "interference_source.csv": [],
+              "comm_demand.csv": [dict(row, task_id="UNIT-TASK") for row in demands],
+              "link_metric.csv": [], "candidate_site.csv": []}
+    frozen = copy.deepcopy(tables)
+    actual = flow.run("UNIT-TASK", resource_rows=tables, pop_size=4, generations=1, verbose=False)
+    best = actual["optimization"]["best"]
+    assert actual["optimization"]["feasible"]
+    assert best["objectives"]["survivability"] == 1.0 and best["bridges"] == 0
+    assert best["worst_single_failure"] is None
+    assert actual["optimization"]["task_view"]["survivability"] == 1.0
+    assert 4 <= actual["optimization"]["actual_search"]["checked_candidates"] <= 24
+    assert actual["optimization"]["tradeoff"][0]["evaluation_basis"] == "REPRESENTATIVE_FREQUENCY_PRESELECTION"
+    assert len(actual["links"]) == 5 and actual["within_limit"]
+    assert tables == frozen
+
+
+def test_unusable_optional_backup_can_be_removed_without_erasing_primary_or_history(physical_backup_case, monkeypatch):
+    problem, source, demands, models, check = physical_backup_case
+    source = dict(source, links=source["links"] + [(1, 3, "HF")])
+    frozen = copy.deepcopy(source)
+    def loss(_terrain, a, b, *_args):
+        bad = {round(a[0], 2), round(b[0], 2)} == {114.01, 114.03}
+        return (180.0 if bad else 105.0), True, 0, 1000
+    monkeypatch.setattr(flow.IF, "hf_path_loss", loss)
+    result = check(source)
+    assert float(result["links"][-1]["link_margin_db"]) < 0
+    proposals = search.backup_solutions(problem, source, result, demands, models, pool_rows())
+    pruned = proposals[0]
+    assert pruned["links"] == problem.base
+    assert pruned["repair_changes"][-1]["kind"] == "DROP_UNUSABLE_OPTIONAL_BACKUP"
+    after = check(pruned)
+    assert after["objectives"]["survivability"] == result["objectives"]["survivability"]
+    assert after["objectives"]["e2e_connectivity"] == result["objectives"]["e2e_connectivity"]
+    assert source == frozen

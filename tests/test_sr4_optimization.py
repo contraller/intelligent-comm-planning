@@ -1,4 +1,5 @@
 """SR4 全网候选拓扑与真实校验选优回归。"""
+import copy
 import random
 import sys
 from pathlib import Path
@@ -172,3 +173,47 @@ def test_approximate_survivability_never_hides_preexisting_disconnection(
     result = MO.evaluate(pb, ([], 0))
     assert result["survivability"] == expected
     assert result["survivability"] <= result["mandatory_connectivity"]
+
+
+def test_actual_parent_feedback_considers_legal_parent_outside_representative_neighbors():
+    stations = [SimpleNamespace(sid="P0", subtype="II_MOBILE", radio={E.VUHF: {}}),
+                SimpleNamespace(sid="P1", subtype="II_MOBILE", radio={E.VUHF: {}}),
+                SimpleNamespace(sid="C2", subtype="III_MOBILE", radio={E.VUHF: {}})]
+    matrix = SimpleNamespace(stations=stations, neighbors=lambda *_: [0], margin_of=lambda *_: -2.0)
+    sol = Solution()
+    sol.connected = {0, 1, 2}
+    sol.parent_of = {2: (0, E.VUHF)}
+    sol.ports = {(0, E.VUHF): 1, (1, E.VUHF): 0, (2, E.VUHF): 1}
+    assert plan_pipeline.alternative_parent_solutions(matrix, sol) == []
+    variants = plan_pipeline.alternative_parent_solutions(matrix, sol,
+        failure_context={"failed_nodes": {"C2"}, "cuts": [{"side": {"C2"}, "lost": ["D1"]}]})
+    assert variants[0].parent_of[2] == (1, E.VUHF)
+    assert sol.parent_of[2] == (0, E.VUHF)
+
+
+@pytest.mark.parametrize("ancestry", ["self", "descendant", "ancestor_loop"])
+def test_actual_parent_feedback_rejects_self_and_cyclic_ancestry(monkeypatch, ancestry):
+    import deployment
+    stations = [SimpleNamespace(sid="P0", subtype="II_MOBILE", radio={E.VUHF: {}}),
+                SimpleNamespace(sid="P1", subtype="II_MOBILE", radio={E.VUHF: {}}),
+                SimpleNamespace(sid="C2", subtype="III_MOBILE", radio={E.VUHF: {}}),
+                SimpleNamespace(sid="P3", subtype="II_MOBILE", radio={E.VUHF: {}})]
+    matrix = SimpleNamespace(stations=stations, neighbors=lambda *_: [0], margin_of=lambda *_: None)
+    sol = Solution()
+    sol.parent_of = {2: (0, E.VUHF)}
+    sol.connected = {0, 2}
+    sol.ports = {(0, E.VUHF): 1, (2, E.VUHF): 1}
+    if ancestry == "self":
+        # UNIT permissive layer isolates the guard from the production type restriction.
+        monkeypatch.setattr(deployment, "LAYER_PLAN", deployment.LAYER_PLAN + [
+            (("III_MOBILE",), ("III_MOBILE",), E.VUHF, "UNIT self candidate")])
+    elif ancestry == "descendant":
+        sol.connected.add(1)
+        sol.parent_of[1] = (2, E.VUHF)
+    else:
+        sol.connected.update((1, 3))
+        sol.parent_of.update({1: (3, E.VUHF), 3: (1, E.VUHF)})
+    frozen = copy.deepcopy(sol.__dict__)
+    assert plan_pipeline.alternative_parent_solutions(matrix, sol,
+        failure_context={"failed_nodes": {"C2"}, "cuts": []}) == []
+    assert sol.__dict__ == frozen

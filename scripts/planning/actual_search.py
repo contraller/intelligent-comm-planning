@@ -6,7 +6,9 @@ import time
 import frequency as FQ
 import interference as IF
 import multi_objective as MO
+import echelon as E
 from devicespec import SpecFiller
+from terrain import haversine_m
 
 
 def binding_proposals(available, original, device_of, model_of):
@@ -101,8 +103,113 @@ def failure_context(links, demands, required):
             weights[row["link_id"]] += sum(
                 {component[d["src_node_id"]], component[d["dst_node_id"]]}
                 == {component.get(a), component.get(b)} for d in disconnected)
-    return {"cuts": cuts, "component": component, "disconnected": disconnected,
-            "weights": weights, "mandatory_count": len(mandatory)}
+    return {"cuts": cuts, "bridges": bridges, "component": component, "disconnected": disconnected,
+            "weights": weights, "mandatory_count": len(mandatory),
+            "failed_nodes": {row[key] for row in links if float(row["link_margin_db"]) < required
+                             for key in ("node_a_id", "node_b_id")}}
+
+
+def backup_solutions(problem, solution, result, demands, models, pool_rows, *, max_variants=4, checkpoint=None):
+    """只在本次已有配置内补跨割边，端口不足时仅替换非关键备份。"""
+    links = solution["links"]
+    required = result["params"]["fade_margin_db"]
+    context = failure_context(result["links"], demands, required)
+    station_of = {station.sid: index for index, station in enumerate(problem.fm.stations)}
+    model_of = {row["model_id"]: row for row in models}
+    radios = {}
+    for device in result["devices"]:
+        model = model_of.get(device["model_id"])
+        index = station_of.get(device["node_id"])
+        if model is not None and index is not None and device.get("availability", "ACTIVE") == "ACTIVE":
+            radios.setdefault((index, model["device_class"]), []).append(model)
+    present = set((min(a, b), max(a, b), band) for a, b, band in links)
+    active = {index for index, _band in radios}
+    sub = lambda index: problem.fm.stations[index].subtype
+    groups = E.peer_groups(sub, links, solution["uplinks"])
+    pool = FQ.FreqPool(pool_rows)
+    critical = {frozenset(edge) for edge in context["bridges"]}
+    base_count = len(problem.base)
+    seen, proposals = set(), []
+    failed_optional = {index for index, row in enumerate(result["links"])
+                       if index >= base_count and float(row["link_margin_db"]) < required}
+    if failed_optional:
+        removed = [edge for index, edge in enumerate(links) if index in failed_optional]
+        proposals.append(dict(solution, links=[edge for index, edge in enumerate(links) if index not in failed_optional],
+            repair_changes=solution.get("repair_changes", []) + [{"kind": "DROP_UNUSABLE_OPTIONAL_BACKUP",
+                "edges": [[problem.sid[a], problem.sid[b], band] for a, b, band in removed]}]))
+        if len(proposals) >= max_variants:
+            return proposals
+
+    def fits(edges):
+        used = {}
+        for a, b, band in edges:
+            for key in ((a, band), (b, band)):
+                used[key] = used.get(key, 0) + 1
+        if any(count > E.capacity(sub(index), band) for (index, band), count in used.items()):
+            return False
+        rows = [{"link_id": str(index), "node_a_id": problem.sid[a], "node_b_id": problem.sid[b],
+                 "device_class": band} for index, (a, b, band) in enumerate(edges)]
+        by_id = {row["link_id"]: row for row in rows}
+        nets = {}
+        for task in FQ.tasks_from_nets(rows, result["nodes"]):
+            for lid in task.members:
+                row = by_id[lid]
+                for node in (row["node_a_id"], row["node_b_id"]):
+                    nets.setdefault((station_of[node], task.band), set()).add(task.task_id)
+        return all(len(required_nets) <= len(radios.get(key, [])) for key, required_nets in nets.items())
+
+    sides = [cut["side"] for cut in context["cuts"][:4]]
+    sides.extend({node for node, component in context["component"].items()
+                  if component == context["component"][row["src_node_id"]]}
+                 for row in context["disconnected"][:2])
+    # 多座割轮流给候选，避免第一座割占满有限实际核验名额。
+    ranked_sides = []
+    for side in sides:
+        crossing = []
+        for a in sorted(active):
+            sa = problem.fm.stations[a]
+            for b in sorted(active):
+                sb = problem.fm.stations[b]
+                if a >= b or (sa.sid in side) == (sb.sid in side):
+                    continue
+                if checkpoint and not checkpoint():
+                    return proposals
+                for band in sorted(set(sa.radio) & set(sb.radio)):
+                    if ((a, b, band) in present or not E.relation_allowed(sub(a), sub(b), band)
+                            or E.is_peer_pair(sub(a), sub(b)) and not E.peer_link_allowed(a, b, groups, solution["uplinks"])):
+                        continue
+                    allowed = [channel for channel in pool.of_band(band) if all(
+                        any(float(model["freq_min_khz"]) <= channel["freq_khz"] <= float(model["freq_max_khz"])
+                            for model in radios.get((index, band), [])) for index in (a, b))]
+                    if allowed:
+                        crossing.append((haversine_m(sa.lon, sa.lat, sb.lon, sb.lat), a, b, band))
+        ranked_sides.append(sorted(crossing)[:8])
+    for rank in range(8):
+        for crossing in ranked_sides:
+            if rank >= len(crossing):
+                continue
+            _distance, a, b, band = crossing[rank]
+            choices = [[None]]
+            for endpoint in (a, b):
+                count = sum(endpoint in edge[:2] and edge[2] == band for edge in links)
+                removable = [index for index, edge in enumerate(links) if index >= base_count
+                             and endpoint in edge[:2] and edge[2] == band
+                             and frozenset((problem.sid[edge[0]], problem.sid[edge[1]])) not in critical]
+                choices.append(([] if count >= E.capacity(sub(endpoint), band) else [None]) + removable[:2])
+            for removed in itertools.product(*choices):
+                indices = set(removed) - {None}
+                edges = [edge for index, edge in enumerate(links) if index not in indices] + [(a, b, band)]
+                signature = tuple(sorted((min(x, y), max(x, y), frequency_band) for x, y, frequency_band in edges))
+                if signature in seen or not fits(edges):
+                    continue
+                seen.add(signature)
+                proposals.append(dict(solution, links=edges, repair_changes=solution.get("repair_changes", []) + [{
+                    "kind": "ADD_PHYSICAL_BACKUP", "edge": [problem.sid[a], problem.sid[b], band],
+                    "replaced_optional_edges": [[problem.sid[x], problem.sid[y], old_band]
+                                                for index, (x, y, old_band) in enumerate(links) if index in indices]}]))
+                if len(proposals) >= max_variants:
+                    return proposals
+    return proposals
 
 
 def improve_bindings(links, nodes, devices, models, pool_rows, locked=(), checkpoint=None):
@@ -192,15 +299,26 @@ class ChannelSearch:
         self.evaluations = 0
         self.exhausted = False
         self.last_progress = float("-inf")
+        self.complete_checks = 0
 
     def checkpoint(self):
         now = time.monotonic()
         if self.progress and now - self.last_progress >= 0.5:
             self.progress()
-            self.last_progress = now
+            now = self.last_progress = time.monotonic()
         if now >= self.deadline:
             self.exhausted = True
             return False
+        return True
+
+    def begin_check(self, estimate=0.0, *, allow_initial=False):
+        ready = self.checkpoint()
+        if self.complete_checks >= 24:
+            return False
+        if not (allow_initial and self.complete_checks == 0) and (
+                not ready or time.monotonic() + estimate >= self.deadline):
+            return False
+        self.complete_checks += 1
         return True
 
     def preferences(self, result, pool_rows, demands, max_tasks=12, max_evaluations=1200):
