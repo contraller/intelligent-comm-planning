@@ -1,7 +1,7 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createPinia, disposePinia, setActivePinia } from 'pinia';
 import { defineComponent, h, nextTick, reactive, ssrContextKey, type App, type Component } from 'vue';
-import type { KnowledgeDraft, KnowledgeEntity, KnowledgeNetworkRule, KnowledgePrincipleFlow as PrincipleFlow, KnowledgeRelation, KnowledgeVersion } from '../src/types/knowledge';
+import type { KnowledgeChange, KnowledgeDraft, KnowledgeEntity, KnowledgeNetworkRule, KnowledgePrincipleFlow as PrincipleFlow, KnowledgeRelation, KnowledgeVersion } from '../src/types/knowledge';
 
 const service = vi.hoisted(() => ({ getDeviceKnowledge: vi.fn(), saveKnowledgeReceipt: vi.fn() }));
 vi.mock('../src/services', () => ({ previewService: service, releasePageSessionBinding: vi.fn(), switchIntegrationIdentity: vi.fn() }));
@@ -130,6 +130,31 @@ async function expand(root: HostNode, name: string) {
 }
 
 describe('知识面板中文纯显示', () => {
+  it('两种抽屉的历史署名翻译受控回退词，保留事件姓名快照与身份原值', async () => {
+    const { store, version } = fixture(), content = knowledgeClone(store.draft!), time = version.time;
+    const change: KnowledgeChange = { id: 'KGC-ATTRIBUTION', authorId: 'baseline', state: 'PUBLISHED', revision: 1,
+      content, createdAt: time, updatedAt: time, publishedVersionId: version.id, submissions: [
+        { number: 1, revision: 1, actorId: 'legacy', time, content: knowledgeClone(content), outcome: 'WITHDRAWN', review: null },
+        { number: 2, revision: 1, actorId: 'seed', time, content: knowledgeClone(content), outcome: 'APPROVED',
+          review: { actorId: 'legacy', time, opinion: '' } },
+      ] };
+    store.workspace!.changes.push(change); store.changeId = change.id;
+    version.actorId = 'legacy'; version.changeId = change.id; store.historyVersionId = version.id;
+    store.workspace!.identitySnapshots!.push({ key: 'submit:' + change.id + ':1', id: 'legacy',
+      name: 'Historic Custom Name', role: 'EDITOR', roleId: 'old-role', roleName: '历史角色' });
+    const before = knowledgeClone(store.workspace), draft = knowledgeClone(store.draft);
+    const root = await mount({ render: () => h('div', [h(KnowledgeChangeDrawer), h(KnowledgeVersionDrawer)]) });
+    const text = textOf(root);
+    expect(text).toContain('作者：初始基线');
+    expect(text.split('初始知识资料')).toHaveLength(3);
+    expect(text.split('历史账号')).toHaveLength(4);
+    expect(text.split('Historic Custom Name')).toHaveLength(3);
+    expect(text).not.toMatch(/\b(?:legacy|seed|baseline)\b/);
+    expect(store.workspace).toEqual(before); expect(store.draft).toEqual(draft);
+    expect(store.actorName('legacy', 'submit:' + change.id + ':1')).toBe('Historic Custom Name');
+    expect(store.actorName('legacy', 'version:' + version.id)).toBe('legacy');
+  });
+
   it('维护字段显示中文，选项仍使用原ID；打开与未触碰保存请求不改变草稿', async () => {
     const { store } = fixture(), before = knowledgeClone(store.draft), root = await mount(KnowledgeChangeDrawer);
     expect(field(root, '名称').props.value).toBe('设备型号 DM-0001');

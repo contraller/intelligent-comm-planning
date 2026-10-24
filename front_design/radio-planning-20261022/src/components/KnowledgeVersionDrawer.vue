@@ -18,7 +18,7 @@
         }}</dd
         ><dt>父版本</dt><dd>{{ version.parentId ?? '无' }}</dd
         ><dt>恢复来源</dt><dd>{{ version.restoredFromVersionId ?? '不适用' }}</dd
-        ><dt>发布人</dt><dd>{{ store.actorName(version.actorId, 'version:' + version.id) }}</dd
+        ><dt>发布人</dt><dd>{{ knowledgeText(store.actorName(version.actorId, 'version:' + version.id)) }}</dd
         ><dt>发布时间</dt><dd>{{ version.time }}</dd
         ><dt>摘要</dt><dd>{{ knowledgeText(version.summary) }}</dd
         ><dt>关联变更单</dt><dd>{{ version.changeId ?? '无' }}</dd></dl
@@ -43,11 +43,11 @@
                   ? '撤回'
                   : '待审核'
           }}<br />提交：{{
-            store.actorName(s.actorId, 'submit:' + version.changeId + ':' + s.number)
+            knowledgeText(store.actorName(s.actorId, 'submit:' + version.changeId + ':' + s.number))
           }}
           / {{ s.time }}<br />审核：{{
             s.review
-              ? store.actorName(s.review.actorId, 'review:' + version.changeId + ':' + s.number)
+              ? knowledgeText(store.actorName(s.review.actorId, 'review:' + version.changeId + ':' + s.number))
               : '未审核'
           }}
           / {{ knowledgeText(s.review?.opinion ?? '') || '无附加意见' }}</p

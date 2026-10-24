@@ -346,10 +346,10 @@
           ><strong>第 {{ s.number }} 次 · 修订 {{ s.revision }}</strong
           ><KnowledgeStateBadge :state="s.outcome" /><p
             >{{ s.time }} ·
-            {{ store.actorName(s.actorId, 'submit:' + store.change.id + ':' + s.number) }}</p
+            {{ knowledgeText(store.actorName(s.actorId, 'submit:' + store.change.id + ':' + s.number)) }}</p
           ><p v-if="s.review"
             >{{
-              store.actorName(s.review!.actorId, 'review:' + store.change.id + ':' + s.number)
+              knowledgeText(store.actorName(s.review!.actorId, 'review:' + store.change.id + ':' + s.number))
             }}
             · {{ knowledgeText(s.review.opinion) || '无附加意见' }} · {{ s.review.time }}</p
           ><p
@@ -492,7 +492,7 @@ const differences = computed(() =>
 const locked = computed(() => !store.canEdit || store.locked);
 const author = computed(() =>
   store.change
-    ? store.actorName(store.change.authorId, 'change:' + store.change.id)
+    ? knowledgeText(store.actorName(store.change.authorId, 'change:' + store.change.id))
     : (auth.identity?.name ?? '未登录'),
 );
 function addEntity() {
