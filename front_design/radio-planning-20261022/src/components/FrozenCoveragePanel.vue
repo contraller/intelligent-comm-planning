@@ -4,6 +4,20 @@
     aria-label="冻结规划覆盖缓存"
   >
     <h3>冻结规划覆盖</h3>
+    <p class="muted">接收带宽仅用于本次覆盖预测，不改变设备参数或父方案路由指标。</p>
+    <div class="toolbar">
+      <button class="btn small" :disabled="!readable || bandwidthDirty || state.bandwidthLoading.value || state.bandwidthSaving.value || !!state.bandwidthPending.value" @click="state.loadBandwidthOptions">刷新带宽选项与选择</button>
+      <button v-if="state.bandwidthPending.value && canWrite" class="btn small" :disabled="state.bandwidthSaving.value || state.busy.value" @click="state.retryBandwidthSelection">核实带宽选择原请求</button>
+    </div>
+    <p v-if="state.bandwidthError.value" role="alert">{{ state.bandwidthError.value }}</p>
+    <p v-if="state.bandwidthPending.value" role="status">带宽选择提交未核实，原号 {{ state.bandwidthPending.value.requestId }} 已保留</p>
+    <p v-if="state.bandwidthReceipt.value" role="status">带宽选择版本已保存：{{ state.bandwidthReceipt.value.selection_id }}{{ state.bandwidthReady.value ? '' : '；当前选择尚未回读' }}</p>
+    <p v-if="state.bandwidthOptions.value?.current_selection" role="status">已回读服务端选择 v{{ state.bandwidthOptions.value.current_selection.version_no }} · {{ state.bandwidthOptions.value.current_selection.selection_id }}</p>
+    <FrozenCoverageBandwidthEditor
+      :rows="bandwidthRows" :source-key="bandwidthSource" :writable="canWrite && !state.running.value && !state.pending.value && !state.bandwidthPending.value && state.bandwidthReady.value"
+      :loading="state.bandwidthLoading.value" :busy="state.busy.value || state.bandwidthSaving.value" :error="bandwidthLocalError"
+      @dirty-change="bandwidthDirty=$event" @confirm="confirmBandwidth"
+    />
     <div class="toolbar parameters">
       <label
         >半径（km）<input
@@ -48,14 +62,14 @@
     <div class="toolbar">
       <button
         class="btn small"
-        :disabled="!readable || state.busy.value"
+        :disabled="!readable || state.busy.value || locked || bandwidthDirty || !state.bandwidthReady.value"
         @click="state.read"
         >读取覆盖缓存</button
       >
       <button
         v-if="query.context === 'planning' && canWrite"
         class="btn small"
-        :disabled="!readable || locked || state.running.value"
+        :disabled="!readable || locked || state.running.value || bandwidthDirty || !state.bandwidthReady.value"
         @click="state.compute"
         >计算冻结覆盖</button
       >
@@ -110,7 +124,7 @@
     <template v-if="state.cache.value?.state === 'HIT' && state.cache.value.result">
       <p
         >{{ resultLabels[state.cache.value.result.status] }} ·
-        {{ state.devices.value.filter((row) => row.status === 'COMPLETE').length }} /
+        {{ completedDevices }} /
         {{ state.devices.value.length }} 台已计算</p
       >
       <div class="toolbar">
@@ -138,9 +152,7 @@
         role="status"
         >{{ reason }}</p
       >
-      <p v-if="selected">{{
-        selected.computations.map((part) => `${part.freq_khz} kHz`).join(' / ') || '无已分配频率'
-      }}</p>
+      <p v-if="selected">{{ selectedFrequencies || '无已分配频率' }}</p>
       <p class="muted"
         >VUHF：量化网格中心，余量单位 dB；HF：覆盖环带，静区不计入覆盖。算法预测，非实测场强。</p
       >
@@ -163,6 +175,7 @@
 import { computed, onBeforeUnmount, watch } from 'vue';
 import { useAuthStore } from '../stores/auth';
 import { useFrozenCoverage } from '../composables/useFrozenCoverage';
+import FrozenCoverageBandwidthEditor, { type CoverageBandwidthChange, type CoverageBandwidthRow } from './FrozenCoverageBandwidthEditor.vue';
 import type {
   FrozenCoverageClient,
   FrozenCoverageOverlay,
@@ -176,6 +189,7 @@ const auth = useAuthStore(),
   cellM = ref(5000),
   azStep = ref(10),
   hour = ref(12);
+const bandwidthDirty=ref(false),bandwidthLocalError=ref('');
 const readable = computed(
   () =>
     !!props.services &&
@@ -198,11 +212,37 @@ const state = useFrozenCoverage({
   owner: () => JSON.stringify([auth.identity?.id, auth.identity?.sessionId, auth.generation]),
   canWrite: () => canWrite.value,
 });
-const locked = computed(() => state.busy.value || !!state.pending.value);
+const owner=()=>JSON.stringify([auth.identity?.id,auth.identity?.sessionId,auth.generation,readable.value?props.query:null]);
+watch(owner,()=>{bandwidthDirty.value=false;bandwidthLocalError.value='';void state.loadBandwidthOptions();},{immediate:true});
+const bandwidthSource=computed(()=>JSON.stringify([owner(),state.bandwidthOptions.value?.anchor,state.bandwidthOptions.value?.current_selection?.selection_id,state.bandwidthOptions.value?.current_selection?.selection_hash]));
+const bandwidthRows=computed<CoverageBandwidthRow[]>(()=>{
+  const catalog=state.bandwidthOptions.value,selection=catalog?.current_selection,chosen=new Map(selection?.choices.map(row=>[row.device_id,row.rx_bandwidth_khz]));
+  return catalog?.devices.map(row=>{
+    // SINGLE_VALUE由服务端明确认证为冻结型号标量，不是从多选项中取第一值。
+    const fixed=row.state==='SINGLE_VALUE'?row.options_khz![0]:null,explicit=chosen.has(row.device_id);
+    return {deviceId:row.device_id,modelId:row.model_id,modelName:row.model_id,optionsKhz:row.options_khz,
+      frozenKhz:chosen.get(row.device_id)??fixed,
+      frozenSource:explicit?`人工冻结 v${selection!.version_no} · ${selection!.selection_id}`:fixed!==null?'冻结型号单值':row.options_khz?'冻结型号选项；人工未选':'冻结型号无带宽资料',
+      editable:!!row.options_khz?.length,unavailableReason:row.reason};
+  })??[];
+});
+async function confirmBandwidth(value:{sourceKey:string;changes:CoverageBandwidthChange[]}){
+  if(value.sourceKey!==bandwidthSource.value||!canWrite.value||!state.bandwidthReady.value||state.running.value||state.pending.value||state.bandwidthPending.value)return;
+  bandwidthLocalError.value='';
+  const current=new Map(bandwidthRows.value.map(row=>[row.deviceId,row])),choices=new Map(state.bandwidthOptions.value?.current_selection?.choices.map(row=>[row.device_id,row.rx_bandwidth_khz]));
+  for(const change of value.changes){const row=current.get(change.deviceId);
+    if(!row||row.frozenKhz!==change.before||!row.optionsKhz?.includes(change.bandwidthKhz)){bandwidthLocalError.value='带宽选择来源或前态已变化，未提交';return;}
+    choices.set(change.deviceId,change.bandwidthKhz);
+  }
+  await state.saveBandwidthSelection([...choices].map(([device_id,rx_bandwidth_khz])=>({device_id,rx_bandwidth_khz})));
+}
+const locked = computed(() => state.busy.value || !!state.pending.value || state.bandwidthSaving.value || state.bandwidthLoading.value || !!state.bandwidthPending.value);
 const inputLocked = computed(() => locked.value || state.running.value);
 const selected = computed(() =>
   state.devices.value.find((row) => row.device_id === state.selectedDeviceId.value),
 );
+const completedDevices = computed(() => state.devices.value.filter(row => row.status === 'COMPLETE').length);
+const selectedFrequencies = computed(() => selected.value?.computations.map(part => `${part.freq_khz} kHz`).join(' / '));
 const jobLabels = {
   PENDING: '排队中',
   RUNNING: '计算中',

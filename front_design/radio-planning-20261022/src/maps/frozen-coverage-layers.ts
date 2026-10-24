@@ -6,8 +6,12 @@ import type { FrozenCoverageOverlay } from '../types/frozen-coverage';
 
 // 原生采样点不是等值面；HF静区和不可显示几何均不当成覆盖填色。
 export function frozenCoverageLayer(overlay:FrozenCoverageOverlay,snapshotId:string,planId?:string) {
+  const provenance=overlay.result.provenance,selection=overlay.bandwidthSelection;
+  const selectionMatches=overlay.anchor.engine_version==='V01-3'
+    ?provenance.bandwidth_selection_id===(selection?.selectionId??null)&&provenance.bandwidth_selection_hash===(selection?.selectionHash??null)
+    :!selection;
   const features=overlay.anchor.snapshot_id===snapshotId&&(!planId||overlay.anchor.plan_id===planId)
-    &&overlay.result.solution_id===snapshotId.slice(4)
+    &&overlay.result.solution_id===snapshotId.slice(4)&&selectionMatches
     ?overlay.result.devices.find(row=>row.device_id===overlay.deviceId)?.computations.flatMap(part=>part.geojson.features.filter(feature=>feature.geometry&&feature.properties.is_coverage))??[]:[];
   const source=new VectorSource({features:new GeoJSON().readFeatures({type:'FeatureCollection',features},{dataProjection:'EPSG:4326',featureProjection:'EPSG:3857'})});
   const styles=new Map<string,Style>();

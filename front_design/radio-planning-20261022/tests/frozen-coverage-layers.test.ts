@@ -2,7 +2,7 @@ import { describe,expect,it } from 'vitest';
 import { frozenCoverageLayer } from '../src/maps/frozen-coverage-layers';
 import Polygon from 'ol/geom/Polygon';
 import type { FrozenCoverageFeature,FrozenCoverageOverlay } from '../src/types/frozen-coverage';
-import { coverageCase } from './helpers/frozen-coverage';
+import { bandwidthCase,coverageCase } from './helpers/frozen-coverage';
 describe('冻结覆盖原生几何层',()=>{
   it('VUHF是余量采样点，属性不冒充场强或连续覆盖面',()=>{
     const f=coverageCase(),overlay:FrozenCoverageOverlay={anchor:f.anchor,result:f.result,deviceId:'D1'},layer=frozenCoverageLayer(overlay,f.query.snapshotId,f.query.planId);
@@ -19,5 +19,14 @@ describe('冻结覆盖原生几何层',()=>{
     const f=coverageCase(),overlay={anchor:f.anchor,result:f.result,deviceId:kind==='device'?'absent':'D1'};
     const layer=frozenCoverageLayer(overlay,kind==='snapshot'?'SNP-other':f.query.snapshotId,kind==='plan'?'PLAN-other':f.query.planId);
     expect(layer.getSource()!.getFeatures()).toHaveLength(0);
+  });
+  it.each(['matching','id','hash','missing','old-v2'] as const)('V3选择图层%s严格匹配，不显示另一选择的覆盖',kind=>{
+    const f=bandwidthCase(),overlay:FrozenCoverageOverlay={anchor:f.anchor,result:f.result,deviceId:'D1',bandwidthSelection:{...f.query.bandwidthSelection!}};
+    if(kind==='id')overlay.bandwidthSelection!.selectionId='FBS-'+'4'.repeat(32);
+    if(kind==='hash')overlay.bandwidthSelection!.selectionHash='0'.repeat(64);
+    if(kind==='missing')delete overlay.bandwidthSelection;
+    if(kind==='old-v2'){overlay.anchor.engine_version='V01-2';overlay.result.provenance.engine_version='V01-2';}
+    const features=frozenCoverageLayer(overlay,f.query.snapshotId,f.query.planId).getSource()!.getFeatures();
+    expect(features).toHaveLength(kind==='matching'?1:0);
   });
 });
