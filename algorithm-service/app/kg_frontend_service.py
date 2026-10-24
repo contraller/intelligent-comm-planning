@@ -13,6 +13,7 @@ from .database import get_session_factory
 from .kg_frontend_schemas import KnowledgeMutation, KnowledgePage, KnowledgeEntityInput
 from .kg_models import KgAudit, KgChange, KgSubmission, KgVersion
 from .integration_identity_service import CATALOG, IdentityError
+from .kg_display import relation_name, search_aliases, type_name
 
 CATEGORIES = {"device": "设备知识", "network": "网络态势知识", "fault": "故障运维知识"}
 DEVICE_TYPES = {"Device", "DeviceModel", "Component", "Interface", "Antenna", "Function", "Parameter", "Manufacturer", "WorkMode"}
@@ -112,8 +113,8 @@ def metadata(*, identity=None):
     return {"workspace": {"revision": f"KG-{state['revision']}", "currentVersionId": vid, "current": summary,
                 "counts": {c: sum(e["category"] == c for e in snap["entities"]) for c in CATEGORIES.values()}, "identitySnapshots": identities},
             "actors": _actors(identities, identity),
-            "types": [{"id": t, "name": t, "category": "设备知识" if t in DEVICE_TYPES else "网络态势知识" if t in NETWORK_TYPES else "故障运维知识"} for t in sorted(ENTITY_TYPES)],
-            "relationTypes": [{"id": r, "name": r} for r in sorted(RELATIONS)],
+            "types": [{"id": t, "name": type_name(t), "category": "设备知识" if t in DEVICE_TYPES else "网络态势知识" if t in NETWORK_TYPES else "故障运维知识"} for t in sorted(ENTITY_TYPES)],
+            "relationTypes": [{"id": r, "name": relation_name(r)} for r in sorted(RELATIONS)],
             "models": [{"id": e["name"], "name": e["name"]} for e in snap["entities"] if e["type"] == "DeviceModel"],
             "error": None, "capabilities": {"reset": False}, "dataOrigin": "SAMPLE"}
 
@@ -198,7 +199,13 @@ def browse(kind, query):
     if len(term) > 120 or any(ord(c) < 32 for c in term):
         _fail("检索词无效")
     selected = [e for e in snap["entities"] if e["category"] in cats and (not query.get("type") or e["type"] == query["type"])]
-    matches = [e for e in selected if term in json.dumps(e, ensure_ascii=False).casefold()]
+    related_relations = {}
+    if term:
+        for relation in snap["relations"]:
+            for eid in (relation["head"], relation["tail"]):
+                related_relations.setdefault(eid, []).append(relation)
+    matches = [e for e in selected if term in json.dumps(e, ensure_ascii=False).casefold()
+               or any(term in alias.casefold() for alias in search_aliases(e, related_relations.get(e["id"], ())))]
     summary = lambda e: {k: e[k] for k in ("id", "name", "category", "type")}
     if kind == "search":
         page = KnowledgePage.model_validate({k: query[k] for k in ("pageNum", "pageSize") if k in query})
