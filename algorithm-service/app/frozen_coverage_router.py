@@ -11,6 +11,8 @@ from starlette.concurrency import run_in_threadpool
 from .frozen_coverage_service import CoverageServiceError, _id
 from . import integration_identity_service as identity
 from .system_management_schemas import SystemManagementError
+from .frozen_coverage_bandwidth_schemas import BandwidthSelectionInput
+from .frozen_coverage_bandwidth_service import selection_id
 
 
 class _Strict(BaseModel):
@@ -34,6 +36,12 @@ class _Anchor(_Strict):
 class _Submit(_Anchor):
     request_id: str
     parameters: dict[str, Any] = Field(default_factory=dict)
+    bandwidth_selection_id: str | None = None
+
+    @field_validator("bandwidth_selection_id")
+    @classmethod
+    def selection_identifier(cls, value):
+        return selection_id(value)
 
     @field_validator("request_id")
     @classmethod
@@ -44,6 +52,16 @@ class _Submit(_Anchor):
 class _Cache(_Anchor):
     context: Literal["planning", "gis"] = "planning"
     parameters: str = "{}"
+    bandwidth_selection_id: str | None = None
+
+    @field_validator("bandwidth_selection_id")
+    @classmethod
+    def selection_identifier(cls, value):
+        return selection_id(value)
+
+
+class _BandwidthRead(_Anchor):
+    context: Literal["planning", "gis"] = "planning"
 
 
 class _Job(_Anchor):
@@ -83,12 +101,12 @@ def _json(raw):
     return value
 
 
-async def _raw(request):
+async def _raw(request, limit=16384):
     parts, size = [], 0
     async for chunk in request.stream():
         size += len(chunk)
-        if size > 16384:
-            raise _RequestError("覆盖请求超过16KiB限额")
+        if size > limit:
+            raise _RequestError("覆盖请求超过专用大小限额")
         parts.append(chunk)
     return b"".join(parts)
 
@@ -109,7 +127,7 @@ def create_frozen_coverage_router(authorize):
                 actor = current
             if writing and not request.headers.get("x-csrf-token", "").isascii():
                 raise CoverageServiceError("CSRF无效", 1105, 403)
-            raw = await _raw(request)
+            raw = await _raw(request, 128 * 1024 if model is BandwidthSelectionInput else 16384)
             if writing:
                 if request.query_params:
                     raise _RequestError("写请求不接受查询参数")
@@ -148,7 +166,7 @@ def create_frozen_coverage_router(authorize):
                 return action(service, parsed, actor["account_id"], context)
 
             result = await run_in_threadpool(execute)
-            data, status = result if writing and model is _Submit else (result, 200)
+            data, status = result if writing and model in (_Submit, BandwidthSelectionInput) else (result, 200)
             return JSONResponse(status_code=status, content={"code": 0, "message": "success", "data": data})
         except (CoverageServiceError, identity.IdentityError, SystemManagementError) as exc:
             return JSONResponse(status_code=exc.status, content={"code": exc.code, "message": str(exc), "data": getattr(exc, "data", None)})
@@ -168,11 +186,27 @@ def create_frozen_coverage_router(authorize):
     @router.post("/{plan_id}/compute")
     async def compute(plan_id: str, request: Request):
         return await call(request, _Submit,
-                          lambda service, body, actor, context: service.submit(_id(plan_id), body.model_dump(), actor, audit_context=context), writing=True)
+                          lambda service, body, actor, context: service.submit(_id(plan_id), body.model_dump(exclude_none=True), actor, audit_context=context), writing=True)
 
     @router.get("/{plan_id}/cache")
     async def cache(plan_id: str, request: Request):
         return await call(request, _Cache, lambda service, query, actor, context: service.cache(_id(plan_id),
-            query.task_id, query.snapshot_id, _json(query.parameters), audit_context=context))
+            query.task_id, query.snapshot_id, _json(query.parameters),
+            bandwidth_selection_id=query.bandwidth_selection_id, audit_context=context))
+
+    @router.get("/{plan_id}/bandwidth-options")
+    async def bandwidth_options(plan_id: str, request: Request):
+        return await call(request, _BandwidthRead, lambda service, query, actor, context: service.bandwidth_options(
+            _id(plan_id), query.task_id, query.snapshot_id, audit_context=context))
+
+    @router.post("/{plan_id}/bandwidth-selections")
+    async def save_bandwidth_selection(plan_id: str, request: Request):
+        return await call(request, BandwidthSelectionInput, lambda service, body, actor, context:
+            service.save_bandwidth_selection(_id(plan_id), body.model_dump(), actor, audit_context=context), writing=True)
+
+    @router.get("/{plan_id}/bandwidth-selections/{saved_id}")
+    async def get_bandwidth_selection(plan_id: str, saved_id: str, request: Request):
+        return await call(request, _BandwidthRead, lambda service, query, actor, context: service.get_bandwidth_selection(
+            _id(plan_id), query.task_id, query.snapshot_id, selection_id(saved_id), audit_context=context))
 
     return router

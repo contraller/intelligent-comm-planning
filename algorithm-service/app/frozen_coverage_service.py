@@ -18,7 +18,7 @@ from . import frozen_coverage_engine as algorithm
 
 ROOT = Path(__file__).resolve().parents[2]
 KIND = "FROZEN_COVERAGE_V1"
-ENGINE_VERSION = "V01-2"
+ENGINE_VERSION = algorithm.ENGINE_VERSION
 ACTIVE = {"PENDING", "RUNNING"}
 JOB_ID = re.compile(r"FCJ-[0-9a-f]{32}\Z")
 
@@ -51,6 +51,16 @@ def _parameters(value):
         return algorithm._parameters(value)
     except algorithm.FrozenCoverageError as exc:
         raise CoverageServiceError(str(exc)) from exc
+
+
+def _cache_key(anchor, parameters, selection_id=None, selection_hash=None):
+    value = {"anchor": anchor, "parameters": parameters}
+    version = anchor.get("engine_version")
+    if version == "V01-3":
+        value.update(bandwidth_selection_id=selection_id, bandwidth_selection_hash=selection_hash)
+    elif version not in ("V01-1", "V01-2"):
+        raise CoverageServiceError("覆盖引擎持久版本无法识别", 5002, 503)
+    return "FCC-" + _hash(value)
 
 
 def _atomic(path, value):
@@ -156,6 +166,8 @@ class FrozenCoverageService:
         self._queue = queue.Queue()
         self._requests, self._caches, self._active, self._cancel_events = {}, {}, {}, {}
         self._storage_fault = None
+        from .frozen_coverage_bandwidth_service import FrozenCoverageBandwidthService
+        self.bandwidth = FrozenCoverageBandwidthService(self)
 
     def status(self):
         """只读生命周期快照，不读取运行文件或触发恢复。"""
@@ -191,13 +203,20 @@ class FrozenCoverageService:
                 and job["request_digest"] == _hash(job["request_body"])
                 and job["request_id"] == job["request_body"]["request_id"]
                 and job["parameters"] == _parameters(job["request_body"]["parameters"])
-                and job["cache_key"] == "FCC-" + _hash({"anchor": job["anchor"], "parameters": job["parameters"]})
+                and job["cache_key"] == _cache_key(job["anchor"], job["parameters"],
+                    job.get("bandwidth_selection_id"), job.get("bandwidth_selection_hash"))
                 and all(job["anchor"][key] == job["request_body"][key] for key in ("plan_id", "task_id", "snapshot_id"))
                 and bool(_id(job["actor_id"])))
         except (KeyError, TypeError, CoverageServiceError):
             valid = False
         if not valid:
             raise CoverageServiceError("覆盖请求摘要或冻结锚点损坏", 5002, 503)
+        if job["anchor"]["engine_version"] == "V01-3":
+            sid = job.get("bandwidth_selection_id")
+            if ("bandwidth_selection_id" not in job or "bandwidth_selection_hash" not in job
+                    or sid != job["request_body"].get("bandwidth_selection_id")):
+                raise CoverageServiceError("覆盖选择版本元数据损坏", 5002, 503)
+            self._job_selection(job)
         if job["state"] == "SUCCESS" and not job["from_cache"]:
             self._result(job)
         return job
@@ -247,6 +266,7 @@ class FrozenCoverageService:
                     handle.write(b"\0")
                     handle.flush()
                 self._scan()
+                self.bandwidth.scan()
                 for jid in self._requests.values():
                     job = self._job(jid)
                     if job["state"] in ACTIVE:
@@ -333,7 +353,24 @@ class FrozenCoverageService:
                 raise CoverageServiceError("覆盖结果来源与冻结缓存不一致", 5002, 503)
         if provenance.get("parameters") != job["parameters"] or result.get("solution_id") != anchor["snapshot_id"][4:]:
             raise CoverageServiceError("覆盖结果参数或快照不一致", 5002, 503)
+        if anchor["engine_version"] == "V01-3":
+            selection = self._job_selection(job)
+            for key in ("bandwidth_selection_id", "bandwidth_selection_hash"):
+                if key not in provenance or provenance[key] != job[key]:
+                    raise CoverageServiceError("覆盖结果选择版本不一致", 5002, 503)
+            if provenance.get("bandwidth_choices") != (selection["choices"] if selection else []):
+                raise CoverageServiceError("覆盖结果选值与持久版本不一致", 5002, 503)
         return deepcopy(result)
+
+    def _job_selection(self, job):
+        try:
+            sid = job["bandwidth_selection_id"]
+            selection = self.bandwidth.get(sid, job["anchor"]) if sid is not None else None
+            if job["bandwidth_selection_hash"] != (selection["selection_hash"] if selection else None):
+                raise CoverageServiceError("选择摘要不一致")
+            return selection
+        except (KeyError, CoverageServiceError) as exc:
+            raise CoverageServiceError("持久覆盖作业的选择版本无法核验", 5002, 503) from exc
 
     def _cached(self, key):
         jid = self._caches.get(key)
@@ -345,13 +382,32 @@ class FrozenCoverageService:
         return self._result(job)
 
     def _dto(self, job):
-        return deepcopy({key: job[key] for key in ("job_id", "request_id", "state", "progress", "stage", "anchor", "cache_key",
+        result = deepcopy({key: job[key] for key in ("job_id", "request_id", "state", "progress", "stage", "anchor", "cache_key",
             "parameters", "from_cache", "cancel_requested", "error", "created_at", "updated_at", "finished_at")})
+        if job["anchor"]["engine_version"] == "V01-3":
+            result.update({key: job[key] for key in ("bandwidth_selection_id", "bandwidth_selection_hash")})
+        return result
+
+    def bandwidth_options(self, plan_id, task_id, snapshot_id, *, audit_context=None):
+        source, anchor = self._source(plan_id, task_id, snapshot_id, audit_context=audit_context)
+        try:
+            devices = algorithm.bandwidth_options(source["raw_snapshot"], source["tables"])
+        except algorithm.FrozenCoverageError as exc:
+            raise CoverageServiceError(str(exc)) from exc
+        return dict(anchor=anchor, devices=devices, current_selection=self.bandwidth.current(anchor))
+
+    def save_bandwidth_selection(self, plan_id, body, actor_id, *, audit_context=None):
+        return self.bandwidth.save(plan_id, body, actor_id, audit_context=audit_context)
+
+    def get_bandwidth_selection(self, plan_id, task_id, snapshot_id, selection_id, *, audit_context=None):
+        source, anchor = self._source(plan_id, task_id, snapshot_id, audit_context=audit_context)
+        return self.bandwidth.get(selection_id, anchor, source=source)
 
     def submit(self, plan_id, payload, actor_id, *, audit_context=None):
         _id(actor_id)
         body = deepcopy(payload)
-        if not isinstance(body, dict) or set(body) != {"task_id", "snapshot_id", "request_id", "parameters"}:
+        required = {"task_id", "snapshot_id", "request_id", "parameters"}
+        if not isinstance(body, dict) or not required <= set(body) or set(body) - required - {"bandwidth_selection_id"}:
             raise CoverageServiceError("覆盖提交字段无效")
         request_id = _id(body["request_id"])
         digest = _hash({"plan_id": plan_id, **body})
@@ -367,7 +423,12 @@ class FrozenCoverageService:
                 if job["actor_id"] != actor_id or job["request_digest"] != digest:
                     raise CoverageServiceError("请求号归属或正文冲突", 1204, 409)
                 return self._dto(job), 200
-            key = "FCC-" + _hash({"anchor": anchor, "parameters": options})
+            sid = body.get("bandwidth_selection_id")
+            if "bandwidth_selection_id" in body and sid is None:
+                raise CoverageServiceError("显式选择编号不能为null")
+            selection = self.bandwidth.get(sid, anchor, source=source) if sid is not None else None
+            selection_hash = selection["selection_hash"] if selection else None
+            key = _cache_key(anchor, options, sid, selection_hash)
             if key in self._active:
                 raise CoverageServiceError("同一冻结覆盖已有在途计算", 1206, 409)
             if len(self._active) >= 64:
@@ -379,6 +440,7 @@ class FrozenCoverageService:
             job = dict(kind=KIND, job_id=jid, request_id=request_id, actor_id=actor_id, request_digest=digest,
                 request_body={"plan_id": plan_id, **body}, state="SUCCESS" if cached else "PENDING",
                 anchor=anchor, cache_key=key, parameters=options, from_cache=cached is not None,
+                bandwidth_selection_id=sid, bandwidth_selection_hash=selection_hash,
                 cancel_requested=False, error=None, created_at=stamp, updated_at=stamp,
                 finished_at=stamp if cached else None, progress=1.0 if cached else 0.0,
                 stage="持久缓存命中" if cached else "排队中", cancellations={}, result=None)
@@ -391,10 +453,12 @@ class FrozenCoverageService:
             self._queue.put((jid, source))
             return self._dto(job), 202
 
-    def cache(self, plan_id, task_id, snapshot_id, parameters=None, *, audit_context=None):
-        _, anchor = self._source(plan_id, task_id, snapshot_id, audit_context=audit_context)
+    def cache(self, plan_id, task_id, snapshot_id, parameters=None, *, bandwidth_selection_id=None, audit_context=None):
+        source, anchor = self._source(plan_id, task_id, snapshot_id, audit_context=audit_context)
         options = _parameters(parameters)
-        key = "FCC-" + _hash({"anchor": anchor, "parameters": options})
+        selection = self.bandwidth.get(bandwidth_selection_id, anchor, source=source) if bandwidth_selection_id is not None else None
+        selection_hash = selection["selection_hash"] if selection else None
+        key = _cache_key(anchor, options, bandwidth_selection_id, selection_hash)
         with self._lock:
             if self._storage_fault:
                 raise self._storage_fault
@@ -404,6 +468,7 @@ class FrozenCoverageService:
         stale = self.fingerprint() != anchor["terrain_fingerprint"]
         return dict(state="STALE" if stale else "HIT" if result is not None else "MISS", cache_key=key,
                     anchor=anchor, parameters=options, result=None if stale else result,
+                    bandwidth_selection_id=bandwidth_selection_id, bandwidth_selection_hash=selection_hash,
                     reason="冻结DEM已变化，原缓存不可用于当前展示" if stale else "" if result is not None else "尚无已发布的冻结覆盖缓存")
 
     def get_job(self, job_id, *, plan_id, task_id, snapshot_id, actor_id, audit_context=None):
@@ -416,7 +481,9 @@ class FrozenCoverageService:
             if any(job["anchor"].get(key) != value for key, value in (("plan_id", plan_id), ("task_id", task_id), ("snapshot_id", snapshot_id))):
                 raise CoverageServiceError("覆盖作业冻结锚点不匹配", 1205, 409)
             _, anchor = self._source(plan_id, task_id, snapshot_id, audit_context=audit_context)
-            if job["anchor"] != anchor:
+            historical = job["anchor"]["engine_version"] in ("V01-1", "V01-2")
+            expected = {**anchor, "engine_version": job["anchor"]["engine_version"]} if historical else anchor
+            if job["anchor"] != expected:
                 raise CoverageServiceError("覆盖作业来源版本已变化", 1205, 409)
             return self._dto(job)
 
@@ -482,8 +549,10 @@ class FrozenCoverageService:
                     return
                 job.update(state="RUNNING", stage="核验冻结覆盖输入")
                 self._write(job)
+            selection = self.bandwidth.get(job["bandwidth_selection_id"], job["anchor"], source=source) if job["bandwidth_selection_id"] else None
+            extra = {"bandwidth_selection": selection} if selection else {}
             result = self.engine(source["raw_snapshot"], source["tables"], terrain=self.terrain,
-                                 fingerprint=self.fingerprint, params=job["parameters"], cancelled=cancelled, progress=progress)
+                                 fingerprint=self.fingerprint, params=job["parameters"], cancelled=cancelled, progress=progress, **extra)
             # worker仅核对已受理的不可变锚点；不传入请求上下文或重新取得他人规划。
             _, anchor = self._source(job["anchor"]["plan_id"], job["anchor"]["task_id"], job["anchor"]["snapshot_id"], internal=True)
             with self._lock:

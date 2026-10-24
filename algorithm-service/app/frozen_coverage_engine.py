@@ -13,6 +13,10 @@ from typing import Any, Callable
 
 
 ROOT = Path(__file__).resolve().parents[2]
+ENGINE_VERSION = "V01-3"
+SELECTION_ANCHOR_KEYS = ("plan_id", "task_id", "snapshot_id", "input_version", "condition_version",
+                         "resource_revision", "resource_content_hash", "plan_input_sha256",
+                         "raw_snapshot_sha256", "frozen_tables_sha256", "terrain_fingerprint")
 MAX_DEVICES = 1024
 MAX_COMPUTATIONS = 4096
 MAX_RAY_STEPS = 10_000_000
@@ -187,8 +191,116 @@ class _CheckedRadio(dict):
         return super().__getitem__(key)
 
 
+def _bandwidth_values(value, device_id):
+    if value in (None, ""):
+        return None
+    if isinstance(value, str) and ";" in value:
+        values = []
+        for part in value.split(";"):
+            token = part.strip()
+            if not re.fullmatch(r"\+?(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)(?:[eE][+-]?[0-9]+)?", token):
+                _fail("非法带宽选项集：" + device_id + ".bandwidth_khz")
+            values.append(_number(token, device_id + ".bandwidth_khz", lo=1e-9, hi=1e9))
+        return sorted(set(values))
+    return [_number(value, device_id + ".bandwidth_khz", lo=1e-9, hi=1e9)]
+
+
+def bandwidth_options(raw: dict, tables: dict) -> list[dict]:
+    """仅从冻结来源读取结构化选项，不加载DEM或调用覆盖算法。"""
+    _digest((raw, tables))
+    if not isinstance(raw, dict) or not isinstance(raw.get("detail"), dict) or not isinstance(tables, dict):
+        _fail("缺少冻结带宽来源")
+    detail = raw["detail"]
+    devices = _index(detail.get("devices"), "device_id", "devices")
+    nodes = _index(detail.get("nodes"), "node_id", "nodes")
+    models = _index(tables.get("device_model.csv"), "model_id", "device_model.csv")
+    if len(devices) > MAX_DEVICES:
+        _fail("冻结设备数量超过限额", "COVERAGE_LIMIT")
+    frequencies = _frequencies(detail, devices, nodes)
+    rows = []
+    for did, device in sorted(devices.items()):
+        for key in ("node_id", "model_id", "antenna_id"):
+            _identity(device.get(key), did + "." + key)
+        if device["node_id"] not in nodes:
+            _fail("设备引用方案外节点：" + did)
+        model = models.get(device["model_id"])
+        raw_value = (model or {}).get("bandwidth_khz")
+        values = _bandwidth_values(raw_value, did)
+        if not frequencies[did]:
+            state, code, reason = "NO_ASSIGNED_FREQUENCY", "NO_ASSIGNED_FREQUENCY", "冻结设备没有分配工作频率"
+        elif values is None:
+            state, code, reason = "UNKNOWN", "RX_BANDWIDTH_UNKNOWN", "冻结型号接收带宽未知"
+        elif isinstance(raw_value, str) and ";" in raw_value:
+            state, code, reason = "SELECTION_REQUIRED", "RX_BANDWIDTH_SELECTION_REQUIRED", "需要显式冻结接收带宽选值"
+        else:
+            state, code, reason = "SINGLE_VALUE", None, ""
+        rows.append(dict(device_id=did, node_id=device["node_id"], model_id=device["model_id"],
+                         band=(model or {}).get("device_class"), model_bandwidth_khz=deepcopy(raw_value),
+                         options_khz=values, state=state, reason_code=code, reason=reason))
+    return rows
+
+
+def validate_bandwidth_choices(raw, tables, choices):
+    if not isinstance(choices, list) or len(choices) > MAX_DEVICES:
+        _fail("接收带宽选择须为限额内列表")
+    options = {row["device_id"]: row for row in bandwidth_options(raw, tables)}
+    normalized, seen = [], set()
+    for choice in choices:
+        if not isinstance(choice, dict) or set(choice) != {"device_id", "rx_bandwidth_khz"}:
+            _fail("接收带宽选择字段无效")
+        did = _identity(choice["device_id"], "device_id")
+        if did in seen or did not in options:
+            _fail("接收带宽引用重复或方案外设备：" + did)
+        seen.add(did)
+        value = choice["rx_bandwidth_khz"]
+        if not isinstance(value, (int, float)) or isinstance(value, bool):
+            _fail("接收带宽必须为JSON数值：" + did)
+        value = _number(value, did + ".rx_bandwidth_khz", lo=1e-9, hi=1e9)
+        if options[did]["options_khz"] is None or value not in options[did]["options_khz"]:
+            _fail("选值无法匹配冻结型号接收带宽：" + did)
+        normalized.append({"device_id": did, "rx_bandwidth_khz": value})
+    return sorted(normalized, key=lambda row: row["device_id"])
+
+
+def _selection_choices(raw, tables, selection):
+    if selection is None:
+        return []
+    if not isinstance(selection, dict):
+        _fail("接收带宽选择版本无效")
+    anchor = selection.get("source_anchor")
+    if (not isinstance(anchor, dict) or set(anchor) != set(SELECTION_ANCHOR_KEYS)
+            or anchor["snapshot_id"] != "SNP-" + str(raw.get("solution_id"))
+            or anchor["raw_snapshot_sha256"] != _digest(raw)
+            or anchor["frozen_tables_sha256"] != _digest(tables)
+            or anchor["terrain_fingerprint"] != raw.get("terrain_fingerprint")):
+        _fail("接收带宽选择与冻结来源不一致")
+    sid = selection.get("selection_id")
+    if not isinstance(sid, str) or not re.fullmatch(r"FBS-[0-9a-f]{32}", sid):
+        _fail("接收带宽选择编号无效")
+    choices = validate_bandwidth_choices(raw, tables, selection.get("choices"))
+    digest = _digest(dict(schema_version=1, source_anchor=anchor, choices=choices))
+    if digest != selection.get("selection_hash"):
+        _fail("接收带宽选择摘要不一致")
+    return choices
+
+
+def _bandwidth_info(model, device_id, selected):
+    raw = (model or {}).get("bandwidth_khz")
+    values = _bandwidth_values(raw, device_id)
+    if selected is not None:
+        if values is None or selected not in values:
+            _fail("选值无法匹配冻结型号接收带宽：" + device_id)
+        # 枚举沿前端合同保留；选值来自持久选择版本，不是compute原文或设备生效参数。
+        return dict(value_khz=selected, source="EXPLICIT_COMPUTE_PARAMETER")
+    if values is None:
+        return dict(value_khz=None, source="UNKNOWN")
+    if isinstance(raw, str) and ";" in raw:
+        return dict(value_khz=None, source="UNSELECTED")
+    return dict(value_khz=values[0], source="FROZEN_MODEL_SINGLE_VALUE")
+
+
 def _radio(device: dict, plan: dict | None, model: dict | None, antenna: dict | None,
-           *, assigned_frequencies=()) -> dict:
+           *, assigned_frequencies=(), rx_bandwidth=None) -> dict:
     if model is None or antenna is None or plan is None:
         raise _UnknownRadio("缺少对应冻结型号、天线或逐设备计划参数")
     if model.get("device_class") not in ("HF", "VUHF"):
@@ -201,26 +313,15 @@ def _radio(device: dict, plan: dict | None, model: dict | None, antenna: dict | 
               "height": (plan, "antenna_height_m", 0, 1000),
               "gain": (antenna, "gain_dbi", -100, 100),
               "sens": (model, "rx_sensitivity_dbm", -300, 100),
-              "bw": (model, "bandwidth_khz", 1e-9, 1e9),
               "fmin": (model, "freq_min_khz", 1e-9, 1e9),
               "fmax": (model, "freq_max_khz", 1e-9, 1e9)}
     missing, values = [], {}
-    bandwidth_unselected = False
     for key, (row, field, lo, hi) in fields.items():
         raw = row.get(field)
         if raw in (None, ""):
             missing.append(field)
             continue
-        if key == "bw" and isinstance(raw, str) and ";" in raw:
-            # 型号选项不代表本次计划选值；只验证合法性，绝不代取某个选项。
-            for part in raw.split(";"):
-                token = part.strip()
-                if not re.fullmatch(r"\+?(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)(?:[eE][+-]?[0-9]+)?", token):
-                    _fail("非法带宽选项集：" + device["device_id"] + "." + field)
-                _number(token, device["device_id"] + "." + field, lo=lo, hi=hi)
-            bandwidth_unselected = True
-        else:
-            values[key] = _number(raw, device["device_id"] + "." + field, lo=lo, hi=hi)
+        values[key] = _number(raw, device["device_id"] + "." + field, lo=lo, hi=hi)
     if not antenna.get("pattern_type"):
         missing.append("pattern_type")
     if "fmin" in values and "fmax" in values and values["fmin"] > values["fmax"]:
@@ -229,11 +330,14 @@ def _radio(device: dict, plan: dict | None, model: dict | None, antenna: dict | 
         for frequency in assigned_frequencies:
             if not values["fmin"] <= frequency <= values["fmax"]:
                 _fail("冻结计划频率超出本设备型号范围：" + device["device_id"])
-    if bandwidth_unselected:
+    if rx_bandwidth is None and isinstance(model.get("bandwidth_khz"), str) and ";" in model["bandwidth_khz"]:
         missing.append("bandwidth_khz为型号支持选项集，计划未冻结本次选定带宽")
+    elif rx_bandwidth is None:
+        missing.append("bandwidth_khz")
     if missing:
         raise _UnknownRadio("必要冻结参数未知：" + ",".join(missing))
     values["pattern"] = antenna["pattern_type"]
+    values["bw"] = rx_bandwidth
     return values
 
 
@@ -331,7 +435,8 @@ def _cells(native: Any, item: dict, options: dict, terrain: _CheckedTerrain, che
 def compute_frozen_coverage(raw_snapshot: dict, frozen_tables: dict, *,
                             terrain: Callable[[], Any], fingerprint: Callable[[], str | None],
                             params: dict | None = None, cancelled: Callable[[], bool] | None = None,
-                            progress: Callable[[float, str], None] | None = None) -> dict:
+                            progress: Callable[[float, str], None] | None = None,
+                            bandwidth_selection: dict | None = None) -> dict:
     """计算冻结物理设备覆盖。调用方负责权限、任务、原子缓存与终态。"""
     def check():
         if cancelled is not None and cancelled():
@@ -346,9 +451,12 @@ def compute_frozen_coverage(raw_snapshot: dict, frozen_tables: dict, *,
     check()
     # 进度/指纹等外部回调可改变调用方对象；所有后续断言和计算共用发起副本。
     raw, tables, options = deepcopy(raw_snapshot), deepcopy(frozen_tables), _parameters(deepcopy(params))
+    selection = deepcopy(bandwidth_selection)
     raw_hash, tables_hash = _digest(raw), _digest(tables)
     if not isinstance(raw, dict) or not isinstance(tables, dict) or not isinstance(raw.get("detail"), dict):
         _fail("缺少冻结快照与资源表")
+    choices = _selection_choices(raw, tables, selection)
+    selected = {row["device_id"]: row["rx_bandwidth_khz"] for row in choices}
     solution_id = _identity(raw.get("solution_id"), "solution_id")
     expected = raw.get("terrain_fingerprint")
     if not isinstance(expected, str) or len(expected) != 64 or any(c not in "0123456789abcdef" for c in expected):
@@ -424,13 +532,15 @@ def compute_frozen_coverage(raw_snapshot: dict, frozen_tables: dict, *,
                 "status": "UNAVAILABLE", "reasons": [], "planned_parameters": deepcopy(plan),
                 "frozen_model": deepcopy(model), "frozen_antenna": deepcopy(antenna),
                 "radio_parameters": None, "computations": []}
+        item["rx_bandwidth"] = _bandwidth_info(model, did, selected.get(did))
         if (model or {}).get("device_class") in ("HF", "VUHF"):
             assigned_links = {lid for group in frequencies[did].values() for lid in group}
             for link in detail["links"]:
                 if link["link_id"] in assigned_links and link.get("device_class") != model["device_class"]:
                     _fail("冻结链路频段与设备型号不一致：" + did)
         try:
-            radio = _radio(device, plan, model, antenna, assigned_frequencies=frequencies[did])
+            radio = _radio(device, plan, model, antenna, assigned_frequencies=frequencies[did],
+                           rx_bandwidth=item["rx_bandwidth"]["value_khz"])
         except _UnknownRadio as exc:
             item["reasons"].append(str(exc))
             output.append(item)
@@ -475,10 +585,14 @@ def compute_frozen_coverage(raw_snapshot: dict, frozen_tables: dict, *,
               "devices": output, "provenance": {"raw_snapshot_sha256": raw_hash, "frozen_tables_sha256": tables_hash,
                   "terrain_fingerprint": expected, "dem_bbox": list(checked.bbox), "parameters": options,
                   "terrain_metadata": {"dem": deepcopy(checked.source._dem.meta), "landcover": deepcopy(checked.source._lc.meta)},
-                  "engine_version": "V01-2",
+                  "engine_version": ENGINE_VERSION,
+                  "bandwidth_selection_id": selection["selection_id"] if selection else None,
+                  "bandwidth_selection_hash": selection["selection_hash"] if selection else None,
+                  "bandwidth_choices": choices,
                   "algorithms": ["viewshed.vuhf_coverage", "viewshed.hf_coverage_rings"],
                   "receiver_assumptions": {"gain_dbi": 0, "vuhf_height_m": options["rx_height_m"],
-                      "bandwidth_and_sensitivity": "same frozen device model", "service": {"HF": "话音", "VUHF": "数据"}},
+                      "bandwidth_and_sensitivity": "explicit frozen receive selection or unique frozen model value; sensitivity from frozen model",
+                      "service": {"HF": "话音", "VUHF": "数据"}},
                   "hf_ionosphere": {"assumed": True, "verification": "典型电离层参数，待实测订正，非实测来源",
                       **viewshed.P533.ionosphere(options["hour"]), "sunspot_r12": viewshed.P533.SUNSPOT_R12},
                   "units": {"margin_db": "dB", "frequency": "kHz", "ring_radius": "m"},
@@ -486,6 +600,7 @@ def compute_frozen_coverage(raw_snapshot: dict, frozen_tables: dict, *,
                                "hf": "spherical sampled annuli with holes; skip zones are not coverage",
                                "computed_device_frequencies": done, "native_cell_count": cell_count},
                   "limitations": ["算法预测，不是实测场强；margin_db是链路预算余量，不是dBuV/m",
+                      "接收带宽选择仅为本次覆盖接收假设，不表示设备已生效或父方案原计算使用此值，不回写父路由指标",
                       "无current CSV、默认地形、代表频率或未知参数代入",
                       "现有函数以标量天线增益计算，未建模方向图/方位/下倾角",
                       "HF沿用冻结站点地物和指定hour的既有传播假设，不代表远域DEM实测或实时电离层",

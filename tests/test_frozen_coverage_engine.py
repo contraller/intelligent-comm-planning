@@ -501,7 +501,8 @@ def test_provenance_distinguishes_receiver_and_assumed_ionosphere(scenario, monk
     result = compute(scenario, params={**SMALL, "hour": 23, "rx_height_m": 3})
     provenance = result["provenance"]
     assert provenance["receiver_assumptions"] == {"gain_dbi": 0, "vuhf_height_m": 3,
-        "bandwidth_and_sensitivity": "same frozen device model", "service": {"HF": "话音", "VUHF": "数据"}}
+        "bandwidth_and_sensitivity": "explicit frozen receive selection or unique frozen model value; sensitivity from frozen model",
+        "service": {"HF": "话音", "VUHF": "数据"}}
     assert provenance["hf_ionosphere"]["foF2"] == viewshed.P533.FOF2_NIGHT_MHZ
     assert provenance["hf_ionosphere"]["assumed"] is True
     assert "待实测" in provenance["hf_ionosphere"]["verification"]
@@ -624,13 +625,13 @@ def test_bandwidth_options_do_not_mask_known_numeric_or_reference_errors(scenari
     assert error.value.code == "COVERAGE_INPUT" and not calls
 
 
-def test_bandwidth_options_engine_and_cache_version_are_v01_2(scenario, tmp_path, monkeypatch):
+def test_bandwidth_options_engine_and_cache_version_are_v01_3(scenario, tmp_path, monkeypatch):
     from app import frozen_coverage_service as service_module
 
     _model_with_bandwidth_options(scenario)
     fake_cells(monkeypatch)
     result = compute(scenario)
-    assert result["provenance"]["engine_version"] == service_module.ENGINE_VERSION == "V01-2"
+    assert result["provenance"]["engine_version"] == service_module.ENGINE_VERSION == "V01-3"
     source = {"plan_id": "P1", "task_id": "T1", "snapshot_id": "SNP-PL-UNIT", "input_version": "TV1",
         "condition_version": "TC1", "resource_revision": "UNIT-RES", "resource_content_hash": "b" * 64,
         "input_snapshot": {"unit_test": True}, "raw_snapshot": scenario.raw, "tables": scenario.tables}
@@ -641,5 +642,112 @@ def test_bandwidth_options_engine_and_cache_version_are_v01_2(scenario, tmp_path
     old_key = "FCC-" + service_module._hash({"anchor": old_anchor, "parameters": page["parameters"]})
     assert page["state"] == "MISS" and page["cache_key"] != old_key and not service.root.exists()
     record = {"result": result, "result_sha256": service_module._hash(result),
-              "anchor": page["anchor"], "parameters": page["parameters"]}
+              "anchor": page["anchor"], "parameters": page["parameters"],
+              "bandwidth_selection_id": None, "bandwidth_selection_hash": None}
     assert service._result(record) == result
+
+
+def rx_selection(scenario, choices):
+    anchor = dict(plan_id="P1", task_id="T1", snapshot_id="SNP-PL-UNIT", input_version="TV1",
+        condition_version="TC1", resource_revision="UNIT-RES", resource_content_hash="b" * 64,
+        plan_input_sha256="c" * 64, raw_snapshot_sha256=engine._digest(scenario.raw),
+        frozen_tables_sha256=engine._digest(scenario.tables), terrain_fingerprint=FINGERPRINT)
+    values = sorted(({"device_id": did, "rx_bandwidth_khz": float(value)} for did, value in choices),
+                    key=lambda row: row["device_id"])
+    return dict(selection_id="FBS-" + "a" * 32, source_anchor=anchor, choices=values,
+        selection_hash=engine._digest(dict(schema_version=1, source_anchor=anchor, choices=values)),
+        version_no=1, created_at="2026-10-24T00:00:00Z")
+
+
+@pytest.mark.parametrize("band", ["HF", "VUHF"])
+def test_rx_bandwidth_real_native_uses_each_explicit_choice(scenario, monkeypatch, band):
+    if band == "HF":
+        hf(scenario)
+    scenario.tables["device_model.csv"][0]["bandwidth_khz"] = "0.5;2.4;2.7;3"
+    selection = rx_selection(scenario, [("D1", 2.4), ("D2", 2.7), ("D3", 3)])
+    before = deepcopy((scenario.raw, scenario.tables, selection))
+    name = "hf_coverage_rings" if band == "HF" else "vuhf_coverage"
+    native, calls = getattr(viewshed, name), []
+
+    def calculate(terrain, station, **kwargs):
+        calls.append(station.radio[band]["bw"])
+        return native(terrain, station, **kwargs)
+
+    monkeypatch.setattr(viewshed, name, calculate)
+    monkeypatch.setattr(feasibility, "SpecFiller", lambda *a, **k: pytest.fail("no SpecFiller"))
+    result = compute(scenario, bandwidth_selection=selection)
+    assert result["status"] == "COMPLETE" and calls == [2.4, 2.7, 3, 3]
+    assert [row["radio_parameters"]["bw"] for row in result["devices"]] == [2.4, 2.7, 3]
+    assert all(row["rx_bandwidth"]["source"] == "EXPLICIT_COMPUTE_PARAMETER" for row in result["devices"])
+    assert all(row["frozen_model"]["bandwidth_khz"] == "0.5;2.4;2.7;3" for row in result["devices"])
+    assert result["provenance"]["bandwidth_selection_id"] == selection["selection_id"]
+    assert result["provenance"]["bandwidth_selection_hash"] == selection["selection_hash"]
+    assert result["provenance"]["bandwidth_choices"] == selection["choices"]
+    assert (scenario.raw, scenario.tables, selection) == before
+    assert all(row["computations"] for row in result["devices"])
+    json.dumps(result, allow_nan=False)
+
+
+def test_rx_bandwidth_options_keep_unknown_and_no_frequency_structured(scenario):
+    scenario.tables["device_model.csv"][0]["bandwidth_khz"] = "0.5;2.4;2.7;3"
+    model = deepcopy(scenario.tables["device_model.csv"][0])
+    model.update(model_id="UNKNOWN-BW", bandwidth_khz="")
+    scenario.tables["device_model.csv"].append(model)
+    scenario.raw["detail"]["devices"][1]["model_id"] = "UNKNOWN-BW"
+    scenario.raw["detail"]["links"] = scenario.raw["detail"]["links"][:1]
+    scenario.raw["detail"]["frequency"]["link_assignments"] = scenario.raw["detail"]["frequency"]["link_assignments"][:1]
+    rows = engine.bandwidth_options(scenario.raw, scenario.tables)
+    assert rows[0]["options_khz"] == [0.5, 2.4, 2.7, 3]
+    assert rows[0]["reason_code"] == "RX_BANDWIDTH_SELECTION_REQUIRED"
+    assert rows[1]["state"] == "NO_ASSIGNED_FREQUENCY" and rows[1]["options_khz"] is None
+    scenario.raw["detail"]["devices"][0]["model_id"] = "UNKNOWN-BW"
+    unknown = engine.bandwidth_options(scenario.raw, scenario.tables)[0]
+    assert unknown["state"] == "UNKNOWN" and unknown["reason_code"] == "RX_BANDWIDTH_UNKNOWN"
+    assert unknown["model_bandwidth_khz"] == "" and unknown["options_khz"] is None
+
+
+@pytest.mark.parametrize("change", ["outside", "duplicate", "not_member", "bool", "nan", "hash", "raw", "tables", "dem"])
+def test_rx_bandwidth_invalid_selection_rejected_before_dem(scenario, change):
+    scenario.tables["device_model.csv"][0]["bandwidth_khz"] = "0.5;2.4;2.7;3"
+    saved = rx_selection(scenario, [("D1", 2.4)])
+    if change == "outside":
+        saved["choices"][0]["device_id"] = "OUTSIDE"
+    elif change == "duplicate":
+        saved["choices"].append(deepcopy(saved["choices"][0]))
+    elif change in ("not_member", "bool", "nan"):
+        saved["choices"][0]["rx_bandwidth_khz"] = {"not_member": 25, "bool": True, "nan": float("nan")}[change]
+    elif change == "hash":
+        saved["selection_hash"] = "f" * 64
+    else:
+        saved["source_anchor"][{"raw": "raw_snapshot_sha256", "tables": "frozen_tables_sha256", "dem": "terrain_fingerprint"}[change]] = "d" * 64
+    with pytest.raises(engine.FrozenCoverageError) as error:
+        compute(scenario, bandwidth_selection=saved, terrain=lambda: pytest.fail("invalid selection loaded DEM"))
+    assert error.value.code == "COVERAGE_INPUT"
+
+
+def test_rx_bandwidth_selection_frozen_before_callbacks_and_not_channel_bandwidth(scenario, monkeypatch):
+    scenario.tables["device_model.csv"][0]["bandwidth_khz"] = "0.5;2.4;2.7;3"
+    scenario.raw["detail"]["frequency"]["link_assignments"][0]["bandwidth_khz"] = 25
+    selected = rx_selection(scenario, [("D1", 2.4)])
+    calls = fake_cells(monkeypatch)
+
+    def progress(*args):
+        selected["choices"][0]["rx_bandwidth_khz"] = 3
+
+    result = compute(scenario, bandwidth_selection=selected, progress=progress)
+    assert result["status"] == "PARTIAL" and len(calls) == 1 and calls[0][1]["bw"] == 2.4
+    assert result["provenance"]["bandwidth_choices"][0]["rx_bandwidth_khz"] == 2.4
+    assert result["devices"][1]["rx_bandwidth"]["source"] == "UNSELECTED"
+
+
+def test_rx_bandwidth_selected_without_frequency_still_unavailable(scenario, monkeypatch):
+    scenario.tables["device_model.csv"][0]["bandwidth_khz"] = "0.5;2.4;2.7;3"
+    scenario.raw["detail"]["links"] = scenario.raw["detail"]["links"][:1]
+    scenario.raw["detail"]["frequency"]["link_assignments"] = scenario.raw["detail"]["frequency"]["link_assignments"][:1]
+    selected = rx_selection(scenario, [("D1", 2.4), ("D2", 2.7), ("D3", 3)])
+    calls = fake_cells(monkeypatch)
+    result = compute(scenario, bandwidth_selection=selected)
+    assert result["status"] == "PARTIAL" and len(calls) == 2
+    missing = result["devices"][1]
+    assert missing["device_id"] == "D2" and missing["status"] == "UNAVAILABLE" and not missing["computations"]
+    assert missing["rx_bandwidth"]["value_khz"] == 2.7 and "无活动冻结链路分配频率" in missing["reasons"][0]

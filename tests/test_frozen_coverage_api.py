@@ -60,6 +60,85 @@ def submit(client, body=None):
                        headers={"x-csrf-token": "UNIT-CSRF"})
 
 
+def selection_request(client, body=None):
+    return client.post(PREFIX + "/P1/bandwidth-selections", json=body if body is not None else {
+        "task_id": "T1", "snapshot_id": "SNP-PL-UNIT", "request_id": "RX-SELECT",
+        "choices": [{"device_id": "D1", "rx_bandwidth_khz": 25}]}, headers={"x-csrf-token": "UNIT-CSRF"})
+
+
+def test_rx_bandwidth_api_selection_compute_cache_job_and_shared_gis_read(api):
+    client, service, state = api
+    q = {"task_id": "T1", "snapshot_id": "SNP-PL-UNIT"}
+    before = client.get(PREFIX + "/P1/bandwidth-options", params=q).json()["data"]
+    assert before["current_selection"] is None and before["devices"][0]["options_khz"] == [25]
+    created = selection_request(client)
+    assert created.status_code == 201
+    saved = created.json()["data"]
+    assert selection_request(client).status_code == 200
+    body = {**BODY, "bandwidth_selection_id": saved["selection_id"]}
+    response = submit(client, body)
+    assert response.status_code == 202
+    job = response.json()["data"]
+    assert terminal(service, job["job_id"])["state"] == "SUCCESS"
+    assert job["bandwidth_selection_hash"] == saved["selection_hash"]
+    state["actor"] = "ANOTHER-READER"
+    state["permissions"] = {"planning.view", "situation.view"}
+    options = client.get(PREFIX + "/P1/bandwidth-options", params={**q, "context": "gis"})
+    assert options.status_code == 200 and options.json()["data"]["current_selection"] == saved
+    restored = client.get(PREFIX + "/P1/bandwidth-selections/" + saved["selection_id"], params={**q, "context": "gis"})
+    assert restored.status_code == 200 and restored.json()["data"] == saved
+    cached = client.get(PREFIX + "/P1/cache", params={**CACHE, "context": "gis", "bandwidth_selection_id": saved["selection_id"]})
+    assert cached.status_code == 200 and cached.json()["data"]["state"] == "HIT"
+    assert cached.json()["data"]["result"]["provenance"]["bandwidth_selection_hash"] == saved["selection_hash"]
+    assert client.get(PREFIX + "/jobs/" + job["job_id"], params=ANCHOR).status_code == 403
+    assert selection_request(client).status_code == 403
+    state["permissions"].remove("situation.view")
+    assert client.get(PREFIX + "/P1/bandwidth-options", params={**q, "context": "gis"}).status_code == 403
+
+
+@pytest.mark.parametrize("value", [True, None, "25", 0, -1, 3])
+def test_rx_bandwidth_api_invalid_choices_do_not_persist(api, value):
+    client, service, _ = api
+    body = dict(task_id="T1", snapshot_id="SNP-PL-UNIT", request_id="BAD-RX",
+                choices=[{"device_id": "D1", "rx_bandwidth_khz": value}])
+    result = selection_request(client, body)
+    assert result.status_code == 422 and result.json()["code"] == 1001
+    assert not service.bandwidth.root.exists()
+
+
+@pytest.mark.parametrize("raw", [
+    '{"task_id":"T1","snapshot_id":"SNP-PL-UNIT","request_id":"X","choices":[{"device_id":"D1","rx_bandwidth_khz":NaN}]}',
+    '{"task_id":"T1","snapshot_id":"SNP-PL-UNIT","request_id":"X","choices":[{"device_id":"D1","device_id":"D2","rx_bandwidth_khz":25}]}',
+])
+def test_rx_bandwidth_api_duplicate_json_keys_and_nan_rejected(api, raw):
+    client, service, _ = api
+    response = client.post(PREFIX + "/P1/bandwidth-selections", content=raw,
+                           headers={"content-type": "application/json", "x-csrf-token": "UNIT-CSRF"})
+    assert response.status_code == 422 and response.json()["code"] == 1001
+    assert not service.bandwidth.root.exists()
+
+
+def test_rx_bandwidth_api_324_choices_over_16k_and_separate_128k_limit(api, context):
+    client, service, _ = api
+    choices = []
+    for index in range(324):
+        did = ("RX-" + str(index) + "-").ljust(100, "X")
+        context.source["raw_snapshot"]["detail"]["devices"].append(dict(device_id=did, node_id="N1", model_id="M1", antenna_id="A1"))
+        choices.append({"device_id": did, "rx_bandwidth_khz": 25})
+    body = dict(task_id="T1", snapshot_id="SNP-PL-UNIT", request_id="RX-324", choices=choices)
+    raw = json.dumps(body)
+    assert 16 * 1024 < len(raw.encode()) < 128 * 1024
+    response = selection_request(client, body)
+    assert response.status_code == 201 and len(response.json()["data"]["choices"]) == 324
+    files = list(service.bandwidth.root.glob("FBS-*.json"))
+    for path, content in (("/P1/bandwidth-selections", raw + " " * (128 * 1024)),
+                          ("/P1/compute", json.dumps(BODY) + " " * (16 * 1024))):
+        response = client.post(PREFIX + path, content=content,
+                               headers={"content-type": "application/json", "x-csrf-token": "UNIT-CSRF"})
+        assert response.status_code == 422 and response.json()["code"] == 1001
+    assert list(service.bandwidth.root.glob("FBS-*.json")) == files and not service._requests
+
+
 def test_compute_accepted_poll_cache_and_replay(api):
     client, service, state = api
     accepted = submit(client)

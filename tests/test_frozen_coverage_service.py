@@ -18,9 +18,13 @@ QUERY = {"plan_id": "P1", "task_id": "T1", "snapshot_id": "SNP-PL-UNIT", "actor_
 
 
 def synthetic_result(raw, tables, **kwargs):
+    selection = kwargs.get("bandwidth_selection")
     return {"schema_version": 1, "solution_id": raw["solution_id"], "status": "COMPLETE", "devices": [],
             "provenance": {"raw_snapshot_sha256": algorithm._digest(raw), "frozen_tables_sha256": algorithm._digest(tables),
-                "terrain_fingerprint": raw["terrain_fingerprint"], "engine_version": "V01-1",
+                "terrain_fingerprint": raw["terrain_fingerprint"], "engine_version": module.ENGINE_VERSION,
+                "bandwidth_selection_id": selection["selection_id"] if selection else None,
+                "bandwidth_selection_hash": selection["selection_hash"] if selection else None,
+                "bandwidth_choices": deepcopy(selection["choices"]) if selection else [],
                 "parameters": algorithm._parameters(kwargs["params"]), "test_only": True}}
 
 
@@ -520,3 +524,85 @@ def test_public_status_is_readonly_and_reports_lifecycle_and_storage_fault(conte
         assert service.status()["state"] == "failed"
     service.close()
     assert service.status() == {"state": "disabled", "worker_alive": False, "stop_requested": True, "storage_fault": False}
+
+
+def test_rx_bandwidth_v2_history_scan_reads_jobs_and_preserves_exact_bytes(context):
+    import uuid
+
+    service = context.make(engine=synthetic_result)
+    service.start()
+    submitted, _ = service.submit("P1", BODY, ACTOR)
+    assert terminal(service, submitted["job_id"])["state"] == "SUCCESS"
+    base = service._job(submitted["job_id"])
+    service.close()
+    legacy = context.make(runtime_root=service.root.parent / "legacy-only")
+    legacy.root.mkdir()
+    paths = []
+    for version in ("V01-1", "V01-2"):
+        for state in ("SUCCESS", "FAILED"):
+            old = deepcopy(base)
+            old["job_id"] = "FCJ-" + uuid.uuid4().hex
+            old["request_id"] = "LEGACY-" + version + "-" + state
+            old["request_body"]["request_id"] = old["request_id"]
+            old["request_digest"] = module._hash(old["request_body"])
+            old["anchor"]["engine_version"] = version
+            old["cache_key"] = "FCC-" + module._hash({"anchor": old["anchor"], "parameters": old["parameters"]})
+            old.pop("bandwidth_selection_id")
+            old.pop("bandwidth_selection_hash")
+            old["state"] = state
+            if state == "SUCCESS":
+                old["result"]["provenance"]["engine_version"] = version
+                for key in ("bandwidth_selection_id", "bandwidth_selection_hash", "bandwidth_choices"):
+                    old["result"]["provenance"].pop(key)
+                old["result_sha256"] = module._hash(old["result"])
+            else:
+                old["result"] = None
+                old["error"] = {"code": "COVERAGE_INPUT", "message": "retained original failure"}
+            path = legacy._path(old["job_id"])
+            module._atomic(path, old)
+            paths.append((path, path.read_bytes(), old))
+    reopened = context.make(runtime_root=legacy.root, engine=lambda *a, **k: pytest.fail("history must not compute"))
+    reopened.start()
+    assert reopened.status()["state"] == "running"
+    assert reopened.cache("P1", "T1", "SNP-PL-UNIT", SMALL)["state"] == "MISS"
+    for path, original, old in paths:
+        page = reopened.get_job(old["job_id"], **QUERY)
+        assert page["state"] == old["state"] and page["anchor"]["engine_version"] == old["anchor"]["engine_version"]
+        assert "bandwidth_selection_id" not in page and path.read_bytes() == original
+        replay, status = reopened.submit("P1", {k: v for k, v in old["request_body"].items() if k != "plan_id"}, ACTOR)
+        assert status == 200 and replay["job_id"] == old["job_id"]
+    reopened.close()
+    assert all(path.read_bytes() == original for path, original, _ in paths)
+    context.source["resource_revision"] = "OTHER-REVISION"
+    with pytest.raises(module.CoverageServiceError) as error:
+        reopened.get_job(paths[0][2]["job_id"], **QUERY)
+    assert error.value.code == 1205
+
+
+def test_rx_bandwidth_local_owner_write_shared_read_and_revocation(local_cache):
+    e = local_cache
+    e.service.start()
+    body = {"task_id": "T1", "snapshot_id": "SNP-PL-UNIT", "request_id": "RX-SELECT-LOCAL",
+            "choices": [{"device_id": "D1", "rx_bandwidth_khz": 25}]}
+    saved, status = e.service.save_bandwidth_selection("P1", body, "ACC-A", audit_context=e.capture("A"))
+    assert status == 201
+    reader = e.capture("B", "GET")
+    assert e.service.bandwidth_options("P1", "T1", "SNP-PL-UNIT", audit_context=reader)["current_selection"] == saved
+    assert e.service.get_bandwidth_selection("P1", "T1", "SNP-PL-UNIT", saved["selection_id"], audit_context=reader) == saved
+    for actor, context in (("ACC-A", e.capture("A", "GET")), ("ACC-B", e.capture("A"))):
+        with pytest.raises(e.m.service.CoverageServiceError) as error:
+            e.service.save_bandwidth_selection("P1", body, actor, audit_context=context)
+        assert error.value.code == 1104 and error.value.status == 403
+    with e.factory.begin() as session:
+        session.get(e.m.models.LocalRole, "ROLE-B").permissions = ["planning.view", "planning.execute", "situation.view"]
+    for account, pid in (("B", "P1"), ("A", "P2")):
+        with pytest.raises(e.m.errors.SystemManagementError) as error:
+            e.service.save_bandwidth_selection(pid, {**body, "request_id": "RX-DENIED-" + account},
+                                               "ACC-" + account, audit_context=e.capture(account))
+        assert error.value.code == 1104 and error.value.status == 403
+    assert len(list(e.service.bandwidth.root.glob("FBS-*.json"))) == 1
+    with e.factory.begin() as session:
+        session.get(e.m.sessions.LocalIdentitySession, reader._token_hash).revoked = True
+    with pytest.raises(e.m.errors.SystemManagementError) as error:
+        e.service.bandwidth_options("P1", "T1", "SNP-PL-UNIT", audit_context=reader)
+    assert error.value.code == 1102
