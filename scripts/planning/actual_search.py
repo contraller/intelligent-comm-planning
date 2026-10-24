@@ -128,10 +128,15 @@ def backup_solutions(problem, solution, result, demands, models, pool_rows, *, m
     groups = E.peer_groups(sub, links, solution["uplinks"])
     pool = FQ.FreqPool(pool_rows)
     critical = {frozenset(edge) for edge in context["bridges"]}
-    base_count = len(problem.base)
+    # 中继主上行可位于基础边之后；删边后下标也会变化，必须按边身份保护。
+    edge_key = lambda edge: (min(edge[0], edge[1]), max(edge[0], edge[1]), edge[2])
+    base_edges = {edge_key(edge) for edge in problem.base}
+    primary_pairs = {frozenset((child, parent)) for child, parent in solution["uplinks"].items()}
+    def optional(edge):
+        return edge_key(edge) not in base_edges and frozenset(edge[:2]) not in primary_pairs
     seen, proposals = set(), []
     failed_optional = {index for index, row in enumerate(result["links"])
-                       if index >= base_count and float(row["link_margin_db"]) < required}
+                       if optional(links[index]) and float(row["link_margin_db"]) < required}
     if failed_optional:
         removed = [edge for index, edge in enumerate(links) if index in failed_optional]
         proposals.append(dict(solution, links=[edge for index, edge in enumerate(links) if index not in failed_optional],
@@ -192,7 +197,7 @@ def backup_solutions(problem, solution, result, demands, models, pool_rows, *, m
             choices = [[None]]
             for endpoint in (a, b):
                 count = sum(endpoint in edge[:2] and edge[2] == band for edge in links)
-                removable = [index for index, edge in enumerate(links) if index >= base_count
+                removable = [index for index, edge in enumerate(links) if optional(edge)
                              and endpoint in edge[:2] and edge[2] == band
                              and frozenset((problem.sid[edge[0]], problem.sid[edge[1]])) not in critical]
                 choices.append(([] if count >= E.capacity(sub(endpoint), band) else [None]) + removable[:2])
@@ -287,6 +292,114 @@ def improve_bindings(links, nodes, devices, models, pool_rows, locked=(), checkp
     return changes
 
 
+def physical_parent_solutions(engine, problem, solution, result, demands, models, pool_rows):
+    """实际失效主上行只能合法换父；无可用边的非必要叶子明确保留为未接入。"""
+    from deployment import LAYER_PLAN
+    index = {sid: i for i, sid in enumerate(problem.sid)}
+    required = result["params"]["fade_margin_db"]
+    by_edge = {(frozenset((index[row["node_a_id"]], index[row["node_b_id"]])), row["device_class"]): row
+               for row in result["links"]}
+    mandatory = {row[key] for row in demands if str(row.get("is_mandatory", "false")).lower() == "true"
+                 for key in ("src_node_id", "dst_node_id")}
+    subtype = lambda i: problem.fm.stations[i].subtype
+    inventory, model_of = {}, {row["model_id"]: row for row in models}
+    for device in result["devices"]:
+        model = model_of[device["model_id"]]
+        if device.get("availability", "ACTIVE") == "ACTIVE":
+            inventory.setdefault((index[device["node_id"]], model["device_class"]), []).append(device["device_id"])
+    pool = FQ.FreqPool(pool_rows)
+    current_links = solution["links"]
+    changes = []
+    for child, parent in solution["uplinks"].items():
+        # 同一对端可有HF/VUHF并行边，任一健康边都不能被另一频段覆盖成失效。
+        parent_edges = [row for (pair, _band), row in by_edge.items() if pair == frozenset((child, parent))]
+        if not parent_edges or any(float(row["link_margin_db"]) >= required for row in parent_edges):
+            continue
+        row = max(parent_edges, key=lambda value: float(value["link_margin_db"]))
+        band = row["device_class"]
+        parent_types = {p for children, parents, b, _ in LAYER_PLAN
+                        if subtype(child) in children and band == b for p in parents}
+        if subtype(child) == E.PEER_SUBTYPE:
+            parent_types.add(E.PEER_SUBTYPE)
+        options = []
+        for candidate in sorted({i for i, b in inventory if b == band}):
+            if candidate in (child, parent) or subtype(candidate) not in parent_types:
+                continue
+            seen, ancestor = {child}, candidate
+            while ancestor in solution["uplinks"] and ancestor not in seen:
+                seen.add(ancestor)
+                ancestor = solution["uplinks"][ancestor]
+            if ancestor in seen:
+                continue
+            degree = sum(candidate in edge[:2] and edge[2] == band for edge in current_links)
+            already = next((edge for edge in current_links if set(edge[:2]) == {child, candidate}
+                            and edge[2] == band), None)
+            if already is None and degree >= E.capacity(subtype(candidate), band):
+                continue
+            options.append((haversine_m(problem.fm.stations[child].lon, problem.fm.stations[child].lat,
+                                        problem.fm.stations[candidate].lon, problem.fm.stations[candidate].lat),
+                            candidate, already))
+        ranked = []
+        for _distance, candidate, already in sorted(options)[:12]:
+            if not engine.checkpoint():
+                break
+            margin = engine.pair_margin(result, problem.sid[child], problem.sid[candidate], band,
+                                        inventory[(child, band)], inventory[(candidate, band)], pool)
+            if margin >= required:
+                ranked.append((margin, candidate, already))
+        ranked.sort(reverse=True, key=lambda value: value[0])
+        choices = [(candidate, already) for _m, candidate, already in ranked[:2]]
+        if (problem.sid[child] not in mandatory
+              and not any(p == child for p in solution["uplinks"].values())
+              and not any(child in edge[:2] and float(by_edge[(frozenset(edge[:2]), edge[2])]["link_margin_db"]) >= required
+                          for edge in current_links)):
+            # 它在当前实际图中已经断开；不把一条失败的规划边伪装成已接入。
+            choices.insert(0, (None, None))
+        if choices:
+            changes.append((child, parent, band, choices))
+    proposals = []
+    variants = ([[(child, parent, band, options[0]) for child, parent, band, options in changes]]
+                if changes else [])
+    variants.extend([[(child, parent, band, option)] for child, parent, band, options in changes for option in options])
+    for operations in variants:
+        links, uplinks = list(current_links), dict(solution["uplinks"])
+        audit = list(solution.get("repair_changes", []))
+        for child, parent, band, (candidate, existing) in operations:
+            before_links, before_uplinks = list(links), dict(uplinks)
+            links = [edge for edge in links if not (set(edge[:2]) == {child, parent} and edge[2] == band)]
+            if candidate is None:
+                uplinks.pop(child)
+            else:
+                uplinks[child] = candidate
+                if existing is None:
+                    links.append((child, candidate, band))
+            # 单独可行的两个换父可能争用同一末端端口；组合时逐步预留。
+            degree = sum(candidate in edge[:2] and edge[2] == band for edge in links) if candidate is not None else 0
+            if candidate is not None and degree > E.capacity(subtype(candidate), band):
+                links, uplinks = before_links, before_uplinks
+                continue
+            audit.append({"kind": "DETACH_UNUSABLE_NONMANDATORY_LEAF" if candidate is None else "REPLACE_UNUSABLE_UPLINK",
+                          "child": problem.sid[child], "old_parent": problem.sid[parent],
+                          "new_parent": None if candidate is None else problem.sid[candidate],
+                          "rejected_margin_db": float(by_edge[(frozenset((child, parent)), band)]["link_margin_db"]),
+                          "required_margin_db": required, "source_nodes_and_devices_retained": True})
+        # 多个单步合法换父叠加后仍须独立检查环路与端口，不消耗完整核验预算。
+        valid = True
+        for child in uplinks:
+            seen, ancestor = set(), child
+            while ancestor in uplinks and ancestor not in seen:
+                seen.add(ancestor)
+                ancestor = uplinks[ancestor]
+            valid &= ancestor not in seen
+        degrees = {}
+        for a, b, band in links:
+            for endpoint in (a, b):
+                degrees[(endpoint, band)] = degrees.get((endpoint, band), 0) + 1
+        if links != current_links and valid and all(count <= E.capacity(subtype(i), band) for (i, band), count in degrees.items()):
+            proposals.append(dict(solution, links=links, uplinks=uplinks, repair_changes=audit))
+    return proposals
+
+
 class ChannelSearch:
     def __init__(self, models, antennas, terrain, interference_rows, *, deadline, progress=None):
         self.models = copy.deepcopy(models)
@@ -313,13 +426,81 @@ class ChannelSearch:
 
     def begin_check(self, estimate=0.0, *, allow_initial=False):
         ready = self.checkpoint()
-        if self.complete_checks >= 24:
+        if self.complete_checks >= 40:
             return False
         if not (allow_initial and self.complete_checks == 0) and (
                 not ready or time.monotonic() + estimate >= self.deadline):
             return False
         self.complete_checks += 1
         return True
+
+    def pair_margin(self, result, a, b, band, device_a, device_b, pool):
+        """换父预筛选使用现有设备和合法池的原生最大功率，终选仍完整重算。"""
+        model_of = {row["model_id"]: row for row in self.models}
+        devices = {row["device_id"]: row for row in result["devices"]}
+        best, evaluated = -999.0, 0
+        # 同型号/天线/挂高的实物只探测一次；不新增设备或改变带宽。
+        def unique(ids):
+            seen = set()
+            for did in ids:
+                row = devices[did]
+                key = (row["model_id"], row.get("antenna_id"), row.get("antenna_height_m"))
+                if key not in seen:
+                    seen.add(key)
+                    yield did
+        for da, db in itertools.product(unique(device_a), unique(device_b)):
+            ma, mb = (model_of[devices[did]["model_id"]] for did in (da, db))
+            allowed = [row for row in pool.of_band(band) if all(float(model["freq_min_khz"]) <= row["freq_khz"]
+                       <= float(model["freq_max_khz"]) for model in (ma, mb))]
+            if not allowed:
+                continue
+            row = {"link_id": "PROBE", "node_a_id": a, "node_b_id": b, "device_class": band,
+                   "device_a_id": da, "device_b_id": db, "is_available": "true"}
+            maximum = [dict(value, tx_power_dbm=result["caps"][value["device_id"]].tx_max)
+                       for value in result["params"]["params"] if value["device_id"] in (da, db)]
+            # 备用实物可能未在当前参数表中出现，仍沿用原始挂高和最大合法功率。
+            present = {value["device_id"] for value in maximum}
+            maximum.extend(dict(devices[did], tx_power_dbm=result["caps"][did].tx_max,
+                                antenna_height_m=float(devices[did]["antenna_height_m"]))
+                           for did in (da, db) if did not in present)
+            scenario = IF.scenario_from_plan({"stations": result["stations"], "links": [row],
+                "devices": result["devices"], "models": self.models, "antennas": self.antennas,
+                "terrain": self.terrain, "params": {"params": maximum}, "freq_tasks": [],
+                "frequency": {"link_assignments": [{"link_id": "PROBE", "freq_khz": allowed[0]["freq_khz"]}]}}, self.interference_rows)
+            link = scenario.links[0]
+            for channel in allowed:
+                if evaluated >= 160 or not self.checkpoint():
+                    return best
+                link.f = channel["freq_khz"]
+                best = max(best, scenario.link_state(link)["margin_after"])
+                evaluated += 1
+                self.evaluations += 1
+        return best
+
+    def physical_guard(self, result):
+        """重着色不得把当前健康成员换到最大合法功率也无法维持的频道。"""
+        scenario = result["scenario"]
+        required = result["params"]["fade_margin_db"]
+        by_link = {row.link_id: row for row in scenario.links}
+        margins = {row["link_id"]: float(row["link_margin_db"]) for row in result["links"]}
+        protected = {task.task_id: [by_link[lid] for lid in task.members if lid in by_link
+                     and margins[lid] >= required] for task in result["ftasks"]}
+        cache = {}
+        def admissible(task_id, channel):
+            if not self.checkpoint():
+                return False
+            for original in protected.get(task_id, []):
+                key = (original.link_id, channel["freq_khz"])
+                if key not in cache:
+                    link = copy.copy(original)
+                    link.f = channel["freq_khz"]
+                    link.tx = {sid: result["caps"][did].tx_max for sid, did in link.device.items()}
+                    cache[key] = scenario.link_state(link)["margin_after"]
+                    self.evaluations += 1
+                if cache[key] < required:
+                    return False
+            return True
+        return admissible
 
     def preferences(self, result, pool_rows, demands, max_tasks=12, max_evaluations=1200):
         if not self.checkpoint():

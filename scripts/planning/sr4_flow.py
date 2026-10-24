@@ -12,6 +12,7 @@
 """
 import csv
 import copy
+from collections import Counter
 import math
 import os
 import sys
@@ -319,19 +320,45 @@ def _frozen_uplinks(detail):
 def _check_candidate(pb, solution, stations, nodes, devices, models, antennas,
                      terrain, demands, opt_demands, strategy, preset, pool_rows,
                      metrics_rows, constraints, *, interference_rows=None,
-                     channel_preference=None, optimize_bindings=False, search_checkpoint=None):
+                     channel_preference=None, optimize_bindings=False, search_checkpoint=None,
+                     channel_admissible=None, radio_anchor=None):
     """用实际设备、频点和链路余量复核优化器给出的拓扑。"""
     fm = pb.fm
     links, nodes2, devices2 = rows_from_solution(pb, solution, nodes, devices, models)
     st2 = stations + [fm.stations[i] for i in solution["relays"]]
     graph = routing.graph_from_links(links, metrics_rows)[0]
     routes = routing.plan_routes(graph, demands, default_strategy=strategy)
-    binding_errors = bind_links_to_devices(
-        links, nodes2, devices2, models, demands=demands, routes=routes,
-        pool_rows=pool_rows if optimize_bindings else None, checkpoint=search_checkpoint)
+    if radio_anchor is None:
+        binding_errors = bind_links_to_devices(
+            links, nodes2, devices2, models, demands=demands, routes=routes,
+            pool_rows=pool_rows if optimize_bindings else None, checkpoint=search_checkpoint)
+    else:
+        # 仅允许删边候选继承已核验绑定；换父/加边必须重新规划，不可借此绕过校验。
+        key = lambda row: (frozenset((row["node_a_id"], row["node_b_id"])), row["device_class"])
+        previous = {key(row): row for row in radio_anchor["links"]}
+        if not Counter(key(row) for row in links) <= Counter(key(row) for row in radio_anchor["links"]):
+            raise ValueError("保留射频配置只允许已核验拓扑的删边子集")
+        for row in links:
+            old = previous[key(row)]
+            device_of = {old["node_a_id"]: old["device_a_id"], old["node_b_id"]: old["device_b_id"]}
+            for side in ("a", "b"):
+                row["device_%s_id" % side] = device_of[row["node_%s_id" % side]]
+        binding_errors = []
+        routes = radio_anchor["routes"]
     ftasks = FQ.tasks_from_nets(links, nodes2, devices2, models)
     FQ.fill_ranges_by_node(ftasks, links, nodes2, devices2, models)
-    freq = FQ.assign(ftasks, FQ.FreqPool(pool_rows), channel_preference=channel_preference)
+    original_channels = ({row["task_id"]: row for row in radio_anchor["frequency"]["assignments"]}
+                         if radio_anchor is not None else {})
+    locks = [{"link_id": task.task_id, "freq_khz": original_channels[task.task_id]["freq_khz"]}
+             for task in ftasks if original_channels.get(task.task_id, {}).get("freq_khz") is not None]
+    frequency_args = {"channel_preference": channel_preference}
+    if channel_admissible is not None:
+        frequency_args["channel_admissible"] = channel_admissible
+    freq = FQ.assign(ftasks, FQ.FreqPool(pool_rows), manual=locks or None, **frequency_args)
+    if radio_anchor is not None:
+        for row in freq["assignments"]:
+            row["manual"] = original_channels[row["task_id"]]["manual"]
+        freq["assignment_basis"] = "VERIFIED_PRUNING_SUBSET"
     freq["link_assignments"] = FQ.expand_to_links(freq, ftasks)
     caps = RP.capabilities_by_device(st2, devices2, models, antennas)
     params = RP.plan_bound_devices(st2, links, devices2, models, antennas,
@@ -368,6 +395,20 @@ def _check_candidate(pb, solution, stations, nodes, devices, models, antennas,
                 ftasks=ftasks, frequency=freq, caps=caps, params=params, check=chk,
                 objectives=objectives, constraint_check=checks, usable_count=usable,
                 uplinks=uplinks, scenario=scenario)
+
+
+def _candidate_signature(solution, radio_anchor=None):
+    """同拓扑不同射频锚点必须分别核验，不能把未锚定失败当成锚定结果。"""
+    anchor = None
+    if radio_anchor is not None:
+        anchor = (tuple(sorted((row["task_id"], row.get("freq_khz"))
+                               for row in radio_anchor["frequency"]["assignments"])),
+                  tuple(sorted((row["node_a_id"], row["node_b_id"], row["device_class"],
+                                row["device_a_id"], row["device_b_id"]) for row in radio_anchor["links"])),
+                  tuple(sorted((row["demand_id"], tuple(row["primary"]["node_path"]))
+                               for row in radio_anchor["routes"]["routes"] if row.get("reachable"))))
+    return (tuple(sorted((min(a, b), max(a, b), band) for a, b, band in solution["links"])),
+            solution["m_req"], tuple(sorted(solution["uplinks"].items())), anchor)
 
 
 def _candidate_score(objectives, checks, check_result, binding_errors, constraints):
@@ -602,6 +643,8 @@ def rows_from_solution(pb, e, nodes, devices, models):
     """把一个优化解（下标形式的链路）落成链路表，并给新增中继补节点/设备行。"""
     fm = pb.fm
     rows = []
+    primary = {frozenset((a, b)) for a, b in e["uplinks"].items()}
+    base = {(min(a, b), max(a, b), band) for a, b, band in pb.base}
     for k, (a, b, band) in enumerate(e["links"], start=1):
         sa, sb = fm.stations[a], fm.stations[b]
         m = pb.margin_at_max(a, b, band)
@@ -610,7 +653,8 @@ def rows_from_solution(pb, e, nodes, devices, models):
                          link_margin_db="%.2f" % (m if m is not None else 0.0),
                          distance_m="%.1f" % haversine_m(sa.lon, sa.lat, sb.lon, sb.lat),
                          is_available="true", link_state="",
-                         is_backup=str(k > len(pb.base)).lower()))
+                         is_backup=str((min(a, b), max(a, b), band) not in base
+                                       and frozenset((a, b)) not in primary).lower()))
     nodes_x, devices_x = list(nodes), list(devices)
     have = {n["node_id"] for n in nodes_x}
     seq = len(devices_x)
@@ -726,12 +770,14 @@ def run(task_id=None, preset="TERRAIN", strategy="MAX_RELIABILITY",
     seen_topologies = set()
     checked = 0
     verified, check_cost = [], 0.0
-    from actual_search import ChannelSearch, bandwidth_audit, backup_solutions, failure_context
+    from actual_search import (ChannelSearch, bandwidth_audit, backup_solutions, failure_context,
+                               physical_parent_solutions)
     search = ChannelSearch(models, antennas, terrain, jam_rows,
         deadline=monotonic_start + TIME_LIMIT_S - 30,
         progress=(lambda: progress(0.72, "实际频点与物理备份搜索")) if progress else None)
 
-    def checked_candidate(problem, solution, preference=None, optimize_bindings=False):
+    def checked_candidate(problem, solution, preference=None, optimize_bindings=False,
+                          channel_admissible=None, radio_anchor=None):
         nonlocal checked, check_cost
         if not search.begin_check(check_cost, allow_initial=selected is None):
             return None
@@ -740,31 +786,31 @@ def run(task_id=None, preset="TERRAIN", strategy="MAX_RELIABILITY",
         result = _check_candidate(problem, solution, st1, nodes1, devices1, models, antennas,
             terrain, demands, opt_demands, strategy, preset, pool_rows, metrics_rows, cons,
             interference_rows=jam_rows, channel_preference=preference,
-            optimize_bindings=optimize_bindings, search_checkpoint=search.checkpoint)
+            optimize_bindings=optimize_bindings, search_checkpoint=search.checkpoint,
+            channel_admissible=channel_admissible, radio_anchor=radio_anchor)
         check_cost = max(0.25, time.monotonic() - started)
         return result
 
-    def consider(problem, optimization, limit, candidates=None):
+    def consider(problem, optimization, limit, candidates=None, ceiling=24, radio_anchor=None):
         nonlocal selected, pb, opt, checked, check_cost
         if candidates is None:
             candidates = [optimization["solutions"][0]] + optimization.get("candidates", [])
         for solution in candidates[:limit]:
-            if selected is not None and (checked >= 24 or not search.checkpoint()
+            if selected is not None and (checked >= ceiling or not search.checkpoint()
                     or time.monotonic() + check_cost >= search.deadline):
                 break
-            signature = (tuple(sorted((min(a, b), max(a, b), band)
-                                      for a, b, band in solution["links"])), solution["m_req"],
-                         tuple(sorted(solution["uplinks"].items())))
+            signature = _candidate_signature(solution, radio_anchor)
             if signature in seen_topologies:
                 continue
             seen_topologies.add(signature)
-            result = checked_candidate(problem, solution)
+            result = checked_candidate(problem, solution, radio_anchor=radio_anchor)
             if result is None:
                 break
-            if checked < 24 and search.checkpoint():
+            if radio_anchor is None and checked < ceiling and search.checkpoint():
                 preference = search.preferences(result, pool_rows, opt_demands)
                 if preference and search.checkpoint() and time.monotonic() + check_cost < search.deadline:
-                    refined = checked_candidate(problem, solution, preference, True)
+                    refined = checked_candidate(problem, solution, preference, True,
+                                                channel_admissible=search.physical_guard(result))
                     if refined is not None and refined["score"] < result["score"]:
                         result = refined
             verified.append((problem, optimization, solution, result))
@@ -820,6 +866,35 @@ def run(task_id=None, preset="TERRAIN", strategy="MAX_RELIABILITY",
             if consider(alt_pb, alt_opt, 3):
                 break
 
+    # 为最终实际失效修复预留独立名额，仍受同一单调时钟截止时间约束。
+    frontier = sorted(verified, key=lambda row: row[3]["score"])[:1]
+    for _round in range(4):
+        if (selected["score"][0] == 0 and not selected["params"]["failed_links"]) or checked >= 40 or not search.checkpoint():
+            break
+        expanded = []
+        for problem, optimization, solution, result in frontier:
+            proposals = backup_solutions(problem, solution, result, opt_demands, models, pool_rows,
+                                         max_variants=1, checkpoint=search.checkpoint)
+            proposals += physical_parent_solutions(search, problem, solution, result, opt_demands, models, pool_rows)
+            # 每层留预算给组合后的下一次修复，不在第一层耗尽全部终选名额。
+            for proposal in proposals[:2]:
+                before = len(verified)
+                previous_edges = Counter((frozenset((row["node_a_id"], row["node_b_id"])), row["device_class"])
+                                         for row in result["links"])
+                proposal_edges = Counter((frozenset((problem.sid[a], problem.sid[b])), band)
+                                         for a, b, band in proposal["links"])
+                is_prune = proposal_edges <= previous_edges
+                consider(problem, optimization, 1, candidates=[proposal], ceiling=40,
+                         radio_anchor=result if is_prune else None)
+                expanded.extend(verified[before:])
+                if (selected["score"][0] == 0 and not selected["params"]["failed_links"]) or checked >= 40 or not search.checkpoint():
+                    break
+            if (selected["score"][0] == 0 and not selected["params"]["failed_links"]) or checked >= 40 or not search.checkpoint():
+                break
+        if not expanded:
+            break
+        frontier = sorted(expanded, key=lambda row: row[3]["score"])[:1]
+
     best = selected["solution"]
     links, nodes2, devices2 = selected["links"], selected["nodes"], selected["devices"]
     st2, g, routes = selected["stations"], selected["graph"], selected["routes"]
@@ -868,7 +943,7 @@ def run(task_id=None, preset="TERRAIN", strategy="MAX_RELIABILITY",
                                  actual_search={"evaluations": search.evaluations,
                                                 "budget_exhausted": search.exhausted,
                                                 "checked_candidates": checked,
-                                                "check_limit_reached": checked >= 24,
+                                                "check_limit_reached": checked >= 40,
                                                 "repair_changes": copy.deepcopy(best.get("repair_changes", [])),
                                                 "radio_bandwidth": bandwidth_audit(sc, devices2, models),
                                                 "planned_devices": [{"device_id": row["device_id"],

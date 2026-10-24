@@ -136,10 +136,10 @@ def test_actual_channel_budget_and_cancel_do_not_mutate_snapshot(native_case):
     assert result["params"] == before
 
 
-def test_complete_check_gate_is_shared_and_never_accepts_the_twenty_fifth():
+def test_complete_check_gate_is_shared_and_never_accepts_the_forty_first():
     engine = search.ChannelSearch([], [], None, [], deadline=time.monotonic() + 10)
-    assert sum(engine.begin_check() for _ in range(30)) == 24
-    assert engine.complete_checks == 24
+    assert sum(engine.begin_check() for _ in range(45)) == 40
+    assert engine.complete_checks == 40
     expired = search.ChannelSearch([], [], None, [], deadline=time.monotonic() - 1)
     assert not expired.begin_check()
     assert expired.begin_check(allow_initial=True)
@@ -401,7 +401,7 @@ def test_new_task_uses_two_step_actual_cut_search_not_only_single_step_greedy(ph
     assert best["objectives"]["survivability"] == 1.0 and best["bridges"] == 0
     assert best["worst_single_failure"] is None
     assert actual["optimization"]["task_view"]["survivability"] == 1.0
-    assert 4 <= actual["optimization"]["actual_search"]["checked_candidates"] <= 24
+    assert 4 <= actual["optimization"]["actual_search"]["checked_candidates"] <= 40
     assert actual["optimization"]["tradeoff"][0]["evaluation_basis"] == "REPRESENTATIVE_FREQUENCY_PRESELECTION"
     assert len(actual["links"]) == 5 and actual["within_limit"]
     assert tables == frozen
@@ -425,3 +425,172 @@ def test_unusable_optional_backup_can_be_removed_without_erasing_primary_or_hist
     assert after["objectives"]["survivability"] == result["objectives"]["survivability"]
     assert after["objectives"]["e2e_connectivity"] == result["objectives"]["e2e_connectivity"]
     assert source == frozen
+
+
+def test_backup_pruning_protects_late_relay_uplink_and_reordered_base(physical_backup_case):
+    problem, source, demands, models, check = physical_backup_case
+    # 模拟已清理/换序后的候选：中继主上行在基础边后，不能因余量不足被当备份删除。
+    source = dict(source, links=[source["links"][1], source["links"][2], source["links"][0],
+                                (1, 3, "HF")], uplinks={**source["uplinks"], 3: 1})
+    result = check(source)
+    for row in result["links"]:
+        row["link_margin_db"] = -10
+    proposals = search.backup_solutions(problem, source, result, demands, models, pool_rows())
+    protected = {frozenset((a, b)) for a, b in source["uplinks"].items()}
+    for proposal in proposals:
+        present = {frozenset((a, b)) for a, b, _band in proposal["links"]}
+        assert protected <= present
+        assert all(edge in proposal["links"] for edge in problem.base)
+    late = flow.rows_from_solution(problem, source, result["nodes"], result["devices"], models)[0][-1]
+    assert late["is_backup"] == "false"
+
+
+def test_physical_failed_parent_replacement_keeps_legal_primary_and_inventory(physical_backup_case, native_case):
+    problem, source, demands, models, check = physical_backup_case
+    result = check(source)
+    result["links"][0]["link_margin_db"] = -10
+    before = copy.deepcopy((source, result["devices"], result["nodes"]))
+    engine = search.ChannelSearch(models, native_case[2], None, [], deadline=time.monotonic() + 10)
+    proposals = search.physical_parent_solutions(engine, problem, source, result, demands, models, pool_rows())
+    assert proposals
+    for proposal in proposals:
+        assert proposal["uplinks"][1] == 3
+        assert (0, 1, "HF") not in proposal["links"]
+        assert (1, 3, "HF") in proposal["links"]
+        assert proposal["repair_changes"][-1]["kind"] == "REPLACE_UNUSABLE_UPLINK"
+        validated = check(proposal)
+        assert validated["check"]["passed"]
+        assert validated["devices"] == result["devices"]
+    assert (source, result["devices"], result["nodes"]) == before
+
+
+@pytest.mark.parametrize("necessary", [False, True])
+def test_only_unconnected_nonmandatory_leaf_can_be_explicitly_detached(physical_backup_case, monkeypatch, necessary):
+    problem, source, demands, models, check = physical_backup_case
+    result = check(source)
+    result["links"][1]["link_margin_db"] = -10
+    engine = search.ChannelSearch(models, [], None, [], deadline=time.monotonic() + 10)
+    monkeypatch.setattr(engine, "pair_margin", lambda *_args: -999)
+    selected = demands if necessary else demands[:1]
+    proposals = search.physical_parent_solutions(engine, problem, source, result, selected, models, pool_rows())
+    if necessary:
+        assert proposals == []
+    else:
+        assert proposals and all(2 not in row["uplinks"] for row in proposals)
+        assert all(row["repair_changes"][-1]["kind"] == "DETACH_UNUSABLE_NONMANDATORY_LEAF" for row in proposals)
+        assert all(row["repair_changes"][-1]["source_nodes_and_devices_retained"] for row in proposals)
+        assert len(result["nodes"]) == 4 and len(result["devices"]) == 12
+
+
+def test_joint_parent_repair_reserves_shared_last_port(physical_backup_case, native_case, monkeypatch):
+    problem, source, demands, models, check = physical_backup_case
+    result = check(source)
+    result["links"][0]["link_margin_db"] = -10
+    result["links"][1]["link_margin_db"] = -10
+    original_capacity = search.E.capacity
+    monkeypatch.setattr(search.E, "capacity", lambda subtype, band:
+                        2 if subtype == "I_MOBILE" else original_capacity(subtype, band))
+    engine = search.ChannelSearch(models, native_case[2], None, [], deadline=time.monotonic() + 10)
+    proposals = search.physical_parent_solutions(engine, problem, source, result, demands, models, pool_rows())
+    assert proposals
+    compound = proposals[0]
+    assert sum(parent == 3 for parent in compound["uplinks"].values()) == 1
+    assert sum(3 in edge[:2] for edge in compound["links"]) == 2
+    assert len(compound["repair_changes"]) == 1
+    assert set(compound["uplinks"]) == set(source["uplinks"])
+
+
+def test_physical_guard_protects_healthy_members_and_keeps_frozen_inputs(physical_backup_case, native_case, monkeypatch):
+    _problem, source, _demands, models, check = physical_backup_case
+    monkeypatch.setattr(flow.IF, "hf_path_loss", lambda _t, _a, _b, f, *_args:
+                        (180.0 if f == 6000 else 105.0, True, 0, 1000))
+    result = check(source)
+    frozen = copy.deepcopy((result["links"], result["params"], result["devices"]))
+    engine = search.ChannelSearch(models, native_case[2], None, [], deadline=time.monotonic() + 10)
+    guard = engine.physical_guard(result)
+    f1, f2 = FQ.FreqPool(pool_rows()).of_band("HF")
+    task_id = result["ftasks"][0].task_id
+    assert guard(task_id, f1) and not guard(task_id, f2)
+    count = engine.evaluations
+    assert not guard(task_id, f2) and engine.evaluations == count
+    assert (result["links"], result["params"], result["devices"]) == frozen
+
+
+def test_pruning_freezes_verified_channels_and_bindings_but_rechecks_physics(physical_backup_case, native_case):
+    problem, source, demands, models, check = physical_backup_case
+    source = dict(source, links=source["links"] + [(1, 3, "HF")])
+    result = check(source)
+    candidate = dict(source, links=source["links"][:-1])
+    frozen = copy.deepcopy((result["links"], result["frequency"], result["params"]))
+    verified = flow._check_candidate(problem, candidate, result["stations"], result["nodes"],
+        result["devices"], models, native_case[2], None, demands, demands,
+        "MAX_RELIABILITY", "TERRAIN", pool_rows(), [], dict(flow.MO.DEFAULT_CONSTRAINTS),
+        interference_rows=[], radio_anchor=result)
+    assert verified["check"]["passed"]
+    assert verified["frequency"]["assignment_basis"] == "VERIFIED_PRUNING_SUBSET"
+    previous = {row["task_id"]: row for row in result["frequency"]["assignments"]}
+    assert all(row["freq_id"] == previous[row["task_id"]]["freq_id"] and not row["manual"]
+               for row in verified["frequency"]["assignments"])
+    for link in verified["links"]:
+        original = next(row for row in result["links"] if row["node_a_id"] == link["node_a_id"]
+                        and row["node_b_id"] == link["node_b_id"])
+        assert (link["device_a_id"], link["device_b_id"]) == (original["device_a_id"], original["device_b_id"])
+    assert (result["links"], result["frequency"], result["params"]) == frozen
+    illegal = dict(source, links=source["links"] + [(2, 3, "HF")])
+    with pytest.raises(ValueError, match="删边子集"):
+        flow._check_candidate(problem, illegal, result["stations"], result["nodes"], result["devices"],
+            models, native_case[2], None, demands, demands, "MAX_RELIABILITY", "TERRAIN",
+            pool_rows(), [], dict(flow.MO.DEFAULT_CONSTRAINTS), interference_rows=[], radio_anchor=result)
+    duplicated = dict(source, links=source["links"] + [source["links"][0]])
+    with pytest.raises(ValueError, match="删边子集"):
+        flow._check_candidate(problem, duplicated, result["stations"], result["nodes"], result["devices"],
+            models, native_case[2], None, demands, demands, "MAX_RELIABILITY", "TERRAIN",
+            pool_rows(), [], dict(flow.MO.DEFAULT_CONSTRAINTS), interference_rows=[], radio_anchor=result)
+
+
+def test_failed_nonmandatory_leaf_detachment_retains_verified_radio_and_unknown_node(physical_backup_case, native_case, monkeypatch):
+    problem, source, demands, models, check = physical_backup_case
+    monkeypatch.setattr(flow.IF, "hf_path_loss", lambda _t, a, b, *_args:
+                        (180.0 if 114.02 in (round(a[0], 2), round(b[0], 2)) else 105.0, True, 0, 1000))
+    result = check(source, demands[:1])
+    assert not result["check"]["passed"]
+    engine = search.ChannelSearch(models, native_case[2], None, [], deadline=time.monotonic() + 10)
+    proposals = search.physical_parent_solutions(engine, problem, source, result, demands[:1], models, pool_rows())
+    candidate = next(row for row in proposals if 2 not in row["uplinks"])
+    actual = flow._check_candidate(problem, candidate, result["stations"], result["nodes"], result["devices"],
+        models, native_case[2], None, demands[:1], demands[:1], "MAX_RELIABILITY", "TERRAIN",
+        pool_rows(), [], dict(flow.MO.DEFAULT_CONSTRAINTS), interference_rows=[], radio_anchor=result)
+    assert actual["check"]["passed"] and not actual["params"]["failed_links"]
+    assert actual["objectives"]["e2e_connectivity"] == result["objectives"]["e2e_connectivity"]
+    assert actual["devices"] == result["devices"] and actual["nodes"] == result["nodes"]
+    assert actual["frequency"]["assignment_basis"] == "VERIFIED_PRUNING_SUBSET"
+
+
+def test_candidate_dedup_separates_radio_anchors_and_preserves_order_equivalence(physical_backup_case):
+    _problem, source, _demands, _models, check = physical_backup_case
+    result = check(source)
+    plain = flow._candidate_signature(source)
+    anchored = flow._candidate_signature(source, result)
+    assert plain != anchored
+    equivalent = dict(source, links=list(reversed(source["links"])))
+    assert flow._candidate_signature(equivalent, copy.deepcopy(result)) == anchored
+    changed_channel = copy.deepcopy(result)
+    changed_channel["frequency"]["assignments"][0]["freq_khz"] += 1000
+    assert flow._candidate_signature(source, changed_channel) != anchored
+    changed_binding = copy.deepcopy(result)
+    changed_binding["links"][0]["device_a_id"] = "DIFFERENT-DEVICE"
+    assert flow._candidate_signature(source, changed_binding) != anchored
+
+
+@pytest.mark.parametrize("reverse_rows", [False, True])
+def test_parallel_band_reports_cannot_detach_a_currently_connected_leaf(physical_backup_case, monkeypatch, reverse_rows):
+    problem, source, demands, models, check = physical_backup_case
+    result = check(source)
+    # 本例只验证已算余量报告的频段索引，不将注入的并行报告作为传播/绑定验收。
+    result["links"].append(dict(result["links"][1], link_id="PARALLEL", device_class="VUHF", link_margin_db=-10))
+    source = dict(source, links=source["links"] + [(0, 2, "VUHF")])
+    if reverse_rows:
+        result["links"].reverse()
+    engine = search.ChannelSearch(models, [], None, [], deadline=time.monotonic() + 10)
+    monkeypatch.setattr(engine, "pair_margin", lambda *_args: -999)
+    assert search.physical_parent_solutions(engine, problem, source, result, demands[:1], models, pool_rows()) == []
