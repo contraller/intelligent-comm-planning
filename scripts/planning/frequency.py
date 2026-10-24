@@ -30,6 +30,7 @@ Dsatur 之后已无冲突（见 `_self_test` 与规模测试），GA 没有可�
 import math
 import os
 import sys
+import time
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -491,42 +492,96 @@ def sub_band_gaps(tasks, adj):
     return out
 
 
-def _preference_repair(tasks, adj, sep, color, fixed, preferences):
-    """只接受冲突不增的改善，允许交换两个未固定对象的合法频点。"""
-    ranked = {i: {freq_id: rank for rank, freq_id in enumerate(preferences.get(task.task_id, []))}
-              for i, task in enumerate(tasks)}
+def _preference_repair(tasks, adj, sep, color, fixed, preferences, *,
+                       max_region=8, budget=6000, time_limit_s=0.5):
+    """Bounded recoloring in caller priority order; earlier preferences cannot regress."""
+    index_of = {task.task_id: i for i, task in enumerate(tasks)}
+    ranked = {}
+    for task_id, ids in preferences.items():
+        i = index_of.get(task_id)
+        if i is None:
+            continue
+        legal = {channel["freq_id"] for channel in tasks[i].allowed}
+        ids = dict.fromkeys(freq_id for freq_id in ids if freq_id in legal)
+        if ids:
+            ranked[i] = {freq_id: rank for rank, freq_id in enumerate(ids)}
 
     def rank(i, channel):
-        return ranked[i].get(channel["freq_id"], len(ranked[i]))
+        values = ranked.get(i, {})
+        return values.get(channel["freq_id"], len(values))
 
-    moves = 0
-    for i in sorted(ranked, key=lambda index: -len(ranked[index])):
-        if i in fixed or i not in color or not ranked[i]:
+    deadline = time.monotonic() + max(0.0, time_limit_s)
+    steps = 0
+
+    def checkpoint():
+        nonlocal steps
+        steps += 1
+        return steps <= budget and time.monotonic() < deadline
+
+    def incompatible(i, channel, j, other):
+        return (channel["freq_khz"] == other["freq_khz"] or not _guard_ok(
+            tasks[i], channel, other, sep[(min(i, j), max(i, j))],
+            channel["reuse_min_distance_m"]))
+
+    moves, earlier = 0, set()
+    for root in ranked:
+        if not checkpoint():
+            break
+        if root in fixed or root not in color:
             continue
-        current = color[i]
-        conflicts = len(check_conflicts(tasks, adj, sep, color))
-        for channel in tasks[i].allowed:
-            if rank(i, channel) >= rank(i, current):
-                continue
-            blockers = [j for j in adj[i] if j in color and (
-                color[j]["freq_khz"] == channel["freq_khz"] or not _guard_ok(
-                    tasks[i], channel, color[j], sep[(min(i, j), max(i, j))],
-                    channel["reuse_min_distance_m"]))]
-            if len(blockers) > 1 or any(j in fixed for j in blockers):
-                continue
-            trial = dict(color)
-            trial[i] = channel
-            if blockers:
-                j = blockers[0]
-                replacement = next((option for option in tasks[j].allowed
-                                    if option["freq_id"] == current["freq_id"]), None)
-                if replacement is None or rank(i, channel) + rank(j, replacement) >= rank(i, current) + rank(j, color[j]):
+        before = color
+        previous_ranks = {i: rank(i, color[i]) for i in earlier}
+        conflicts = len(check_conflicts(tasks, adj, sep, before))
+
+        def options(i, released=()):
+            choices = [channel for channel in tasks[i].allowed
+                       if i not in earlier or rank(i, channel) <= previous_ranks[i]]
+            return sorted(choices, key=lambda channel: (
+                rank(i, channel),
+                channel["freq_id"] != before[i]["freq_id"],
+                channel["freq_id"] not in released))
+
+        def place(trial, placed, pending):
+            if not checkpoint() or len(placed | pending) > max_region:
+                return None
+            if not pending:
+                return trial if len(check_conflicts(tasks, adj, sep, trial)) <= conflicts else None
+            i = min(pending, key=lambda j: (len(options(j)), -len(adj[j]), j))
+            released = {before[j]["freq_id"] for j in placed | pending}
+            for channel in options(i, released):
+                if not checkpoint():
+                    return None
+                blockers = {j for j in adj[i] if j in trial
+                            and incompatible(i, channel, j, trial[j])}
+                if blockers & (placed | fixed):
                     continue
-                trial[j] = replacement
-            if len(check_conflicts(tasks, adj, sep, trial)) <= conflicts:
-                color = trial
+                next_pending = (pending - {i}) | blockers
+                if len(placed | {i} | next_pending) > max_region:
+                    continue
+                candidate = {j: value for j, value in trial.items() if j not in blockers}
+                candidate[i] = channel
+                result = place(candidate, placed | {i}, next_pending)
+                if result is not None:
+                    return result
+            return None
+
+        for channel in options(root):
+            if not checkpoint():
+                break
+            if rank(root, channel) >= rank(root, before[root]):
+                continue
+            blockers = {j for j in adj[root] if j in before
+                        and incompatible(root, channel, j, before[j])}
+            if blockers & fixed or 1 + len(blockers) > max_region:
+                continue
+            trial = {j: value for j, value in before.items() if j not in blockers}
+            trial[root] = channel
+            result = place(trial, {root}, blockers)
+            if result is not None:
+                color = result
                 moves += 1
                 break
+        earlier.add(root)
     return color, moves
 
 
