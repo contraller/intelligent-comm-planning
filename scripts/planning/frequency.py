@@ -493,8 +493,8 @@ def sub_band_gaps(tasks, adj):
 
 
 def _preference_repair(tasks, adj, sep, color, fixed, preferences, *,
-                       max_region=8, budget=6000, time_limit_s=0.5):
-    """Bounded recoloring in caller priority order; earlier preferences cannot regress."""
+                       channel_admissible=None, max_region=8, budget=6000, time_limit_s=0.5):
+    """按调用方优先级有界重着色；早期偏好不退化，候选须通过可选回调。"""
     index_of = {task.task_id: i for i, task in enumerate(tasks)}
     ranked = {}
     for task_id, ids in preferences.items():
@@ -534,8 +534,11 @@ def _preference_repair(tasks, adj, sep, color, fixed, preferences, *,
         conflicts = len(check_conflicts(tasks, adj, sep, before))
 
         def options(i, released=()):
+            # 仅筛选偏好试探，不改合法频率池或人工指定。
             choices = [channel for channel in tasks[i].allowed
-                       if i not in earlier or rank(i, channel) <= previous_ranks[i]]
+                       if (i not in earlier or rank(i, channel) <= previous_ranks[i])
+                       and (channel_admissible is None
+                            or channel_admissible(tasks[i].task_id, channel))]
             return sorted(choices, key=lambda channel: (
                 rank(i, channel),
                 channel["freq_id"] != before[i]["freq_id"],
@@ -585,10 +588,11 @@ def _preference_repair(tasks, adj, sep, color, fixed, preferences, *,
     return color, moves
 
 
-def assign(tasks, pool, manual=None, *, channel_preference=None):
+def assign(tasks, pool, manual=None, *, channel_preference=None, channel_admissible=None):
     """主入口。manual 为 [{link_id, freq_khz}]。
 
     返回 assignments / conflicts / gap / conflict_free。
+    channel_admissible 仅筛选偏好重着色候选，回调异常直接向上传播。
     """
     _prepare(tasks, pool)
     for task in tasks:
@@ -619,7 +623,8 @@ def assign(tasks, pool, manual=None, *, channel_preference=None):
     color, exact_info = exact_repair(tasks, adj, sep, color, fixed=set(fixed))
     preference_moves = 0
     if channel_preference:
-        color, preference_moves = _preference_repair(tasks, adj, sep, color, set(fixed), channel_preference)
+        color, preference_moves = _preference_repair(tasks, adj, sep, color, set(fixed),
+            channel_preference, channel_admissible=channel_admissible)
     conflicts = check_conflicts(tasks, adj, sep, color)
 
     # 复用分组：同一频点的链路归一组，便于前端着色

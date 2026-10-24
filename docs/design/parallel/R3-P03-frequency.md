@@ -41,8 +41,27 @@ rules and cannot increase the number of conflicts. Existing assignments are
 never omitted to conceal a conflict. The caller's color map and allowed lists
 are not mutated.
 
-`assign()`'s signature, default execution path, explicit manual semantics, and
-result schema are unchanged. The helper runs only with nonempty preferences.
+`assign()` adds the optional keyword `channel_admissible=None`; its default
+execution path, explicit manual semantics, and result schema are unchanged.
+The helper runs only with nonempty preferences.
+
+## 后续回调保护（基于 4e26838）
+
+`assign()` 与 `_preference_repair()` 均新增可选关键字
+`channel_admissible=None`。主线程可传入纯回调
+`channel_admissible(task_id, channel_dict)`，利用冻结参数和原生最大功率判断
+候选频点是否会使当前健康链路跌破 6 dB。原生闭包仍由主线程在
+`actual_search.py` 中实现并经 `_check_candidate` 传入，本提交不修改这些文件。
+
+回调仅在偏好重着色生成候选时使用，根网与所有递归阻塞网共用筛选入口。
+回调只能从原有合法候选中拒绝频点，不能增加频点。DSATUR 初始分配、全局
+合法频率池、人工指定、资源缺口统计均不经过此回调；因此它不保证修复前
+的基准分配已满足物理约束，完整原生校验仍由主线程执行。
+
+拒绝全部候选或试探无解时保留原分配，不遗留半完成置换，也不删除链路。
+固定人工频点不被覆盖且不交由回调复核。未提供偏好或偏好为空时不会调用
+回调；`None` 保持首提交的偏好修复行为。回调可能多次收到同一候选，应无
+副作用；异常及取消直接向上传播，不被转为候选不可用或普通回退。
 
 ## Verification
 
@@ -52,7 +71,12 @@ Executed in this worktree using the existing main interpreter:
 & F:/work/project2026-1/.venv/Scripts/python.exe -B -m pytest -p no:cacheprovider tests/test_frequency_preferences.py tests/test_sr4_actual_search.py -q
 ```
 
-Result: **45 passed** (2.62 seconds).
+首提交：**45 passed**（2.62 秒）。回调保护提交：**64 passed**（1.45 秒）。
+新增测试覆盖三网置换中拒绝坏阻塞频点后的改选或完整回退、根网筛选、
+全部拒绝、人工锁定、无偏好不调用、回调透传、候选及频率池不变，以及
+根网和递归深层的异常与取消原样传播。未执行新的完整 DEM 验收。
+另与 `4e26838` 原实现逐项比较 27 组完整返回结果，覆盖不同网数、空偏好、
+非空偏好、合法人工频点及非法人工频点；回调为 `None` 时全部完全一致。
 
 Coverage includes a forced three-net cycle with incompatible direct swaps,
 multiple co-channel and adjacent-channel blockers, caller priority order,

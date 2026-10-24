@@ -1,4 +1,5 @@
-"""Bounded frequency recoloring contracts; these are not full DEM acceptance tests."""
+"""有界频率重着色契约测试，不作为完整 DEM 验收证据。"""
+import asyncio
 import copy
 import random
 import sys
@@ -193,3 +194,161 @@ def test_small_graph_invariants_with_fixed_seed():
         ranks = [{fid: rank for rank, fid in enumerate(preferences['NET-%d' % i])} for i in order]
         assert tuple(r[result[i]['freq_id']] for i, r in zip(order, ranks)) <= tuple(
             r[original[i]['freq_id']] for i, r in zip(order, ranks))
+
+
+def test_admissible_rejects_bad_blocker_and_finds_another_three_net_recoloring():
+    tasks, adj, sep, original = case(
+        [['F1', 'F2'], ['F2', 'F3'], ['F3', 'F1', 'F4']],
+        ['F1', 'F2', 'F3'], [(0, 1), (0, 2), (1, 2)],
+        frequencies=(5000, 6000, 7000, 8000))
+    before = copy.deepcopy((original, [t.allowed for t in tasks]))
+    calls = []
+
+    def admissible(task_id, channel):
+        calls.append((task_id, channel['freq_id']))
+        task = next(t for t in tasks if t.task_id == task_id)
+        assert any(channel is option for option in task.allowed)
+        return (task_id, channel['freq_id']) != ('NET-2', 'F1')
+
+    result, moves = FQ._preference_repair(tasks, adj, sep, original, set(),
+        {'NET-0': ['F2', 'F1']}, channel_admissible=admissible)
+    assert ids(result) == {0: 'F2', 1: 'F3', 2: 'F4'}
+    assert moves == 1
+    assert ('NET-2', 'F1') in calls
+    assert {task_id for task_id, _ in calls} == {'NET-0', 'NET-1', 'NET-2'}
+    assert not FQ.check_conflicts(tasks, adj, sep, result)
+    assert (original, [t.allowed for t in tasks]) == before
+
+
+@pytest.mark.parametrize('rejected', [('NET-1', 'F3'), ('NET-2', 'F1')])
+def test_admissible_rejection_rolls_back_an_incomplete_three_net_cycle(rejected):
+    tasks, adj, sep, original = cycle()
+    before = copy.deepcopy((original, [t.allowed for t in tasks]))
+    result, moves = FQ._preference_repair(tasks, adj, sep, original, set(),
+        {'NET-0': ['F2', 'F1']},
+        channel_admissible=lambda task_id, channel: (task_id, channel['freq_id']) != rejected)
+    assert result == original
+    assert moves == 0
+    assert (original, [t.allowed for t in tasks]) == before
+
+
+def test_admissible_filters_root_options_before_preference_selection():
+    tasks, adj, sep, original = case([['F1', 'F2', 'F3']], ['F1'], [])
+    result, moves = FQ._preference_repair(tasks, adj, sep, original, set(),
+        {'NET-0': ['F2', 'F3', 'F1']},
+        channel_admissible=lambda task_id, channel: channel['freq_id'] != 'F2')
+    assert ids(result) == {0: 'F3'}
+    assert moves == 1
+
+
+def test_admissible_can_reject_every_candidate_without_erasing_current_assignments():
+    tasks, adj, sep, original = cycle()
+    before = copy.deepcopy((original, [t.allowed for t in tasks]))
+    result, moves = FQ._preference_repair(tasks, adj, sep, original, set(),
+        {'NET-0': ['F2', 'F1']}, channel_admissible=lambda *_: False)
+    assert result == original
+    assert moves == 0
+    assert (original, [t.allowed for t in tasks]) == before
+
+
+def test_admissible_cannot_override_or_recheck_a_fixed_manual_blocker():
+    tasks, adj, sep, original = cycle()
+
+    def admissible(task_id, channel):
+        assert task_id != 'NET-2'
+        return True
+
+    result, moves = FQ._preference_repair(tasks, adj, sep, original, {2},
+        {'NET-0': ['F2', 'F1']}, channel_admissible=admissible)
+    assert result == original
+    assert moves == 0
+
+
+@pytest.mark.parametrize('preference', [None, {}])
+@pytest.mark.parametrize('manual', [None,
+    [{'link_id': 'NET-0', 'freq_khz': 5000}],
+    [{'link_id': 'NET-0', 'freq_khz': 9000}],
+])
+def test_assign_never_calls_admissible_without_preferences(preference, manual):
+    tasks, _, _, _ = cycle()
+    pool = FQ.FreqPool([
+        dict(freq_id=fid, device_class='HF', center_freq_khz=str(freq), is_available='true')
+        for fid, freq in [('F1', 5000), ('F2', 6000), ('F3', 7000)]])
+
+    def unexpected(*_):
+        pytest.fail('无偏好分配不得调用物理候选回调')
+
+    expected = FQ.assign(copy.deepcopy(tasks), pool, manual, channel_preference=preference)
+    actual = FQ.assign(copy.deepcopy(tasks), pool, manual,
+                       channel_preference=preference, channel_admissible=unexpected)
+    assert actual == expected
+
+
+def test_assign_forwards_callback_only_to_repair_and_keeps_manual_authoritative(monkeypatch):
+    tasks, _, _, _ = cycle()
+    pool = FQ.FreqPool([
+        dict(freq_id=fid, device_class='HF', center_freq_khz=str(freq), is_available='true')
+        for fid, freq in [('F1', 5000), ('F2', 6000), ('F3', 7000)]])
+    original_pool = copy.deepcopy(pool.channels)
+    calls = []
+    real_repair = FQ._preference_repair
+
+    def admissible(task_id, channel):
+        assert task_id != 'NET-0'
+        calls.append((task_id, channel['freq_id']))
+        return False
+
+    def spy(*args, **kwargs):
+        assert kwargs['channel_admissible'] is admissible
+        original = copy.deepcopy(args[3])
+        result, moves = real_repair(*args, **kwargs)
+        assert result == original
+        assert moves == 0
+        return result, moves
+
+    monkeypatch.setattr(FQ, '_preference_repair', spy)
+    actual = FQ.assign(tasks, pool, [{'link_id': 'NET-0', 'freq_khz': 5000}],
+        channel_preference={'NET-0': ['F3', 'F1'], 'NET-1': ['F3', 'F2']},
+        channel_admissible=admissible)
+    assert actual['assignments'][0]['manual']
+    assert actual['assignments'][0]['freq_id'] == 'F1'
+    assert actual['unassigned'] == []
+    assert calls
+    assert all(len(t.allowed) == 3 for t in tasks)
+    assert pool.channels == original_pool
+
+
+@pytest.mark.parametrize('error_type', [RuntimeError, asyncio.CancelledError])
+@pytest.mark.parametrize('failed_task', ['NET-0', 'NET-2'])
+def test_admissible_errors_and_cancellation_propagate_from_every_depth(error_type, failed_task):
+    tasks, adj, sep, original = cycle()
+    before = copy.deepcopy(original)
+    error = error_type('停止候选核验')
+
+    def admissible(task_id, channel):
+        if task_id == failed_task:
+            raise error
+        return True
+
+    with pytest.raises(error_type) as caught:
+        FQ._preference_repair(tasks, adj, sep, original, set(),
+            {'NET-0': ['F2', 'F1']}, channel_admissible=admissible)
+    assert caught.value is error
+    assert original == before
+
+
+@pytest.mark.parametrize('error_type', [RuntimeError, asyncio.CancelledError])
+def test_assign_does_not_swallow_admissible_errors_or_cancellation(error_type):
+    tasks, _, _, _ = cycle()
+    pool = FQ.FreqPool([
+        dict(freq_id=fid, device_class='HF', center_freq_khz=str(freq), is_available='true')
+        for fid, freq in [('F1', 5000), ('F2', 6000), ('F3', 7000)]])
+    error = error_type('停止分配')
+
+    def admissible(*_):
+        raise error
+
+    with pytest.raises(error_type) as caught:
+        FQ.assign(tasks, pool, channel_preference={'NET-0': ['F2', 'F1']},
+                  channel_admissible=admissible)
+    assert caught.value is error
