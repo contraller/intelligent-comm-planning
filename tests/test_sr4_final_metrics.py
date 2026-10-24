@@ -87,3 +87,15 @@ def test_disconnected_and_parallel_edges_do_not_inflate_survivability(edges):
     demands = [{"src_node_id": "A", "dst_node_id": "B", "is_mandatory": "true"},
                {"src_node_id": "A", "dst_node_id": "D", "is_mandatory": "true"}]
     _check(links, demands)
+
+
+@pytest.mark.parametrize("total,lost,passed", [(89, 8, True), (89, 9, False),
+                                            (100, 10, True), (100, 11, False)])
+def test_ninety_percent_gate_uses_full_mandatory_denominator(total, lost, passed):
+    # A-B为唯一桥；其他需求在A-C-D环内，失效后只损失显式lost条。
+    links = [{"node_a_id": a, "node_b_id": b, "link_margin_db": 6.0}
+             for a, b in [("A", "B"), ("A", "C"), ("C", "D"), ("D", "A")]]
+    demands = [{"src_node_id": "A", "dst_node_id": "B" if i < lost else "C",
+                "is_mandatory": "true"} for i in range(total)]
+    assert (_brute_metrics(links, demands)[2] >= 0.9) is passed
+    _check(links, demands)
