@@ -214,13 +214,138 @@ def test_unknown_custom_names_are_not_guessed_or_replaced(monkeypatch):
     assert display.type_name("CustomType") == "未配置中文名称（原文：CustomType）"
     assert display.relation_name("customRelation") == "未配置中文名称（原文：customRelation）"
     for name in ("DMR", "ALE", "IP Site Connect", "Capacity Plus", "Capacity Max"):
-        assert display.search_aliases(projected("protocol", name, "WorkMode")) == {"工作模式"}
+        protocol = projected("protocol", name, "WorkMode")
+        assert display.WORK_MODE_DISPLAY_NAMES[name] in display.search_aliases(protocol)
+        assert protocol["name"] == name
     entity["source"] = "NOT_CONSTRUCTED"
     assert "构造数据" not in display.search_aliases(entity)
     entity["source"] = before["source"]
     monkeypatch.setattr(facade, "snapshot", lambda version: {"entities": [entity], "relations": []})
     assert search("UnlistedVendor")["items"][0]["name"] == before["name"]
     assert search("语音")["total"] == 0
+    assert entity == before
+
+
+@pytest.mark.parametrize("name,label", [
+    ("ALE", "自动链路建立（ALE）"), ("AM", "调幅（AM）"), ("FM", "调频（FM）"),
+    ("CW", "等幅电报（CW）"), ("SSB", "单边带（SSB）"), ("FH", "跳频（FH）"),
+    ("ECCM", "电子反对抗（ECCM）"), ("SDR", "软件定义无线电（SDR）"),
+    ("frequency hopping", "跳频"), ("Selcall", "选择性呼叫"), ("P25", "数字集群标准（P25）"),
+    ("Conventional", "常规通信"), ("Trunking", "集群通信"), ("DMR", "数字移动无线电（DMR）"),
+    ("Analog", "模拟"), ("DMO", "直通模式（DMO）"), ("IDAS", "数字通信系统（IDAS）"),
+    ("LTR", "逻辑集群系统（LTR）"), ("Analog FM", "模拟调频"), ("C4FM", "四电平数字调频（C4FM）"),
+    ("IP Site Connect", "多基站互联系统（IP Site Connect）"),
+    ("Capacity Plus", "增强集群系统（Capacity Plus）"), ("Capacity Max", "扩展集群系统（Capacity Max）"),
+])
+def test_all_23_work_mode_display_names_and_original_protocols_find_real_names(env, name, label):
+    for term in (label, name):
+        assert name in {e["name"] for e in search(term, type="WorkMode")["items"]}
+
+
+@pytest.mark.parametrize("name,label", [
+    ("Harris Corporation", "哈里斯公司"), ("Barrett Communications", "巴雷特通信公司"),
+    ("Codan", "科丹"), ("Hytera", "海能达"), ("Icom", "艾可慕"), ("Kenwood", "建伍"),
+    ("Motorola Solutions", "摩托罗拉解决方案"), ("Yaesu", "八重洲"),
+    ("MOBAT USA", "美国厂商（MOBAT USA）"),
+])
+def test_all_9_manufacturer_display_names_find_original_names(env, name, label):
+    for term in (label, name):
+        assert search(term, type="Manufacturer")["items"][0]["name"] == name
+
+
+@pytest.mark.parametrize("term,etype,name", [
+    ("话音", "Function", "voice"), ("语音", "Function", "voice"),
+    ("硬件故障", "FaultType", "HW_FAILURE"), ("设备硬件故障", "FaultType", "HW_FAILURE"),
+    ("故障实例 FC-0001", "Fault", "FC-0001"), ("故障 FC-0001", "Fault", "FC-0001"),
+    ("I级短波固定站", "NetworkRole", "I_FIXED"), ("Ⅰ短波固定站", "NetworkRole", "I_FIXED"),
+    ("II级双频机动节点站", "NetworkRole", "II_NODE"),
+    ("Ⅱ双频机动节点站", "NetworkRole", "II_NODE"),
+    ("III级双频机动站", "NetworkRole", "III_MOBILE"),
+    ("IV级超短波机动站", "NetworkRole", "IV_MOBILE"),
+    ("背负电台", "NetworkRole", "MANPACK"), ("背负式短波电台", "NetworkRole", "MANPACK"),
+    ("便携站", "Node", "ND-0121"), ("背负电台", "Node", "ND-0121"),
+    ("短波:信噪比（dB）:LR-0001", "Metric", "HF:snr_db:LR-0001"),
+    ("超短波:吞吐率（kbps）:LR-0028", "Metric", "VUHF:throughput_kbps:LR-0028"),
+    ("最低工作频率（kHz）：1600", "Parameter", "freq_min_khz=1600"),
+    ("最低频率=1600", "Parameter", "freq_min_khz=1600"),
+    ("设备频段：短波", "Parameter", "device_class=HF"),
+    ("带宽（kHz）：未提供", "Parameter", "bandwidth_khz="),
+    ("设备型号名称", "DeviceModel", "DM-0001"),
+    ("生产厂家：哈里斯公司", "DeviceModel", "DM-0001"),
+    ("天线挂高（m）", "Device", "DV-0001"),
+    ("是否支持中继", "Node", "ND-0001"),
+    ("编成层级：I级", "Node", "ND-0001"),
+    ("固定台站", "Node", "ND-0001"),
+    ("设备型号资料", "DeviceModel", "DM-0001"),
+])
+def test_current_display_and_previous_aliases_both_search_real_data(env, term, etype, name):
+    assert name in {e["name"] for e in search(term, type=etype)["items"]}
+
+
+@pytest.mark.parametrize("relation_type,terms", [
+    ("hasRole", ("具有网络角色", "具有角色")),
+    ("recordedIn", ("记录于", "记录于案例")),
+])
+def test_current_and_previous_relation_names_match_same_endpoints(monkeypatch, relation_type, terms):
+    snap = {"entities": [projected("a", "CUSTOM-A"), projected("b", "CUSTOM-B"), projected("other", "OTHER")],
+            "relations": [{"id": "r", "head": "a", "tail": "b", "type": relation_type,
+                           "weight": None, "source": "原始来源"}]}
+    before = deepcopy(snap)
+    monkeypatch.setattr(facade, "snapshot", lambda version: snap)
+    for term in terms:
+        assert {e["id"] for e in search(term)["items"]} == {"a", "b"}
+    assert snap == before
+
+
+@pytest.mark.parametrize("source,label", [
+    ("devices_v1.csv", "设备资料"), ("device_models_v1.csv", "设备型号资料"),
+    ("antennas_v1.csv", "天线资料"), ("nodes_v1.csv", "节点资料"), ("links_v1.csv", "链路资料"),
+    ("link_metrics_v1.csv", "链路指标资料"), ("fault_cases_v1.csv", "故障案例资料"),
+    ("fault_triples_v1.csv", "故障三元组资料"), ("link_state_rules_v1.csv", "链路状态规则资料"),
+    ("node.csv", "节点台账"), ("device.csv", "设备台账"),
+    ("topology_links_v1.csv", "链路资料"), ("link_status_v1.csv", "链路指标资料"),
+])
+def test_source_file_labels_search_entity_attribute_and_both_relation_ends(monkeypatch, source, label):
+    raw_source = source + "#RAW-0001 [CONSTRUCTED]"
+    direct = projected("direct", "CUSTOM-DIRECT")
+    direct["source"] = raw_source
+    attr = projected("attribute", "CUSTOM-ATTRIBUTE")
+    attr["attributes"] = [{"name": "source_doc", "value": raw_source, "unit": None}]
+    snap = {"entities": [direct, attr, projected("head", "CUSTOM-HEAD"), projected("tail", "CUSTOM-TAIL"),
+                         projected("outside", "CUSTOM-OUTSIDE")],
+            "relations": [{"id": "r", "head": "head", "tail": "tail", "type": "hasComponent",
+                           "weight": None, "source": raw_source}]}
+    before = deepcopy(snap)
+    monkeypatch.setattr(facade, "snapshot", lambda version: snap)
+    for term in (label, label + " · " + source + "#RAW-0001 [构造数据]", source, "构造数据"):
+        assert {e["id"] for e in search(term)["items"]} == {"direct", "attribute", "head", "tail"}
+    assert snap == before
+
+
+@pytest.mark.parametrize("field,value,label", [
+    ("work_mode", "ALE;DMR", "工作模式：自动链路建立（ALE）;数字移动无线电（DMR）"),
+    ("service_type", "voice;data", "业务类型：话音;数据"),
+    ("modulation", "LSB;USB;AME;CW;FM", "调制方式：下边带（LSB）;上边带（USB）;兼容调幅（AME）;等幅电报（CW）;调频（FM）"),
+    ("antenna_type_default", "OE-505 3m whip", "默认天线类型：OE-505 三米鞭状天线"),
+    ("polarization", "V", "极化方式：垂直极化"), ("polarization", "H", "极化方式：水平极化"),
+    ("polarization", "C", "极化方式：圆极化"),
+    ("mobility", "VEHICLE", "机动方式：车载机动"),
+    ("node_subtype", "II_FIXED", "节点子类型：II级双频固定站"),
+    ("dataset_origin", "CONSTRUCTED", "数据来源标记：构造数据"),
+    ("dataset_origin", "SAMPLE", "数据来源标记：构造联调数据"),
+    ("dataset_origin", "MEASURED", "数据来源标记：实测数据"),
+    ("dataset_origin", "IMPORT", "数据来源标记：导入数据"),
+    ("dataset_origin", "MANUAL", "数据来源标记：人工录入"),
+    ("is_available", "true", "是否可用：是"),
+    ("model_name", "AN/PRC-150(C)", "设备型号名称：AN/PRC-150(C)"),
+])
+def test_controlled_attribute_display_values_are_searchable_without_rewriting(monkeypatch, field, value, label):
+    entity = projected("e", "CUSTOM-ENTITY")
+    entity["attributes"] = [{"name": field, "value": value, "unit": None}]
+    before = deepcopy(entity)
+    monkeypatch.setattr(facade, "snapshot", lambda version: {"entities": [entity], "relations": []})
+    assert search(label)["items"][0]["id"] == "e"
+    assert search(value)["items"][0]["id"] == "e"
     assert entity == before
 
 
@@ -245,12 +370,12 @@ def test_read_views_and_historical_drafts_preserve_raw_values(env, graph):
 def test_draft_roundtrip_after_chinese_search_produces_no_rename(env, graph):
     snap = facade.snapshot("KGV-1")
     types = {"Function", "FaultType", "LinkState", "NetworkRole", "Metric", "Parameter",
-             "DeviceModel", "WorkMode", "Case", "ObjectType"}
+             "DeviceModel", "WorkMode", "Case", "ObjectType", "Manufacturer"}
     entities = [next(e for e in snap["entities"] if e["type"] == etype) for etype in sorted(types)]
     draft = {"baseVersionId": "KGV-1", "summary": "中文检索后回填原值",
              "entities": deepcopy(entities), "relations": []}
     before = deepcopy(draft)
-    for term in ("语音", "故障对象类型", "构造数据", "具有现象"):
+    for term in ("语音", "话音", "故障对象类型", "构造数据", "具有现象", "哈里斯公司", "自动链路建立（ALE）"):
         search(term)
     with pytest.raises(workflow.KgWorkflowError, match="没有可保存的知识变更"):
         facade._draft_ops(draft)
