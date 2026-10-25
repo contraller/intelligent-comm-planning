@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { createLocalIdentityHttp, readLocalIdentityCapabilities } from '../src/services/local-identity-http';
 import type { AuthenticatedRequest } from '../src/services/auth-http';
 
-const caps = () => ({ authMode: 'LOCAL_PASSWORD', initialized: true, passwordChangeRequired: false, passwordPolicy: { minScalars: 15, maxScalars: 128 }, capabilities: { passwordMaintenance: true, anonymousRecovery: false } });
+const caps = () => ({ authMode: 'LOCAL_PASSWORD', initialized: true, passwordChangeRequired: false, passwordPolicy: { minScalars: 8, maxScalars: 128 }, capabilities: { passwordMaintenance: true, anonymousRecovery: false } });
 const response = (data: unknown) => new Response(JSON.stringify({ code: 0, message: 'success', data }), { headers: { 'Content-Type': 'application/json' } });
 describe('本地正式身份专用适配', () => {
   it('匿名仅读取同源能力，不发送凭据或建立会话', async () => {

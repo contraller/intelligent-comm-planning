@@ -104,7 +104,7 @@
   </div>
 </template>
 <script setup lang="ts">
-import { computed, onUnmounted, provide, ref, watch } from 'vue';
+import { computed, onBeforeUnmount, provide, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useAuthStore } from '../stores/auth';
 import { routePermissions } from '../config/permissions';
@@ -150,7 +150,8 @@ if (env.mode === 'http') {
     }
   }, { immediate: true, flush: 'sync' });
 }
-onUnmounted(() => { runtime.unbind(); applyHttpRuntimeParameters(null); });
+// 会话清理会按key重建布局，须在新实例setup前解绑，不能等卸载后置钩子。
+onBeforeUnmount(() => { runtime.unbind(); applyHttpRuntimeParameters(null); });
 const resourceRead = useResourceReadStore();
 const ledger = useResourceLedgerEditStore();
 const httpResource = computed(

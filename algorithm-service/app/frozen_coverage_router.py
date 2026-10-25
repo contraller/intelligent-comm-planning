@@ -53,6 +53,7 @@ class _Cache(_Anchor):
     context: Literal["planning", "gis"] = "planning"
     parameters: str = "{}"
     bandwidth_selection_id: str | None = None
+    engine_version: Literal["V01-1", "V01-2", "V01-3", "V01-4"] | None = None
 
     @field_validator("bandwidth_selection_id")
     @classmethod
@@ -192,7 +193,7 @@ def create_frozen_coverage_router(authorize):
     async def cache(plan_id: str, request: Request):
         return await call(request, _Cache, lambda service, query, actor, context: service.cache(_id(plan_id),
             query.task_id, query.snapshot_id, _json(query.parameters),
-            bandwidth_selection_id=query.bandwidth_selection_id, audit_context=context))
+            bandwidth_selection_id=query.bandwidth_selection_id, engine_version=query.engine_version, audit_context=context))
 
     @router.get("/{plan_id}/bandwidth-options")
     async def bandwidth_options(plan_id: str, request: Request):

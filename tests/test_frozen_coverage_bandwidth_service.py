@@ -302,3 +302,53 @@ def test_rx_bandwidth_request_frozen_before_source_callback(selected):
     assert saved["choices"] == [{"device_id": "D1", "rx_bandwidth_khz": 2.4}]
     record = service.bandwidth._record(saved["selection_id"])
     assert record["request_id"] == "SELECT-1" and record["request_body"]["choices"] == saved["choices"]
+
+
+def test_v4_old_selection_and_v3_cache_read_without_rewrite(selected):
+    service, context = selected
+    saved, _ = save(service)
+    selection_path = service.bandwidth._path(saved["selection_id"])
+    selection_bytes = selection_path.read_bytes()
+    body = {**BODY, "bandwidth_selection_id": saved["selection_id"]}
+    job, _ = service.submit("P1", body, ACTOR)
+    assert terminal(service, job["job_id"])["state"] == "SUCCESS"
+    record = service._job(job["job_id"])
+    service.close()
+    record["anchor"]["engine_version"] = "V01-3"
+    record["cache_key"] = module._cache_key(record["anchor"], record["parameters"],
+        saved["selection_id"], saved["selection_hash"])
+    record["result"]["schema_version"] = 1
+    record["result"]["status"] = "UNAVAILABLE"
+    record["result"].pop("summary")
+    record["result"]["provenance"]["engine_version"] = "V01-3"
+    record["result_sha256"] = module._hash(record["result"])
+    path = service._path(job["job_id"])
+    module._atomic(path, record)
+    original = path.read_bytes()
+    reopened = context.make()
+    reopened.start()
+    old = reopened.cache("P1", "T1", "SNP-PL-UNIT", SMALL,
+        bandwidth_selection_id=saved["selection_id"], engine_version="V01-3")
+    assert old["state"] == "HIT" and old["result"]["status"] == "UNAVAILABLE"
+    assert "summary" not in old["result"]
+    assert reopened.submit("P1", body, ACTOR)[0]["job_id"] == job["job_id"]
+    assert reopened.cache("P1", "T1", "SNP-PL-UNIT", SMALL,
+        bandwidth_selection_id=saved["selection_id"])["state"] == "MISS"
+    current, status = reopened.submit("P1", {**body, "request_id": "V4-NEW"}, ACTOR)
+    assert status == 202 and terminal(reopened, current["job_id"])["state"] == "SUCCESS"
+    assert current["anchor"]["engine_version"] == "V01-4"
+    assert path.read_bytes() == original and selection_path.read_bytes() == selection_bytes
+    context.source["resource_revision"] = "NEW-RESOURCE"
+    with pytest.raises(module.CoverageServiceError) as error:
+        reopened.submit("P1", {**body, "request_id": "FOREIGN-SOURCE"}, ACTOR)
+    assert error.value.code == 1205
+
+
+@pytest.mark.parametrize("version", ["V01-1", "V01-2"])
+def test_v4_preselection_cache_versions_reject_selection(selected, version):
+    service, _ = selected
+    saved, _ = save(service)
+    with pytest.raises(module.CoverageServiceError) as error:
+        service.cache("P1", "T1", "SNP-PL-UNIT", SMALL,
+            bandwidth_selection_id=saved["selection_id"], engine_version=version)
+    assert error.value.code == 1001

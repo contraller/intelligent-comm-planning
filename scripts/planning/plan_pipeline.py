@@ -179,7 +179,8 @@ def alternative_parent_solutions(fm, sol, max_variants=2, important_nodes=(), *,
 
 
 def topology_from_deployment(stations, terrain, nodes=None, devices=None,
-                             models=None, candidate_rows=None, verbose=False):
+                             models=None, candidate_rows=None, verbose=False,
+                             deployment_options=None):
     """第 3 周的输入 = 第 2 周部署规划的**完整输出**，不是 link.csv 全集。
 
     **为什么不能直接用 link.csv**：那张表是「物理上可通的候选链路集合」，
@@ -195,11 +196,26 @@ def topology_from_deployment(stations, terrain, nodes=None, devices=None,
     下游频率、参数模块才能照常处理它们。
     """
     from terrain import haversine_m
-    from deployment import p1_solve
+    from deployment import p1_solve, p2_solve
     import echelon as _E
 
-    if candidate_rows:
-        fm, sol = p1_solve(list(stations), candidate_rows, terrain, refine=True)
+    options = deployment_options or {}
+    c = options.get("deploymentConstraints") or {}
+    solve = options.get("deploymentSolve") or {}
+    constrained = bool(solve) or any(value is not None and value != [] for value in c.values())
+    if candidate_rows or constrained:
+        kwargs = (dict(required_site_ids=[row["site_id"] for row in candidate_rows or [] if row.get("forced")],
+                       min_site_spacing_m=c.get("minSiteSpacingM"), enforce_sites=True)
+                  if constrained else {})
+        fm, sol = p1_solve(list(stations), candidate_rows or [], terrain, refine=True, **kwargs)
+        if solve.get("mode") == "FIXED_COUNT":
+            minimum = sol
+            sol = p2_solve(fm, list(range(len(stations))),
+                list(range(len(stations), len(fm.stations))), solve["fixedCount"],
+                objective="redundant", **kwargs)
+            sol.lower_bound = minimum.lower_bound
+            sol.lower_bound_parts = minimum.lower_bound_parts
+            sol.proved_optimal = False
     else:
         fm = FeasibilityMatrix(stations, terrain, candidate_pairs=False)
         sol = solve_assignment(fm, set(range(len(fm.stations))), set())

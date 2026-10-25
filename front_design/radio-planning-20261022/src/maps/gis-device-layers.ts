@@ -10,7 +10,7 @@ import type { GisDeviceMapFrame, GisDevicePoint, GisDeviceSettings } from './gis
 
 const alphaColor = (color: string, opacity: number) => color + Math.round(opacity * 255).toString(16).padStart(2, '0');
 function caption(text: string, color: string, offsetY: number, zIndex: number, offsetX = 0, opacity = 1) {
-  return new Style({ text: new Text({ text, offsetY, offsetX, font: '11px Microsoft YaHei',
+  return new Style({ text: new Text({ text, offsetY, offsetX, font: '11px Microsoft YaHei', declutterMode: 'declutter',
     fill: new Fill({ color: alphaColor(color, opacity) }), backgroundFill: new Fill({ color: alphaColor('#0c1b2d', opacity * 0.91) }), padding: [3, 4, 3, 4] }), zIndex });
 }
 // 每种设备使用不同轮廓和文字，颜色只表示它自己的运行状态。
@@ -21,22 +21,26 @@ export function gisDeviceStyles(points: readonly GisDevicePoint[], settings: Gis
   const manual = points.some(row => row.manualStation), styles: Style[] = [];
   if (points.length === 1) {
     const row = points[0], opacity = settings[row.deviceClass].opacity, color = GIS_DEVICE_COLORS[gisDeviceTone(row)];
-    const icon = new RegularShape({ points: 4, radius: selected ? 12 : 10, angle: row.deviceClass === 'HF' ? 0 : Math.PI / 4,
+    const icon = new RegularShape({ points: 4, radius: selected ? 12 : 10, angle: row.deviceClass === 'HF' ? 0 : Math.PI / 4, declutterMode: 'none',
       fill: new Fill({ color: '#10283d' }), stroke: new Stroke({ color, width: row.status === 'FAULT' ? 3 : 2 }) });
     icon.setOpacity(opacity);
     styles.push(new Style({ image: icon, zIndex }));
     styles.push(caption(`${row.deviceClass} · ${gisDeviceStatus(row)}${row.offShelf ? ' · 已下架' : ''}`, color, -24, zIndex, 0, opacity));
     if (selected) styles.push(caption(row.id, '#e4f3ff', 25, zIndex, 0, opacity));
     if (manual || selected) {
-      const ring = new Circle({ radius: selected ? 17 : 15, stroke: new Stroke({ color: manual ? '#dcb976' : '#ffffff', width: 2 }) });
+      const ring = new Circle({ radius: selected ? 17 : 15, declutterMode: 'none', stroke: new Stroke({ color: manual ? '#dcb976' : '#ffffff', width: 2 }) });
       ring.setOpacity(opacity); styles.unshift(new Style({ image: ring, zIndex: zIndex - 1 }));
     }
     return styles;
   }
   // 混合聚合的公共圆点只作选择入口；类别数量各自遵守所属图层透明度。
-  styles.push(new Style({ image: new Circle({ radius: selected ? 19 : 16, fill: new Fill({ color: '#143e63' }),
-    stroke: new Stroke({ color: selected ? '#ffffff' : manual ? '#dcb976' : '#52a8db', width: selected || manual ? 3 : 1.5 }) }),
-    text: new Text({ text: String(summary.count), font: 'bold 12px Microsoft YaHei', fill: new Fill({ color: '#e1f2ff' }) }), zIndex }));
+  const statusColor = summary.faults ? GIS_DEVICE_COLORS.FAULT : summary.alerts ? GIS_DEVICE_COLORS.ALERT : undefined;
+  styles.push(new Style({ image: new Circle({ radius: selected ? 19 : 16, declutterMode: 'none', fill: new Fill({ color: '#143e63' }),
+    stroke: new Stroke({ color: statusColor ?? (selected ? '#ffffff' : manual ? '#dcb976' : '#52a8db'), width: statusColor || selected || manual ? 3 : 1.5 }) }),
+    text: new Text({ text: String(summary.count), declutterMode: 'none', font: 'bold 12px Microsoft YaHei', fill: new Fill({ color: '#e1f2ff' }) }), zIndex }));
+  if (statusColor && (selected || manual)) styles.push(new Style({
+    image: new Circle({ radius: selected ? 24 : 21, declutterMode: 'none', stroke: new Stroke({ color: selected ? '#ffffff' : '#dcb976', width: 2 }) }), zIndex: zIndex - 1,
+  }));
   for (const type of GIS_DEVICE_TYPES) if (summary[type]) styles.push(caption(`${type === 'HF' ? '◇' : '□'} ${type} ${summary[type]}`,
     '#c5e4fa', 29, zIndex, summary.HF && summary.VUHF ? (type === 'HF' ? -36 : 36) : 0, settings[type].opacity));
   const warning = [summary.faults ? `故障 ${summary.faults}` : '', summary.alerts ? `告警 ${summary.alerts}` : ''].filter(Boolean).join(' · ');
@@ -54,7 +58,7 @@ export function createGisDeviceLayer() {
     new Feature({ geometry, features, kind: 'gis-device-cluster' }) });
   let current: GisDeviceMapFrame | undefined, signature = '', disposed = false, styleVersion = 0;
   const styles = new WeakMap<Feature, { version: number; selected: string; value: Style[] }>();
-  const layer = new VectorLayer({ source: clusters, style: feature => {
+  const layer = new VectorLayer({ source: clusters, declutter: 'gis-device-captions', style: feature => {
     if (!current) return [];
     const item = feature as Feature, cached = styles.get(item);
     if (cached?.version === styleVersion && cached.selected === current.selectedDeviceId) return cached.value;

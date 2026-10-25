@@ -15,6 +15,40 @@ const detailsDto = (): PlanningResultDetails => ({ schemaVersion: 1, assetVersio
 });
 const options={context:'planning' as const,taskId:'T1'};
 describe('网络规划 HTTP 契约',()=>{
+  it('作业和保存方案回读同一部署摘要，旧快照缺省不补算', async () => {
+    const details = detailsDto();
+    details.deploymentSummary = { mode: 'FIXED_COUNT', requestedCount: 5, actualCount: 0,
+      requestedSolutionCount: 2, returnedSolutionCount: 1, countSatisfied: false,
+      shortfallReasons: ['没有满足条件的新增部署点'], forcedSiteIds: [], lowerBound: null, provedOptimal: false };
+    const job = { ...jobDto(), result: { ...resultDto(), result_details: details } };
+    const plan = { ...planDto(), state: 'REFERENCE', result: job.result,
+      outcome: { code: 3001, message: '指定部署数量未满足', suggestions: ['核对部署条件'],
+        gap: [{ objectId: 'T1', field: 'deploymentSolve.fixedCount', message: '实际新增部署数量为0' }] } };
+    const f = httpFixture(path => response(path.includes('/plan/tasks/') ? job : plan));
+    const http = createPlanningHttp(f.request, () => '/api/v1');
+    expect((await http.getPlanningTask({ ...options, jobId: 'J1' })).result!.resultDetails!.deploymentSummary).toEqual(details.deploymentSummary);
+    const saved = await http.getPlanningPlan({ ...options, planId: 'P-1' });
+    expect(saved.result.resultDetails!.deploymentSummary).toEqual(details.deploymentSummary);
+    expect(saved.outcome).toEqual(plan.outcome);
+    expect(readApiPlan(planDto(), options).result).not.toHaveProperty('resultDetails');
+    Object.assign(details.deploymentSummary, { actualCount: '0' });
+    await expect(http.getPlanningPlan({ ...options, planId: 'P-1' })).rejects.toMatchObject({ code: 'INVALID_PLANNING_RESPONSE' });
+  });
+  it('HTTP候选来源和限制沿用原文、保留副本并拒绝损坏类型', () => {
+    const details = detailsDto();
+    details.candidateScreening = { sourceLabel: '冻结候选筛选', candidateCount: null, deployableCount: null,
+      candidates: null, rejectedStats: null, unavailableReasons: ['尚无通视资料'], dataSources: ['冻结候选表（来源待确认）'] };
+    const dto = { ...resultDto(), result_details: details };
+    const read = readPlanningResult(dto).resultDetails!.candidateScreening!;
+    expect(read).toEqual(details.candidateScreening);
+    details.candidateScreening.dataSources!.push('后续变更');
+    expect(read.dataSources).toEqual(['冻结候选表（来源待确认）']);
+    Object.assign(details.candidateScreening, { dataSources: [{ source: '冻结候选表' }] });
+    expect(() => readPlanningResult(dto)).toThrow('dataSources');
+    details.candidateScreening.dataSources = null;
+    Object.assign(details.candidateScreening, { unavailableReasons: [false] });
+    expect(() => readPlanningResult(dto)).toThrow('unavailableReasons');
+  });
   it('转正配置读取独立返回值，兼容旧响应并拒绝串用其他版本', async () => {
     const dto = { ...planDto(), state: 'CONFIRMED', current: true, confirmed_at: '2026-10-05T01:00:00Z' };
     expect(readApiPlan(dto, options).confirmedConfiguration).toBeUndefined();

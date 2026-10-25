@@ -39,7 +39,7 @@ export function createPlanningHttp(request: AuthenticatedRequest, baseUrl: () =>
   return withPlanningReads({
     async querySavedPlanningPlans(input) {
       assertApiPage(input);
-      if (input.context !== 'planning' || input.state !== undefined && !['SAVED', 'REFERENCE', 'CONFIRMED'].includes(input.state)
+      if (!['planning', 'gis'].includes(input.context) || input.state !== undefined && !['SAVED', 'REFERENCE', 'CONFIRMED'].includes(input.state)
         || input.search !== undefined && /[\u0000-\u001f\u007f]/.test(input.search))
         throw new ApiError('方案历史查询条件无效', 'INVALID_TASK_QUERY');
       const raw = await request(`/plan/saved-plans?${query(input, { page: input.pageNum, page_size: input.pageSize, search: input.search, state: input.state })}`, { signal: input.signal });

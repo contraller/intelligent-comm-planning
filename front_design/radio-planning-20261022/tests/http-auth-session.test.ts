@@ -65,7 +65,7 @@ beforeEach(() => {
   fetcher = vi.fn<typeof fetch>(async (input, init) => {
     const path = String(input);
     if (path.endsWith('/auth/capabilities')) return response({ authMode: 'LOCAL_PASSWORD', initialized: true,
-      passwordChangeRequired: false, passwordPolicy: { minScalars: 15, maxScalars: 128 },
+      passwordChangeRequired: false, passwordPolicy: { minScalars: 8, maxScalars: 128 },
       capabilities: { passwordMaintenance: true, anonymousRecovery: false } });
     if (path.endsWith('/auth/session')) return response(state.identity);
     if (path.endsWith('/auth/csrf')) return response({ csrf_token: 'nonce', session_id: state.identity?.session_id ?? null });

@@ -1025,6 +1025,14 @@
           <MonitoringObjectPanel v-else-if="monitorMode" />
           <template v-else-if="rightTab === '干扰分析'">
             <button
+              v-if="canOpenInterferenceParameters"
+              class="btn"
+              data-testid="gis-resource-interference-parameters"
+              :disabled="editor.busy || editor.picking"
+              @click="openSelectedInterferenceParameters"
+              >查看/编辑参数</button
+            >
+            <button
               v-if="analysisReturn"
               class="btn small"
               :onClick="analysisReturn.open"
@@ -1670,6 +1678,26 @@ const selectedInterference = computed(() => {
     return object.origin ? { ...object, origin: object.origin } : undefined;
   return resources.value.interferences?.find((row) => row.id === selectedInterferenceId.value);
 });
+const canOpenInterferenceParameters = computed(() =>
+  !frozenView.value && !fault.active.value && !taskViewing.value &&
+  !diagnosisMode.value && !monitorMode.value && gis.mapMode === 'resource' &&
+  !workspace.read.frozen && !auth.blocked && auth.can('situation.view') &&
+  !!selectedInterference.value,
+);
+async function openSelectedInterferenceParameters() {
+  const session = auth.generation, id = selectedInterferenceId.value,
+    revision = workspace.read.workspace?.revision;
+  // 等待离开决定期间再次核对来源，避免把旧选择带入新版本或冻结视图。
+  const current = () => canOpenInterferenceParameters.value && session === auth.generation &&
+    id === selectedInterferenceId.value && id === selectedInterference.value?.id &&
+    revision === workspace.read.workspace?.revision && !editor.busy && !editor.picking;
+  if (!current()) return false;
+  return configurationAction(async () => {
+    if (!current() || !(await editor.closeForm()) || !current()) return false;
+    interferenceOpen.value = true;
+    return true;
+  });
+}
 const interferences = computed(() =>
   editing.value
     ? resourceTree.value.interferences

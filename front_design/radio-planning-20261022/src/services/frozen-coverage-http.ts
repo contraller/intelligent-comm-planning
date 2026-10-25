@@ -28,6 +28,7 @@ export function createFrozenCoverageHttp(request:AuthenticatedRequest):FrozenCov
     async getCache(query,parameters,signal){
       const frozen=capture(query),options=input(parameters),qs=queryString(frozen);qs.set('parameters',JSON.stringify(options));
       if(frozen.bandwidthSelection)qs.set('bandwidth_selection_id',frozen.bandwidthSelection.selectionId);
+      if(frozen.engineVersion)qs.set('engine_version',frozen.engineVersion);
       return readFrozenCoverageCache(await request<unknown>(`${base}/${encodeURIComponent(frozen.planId)}/cache?${qs}`,{signal}),frozen,options);
     },
     async compute(query,parameters,requestId,signal){

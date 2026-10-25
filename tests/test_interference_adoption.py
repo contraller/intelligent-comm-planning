@@ -1,6 +1,8 @@
 """分别验证显式测试桩与真实小样本桥，不代表完整SR4或页面验收。"""
 from copy import deepcopy
+from contextlib import contextmanager
 from datetime import timedelta
+import threading
 
 import pytest
 
@@ -12,6 +14,22 @@ from app.interference_workbench_models import InterferenceWorkbenchAdoption
 from app.interference_workbench_service import now
 from app.planning_job_models import PlanningJob
 from app.planning_plan_models import PlanningCurrentPlan, PlanningPlan
+
+
+@pytest.fixture
+def _native_runtime(monkeypatch):
+    """仅给真实规划入口绑定独立算法目录；DB仍由scene_api放在本树tmp。"""
+    from uuid import uuid4
+    from app import planning_w3, planning_w4
+    from app.interference_analysis_engine import runtime_path
+    root = runtime_path() / ("pytest-adoption-" + uuid4().hex)
+    assert not root.exists(), "只创建新GUID运行目录，禁止复用既有业务证据"
+    tasks, plans = root / "tasks", root / "plans"
+    tasks.mkdir(parents=True, exist_ok=False)
+    plans.mkdir(exist_ok=False)
+    monkeypatch.setattr(planning_w3, "TASK_DIR", tasks)
+    monkeypatch.setattr(planning_w4, "PLAN_DIR", plans)
+    return root  # 保留测试文件；不删除、不修改生产guard或既有runtime。
 
 
 class BridgeStub:
@@ -161,7 +179,7 @@ def test_five_change_verifiers_reject_omissions(kind):
     assert not InterferenceReplanService.applied(change, {})
 
 
-def test_cancellation_waits_for_worker_checkpoint_not_runtime_request(wb, monkeypatch):
+def test_cancellation_waits_for_worker_checkpoint_not_runtime_request(wb, monkeypatch, _native_runtime):
     from sqlalchemy import select
     from app import planning_job_service as jobs
     from app.planning_job_models import PlanningJobCancellation
@@ -190,7 +208,7 @@ def test_cancellation_waits_for_worker_checkpoint_not_runtime_request(wb, monkey
 
 
 @pytest.mark.parametrize("runtime_status", [None, "PENDING", "RUNNING", "CANCELLED", "SUCCESS"])
-def test_startup_recovery_preserves_unacknowledged_cancellation_as_failure(wb, monkeypatch, runtime_status):
+def test_startup_recovery_preserves_unacknowledged_cancellation_as_failure(wb, monkeypatch, runtime_status, _native_runtime):
     """构造崩溃后遗留状态，不模拟杀进程，也不删除已有任务/方案证据。"""
     from app import planning_job_service as jobs
     from app.interference_replan_service import FrozenPlanningReplanner
@@ -234,7 +252,7 @@ def test_startup_recovery_preserves_unacknowledged_cancellation_as_failure(wb, m
         assert session.get(PlanningPlan, "P1").raw_snapshot == wb[0][4]
 
 
-def test_recovered_child_reaches_failed_adoption_history_without_redispatch(wb, monkeypatch):
+def test_recovered_child_reaches_failed_adoption_history_without_redispatch(wb, monkeypatch, _native_runtime):
     from sqlalchemy import func, select
     from app import planning_job_service as jobs
     from app.interference_replan_service import FrozenPlanningReplanner
@@ -284,7 +302,7 @@ def test_recovered_child_reaches_failed_adoption_history_without_redispatch(wb, 
 
 
 def _native_dispatch_case(scene_api, frozen_sample, monkeypatch, kind, *, progress_observer=None,
-                          after_submit=None, expected_state="SUCCESS"):
+                          after_submit=None, expected_state="SUCCESS", accepted_receipt=True):
     """真实W3/W4小样本；措施显式UNIT构造，不冒充推荐/完整页面验收。"""
     import importlib
     import threading
@@ -394,6 +412,20 @@ def _native_dispatch_case(scene_api, frozen_sample, monkeypatch, kind, *, progre
             adoption_version=1, state="RUNNING", source_hash=digest(source), change_set=change, change_hash=digest(change),
             planning_request_id="UNIT-NATIVE-CHILD", actor_id="integration-planner", created_at=now(), updated_at=now())
         session.add(row)
+        if accepted_receipt:
+            from app.interference_workbench_schemas import AdoptionSubmit
+            from app.interference_workbench_service import InterferenceWorkbenchService
+            # 显式UNIT原件补齐后台授权前提；不冒称HTTP登录/采纳流程已验收。
+            accepted = AdoptionSubmit(request_id="UNIT-NATIVE-ACCEPT", task_id=row.task_id,
+                run_id=row.run_id, measure_id=row.measure_id, expected_run_version=1,
+                plan_id="P1", plan_version=scene["plan_version"], resource_revision=baseline["revision"],
+                scene_version_id=scene["version_id"], snapshot_hash=scene["snapshot_hash"])
+            session.flush()
+            InterferenceWorkbenchService(factory)._receipt(session, accepted, "ADOPT_MEASURE",
+                {"account_id": row.actor_id}, row,
+                digest({"operation": "ADOPT_MEASURE", "actor": row.actor_id, "body": accepted.model_dump()}), True,
+                {"adoption_id": row.adoption_id, "planning_request_id": row.planning_request_id,
+                 "planning_job_id": None, "plan_id": None})
         origin = InterferenceReplanService.origin(row)
     request = {"adoption_id": "IAD-UNIT", "task_id": "T1", "planning_request_id": "UNIT-NATIVE-CHILD",
         "actor_id": "integration-planner", "interference_origin": origin, "source": source, "change_set": change, "measure": measure}
@@ -445,7 +477,7 @@ def _native_dispatch_case(scene_api, frozen_sample, monkeypatch, kind, *, progre
 
 
 @pytest.mark.parametrize("kind", MEASURE_TYPES)
-def test_native_dispatch_creates_one_real_frozen_child(scene_api, frozen_sample, monkeypatch, kind):
+def test_native_dispatch_creates_one_real_frozen_child(scene_api, frozen_sample, monkeypatch, kind, _native_runtime):
     _native_dispatch_case(scene_api, frozen_sample, monkeypatch, kind)
 
 
@@ -457,7 +489,7 @@ def _has_frozen_adapter():
 
 @pytest.mark.skipif(not _has_frozen_adapter(), reason="main冻结adapter已实现，但P03树尚未取得其精确依赖提交；不复制源码")
 @pytest.mark.parametrize("kind", MEASURE_TYPES)
-def test_native_bridge_saves_replays_and_reopens_without_runtime(scene_api, frozen_sample, monkeypatch, kind):
+def test_native_bridge_saves_replays_and_reopens_without_runtime(scene_api, frozen_sample, monkeypatch, kind, _native_runtime):
     from sqlalchemy import create_engine, select
     from sqlalchemy.orm import sessionmaker
     from app.interference_replan_service import FrozenPlanningReplanner
@@ -497,7 +529,7 @@ def test_native_bridge_saves_replays_and_reopens_without_runtime(scene_api, froz
         reopened.dispose()
 
 
-def test_native_child_cooperative_cancel_waits_and_joins_worker(scene_api, frozen_sample, monkeypatch):
+def test_native_child_cooperative_cancel_waits_and_joins_worker(scene_api, frozen_sample, monkeypatch, _native_runtime):
     import threading
     from sqlalchemy import select
     from app.planning_job_models import PlanningJobCancellation
@@ -541,7 +573,7 @@ def test_native_child_cooperative_cancel_waits_and_joins_worker(scene_api, froze
 
 
 @pytest.mark.skipif(not _has_frozen_adapter(), reason="需要main已审冻结adapter依赖提交")
-def test_native_late_cancel_preserves_real_saved_adoption(scene_api, frozen_sample, monkeypatch):
+def test_native_late_cancel_preserves_real_saved_adoption(scene_api, frozen_sample, monkeypatch, _native_runtime):
     from sqlalchemy import select
     from app.interference_replan_service import FrozenPlanningReplanner
     from app.interference_workbench_schemas import TaskQuery
@@ -561,3 +593,288 @@ def test_native_late_cancel_preserves_real_saved_adoption(scene_api, frozen_samp
             PlanningJobCancellation.job_id == request["planning_job_id"])) == "SUCCESS"
         assert session.get(PlanningCurrentPlan, "T1").plan_id == "P1"
         assert session.get(PlanningPlan, "P1").raw_snapshot == raw
+
+
+def _submit_lock_available_from_other_thread():
+    """不能在持RLock的同一线程探测；用独立线程非阻塞获取，无sleep猜时序。"""
+    from app import planning_job_service as jobs
+    available, errors = [], []
+
+    def probe():
+        try:
+            acquired = jobs._SUBMIT_LOCK.acquire(blocking=False)
+            available.append(acquired)
+            if acquired:
+                jobs._SUBMIT_LOCK.release()
+        except BaseException as exc:
+            errors.append(exc)
+
+    thread = threading.Thread(target=probe, daemon=True)
+    thread.start()
+    thread.join(timeout=5)
+    assert not thread.is_alive(), "状态锁探测线程必须结束"
+    assert not errors, errors
+    assert len(available) == 1
+    return available[0]
+
+
+@pytest.mark.parametrize("before,after", [
+    ("PENDING", "RUNNING"), ("RUNNING", "SUCCESS"),
+    ("RUNNING", "FAILED"), ("RUNNING", "CANCELLED"),
+])
+def test_poll_state_window_serializes_callback_until_wb_commit(wb, monkeypatch, before, after):
+    """显式桥桩控制旧快照；另一线程走真实状态回调，非算法/UI验收。"""
+    from app import planning_job_service as jobs
+    attempted, updated = threading.Event(), threading.Event()
+    workers, errors, contended = [], [], []
+
+    class RacingBridge(BridgeStub):
+        polls = 0
+
+        def submit(self, request):
+            job_id = super().submit(request)
+            with self.factory.begin() as session:
+                child = session.get(PlanningPlan, "CHILD-PLAN")
+                self.child = {column.name: deepcopy(getattr(child, column.name))
+                              for column in PlanningPlan.__table__.columns}
+                session.delete(child)
+                job = session.get(PlanningJob, job_id)
+                job.status, job.progress = before, 0 if before == "PENDING" else .25
+            return job_id
+
+        def poll(self, request):
+            self.polls += 1
+            # 独立连接可开写事务，证明调用桥时没有持有WB写事务。
+            with self.factory.begin() as session:
+                session.connection().exec_driver_sql("BEGIN IMMEDIATE")
+                job = session.get(PlanningJob, request["planning_job_id"])
+                snapshot = {"state": job.status, "progress": job.progress * 100,
+                            "plan_id": None, "error": job.error}
+                if job.status == "SUCCESS":
+                    session.add(PlanningPlan(**deepcopy(self.child)))
+                    snapshot["plan_id"] = "CHILD-PLAN"
+            if self.polls == 1:
+                def advance():
+                    try:
+                        acquired = jobs._SUBMIT_LOCK.acquire(blocking=False)
+                        contended.append(not acquired)
+                        if acquired:
+                            jobs._SUBMIT_LOCK.release()
+                        attempted.set()
+                        assert jobs._SUBMIT_LOCK.acquire(timeout=5), "原回调不能永久等待状态锁"
+                        try:
+                            jobs._update_interference_job(self.factory, request["planning_job_id"], {
+                                "status": after, "progress": .5 if after == "RUNNING" else 1,
+                                "stage": "UNIT受控回调", "error": "UNIT计算失败" if after == "FAILED" else None})
+                        finally:
+                            jobs._SUBMIT_LOCK.release()
+                    except BaseException as exc:
+                        errors.append(exc)
+                    finally:
+                        updated.set()
+                thread = threading.Thread(target=advance, daemon=True)
+                workers.append(thread)
+                thread.start()
+                assert attempted.wait(5), "回调必须在返回旧快照前尝试状态锁"
+            return snapshot
+
+    bridge = RacingBridge(wb[0][1])
+    receipt = data(adoption(wb, ready(wb, bridge)))
+    original_transaction = wb[1].transaction
+    committed_lock_available = []
+
+    @contextmanager
+    def transaction(*, writing=False):
+        with original_transaction(writing=writing) as session:
+            yield session
+        if writing:
+            # 在真实commit之后、退出调用方with之前探测，不能只保护poll。
+            committed_lock_available.append(_submit_lock_available_from_other_thread())
+
+    monkeypatch.setattr(wb[1], "transaction", transaction)
+    try:
+        assert wb[1].run_once()
+        assert updated.wait(5), "WB提交释放状态锁后，原回调必须能完成"
+    finally:
+        for worker in workers:
+            worker.join(timeout=5)
+            assert not worker.is_alive(), "不能遗留本组状态回调线程"
+    assert not errors, errors
+    assert contended == [True]
+    # Workbench空分析扫描 -> replanner领取租约 -> 关联job -> poll后最终提交。
+    # 前三段均先结束；只有最后一段commit仍被状态锁保护。
+    assert committed_lock_available == [True, True, True, False]
+    with wb[0][1]() as session:
+        row = session.get(InterferenceWorkbenchAdoption, receipt["object_id"])
+        assert row.state == "RUNNING" and row.error is None and row.lease_owner is None
+        assert row.result_plan_id is None
+        assert session.get(PlanningJob, "CHILD-JOB").status == after
+    assert wb[1].run_once()
+    final = data(wb[0][0].get(BASE + "/adoptions/" + receipt["object_id"], params={"task_id": "T1"}))
+    assert final["state"] == after
+    assert final["planning_job_id"] == "CHILD-JOB"
+    assert final["result_plan_id"] == ("CHILD-PLAN" if after == "SUCCESS" else None)
+    assert final["error"] == ("UNIT计算失败" if after == "FAILED" else None)
+    assert bridge.submissions == 1 and bridge.polls == 2
+    with wb[0][1]() as session:
+        assert session.get(PlanningCurrentPlan, "T1").plan_id == "P1"
+        assert session.get(PlanningPlan, "P1").raw_snapshot == wb[0][4]
+
+
+@pytest.mark.parametrize("persisted,reported", [
+    ("RUNNING", "SUCCESS"), ("FAILED", "CANCELLED"),
+    ("CANCELLED", "SUCCESS"), ("SUCCESS", "RUNNING"),
+])
+def test_poll_state_window_still_rejects_exact_mismatch(wb, persisted, reported):
+    class MismatchedBridge(BridgeStub):
+        def poll(self, request):
+            with self.factory.begin() as session:
+                job = session.get(PlanningJob, request["planning_job_id"])
+                job.status = persisted
+                job.progress = .5 if persisted == "RUNNING" else 1
+            return {"state": reported, "progress": 100, "plan_id": "CHILD-PLAN", "error": None}
+
+    bridge = MismatchedBridge(wb[0][1])
+    receipt = data(adoption(wb, ready(wb, bridge)))
+    assert wb[1].run_once()
+    path = BASE + "/adoptions/" + receipt["object_id"]
+    result = data(wb[0][0].get(path, params={"task_id": "T1"}))
+    assert result["state"] == "FAILED" and result["result_plan_id"] is None
+    assert result["error"] == "桥回报与持久化作业状态不一致"
+    assert result["planning_state"] == persisted
+    assert wb[1].run_once() is False  # FAILED历史不能被重新领取或变成成功。
+    assert data(wb[0][0].get(path, params={"task_id": "T1"})) == result
+    assert bridge.submissions == 1 and _submit_lock_available_from_other_thread()
+
+
+@pytest.mark.parametrize("fault", ["job-request", "job-origin", "plan-parent", "plan-origin", "measure-omitted"])
+def test_poll_state_window_preserves_child_source_and_measure_checks(wb, fault):
+    class InvalidChildBridge(BridgeStub):
+        def poll(self, request):
+            with self.factory.begin() as session:
+                job = session.get(PlanningJob, "CHILD-JOB")
+                plan = session.get(PlanningPlan, "CHILD-PLAN")
+                if fault == "job-request":
+                    job.request_id = "UNIT-FOREIGN-REQUEST"
+                elif fault == "job-origin":
+                    origin = deepcopy(job.adjustment)
+                    origin["interference_origin"]["source_hash"] = "f" * 64
+                    job.adjustment = origin
+                elif fault == "plan-parent":
+                    plan.parent_plan_id = None
+                elif fault == "plan-origin":
+                    origin = deepcopy(plan.adjustment)
+                    origin["interference_origin"]["source_hash"] = "f" * 64
+                    plan.adjustment = origin
+                else:
+                    raw = deepcopy(plan.raw_snapshot)
+                    raw["detail"]["frequency"]["link_assignments"][0]["freq_khz"] = 4000
+                    plan.raw_snapshot = raw
+            return super().poll(request)
+
+    bridge = InvalidChildBridge(wb[0][1])
+    receipt = data(adoption(wb, ready(wb, bridge)))
+    assert wb[1].run_once()
+    # 错job来源的DTO也必须拒绝，直接核对持久化事实避免绕开该只读校验。
+    with wb[0][1]() as session:
+        row = session.get(InterferenceWorkbenchAdoption, receipt["object_id"])
+        assert row.state == "FAILED" and row.result_plan_id is None
+        expected = ("共享规划作业没有回显精确冻结来源" if fault.startswith("job-") else
+                    "真实重算结果未应用所采纳的措施" if fault == "measure-omitted" else
+                    "共享重算没有真实保存正确的新方案")
+        assert row.error == expected
+        assert session.get(PlanningCurrentPlan, "T1").plan_id == "P1"
+        assert session.get(PlanningPlan, "P1").raw_snapshot == wb[0][4]
+    assert bridge.submissions == 1 and _submit_lock_available_from_other_thread()
+
+
+@pytest.mark.parametrize("exit_path", ["poll-error", "mismatch", "lease-lost", "already-final"])
+def test_poll_state_window_releases_lock_on_error_and_early_return(wb, exit_path):
+    class ExitingBridge(BridgeStub):
+        polls = 0
+
+        def poll(self, request):
+            self.polls += 1
+            if exit_path == "poll-error":
+                raise RuntimeError("UNIT桥传输失败")
+            if exit_path in ("lease-lost", "already-final"):
+                with self.factory.begin() as session:
+                    row = session.get(InterferenceWorkbenchAdoption, request["adoption_id"])
+                    if exit_path == "lease-lost":
+                        row.lease_owner = "UNIT-OTHER-WORKER"
+                    else:
+                        row.state, row.error = "FAILED", "UNIT既有终态"
+                        row.lease_owner, row.lease_until = None, None
+            if exit_path == "mismatch":
+                return {"state": "FAILED", "progress": 100, "plan_id": None, "error": None}
+            return super().poll(request)
+
+    bridge = ExitingBridge(wb[0][1])
+    receipt = data(adoption(wb, ready(wb, bridge)))
+    assert wb[1].run_once()
+    assert _submit_lock_available_from_other_thread(), "异常/return均必须释放最外层RLock"
+    with wb[0][1]() as session:
+        row = session.get(InterferenceWorkbenchAdoption, receipt["object_id"])
+        assert row.result_plan_id is None
+        if exit_path == "poll-error":
+            assert row.state == "RUNNING" and row.error == "UNIT桥传输失败"
+        elif exit_path == "mismatch":
+            assert row.state == "FAILED" and row.error == "桥回报与持久化作业状态不一致"
+        elif exit_path == "lease-lost":
+            assert row.state == "RUNNING" and row.lease_owner == "UNIT-OTHER-WORKER"
+        else:
+            assert row.state == "FAILED" and row.error == "UNIT既有终态"
+    assert bridge.submissions == 1 and bridge.polls == 1
+
+
+def test_poll_state_window_native_reference_saved_once(scene_api, frozen_sample, monkeypatch, _native_runtime):
+    """真实W3/W4两节点单边小样本天然不满足90%抗毁；不改门槛/结果。"""
+    from sqlalchemy import func, select
+    from app import planning_job_service as jobs, planning_plan_service as plans
+    from app.interference_replan_service import FrozenPlanningReplanner
+    from app.interference_workbench_schemas import TaskQuery
+    from app.interference_workbench_service import InterferenceWorkbenchService
+    dispatches, saves = [], []
+    real_dispatch = jobs.planning_w4.submit_sr4
+    real_save = plans.save_planning_plan
+
+    def dispatch(payload, **kwargs):
+        dispatches.append(kwargs["job_id"])
+        return real_dispatch(payload, **kwargs)
+
+    def save(payload, *args, **kwargs):
+        saves.append(payload.model_dump())
+        return real_save(payload, *args, **kwargs)
+
+    monkeypatch.setattr(jobs.planning_w4, "submit_sr4", dispatch)
+    monkeypatch.setattr(plans, "save_planning_plan", save)
+    jobs, factory, request, raw, _, engine = _native_dispatch_case(
+        scene_api, frozen_sample, monkeypatch, "FREQ_ADJUST")
+    original = jobs.query_planning_job(request["planning_job_id"], "T1", factory)["data"]
+    assert original["status"] == "SUCCESS" and original["saved_plan_id"] is None
+    assert original["outcome"]["code"] == 3001 and original["outcome"]["gap"]
+    assert next(check for check in original["result"]["checks"] if check["id"] == "survivability")["passed"] is False
+    assert original["input"]["constraints"]["survivabilityPercent"] == 90
+    bridge = FrozenPlanningReplanner(factory)
+    service = InterferenceWorkbenchService(factory, engine=engine, replanner=bridge)
+    assert service.run_once()
+    adopted = service.replanner.detail(request["adoption_id"], TaskQuery(task_id="T1"))
+    assert adopted["state"] == "SUCCESS" and adopted["planning_state"] == "SUCCESS"
+    assert adopted["result_plan_state"] == "REFERENCE" and adopted["error"] is None
+    assert adopted["planning_job_id"] == request["planning_job_id"]
+    assert service.run_once() is False
+    replay = bridge.poll(request)
+    assert replay["state"] == "SUCCESS" and replay["plan_id"] == adopted["result_plan_id"]
+    assert dispatches == [request["planning_job_id"]]
+    assert len(saves) == 1 and saves[0]["request_id"] == "interference-save-" + request["adoption_id"]
+    with factory() as session:
+        child = session.get(PlanningPlan, adopted["result_plan_id"])
+        assert child.state == "REFERENCE" and child.confirmed_at is None
+        assert child.result_snapshot == original["result"] and child.outcome_snapshot == original["outcome"]
+        assert child.raw_snapshot["detail"]["interference"]["effect"]["origin"] == request["interference_origin"]
+        assert InterferenceReplanService.applied(request["change_set"], child.raw_snapshot["detail"])
+        assert session.scalar(select(func.count()).select_from(PlanningPlan).where(
+            PlanningPlan.job_id == request["planning_job_id"])) == 1
+        assert session.get(PlanningCurrentPlan, "T1").plan_id == "P1"
+        assert session.get(PlanningPlan, "P1").raw_snapshot == raw
+    assert _submit_lock_available_from_other_thread()

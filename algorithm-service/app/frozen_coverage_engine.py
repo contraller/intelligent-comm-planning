@@ -13,7 +13,7 @@ from typing import Any, Callable
 
 
 ROOT = Path(__file__).resolve().parents[2]
-ENGINE_VERSION = "V01-3"
+ENGINE_VERSION = "V01-4"
 SELECTION_ANCHOR_KEYS = ("plan_id", "task_id", "snapshot_id", "input_version", "condition_version",
                          "resource_revision", "resource_content_hash", "plan_input_sha256",
                          "raw_snapshot_sha256", "frozen_tables_sha256", "terrain_fingerprint")
@@ -74,7 +74,8 @@ def _number(value: Any, field: str, *, lo: float | None = None,
 
 
 def _identity(value: Any, field: str) -> str:
-    if not isinstance(value, str) or not value.strip():
+    if (not isinstance(value, str) or not value.strip() or len(value) > 160
+            or any(ord(char) < 32 or ord(char) == 127 for char in value)):
         _fail("缺少冻结编号：" + field)
     return value
 
@@ -205,6 +206,22 @@ def _bandwidth_values(value, device_id):
     return [_number(value, device_id + ".bandwidth_khz", lo=1e-9, hi=1e9)]
 
 
+def _bandwidth_provenance(model):
+    fields = ("origin", "source_id", "source_sha256", "source_note", "original_khz")
+    if model is None or not any("bandwidth_" + key in model for key in fields):
+        return None
+    result = {key: model.get("bandwidth_" + key) for key in fields}
+    if (not all(isinstance(value, str) for value in result.values())
+            or result["origin"] != "SYNTHETIC_COVERAGE_ASSUMPTION"
+            or result["source_id"] != "R5-HF-RX-3KHZ-V1"
+            or not re.fullmatch(r"[0-9a-f]{64}", result["source_sha256"])
+            or not result["source_note"].strip() or result["original_khz"] != ""
+            or model.get("device_class") != "HF" or ";" in str(model.get("bandwidth_khz"))
+            or _bandwidth_values(model.get("bandwidth_khz"), model.get("model_id", "")) != [3.0]):
+        _fail("冻结型号接收带宽构造来源无效")
+    return result
+
+
 def bandwidth_options(raw: dict, tables: dict) -> list[dict]:
     """仅从冻结来源读取结构化选项，不加载DEM或调用覆盖算法。"""
     _digest((raw, tables))
@@ -216,7 +233,7 @@ def bandwidth_options(raw: dict, tables: dict) -> list[dict]:
     models = _index(tables.get("device_model.csv"), "model_id", "device_model.csv")
     if len(devices) > MAX_DEVICES:
         _fail("冻结设备数量超过限额", "COVERAGE_LIMIT")
-    frequencies = _frequencies(detail, devices, nodes)
+    frequencies = _frequencies(detail, devices, nodes, models)
     rows = []
     for did, device in sorted(devices.items()):
         for key in ("node_id", "model_id", "antenna_id"):
@@ -236,7 +253,8 @@ def bandwidth_options(raw: dict, tables: dict) -> list[dict]:
             state, code, reason = "SINGLE_VALUE", None, ""
         rows.append(dict(device_id=did, node_id=device["node_id"], model_id=device["model_id"],
                          band=(model or {}).get("device_class"), model_bandwidth_khz=deepcopy(raw_value),
-                         options_khz=values, state=state, reason_code=code, reason=reason))
+                         options_khz=values, state=state, reason_code=code, reason=reason,
+                         bandwidth_provenance=_bandwidth_provenance(model)))
     return rows
 
 
@@ -301,13 +319,19 @@ def _bandwidth_info(model, device_id, selected):
 
 def _radio(device: dict, plan: dict | None, model: dict | None, antenna: dict | None,
            *, assigned_frequencies=(), rx_bandwidth=None) -> dict:
+    missing = []
     if model is None or antenna is None or plan is None:
-        raise _UnknownRadio("缺少对应冻结型号、天线或逐设备计划参数")
+        missing.append("对应冻结型号、天线或逐设备计划参数")
+    model, antenna, plan = model or {}, antenna or {}, plan or {}
     if model.get("device_class") not in ("HF", "VUHF"):
-        raise _UnknownRadio("冻结型号频段未知")
+        if model.get("device_class") not in (None, ""):
+            _fail("冻结型号频段无效：" + device["device_id"])
+        missing.append("冻结型号频段")
+    if "band" in plan and plan["band"] not in ("HF", "VUHF"):
+        _fail("计划参数频段无效：" + device["device_id"])
     for key, expected in (("node_id", device["node_id"]), ("model_id", device["model_id"]),
-                          ("antenna_id", device["antenna_id"]), ("band", model["device_class"])):
-        if key in plan and plan[key] != expected:
+                          ("antenna_id", device["antenna_id"]), ("band", model.get("device_class"))):
+        if key in plan and expected is not None and plan[key] != expected:
             _fail("计划参数与冻结设备归属不一致：" + device["device_id"] + "." + key)
     fields = {"tx_dbm": (plan, "tx_power_dbm", -100, 100),
               "height": (plan, "antenna_height_m", 0, 1000),
@@ -315,7 +339,7 @@ def _radio(device: dict, plan: dict | None, model: dict | None, antenna: dict | 
               "sens": (model, "rx_sensitivity_dbm", -300, 100),
               "fmin": (model, "freq_min_khz", 1e-9, 1e9),
               "fmax": (model, "freq_max_khz", 1e-9, 1e9)}
-    missing, values = [], {}
+    values = {}
     for key, (row, field, lo, hi) in fields.items():
         raw = row.get(field)
         if raw in (None, ""):
@@ -324,6 +348,8 @@ def _radio(device: dict, plan: dict | None, model: dict | None, antenna: dict | 
         values[key] = _number(raw, device["device_id"] + "." + field, lo=lo, hi=hi)
     if not antenna.get("pattern_type"):
         missing.append("pattern_type")
+    elif not isinstance(antenna["pattern_type"], str):
+        _fail("冻结天线方向图类别无效：" + device["device_id"])
     if "fmin" in values and "fmax" in values and values["fmin"] > values["fmax"]:
         _fail("冻结型号频率范围倒置：" + device["device_id"])
     if "fmin" in values and "fmax" in values:
@@ -341,7 +367,68 @@ def _radio(device: dict, plan: dict | None, model: dict | None, antenna: dict | 
     return values
 
 
-def _frequencies(detail: dict, devices: dict, nodes: dict) -> dict:
+def _summary(devices):
+    result = dict(total=len(devices), eligible=0, complete=0, unavailable=0, skipped=0)
+    for device in devices:
+        key = {"COMPLETE": "complete", "UNAVAILABLE": "unavailable", "SKIPPED": "skipped"}.get(device.get("status"))
+        if key is None:
+            _fail("覆盖设备状态无效", "COVERAGE_RESULT")
+        result[key] += 1
+    result["eligible"] = result["complete"] + result["unavailable"]
+    return result
+
+
+def _overall(summary):
+    if not summary["eligible"]:
+        return "NOT_APPLICABLE"
+    if summary["complete"] == summary["eligible"]:
+        return "COMPLETE"
+    return "PARTIAL" if summary["complete"] else "UNAVAILABLE"
+
+
+def validate_v4_result(result):
+    """V4 的统计和来源随结果一起核验，历史结果不走本分支。"""
+    if type(result.get("schema_version")) is not int or result["schema_version"] != 2:
+        _fail("V4覆盖结果结构版本无效", "COVERAGE_RESULT")
+    devices = _index(result.get("devices"), "device_id", "result.devices")
+    summary = _summary(list(devices.values()))
+    saved = result.get("summary")
+    if (not isinstance(saved, dict) or set(saved) != set(summary)
+            or any(type(value) is not int or value < 0 for value in saved.values())
+            or saved != summary or result.get("status") != _overall(summary)):
+        _fail("V4覆盖统计或总体状态不一致", "COVERAGE_RESULT")
+    for device in devices.values():
+        for key, identity in (("frozen_model", "model_id"), ("frozen_antenna", "antenna_id"),
+                              ("planned_parameters", "device_id")):
+            value = device.get(key)
+            if key not in device or value is not None and (
+                    not isinstance(value, dict) or value.get(identity) != device.get(identity)):
+                _fail("V4覆盖冻结对象身份不一致", "COVERAGE_RESULT")
+        if ("bandwidth_provenance" not in device
+                or device["bandwidth_provenance"] != _bandwidth_provenance(device["frozen_model"])):
+            _fail("V4覆盖带宽来源不一致", "COVERAGE_RESULT")
+        bandwidth = device.get("rx_bandwidth")
+        if not isinstance(bandwidth, dict) or set(bandwidth) != {"value_khz", "source"}:
+            _fail("V4覆盖接收带宽结构无效", "COVERAGE_RESULT")
+        source, value = bandwidth["source"], bandwidth["value_khz"]
+        if source in ("EXPLICIT_COMPUTE_PARAMETER", "FROZEN_MODEL_SINGLE_VALUE"):
+            _number(value, "rx_bandwidth", lo=1e-9, hi=1e9, code="COVERAGE_RESULT")
+        elif source not in ("UNKNOWN", "UNSELECTED") or value is not None:
+            _fail("V4覆盖接收带宽来源无效", "COVERAGE_RESULT")
+        state, code = device["status"], device.get("reason_code")
+        if not isinstance(device.get("reasons"), list) or not all(isinstance(row, str) for row in device["reasons"]):
+            _fail("V4覆盖设备原因无效", "COVERAGE_RESULT")
+        if state == "COMPLETE":
+            if (code is not None or "reason_code" not in device or device["reasons"]
+                    or not isinstance(device.get("radio_parameters"), dict) or not device.get("computations")):
+                _fail("V4覆盖完成设备缺少结果", "COVERAGE_RESULT")
+        elif (device.get("radio_parameters") is not None or device.get("computations") != []
+                or not device["reasons"] or (code != "NO_ASSIGNED_FREQUENCY" if state == "SKIPPED" else
+                    code not in ("RX_BANDWIDTH_UNKNOWN", "RX_BANDWIDTH_SELECTION_REQUIRED", "FROZEN_PARAMETERS_UNKNOWN"))):
+            _fail("V4覆盖未计算设备状态无效", "COVERAGE_RESULT")
+
+
+def _frequencies(detail: dict, devices: dict, nodes: dict, models: dict) -> dict:
     links = _index(detail.get("links"), "link_id", "detail.links")
     frequency = detail.get("frequency")
     if not isinstance(frequency, dict):
@@ -349,13 +436,23 @@ def _frequencies(detail: dict, devices: dict, nodes: dict) -> dict:
     assigned = _index(frequency.get("link_assignments"), "link_id", "frequency.link_assignments")
     if set(assigned) - set(links):
         _fail("冻结频率引用方案外链路")
+    for lid, row in assigned.items():
+        _number(row.get("freq_khz"), lid + ".freq_khz", lo=1e-9)
     result: dict[str, dict[float, list[str]]] = {did: {} for did in devices}
     for lid, link in links.items():
         available = link.get("is_available", "true")
-        if available is False or available == "false":
-            continue
-        if available is not True and available != "true":
+        inactive = available is False or available == "false"
+        if not inactive and available is not True and available != "true":
             _fail("冻结链路可用性未知：" + lid)
+        for side in ("a", "b"):
+            did, nid = link.get("device_" + side + "_id"), link.get("node_" + side + "_id")
+            if did not in devices or nid not in nodes or devices[did].get("node_id") != nid:
+                _fail("冻结链路设备与节点不对应：" + lid)
+            band = models.get(devices[did].get("model_id"), {}).get("device_class")
+            if band in ("HF", "VUHF") and link.get("device_class") != band:
+                _fail("冻结链路频段与设备型号不一致：" + did)
+        if inactive:
+            continue
         if lid not in assigned:
             _fail("活动链路缺少冻结分配频率：" + lid)
         freq = _number(assigned[lid].get("freq_khz"), lid + ".freq_khz", lo=1e-9)
@@ -501,7 +598,7 @@ def compute_frozen_coverage(raw_snapshot: dict, frozen_tables: dict, *,
         _fail("冻结计划参数引用方案外设备")
     models = _index(tables.get("device_model.csv"), "model_id", "device_model.csv")
     antennas = _index(tables.get("antenna_model.csv"), "antenna_id", "antenna_model.csv")
-    frequencies = _frequencies(detail, devices, nodes)
+    frequencies = _frequencies(detail, devices, nodes, models)
     computations = sum(len(value) for value in frequencies.values())
     if computations > MAX_COMPUTATIONS:
         _fail("设备频率组合超过限额", "COVERAGE_LIMIT")
@@ -517,7 +614,7 @@ def compute_frozen_coverage(raw_snapshot: dict, frozen_tables: dict, *,
     if ray_steps > MAX_RAY_STEPS:
         _fail("覆盖射线步预算超过限额", "COVERAGE_LIMIT")
     viewshed, feasibility = _modules()
-    output, cell_count, done, successes = [], 0, 0, 0
+    output, cell_count, done = [], 0, 0
     for did, device in sorted(devices.items()):
         tick(0.05 + 0.9 * len(output) / len(devices), "计算冻结设备 " + did)
         nid = _identity(device.get("node_id"), did + ".node_id")
@@ -529,25 +626,35 @@ def compute_frozen_coverage(raw_snapshot: dict, frozen_tables: dict, *,
         node = nodes[nid]
         item = {"device_id": did, "node_id": nid, "model_id": model_id, "antenna_id": antenna_id,
                 "lon": float(node["lon"]), "lat": float(node["lat"]), "band": (model or {}).get("device_class"),
-                "status": "UNAVAILABLE", "reasons": [], "planned_parameters": deepcopy(plan),
+                "status": "UNAVAILABLE", "reason_code": None, "reasons": [], "planned_parameters": deepcopy(plan),
                 "frozen_model": deepcopy(model), "frozen_antenna": deepcopy(antenna),
-                "radio_parameters": None, "computations": []}
+                "radio_parameters": None, "computations": [],
+                "bandwidth_provenance": _bandwidth_provenance(model)}
         item["rx_bandwidth"] = _bandwidth_info(model, did, selected.get(did))
         if (model or {}).get("device_class") in ("HF", "VUHF"):
             assigned_links = {lid for group in frequencies[did].values() for lid in group}
             for link in detail["links"]:
                 if link["link_id"] in assigned_links and link.get("device_class") != model["device_class"]:
                     _fail("冻结链路频段与设备型号不一致：" + did)
+        unknown = None
         try:
             radio = _radio(device, plan, model, antenna, assigned_frequencies=frequencies[did],
                            rx_bandwidth=item["rx_bandwidth"]["value_khz"])
         except _UnknownRadio as exc:
-            item["reasons"].append(str(exc))
+            unknown = str(exc)
+        # 缺失参数可不适用，但已给的非法数值和归属错误不能被跳过。
+        if not frequencies[did]:
+            item.update(status="SKIPPED", reason_code="NO_ASSIGNED_FREQUENCY")
+            item["reasons"].append("无活动冻结链路分配频率，禁止代入代表频率")
+            output.append(item)
+            continue
+        if unknown is not None:
+            item["reasons"].append(unknown)
+            item["reason_code"] = {"UNKNOWN": "RX_BANDWIDTH_UNKNOWN",
+                "UNSELECTED": "RX_BANDWIDTH_SELECTION_REQUIRED"}.get(item["rx_bandwidth"]["source"], "FROZEN_PARAMETERS_UNKNOWN")
             output.append(item)
             continue
         item["radio_parameters"] = dict(radio)
-        if not frequencies[did]:
-            item["reasons"].append("无活动冻结链路分配频率，禁止代入代表频率")
         station = feasibility.Station(nid, node["lon"], node["lat"], node.get("node_subtype"),
                                       {item["band"]: _CheckedRadio(radio, check)})
         for freq, link_ids in sorted(frequencies[did].items()):
@@ -576,12 +683,12 @@ def compute_frozen_coverage(raw_snapshot: dict, frozen_tables: dict, *,
             done += 1
         if item["computations"]:
             item["status"] = "COMPLETE"
-            successes += 1
         output.append(item)
     tick(0.98, "核对DEM来源与覆盖JSON")
     verify()
-    result = {"schema_version": 1, "solution_id": solution_id,
-              "status": "COMPLETE" if successes == len(devices) else "PARTIAL" if successes else "UNAVAILABLE",
+    summary = _summary(output)
+    result = {"schema_version": 2, "solution_id": solution_id,
+              "status": _overall(summary), "summary": summary,
               "devices": output, "provenance": {"raw_snapshot_sha256": raw_hash, "frozen_tables_sha256": tables_hash,
                   "terrain_fingerprint": expected, "dem_bbox": list(checked.bbox), "parameters": options,
                   "terrain_metadata": {"dem": deepcopy(checked.source._dem.meta), "landcover": deepcopy(checked.source._lc.meta)},
@@ -605,6 +712,7 @@ def compute_frozen_coverage(raw_snapshot: dict, frozen_tables: dict, *,
                       "现有函数以标量天线增益计算，未建模方向图/方位/下倾角",
                       "HF沿用冻结站点地物和指定hour的既有传播假设，不代表远域DEM实测或实时电离层",
                       "hf_max_km仅限制地波距离搜索，原生天波环半径保留，不构造全域覆盖率"]}}
+    validate_v4_result(result)
     _json(result, "COVERAGE_RESULT")
     tick(1, "冻结覆盖计算完成，待调用方原子发布")
     verify()

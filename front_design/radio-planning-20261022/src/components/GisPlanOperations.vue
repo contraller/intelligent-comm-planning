@@ -40,9 +40,18 @@
         :services="services.deviceStatuses"
         :enabled="canReadResources"
         :allow-import="sameResource && canImportStatus"
+        :allow-follow="sameResource"
+        complete-snapshot
+        :background-enabled="directoryVisible && tab === 'devices' && !configurationVisible && !config.busy && !config.pending"
+        :paused-reason="refreshPauseReason"
         @dirty="statusDirty = $event"
         @busy="statusBusy = $event"
       />
+      <p role="status" data-testid="gis-status-cycle" :data-interval-seconds="runtime.snapshot?.values['PAR-01']" :data-parameter-revision="runtime.snapshot?.revision" :data-parameter-epoch="runtime.snapshot?.epoch">
+        {{ status.refreshMode === 'latest' ? '最新状态应用周期' : '状态目录检查周期' }} {{ runtime.snapshot?.values['PAR-01'] ?? '未知' }} s · 参数 {{ runtime.snapshot?.revision ?? '未就绪' }} · {{ status.following ? '正在刷新' : refreshPauseReason ? '刷新已暂停' : '刷新已启用' }}
+        <span v-if="(runtime.snapshot?.values['PAR-01'] ?? 0) > 60"> · 验收风险：配置周期超过 60 秒</span>
+        <span> · 周期不包含请求及地图绘制用时</span>
+      </p>
       <p
         v-if="viewedObservationRef"
         class="notice"
@@ -224,6 +233,15 @@
       <InterferenceMeasureDrawer
         @open-plan="openAdoptedPlan"
         @open-planning-job="emit('openJob', $event)"
+        @open-adoption="openAdoptionDetail"
+      />
+      <InterferenceAdoptionDetailDrawer
+        v-if="adoptionDetail"
+        :visible="true"
+        :task-id="adoptionDetail.taskId"
+        :adoption-id="adoptionDetail.adoptionId"
+        :services="services.interferenceWorkbench"
+        @update:visible="!$event && (adoptionDetail = null)"
       />
     </section>
   </section>
@@ -235,9 +253,11 @@ import MapCanvas from './MapCanvas.vue';
 import InterferenceAnalysisPanel from './InterferenceAnalysisPanel.vue';
 import InterferenceHistoryDrawer from './InterferenceHistoryDrawer.vue';
 import InterferenceMeasureDrawer from './InterferenceMeasureDrawer.vue';
+import InterferenceAdoptionDetailDrawer from './InterferenceAdoptionDetailDrawer.vue';
 import { useInterferenceStore } from '../stores/interference';
 import { useRuntimeParametersStore } from '../stores/runtime-parameters';
 import { createGisStatusRefresh } from '../services/gis-status-refresh';
+import type { GisDeviceStatusOverlay } from '../maps/gis-device-status-layer';
 import { workbenchMapKey } from '../maps/interference-workbench-layers';
 import { guardedAnalysisMapSelection } from '../services/gis-analysis-map-selection';
 import type { TerrainBasemap } from '../services/terrain-basemap';
@@ -272,6 +292,7 @@ const emit = defineEmits<{
   analysisMap: [active: boolean];
   openPlan: [value: { taskId: string; planId: string }];
   openJob: [value: { taskId: string; jobId: string }];
+  deviceStatus: [value: GisDeviceStatusOverlay | null];
 }>();
 const auth = useAuthStore(),
   status = useResourceStatusStore(),
@@ -404,6 +425,12 @@ const projections = computed(() => {
   }
   return result;
 });
+const statusOverlay = computed<GisDeviceStatusOverlay | null>(() => canReadResources.value && anchor.value && status.appliedAt
+  ? { taskId: props.network.identity.task_id, planId: props.network.identity.plan_id, networkSnapshotId: props.network.identity.snapshot_id,
+      anchor: anchor.value, projections: projections.value, appliedAt: status.appliedAt, selectedDeviceId: selectedDevice.value }
+  : null);
+watch(statusOverlay, value => emit('deviceStatus', value), { immediate: true, flush: 'sync' });
+watch(sameResource, value => { if (!value) status.setRefreshMode('fixed'); }, { flush: 'sync' });
 const statusRefMembers = ref<string[]>([]),
   statusRefBusy = ref(false);
 const viewedObservationRef = ref<{
@@ -470,7 +497,7 @@ async function viewObservationStatus(input: {
     );
     if (!header || !current()) return;
     selectingStatusRef = true;
-    await status.select(header);
+    await status.select(header, { complete: true });
     if (!current()) return;
     if (
       status.batch?.snapshot_id !== target.ref.snapshotId ||
@@ -529,7 +556,7 @@ async function requestLeave() {
   }
   return true;
 }
-// 只刷新候选快照目录，不读取实测帧、不自动选择新批次或移动地图。
+// 默认只检查目录；显式跟随时由面板原子读取同版最新状态，不移动地图。
 const refreshConsumer = 'gis.device-status-directory';
 const refreshActive = () =>
   directoryVisible.value &&
@@ -545,6 +572,14 @@ const refreshActive = () =>
   !config.busy &&
   !config.pending &&
   !!statusPanel.value?.canRefreshDirectoryInBackground();
+const refreshPauseReason = computed(() => !directoryVisible.value ? '页面不可见，刷新暂停'
+  : tab.value !== 'devices' ? '设备状态页未激活，刷新暂停'
+    : !canReadResources.value ? '当前查看权限不可用，刷新暂停'
+      : !runtime.snapshot || runtime.loading || runtime.error ? '运行参数未就绪，刷新暂停'
+        : statusDirty.value ? '存在未提交导入输入，刷新暂停'
+          : status.pendingImport ? '导入原号待核实，刷新暂停'
+            : statusBusy.value ? '正在读取或提交状态，周期刷新暂停'
+              : configurationVisible.value || config.busy || config.pending ? '设备配置操作未结束，刷新暂停' : '');
 const refreshIdentity = () =>
   runtime.snapshot
     ? JSON.stringify([
@@ -553,6 +588,7 @@ const refreshIdentity = () =>
         props.network.identity.resource_revision,
         runtime.snapshot.epoch,
         runtime.snapshot.revision,
+        status.refreshMode,
       ])
     : '';
 const directoryRefresh = createGisStatusRefresh({
@@ -595,6 +631,26 @@ function openAdoptedPlan(id: string) {
   if (value) emit('openPlan', { taskId: value.task_id, planId: id });
   else notice.value = '该采纳尚未生成可打开的真实方案。';
 }
+const adoptionDetail = ref<{ taskId: string; adoptionId: string } | null>(null);
+function openAdoptionDetail(input: { adoptionId: string }) {
+  const run = analysis.selected;
+  const row = analysis.adoptions.find(value => value.adoption_id === input.adoptionId);
+  if (!analysis.readable || tab.value !== 'interference' || !run || !row
+    || row.task_id !== run.task_id || row.run_id !== run.run_id
+    || row.measure_id !== analysis.measureId || row.source_hash !== run.source_hash) {
+    adoptionDetail.value = null;
+    notice.value = '该采纳与当前分析、措施或来源不一致，请重新读取。';
+    return;
+  }
+  adoptionDetail.value = { taskId: row.task_id, adoptionId: row.adoption_id };
+}
+watch(
+  () => [props.network.identity.snapshot_id, props.sessionGeneration, auth.generation,
+    props.services.interferenceWorkbench, analysis.readable, tab.value, analysis.selected?.task_id,
+    analysis.selected?.run_id, analysis.selected?.source_hash, analysis.measureId],
+  () => { adoptionDetail.value = null; },
+  { flush: 'sync' },
+);
 // 明确保留原号并关闭后允许离开；未关闭的输入与写等待仍须阻止刷新丢失。
 const hasPending = () =>
   statusDirty.value ||
@@ -623,6 +679,7 @@ onMounted(() => {
 });
 onBeforeUnmount(() => {
   directoryRefresh.dispose();
+  emit('deviceStatus', null);
   runtime.clearApplied(refreshConsumer);
   document.removeEventListener('visibilitychange', visibilityChanged);
   release();
@@ -632,7 +689,7 @@ onBeforeUnmount(() => {
   if (analysisAttached.value) analysis.stop();
   window.removeEventListener('beforeunload', beforeUnload);
 });
-defineExpose({ requestLeave });
+defineExpose({ requestLeave, selectDevice });
 </script>
 
 <style scoped>

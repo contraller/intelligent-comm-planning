@@ -20,10 +20,22 @@ def test_real_scrypt_random_salts_unicode_and_wrong_password():
     assert password not in first
 
 
-@pytest.mark.parametrize("value", [None, False, 1, "short", "x" * 129, "a" * 15 + "\x00", "a" * 15 + "\ud800"])
+@pytest.mark.parametrize("value", [None, False, 1, "short", "x" * 7, "x" * 129, "a" * 8 + "\x00", "a" * 8 + "\ud800"])
 def test_invalid_password_rejected_before_hashing(value):
     with pytest.raises(SystemManagementError):
         password_bytes(value)
+
+
+def test_eight_character_password_hash_and_verify():
+    password = "Abcd1234"
+    encoded = hash_password(password)
+    assert verify_password(password, encoded)
+    assert not verify_password("Abcd1235", encoded)
+
+
+@pytest.mark.parametrize("size", [8, 128])
+def test_password_length_boundaries(size):
+    assert password_bytes("a" * size) == b"a" * size
 
 
 def test_password_bytes_preserve_spaces_and_unicode_without_normalization():

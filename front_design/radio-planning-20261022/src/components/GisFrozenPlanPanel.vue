@@ -114,6 +114,13 @@
           >关闭网络</button
         ></div
       >
+      <p v-if="deviceStatus && !analysisMap" class="status-render-anchor" role="status" data-testid="gis-device-status-render"
+        :data-snapshot-id="deviceStatus.anchor.snapshotId" :data-snapshot-revision="deviceStatus.anchor.snapshotRevision"
+        :data-resource-revision="deviceStatus.anchor.resourceRevision" :data-network-snapshot-id="deviceStatus.networkSnapshotId"
+        :data-applied-at="deviceStatus.appliedAt" :data-rendered-at="statusRender?.renderedAt ?? ''" :data-point-count="statusRender?.pointCount ?? 0">
+        设备状态叠加 · {{ deviceStatus.anchor.snapshotId }} · {{ deviceStatus.anchor.snapshotRevision }} · 资源 {{ deviceStatus.anchor.resourceRevision }}
+        · {{ statusRender ? '地图绘制完成 ' + statusRender.renderedAt + ' · ' + statusRender.pointCount + ' 台' : '等待地图绘制完成' }}
+      </p>
       <div v-show="!analysisMap" class="frozen-layout">
         <div class="frozen-map">
           <MapCanvas
@@ -121,6 +128,7 @@
             resource-read
             gis-surface
             :frozen-network="model.network"
+            :frozen-device-status="deviceStatus"
             :planning-overlay="coverageOverlay"
             :frozen-coverage="frozenCoverage"
             :show-coverage="showCoverage"
@@ -133,6 +141,8 @@
             @select-frozen-node="model.selectNode"
             @select-frozen-link="model.selectLink"
             @select-frozen-demand="model.selectDemand"
+            @device-status-rendered="acceptStatusRender"
+            @select-frozen-device="operationPanel?.selectDevice($event)"
           />
         </div>
         <aside class="frozen-details">
@@ -233,7 +243,7 @@
       <GisPlanOperations v-if="operations" ref="operationPanel" :key="model.network.identity.plan_id + ':' + model.network.identity.snapshot_id"
         :network="model.network" :services="operations" :current-resource-revision="currentResourceRevision" :session-generation="sessionGeneration" :plan-version="model.planVersion"
         :terrain-basemap="basemap" :initial-tab="initialTab" :selected-link-id="model.selectedLinkId"
-        @analysis-map="analysisMap = $event" @select-link="model.selectLink" @select-node="model.selectNode"
+        @analysis-map="analysisMap = $event" @select-link="model.selectLink" @select-node="model.selectNode" @device-status="acceptDeviceStatus"
         @open-plan="emit('openPlan', $event)" @open-job="emit('openJob', $event)" />
     </template>
   </section>
@@ -254,10 +264,23 @@ import type { ApiPlan } from '../types/planning-api';
 import type { CoverageDisplay } from '../types/coverage';
 import type { GisPlanOperationServices } from '../types/gis-plan';
 import type { PlanningPlanSummary } from '../types/planning-api';
+import { gisDeviceStatusKey, type GisDeviceStatusOverlay, type GisDeviceStatusRender } from '../maps/gis-device-status-layer';
 const props = defineProps<{ services: GisFrozenPlanServices; sessionGeneration: number; operations?: GisPlanOperationServices; coverageServices?:FrozenCoverageClient; currentResourceRevision?: string; initialTab?: 'devices' | 'interference' }>();
 const emit = defineEmits<{ openPlan: [value: { taskId: string; planId: string }]; openJob: [value: { taskId: string; jobId: string }] }>();
 const analysisMap = ref(false);
 const frozenCoverage=shallowRef<FrozenCoverageOverlay|null>(null);
+const deviceStatus = shallowRef<GisDeviceStatusOverlay | null>(null);
+const statusRender = shallowRef<GisDeviceStatusRender | null>(null);
+function acceptStatusRender(value: GisDeviceStatusRender) {
+  if (deviceStatus.value && value.key === gisDeviceStatusKey(deviceStatus.value) && !statusRender.value) statusRender.value = value;
+}
+watch(() => deviceStatus.value && gisDeviceStatusKey(deviceStatus.value), () => { statusRender.value = null; }, { flush: 'sync' });
+watch(analysisMap, value => { if (value) statusRender.value = null; }, { flush: 'sync' });
+function acceptDeviceStatus(value: GisDeviceStatusOverlay | null) {
+  const network = model.network;
+  deviceStatus.value = value && network && value.taskId === network.identity.task_id && value.planId === network.identity.plan_id
+    && value.networkSnapshotId === network.identity.snapshot_id && value.anchor.resourceRevision === network.identity.resource_revision ? value : null;
+}
 const operationPanel = ref<InstanceType<typeof GisPlanOperations>>();
 const model = reactive(createGisFrozenPlanWorkspace(props.services));
 const searchText = ref(''),
@@ -294,7 +317,7 @@ async function requestLeave() { return operationPanel.value ? operationPanel.val
 async function openPlan(row: PlanningPlanSummary) { if (await requestLeave()) await model.openPlan(row); }
 async function closeNetwork() { if (await requestLeave()) model.closeNetwork(); }
 async function openIdentity(input: { taskId: string; planId: string }) { return await requestLeave() && await model.openIdentity(input); }
-watch(() => model.network?.identity.snapshot_id, () => { analysisMap.value = false; frozenCoverage.value=null; });
+watch(() => model.network, () => { analysisMap.value = false; frozenCoverage.value=null; deviceStatus.value = null; }, { flush: 'sync' });
 function changePage(delta: number) {
   page.value += delta;
   return load();
@@ -315,6 +338,7 @@ defineExpose({ stop: model.stop, requestLeave, openIdentity });
 </script>
 
 <style scoped>
+.status-render-anchor { margin: 0; padding: 8px 0; font-size: 12px; overflow-wrap: anywhere; }
 .frozen-workspace {
   display: grid;
   gap: 12px;

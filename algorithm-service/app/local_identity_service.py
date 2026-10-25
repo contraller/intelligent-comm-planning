@@ -14,7 +14,7 @@ from .formal_identity_policy import require_formal_access
 from .formal_identity_schemas import FormalAccessRequest, FormalIdentity, FormalSessionContext
 from .local_identity_models import LocalIdentityChallenge, LocalIdentitySession, LocalIdentityThrottle
 from .local_identity_schemas import LocalIdentitySettings, LocalLogin, OwnPassword
-from .local_password_service import hash_password, verify_password
+from .local_password_service import MAX_PASSWORD_SCALARS, MIN_PASSWORD_SCALARS, hash_password, verify_password
 from .system_audit_service import append_system_audit
 from .system_management_models import LocalAccount, LocalCredential, LocalRole, SystemOperation, SystemState
 from .system_management_schemas import SystemActor, SystemManagementError, parse_request
@@ -67,7 +67,7 @@ class LocalIdentityService:
                 required = credential.must_change_password
             except SystemManagementError:
                 pass
-        return dict(authMode="LOCAL_PASSWORD", initialized=initialized, passwordPolicy=dict(minScalars=15, maxScalars=128),
+        return dict(authMode="LOCAL_PASSWORD", initialized=initialized, passwordPolicy=dict(minScalars=MIN_PASSWORD_SCALARS, maxScalars=MAX_PASSWORD_SCALARS),
                     capabilities=dict(passwordMaintenance=True, anonymousRecovery=False), passwordChangeRequired=required)
 
     def _transport(self, request):

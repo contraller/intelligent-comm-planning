@@ -4,6 +4,7 @@
       <label>{{ mode === 'SELF' ? '当前密码' : '操作人当前密码' }}<input v-model="current" type="password" autocomplete="current-password" required :disabled="busy || disabled" maxlength="256" /></label>
       <label>新密码<input v-model="next" type="password" autocomplete="new-password" required :disabled="busy || disabled" maxlength="256" /></label>
       <label>确认新密码<input v-model="confirm" type="password" autocomplete="new-password" required :disabled="busy || disabled" maxlength="256" /></label>
+      <p class="muted">密码长度为 8–128 个字符。</p>
       <p v-if="error" role="alert">{{ error }}</p>
       <p v-if="mode === 'ADMIN'" class="muted">维护后目标账号的旧会话失效，下次登录须修改本人密码。</p>
       <button class="btn primary" type="submit" :disabled="busy || disabled || !valid"><i class="pi pi-key" />{{ busy ? '正在提交' : '提交密码' }}</button>
@@ -19,7 +20,7 @@ import AppDrawer from './AppDrawer.vue';
 const props = defineProps<{ visible: boolean; mode: 'SELF' | 'ADMIN'; disabled?: boolean; submit: (input: PasswordFields) => Promise<SystemResult> }>();
 const emit = defineEmits<{ close: []; saved: [result: SystemResult]; 'dirty-change': [dirty: boolean] }>();
 const current = ref(''), next = ref(''), confirm = ref(''), error = ref(''), busy = ref(false);
-const valid = computed(() => !!current.value && [...next.value].length >= 15 && [...next.value].length <= 128 && next.value === confirm.value && !/[\u0000\ud800-\udfff]/u.test(next.value));
+const valid = computed(() => !!current.value && [...next.value].length >= 8 && [...next.value].length <= 128 && next.value === confirm.value && !/[\u0000\ud800-\udfff]/u.test(next.value));
 function clear() { current.value = ''; next.value = ''; confirm.value = ''; emit('dirty-change', false); }
 watch([current, next, confirm], values => emit('dirty-change', values.some(Boolean)));
 watch(() => props.visible, () => { clear(); error.value = ''; });

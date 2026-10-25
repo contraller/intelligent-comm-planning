@@ -8,7 +8,8 @@ export function usePlanningCandidates(options: {
   owner: () => string; active: () => boolean; readable: () => boolean; generation: () => number;
   locate: (coordinate: Coordinate) => void;
 }) {
-  const search = ref(''), filter = ref<CandidateFilter>('all'), visible = ref(true), selectedId = ref(''), notice = ref(''), epoch = ref(0);
+  // 候选点默认隐藏，避免密集标记遮挡覆盖图层；用户可手动开启，点集与筛选结果保持。
+  const search = ref(''), filter = ref<CandidateFilter>('all'), visible = ref(false), selectedId = ref(''), notice = ref(''), epoch = ref(0);
   let disposed = false;
   const enabled = computed(() => !disposed && options.active() && options.readable() && !!options.owner());
   const filtered = computed(() => filterCandidates(options.screening()?.candidates ?? [], search.value, filter.value));

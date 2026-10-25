@@ -10,13 +10,15 @@ from .system_management_schemas import SystemManagementError
 
 N, R, P, DKLEN = 131072, 8, 1, 32
 MAXMEM = 256 * 1024 * 1024
+MIN_PASSWORD_SCALARS = 8
+MAX_PASSWORD_SCALARS = 128
 _SLOTS = threading.BoundedSemaphore(2)
 
 
 def password_bytes(password: object) -> bytes:
-    if (type(password) is not str or not 15 <= len(password) <= 128
+    if (type(password) is not str or not MIN_PASSWORD_SCALARS <= len(password) <= MAX_PASSWORD_SCALARS
             or "\x00" in password or any(0xD800 <= ord(c) <= 0xDFFF for c in password)):
-        raise SystemManagementError("密码须为15至128个字符，不能含无效编码")
+        raise SystemManagementError("密码须为8至128个字符，不能含无效编码")
     value = password.encode("utf-8")
     if len(value) > 1024:
         raise SystemManagementError("密码编码超出允许长度")

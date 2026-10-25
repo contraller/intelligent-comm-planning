@@ -2,6 +2,10 @@
 from copy import deepcopy
 from datetime import timedelta
 from math import isfinite
+import json
+import logging
+from pathlib import Path
+import traceback
 from uuid import uuid4
 
 from sqlalchemy import or_, select
@@ -45,9 +49,19 @@ class FrozenPlanningReplanner:
         from . import planning_adjustment_service, planning_job_service, planning_plan_service
         from .planning_plan_schemas import PlanningPlanSaveRequest
         job = self._job(request)
-        with self.factory() as session:
+        payload = PlanningPlanSaveRequest(context="planning", request_id="interference-save-" + request["adoption_id"],
+            task_id=job.task_id, expected_revision=job.revision_id, job_id=job.job_id,
+            name="干扰措施重算 " + request["measure"]["type"],
+            note="冻结场景算法预测；非实测。来源采纳：" + request["adoption_id"])
+        def save():
+            return planning_plan_service.save_planning_plan(payload, self.factory,
+                _interference_request=request, _runtime_root=self.runtime_root)
+        with self.factory() as session, session.begin():
             saved = session.scalar(select(PlanningPlan).where(PlanningPlan.job_id == job.job_id))
             if saved is not None:
+                # 原号重放也复核授权/摘要/审计；只读原方案，不再调用保存或读算法文件。
+                proof = planning_plan_service._interference_save_proof(session, payload, request)
+                planning_plan_service._check_interference_saved(session, payload, proof, saved, replay=True)
                 return {"state": "SUCCESS", "progress": 100, "plan_id": saved.plan_id, "error": None}
         response = planning_job_service.query_planning_job(job.job_id, job.task_id, self.factory)
         data = response["data"]
@@ -58,11 +72,7 @@ class FrozenPlanningReplanner:
         if planning_adjustment_service.terrain_fingerprint() != expected:
             from .interference_workbench_service import WorkbenchError
             raise WorkbenchError("保存前DEM指纹已变化，结果未接受", 5002, 503)
-        result = planning_plan_service.save_planning_plan(PlanningPlanSaveRequest(
-            context="planning", request_id="interference-save-" + request["adoption_id"],
-            task_id=job.task_id, expected_revision=job.revision_id, job_id=job.job_id,
-            name="干扰措施重算 " + request["measure"]["type"],
-            note="冻结场景算法预测；非实测。来源采纳：" + request["adoption_id"]), self.factory)
+        result = save()
         return {"state": "SUCCESS", "progress": 100, "plan_id": result["plan_id"], "error": None}
 
     def cancel(self, request):
@@ -87,6 +97,22 @@ class FrozenPlanningReplanner:
 class InterferenceReplanService:
     def __init__(self, workbench, bridge=None):
         self.workbench, self.bridge = workbench, bridge
+        self._last_error_trace = None
+
+    def _report_worker_error(self, adoption_id, error):
+        # 仅记代码位置/异常类型，不展开SQL参数、会话、凭据或冻结业务正文。
+        chain, seen = [], set()
+        while error is not None and id(error) not in seen and len(chain) < 4:
+            seen.add(id(error))
+            chain.append({"type": type(error).__name__,
+                "sqlite_error": getattr(getattr(error, "orig", None), "sqlite_errorname", None),
+                "frames": [f"{Path(frame.filename).name}:{frame.lineno}:{frame.name}"
+                    for frame in traceback.extract_tb(error.__traceback__)[-12:]]})
+            error = error.__cause__ or error.__context__
+        marker = json.dumps({"adoption_id": adoption_id, "chain": chain}, sort_keys=True)
+        if marker != self._last_error_trace:
+            self._last_error_trace = marker
+            logging.getLogger(__name__).error("干扰采纳后台异常定位 %s", marker)
 
     @property
     def supported_types(self):
@@ -261,6 +287,7 @@ class InterferenceReplanService:
 
     def run_once(self, owner, stopping):
         from .interference_workbench_service import ACTIVE, FINAL, WorkbenchError, now
+        from .planning_job_service import _SUBMIT_LOCK
         wb = self.workbench
         with wb.transaction(writing=True) as session:
             row = session.scalar(select(Adoption).where(Adoption.state.in_(ACTIVE),
@@ -300,25 +327,30 @@ class InterferenceReplanService:
             request["planning_job_id"] = job_id
             if cancellation:
                 self.bridge.cancel(deepcopy(request))
-            outcome = self.bridge.poll(deepcopy(request))
-            with wb.transaction(writing=True) as session:
-                row, run, _ = self._row(session, aid, task_id)
-                if row.state in FINAL or row.lease_owner != owner:
-                    return True
-                job = self._job(session, row, run, job_id)
-                if outcome["state"] != job.status:
-                    raise WorkbenchError("桥回报与持久化作业状态不一致", 5002, 503)
-                if job.status == "SUCCESS":
-                    # 取消晚于成功时保留真实完成结果，不谎报已停止。
-                    plan = self._plan(session, row, run, outcome.get("plan_id"), accepting=True)
-                    row.result_plan_id, row.state, row.error = plan.plan_id, "SUCCESS", None
-                elif job.status in ("FAILED", "CANCELLED"):
-                    row.state, row.error = job.status, job.error
-                else:
-                    row.error = None
-                row.lease_owner, row.lease_until, row.updated_at = None, None, now()
-                row.adoption_version += 1
+            # 与真实规划回调/查询共用状态锁，避免poll快照与最终核对间推进状态。
+            # 锁序：_SUBMIT_LOCK -> poll（其保存事务已结束）-> WB事务；
+            # 不在WB写事务内调用桥，也不等待算法线程。真实不一致仍严格拒绝。
+            with _SUBMIT_LOCK:
+                outcome = self.bridge.poll(deepcopy(request))
+                with wb.transaction(writing=True) as session:
+                    row, run, _ = self._row(session, aid, task_id)
+                    if row.state in FINAL or row.lease_owner != owner:
+                        return True
+                    job = self._job(session, row, run, job_id)
+                    if outcome["state"] != job.status:
+                        raise WorkbenchError("桥回报与持久化作业状态不一致", 5002, 503)
+                    if job.status == "SUCCESS":
+                        # 取消晚于成功时保留真实完成结果，不谎报已停止。
+                        plan = self._plan(session, row, run, outcome.get("plan_id"), accepting=True)
+                        row.result_plan_id, row.state, row.error = plan.plan_id, "SUCCESS", None
+                    elif job.status in ("FAILED", "CANCELLED"):
+                        row.state, row.error = job.status, job.error
+                    else:
+                        row.error = None
+                    row.lease_owner, row.lease_until, row.updated_at = None, None, now()
+                    row.adoption_version += 1
         except Exception as exc:
+            self._report_worker_error(aid, exc)
             with wb.transaction(writing=True) as session:
                 row, _, _ = self._row(session, aid, task_id)
                 if row.state not in FINAL and row.lease_owner == owner:

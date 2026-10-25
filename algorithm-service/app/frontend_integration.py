@@ -4,6 +4,7 @@ from __future__ import annotations
 import csv
 import hashlib
 import json
+import math
 import os
 from collections import Counter
 from datetime import datetime, timezone
@@ -124,6 +125,25 @@ def _bounds(nodes: Iterable[dict[str, str]]) -> list[float]:
     points = [(float(row["lon"]), float(row["lat"])) for row in nodes]
     longitudes, latitudes = zip(*points)
     return [min(longitudes), min(latitudes), max(longitudes), max(latitudes)]
+
+
+def _planning_bounds() -> list[float]:
+    # 候选分布在规划区而非已有站点的外接框；新任务沿用DEM声明的范围。
+    try:
+        metadata = json.loads((REPO_ROOT / "data/raw/dem/dem_current.json").read_text(encoding="utf-8"))
+        bbox, extent = metadata["planning_bbox"], metadata["bbox"]
+        for values in (bbox, extent):
+            if (not isinstance(values, list) or len(values) != 4
+                    or any(type(value) not in (int, float) or not math.isfinite(value) for value in values)
+                    or not -180 <= values[0] < values[2] <= 180
+                    or not -90 <= values[1] < values[3] <= 90):
+                raise ValueError()
+        if not (extent[0] <= bbox[0] < bbox[2] <= extent[2]
+                and extent[1] <= bbox[1] < bbox[3] <= extent[3]):
+            raise ValueError()
+    except (OSError, ValueError, KeyError, TypeError):
+        raise resource_dataset.ResourceDatasetError("DEM规划范围未提供或无法核验，不能生成任务区域预设") from None
+    return list(bbox)
 
 
 def _node_item(row: dict[str, str], nodes: list[dict[str, str]],
@@ -401,7 +421,7 @@ def planning_frequency_catalog() -> dict[str, Any]:
 def planning_preset_catalog() -> dict[str, Any]:
     nodes = _rows("nodes")
     selected = [node["node_id"] for node in nodes[:3]]
-    bbox = _bounds(nodes)
+    bbox = _planning_bounds()
     frequency_id = "available-hf"
     definitions = [
         ("balanced", "均衡规划"),

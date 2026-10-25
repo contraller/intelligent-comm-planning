@@ -117,7 +117,12 @@ async def application_lifespan(application):
                 if not resource_dataset.database_mode():
                     raise RuntimeError("干扰工作流要求显式数据库资源模式")
                 factory = get_session_factory()
-                root = Path(__file__).resolve().parents[2] / "data/runtime/r2"
+                from .interference_analysis_engine import runtime_path
+                directory = os.environ.get("INTERFERENCE_RUNTIME_DIR")
+                if directory is not None and (not directory or not Path(directory).is_absolute()):
+                    raise RuntimeError("干扰工作流要求显式绝对运行目录")
+                # 多套验收服务各自持锁，不能扫描或恢复另一套环境的作业。
+                root = runtime_path(directory)
                 ownership.enter_context(exclusive_runtime_directory(root))
                 bridge = FrozenPlanningReplanner(factory, runtime_root=root)
                 service = InterferenceWorkbenchService(factory, runtime_root=root, replanner=bridge)
@@ -1087,12 +1092,15 @@ def saved_plan_history(response: Response, request: Request, context: str | None
     """项目方案目录由服务端规划查看权限约束，不冒充按个人隔离。"""
     try:
         integration_identity.require(request, "planning.view")
+        # GIS目录保留实际页面上下文，额外校验GIS查看权，不借规划上下文绕权。
+        if context == "gis":
+            integration_identity.require(request, "situation.view")
     except integration_identity.IdentityError as exc:
         response.status_code = exc.status
         return {"code": exc.code, "message": str(exc), "data": None}
-    if context != "planning":
+    if context not in ("planning", "gis"):
         response.status_code = 422
-        return {"code": 1001, "message": "context 只能是 planning", "data": None}
+        return {"code": 1001, "message": "context 只能是 planning 或 gis", "data": None}
     try:
         data = planning_plan_service.list_saved_plan_history(page, page_size, search, state)
         return {"code": 0, "message": "success", "data": data}
@@ -1133,14 +1141,22 @@ def plans_list(response: Response, task_id: str | None = None,
 
 
 @app.get("/api/v1/plans/{solution_id}")
-def plans_get(solution_id: str, response: Response,
+def plans_get(solution_id: str, response: Response, request: Request,
               task_id: str | None = None,
               context: str | None = None) -> dict[str, Any]:
     if task_id is None:
         return get_plan(solution_id)
-    if context != "planning":
+    if context not in ("planning", "gis"):
         response.status_code = 422
-        return {"code": 1001, "message": "context 只能是 planning", "data": None}
+        return {"code": 1001, "message": "context 只能是 planning 或 gis", "data": None}
+    # GIS深链读取同一冻结方案，沿用目录的双查看权限，不借规划上下文绕权。
+    if context == "gis":
+        try:
+            integration_identity.require(request, "planning.view")
+            integration_identity.require(request, "situation.view")
+        except integration_identity.IdentityError as exc:
+            response.status_code = exc.status
+            return {"code": exc.code, "message": str(exc), "data": None}
     try:
         data = planning_plan_service.get_planning_plan(solution_id, task_id)
         return {"code": 0, "message": "success", "data": data}

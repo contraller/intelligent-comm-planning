@@ -47,7 +47,7 @@ beforeEach(() => {
   vi.stubGlobal('Document', TestDocument); vi.stubGlobal('document', new TestDocument()); vi.stubGlobal('ShadowRoot', class {}); vi.stubGlobal('window', new EventTarget());
   vi.resetAllMocks(); pinia = createPinia(); setActivePinia(pinia); useAuthStore().accept(identity());
   service.getSession.mockResolvedValue(identity());
-  capabilityReader.mockResolvedValue({ authMode: 'LOCAL_PASSWORD', initialized: true, passwordChangeRequired: false, passwordPolicy: { minScalars: 15, maxScalars: 128 }, capabilities: { passwordMaintenance: true, anonymousRecovery: false } });
+  capabilityReader.mockResolvedValue({ authMode: 'LOCAL_PASSWORD', initialized: true, passwordChangeRequired: false, passwordPolicy: { minScalars: 8, maxScalars: 128 }, capabilities: { passwordMaintenance: true, anonymousRecovery: false } });
   service.loadSystemOptions.mockResolvedValue({ revision: 'SYS-1', roles: [{ id: 'ROLE-one', name: '角色' }], permissions: [] });
   service.queryAccountSummaries.mockResolvedValue({ items: [row()], total: 1, pageNum: 1, pageSize: 20, revision: 'SYS-1' });
   service.queryOperationSummaries.mockResolvedValue({ items: [], total: 0, pageNum: 1, pageSize: 20, revision: 'AUD-3', snapshotSequence: 3 });
@@ -253,12 +253,22 @@ describe('本地系统页面状态闭环', () => {
   it.each(['SELF', 'ADMIN'] as const)('真实密码抽屉 %s 提交后清空局部输入', async mode => {
     const submit = vi.fn().mockResolvedValue({ ...result(), reauthenticationRequired: true }), saved = vi.fn(), dirty = vi.fn();
     const root = node('root'); app = renderer.createApp({ render: () => h(SystemPasswordDrawer, { visible: true, mode, submit, onSaved: saved, onDirtyChange: dirty }) }); app.provide(ssrContextKey, { modules: new Set() }); app.mount(root);
-    const inputs = all(root, n => n.tag === 'input'), current = crypto.randomUUID(), next = crypto.randomUUID();
+    const inputs = all(root, n => n.tag === 'input'), current = crypto.randomUUID(), next = 'Abcd1234';
     [current, next, next].forEach((value, i) => (inputs[i]!.props['onUpdate:modelValue'] as (v:string)=>void)(value)); await settle();
     expect(dirty).toHaveBeenLastCalledWith(true);
     await (find(root, n => n.tag === 'form')!.props.onSubmit as (e:unknown)=>Promise<void>)({ preventDefault() {} }); await settle();
     expect(submit).toHaveBeenCalledTimes(1); expect(submit).toHaveBeenCalledWith({ currentPassword: mode === 'SELF' ? current : '', operatorPassword: mode === 'ADMIN' ? current : '', newPassword: next });
     expect(saved).toHaveBeenCalledWith(expect.objectContaining({ reauthenticationRequired: true })); expect(inputs.every(input => input.value === '')).toBe(true); expect(dirty).toHaveBeenLastCalledWith(false);
+  });
+  it('password drawer rejects fewer than eight characters', async () => {
+    const submit = vi.fn();
+    const root = node('root'); app = renderer.createApp({ render: () => h(SystemPasswordDrawer, { visible: true, mode: 'SELF', submit }) }); app.provide(ssrContextKey, { modules: new Set() }); app.mount(root);
+    const inputs = all(root, n => n.tag === 'input');
+    ['Current123', 'Abcd123', 'Abcd123'].forEach((value, i) => (inputs[i]!.props['onUpdate:modelValue'] as (v:string)=>void)(value)); await settle();
+    const button = find(root, n => n.tag === 'button' && n.props.type === 'submit')!;
+    expect(button.props.disabled).toBe(true);
+    await (find(root, n => n.tag === 'form')!.props.onSubmit as (e:unknown)=>Promise<void>)({ preventDefault() {} });
+    expect(submit).not.toHaveBeenCalled();
   });
   it('密码抽屉失败不显示异常中的秘密，并阻止重复提交', async () => {
     const secret = crypto.randomUUID(); let reject!: (reason:Error)=>void;

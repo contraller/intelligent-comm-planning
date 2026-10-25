@@ -14,6 +14,7 @@ from .kg_frontend_schemas import KnowledgeMutation, KnowledgePage, KnowledgeEnti
 from .kg_models import KgAudit, KgChange, KgSubmission, KgVersion
 from .integration_identity_service import CATALOG, IdentityError
 from .kg_display import relation_name, search_aliases, type_name
+from .kg_similarity import recommend
 
 CATEGORIES = {"device": "设备知识", "network": "网络态势知识", "fault": "故障运维知识"}
 DEVICE_TYPES = {"Device", "DeviceModel", "Component", "Interface", "Antenna", "Function", "Parameter", "Manufacturer", "WorkMode"}
@@ -209,9 +210,13 @@ def browse(kind, query):
     summary = lambda e: {k: e[k] for k in ("id", "name", "category", "type")}
     if kind == "search":
         page = KnowledgePage.model_validate({k: query[k] for k in ("pageNum", "pageSize") if k in query})
+        similar = []
+        if term and not matches:
+            visible = [e for e in snap["entities"] if e["category"] in cats]
+            similar = [summary(item.entity) for item in recommend(term, selected, snap["relations"], context=visible)]
         return {"versionId": vid, "items": [summary(e) for e in matches[(page.pageNum - 1)*page.pageSize:page.pageNum*page.pageSize]],
                 "total": len(matches), "pageNum": page.pageNum, "pageSize": page.pageSize,
-                "similar": [], "code": 0 if matches else 4001}
+                "similar": similar, "code": 0 if matches else 4001}
     by_id = {e["id"]: e for e in snap["entities"]}
     if kind == "entity":
         eid = query.get("entityId")

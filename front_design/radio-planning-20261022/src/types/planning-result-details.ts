@@ -42,8 +42,21 @@ export interface PlanningFrequencyConflict {
   requiredDistanceM: number | null;
   severity: string | null;
 }
+export interface PlanningDeploymentSummary {
+  mode: 'MIN_COUNT' | 'FIXED_COUNT' | null;
+  requestedCount: number | null;
+  actualCount: number | null;
+  requestedSolutionCount: number | null;
+  returnedSolutionCount: number | null;
+  countSatisfied: boolean | null;
+  shortfallReasons: string[] | null;
+  forcedSiteIds: string[] | null;
+  lowerBound: number | null;
+  provedOptimal: boolean | null;
+}
 export interface PlanningResultDetails {
   optimization?: PlanningOptimization | null;
+  deploymentSummary?: PlanningDeploymentSummary | null;
   // 老版本缺省不回填；候选只属于当前冻结结果，不写入资源台账。
   candidateScreening?: PlanningCandidateScreening | null;
   schemaVersion: 1;

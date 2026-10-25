@@ -140,4 +140,14 @@ describe('覆盖带宽编辑器真实模板（服务未接线）', () => {
     expect(source).toContain('height: 144px; overflow: auto'); expect(source).toContain('overflow-anchor: none');
     expect(source).not.toContain('useFrozenCoverage'); expect(source).not.toContain('sessionStorage'); expect(source).not.toContain('fetch(');
   });
+  it('无活动链路有合法历史选值仍单独标识，不能批量或旧回调改写', async () => {
+    const skipped=row('D2',{participation:'SKIPPED',frozenKhz:2.4,frozenSource:'人工冻结旧选择'});
+    expect(bandwidthRowState(skipped)).toBe('本次无活动链路');
+    expect(()=>bandwidthConfirmation([skipped],{D2:{...draft(),before:2.4,value:0.5}})).toThrow();
+    const f=await fixture([row(),skipped]);await model(f.root,'筛选带宽型号','M1');
+    await click(f.root,'勾选该型号（1）');expect(control(f.root,'勾选设备 D2').props.checked).toBe(false);
+    expect(control(f.root,'设备 D2 带宽').props.disabled).toBe(true);expect(control(f.root,'设备 D2 带宽').props.value).toBe('2.4');
+    await choose(f.root,'D2','0.5');expect(control(f.root,'设备 D2 带宽').props.value).toBe('2.4');
+    expect(f.confirm).not.toHaveBeenCalled();expect(textOf(f.root)).toContain('人工冻结旧选择');
+  });
 });

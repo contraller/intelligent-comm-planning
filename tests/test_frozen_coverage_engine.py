@@ -129,7 +129,7 @@ def test_same_device_multiple_links_same_frequency_is_one_native_calculation(sce
     assert result["devices"][2]["computations"][0]["link_ids"] == ["L1", "L2"]
 
 
-def test_idle_device_kept_unavailable_without_representative_frequency(scenario, monkeypatch):
+def test_idle_device_skipped_without_representative_frequency(scenario, monkeypatch):
     fake_cells(monkeypatch)
     device = deepcopy(scenario.raw["detail"]["devices"][0])
     device["device_id"] = "D4"
@@ -138,9 +138,11 @@ def test_idle_device_kept_unavailable_without_representative_frequency(scenario,
     plan["device_id"] = "D4"
     scenario.raw["detail"]["params"]["params"].append(plan)
     result = compute(scenario)
-    assert result["status"] == "PARTIAL"
+    assert result["status"] == "COMPLETE"
     idle = result["devices"][-1]
-    assert idle["status"] == "UNAVAILABLE" and idle["computations"] == []
+    assert idle["status"] == "SKIPPED" and idle["computations"] == []
+    assert idle["reason_code"] == "NO_ASSIGNED_FREQUENCY" and idle["radio_parameters"] is None
+    assert result["summary"] == dict(total=4, eligible=3, complete=3, unavailable=0, skipped=1)
     assert "代表频率" in idle["reasons"][0]
 
 
@@ -228,7 +230,8 @@ def test_unavailable_link_never_uses_pool_or_frequency_fallback(scenario, monkey
     scenario.raw["detail"]["frequency"]["link_assignments"] = []
     scenario.tables["frequency_resource.csv"] = [{"center_freq_khz": 150000}]
     result = compute(scenario)
-    assert result["status"] == "UNAVAILABLE" and not calls
+    assert result["status"] == "NOT_APPLICABLE" and not calls
+    assert result["summary"] == dict(total=3, eligible=0, complete=0, unavailable=0, skipped=3)
 
 
 @pytest.mark.parametrize("value", [float("nan"), float("inf"), -float("inf"), True, "not-a-number"])
@@ -625,13 +628,14 @@ def test_bandwidth_options_do_not_mask_known_numeric_or_reference_errors(scenari
     assert error.value.code == "COVERAGE_INPUT" and not calls
 
 
-def test_bandwidth_options_engine_and_cache_version_are_v01_3(scenario, tmp_path, monkeypatch):
+def test_bandwidth_options_engine_and_cache_version_are_v01_4(scenario, tmp_path, monkeypatch):
     from app import frozen_coverage_service as service_module
 
     _model_with_bandwidth_options(scenario)
     fake_cells(monkeypatch)
     result = compute(scenario)
-    assert result["provenance"]["engine_version"] == service_module.ENGINE_VERSION == "V01-3"
+    assert result["provenance"]["engine_version"] == service_module.ENGINE_VERSION == "V01-4"
+    assert result["schema_version"] == 2
     source = {"plan_id": "P1", "task_id": "T1", "snapshot_id": "SNP-PL-UNIT", "input_version": "TV1",
         "condition_version": "TC1", "resource_revision": "UNIT-RES", "resource_content_hash": "b" * 64,
         "input_snapshot": {"unit_test": True}, "raw_snapshot": scenario.raw, "tables": scenario.tables}
@@ -740,14 +744,137 @@ def test_rx_bandwidth_selection_frozen_before_callbacks_and_not_channel_bandwidt
     assert result["devices"][1]["rx_bandwidth"]["source"] == "UNSELECTED"
 
 
-def test_rx_bandwidth_selected_without_frequency_still_unavailable(scenario, monkeypatch):
+def test_rx_bandwidth_selected_without_frequency_is_skipped(scenario, monkeypatch):
     scenario.tables["device_model.csv"][0]["bandwidth_khz"] = "0.5;2.4;2.7;3"
     scenario.raw["detail"]["links"] = scenario.raw["detail"]["links"][:1]
     scenario.raw["detail"]["frequency"]["link_assignments"] = scenario.raw["detail"]["frequency"]["link_assignments"][:1]
     selected = rx_selection(scenario, [("D1", 2.4), ("D2", 2.7), ("D3", 3)])
     calls = fake_cells(monkeypatch)
     result = compute(scenario, bandwidth_selection=selected)
-    assert result["status"] == "PARTIAL" and len(calls) == 2
+    assert result["status"] == "COMPLETE" and len(calls) == 2
     missing = result["devices"][1]
-    assert missing["device_id"] == "D2" and missing["status"] == "UNAVAILABLE" and not missing["computations"]
+    assert missing["device_id"] == "D2" and missing["status"] == "SKIPPED" and not missing["computations"]
     assert missing["rx_bandwidth"]["value_khz"] == 2.7 and "无活动冻结链路分配频率" in missing["reasons"][0]
+
+
+def assumption_model(model):
+    model.update(bandwidth_khz="3", bandwidth_origin="SYNTHETIC_COVERAGE_ASSUMPTION",
+        bandwidth_source_id="R5-HF-RX-3KHZ-V1", bandwidth_source_sha256="d" * 64,
+        bandwidth_source_note="构造联调接收假设，非厂家或实测参数", bandwidth_original_khz="")
+    return {key: model["bandwidth_" + key] for key in
+            ("origin", "source_id", "source_sha256", "source_note", "original_khz")}
+
+
+def only_first_link(scenario):
+    scenario.raw["detail"]["links"] = scenario.raw["detail"]["links"][:1]
+    scenario.raw["detail"]["frequency"]["link_assignments"] = scenario.raw["detail"]["frequency"]["link_assignments"][:1]
+
+
+def test_v4_missing_active_bandwidth_separate_from_idle_and_frozen_assumption(scenario):
+    hf(scenario)
+    only_first_link(scenario)
+    model = deepcopy(scenario.tables["device_model.csv"][0])
+    model.update(model_id="MISSING-HF", bandwidth_khz="", source_doc="保留原始资料声明")
+    scenario.tables["device_model.csv"].append(model)
+    scenario.raw["detail"]["devices"][0]["model_id"] = model["model_id"]
+    scenario.raw["detail"]["params"]["params"][0]["model_id"] = model["model_id"]
+    original = compute(scenario)
+    assert original["status"] == "PARTIAL"
+    assert original["summary"] == dict(total=3, eligible=2, complete=1, unavailable=1, skipped=1)
+    assert [row["reason_code"] for row in original["devices"]] == ["RX_BANDWIDTH_UNKNOWN", "NO_ASSIGNED_FREQUENCY", None]
+    assert all(row["bandwidth_provenance"] is None for row in original["devices"])
+    provenance = assumption_model(model)
+    before = deepcopy((scenario.raw, scenario.tables))
+    result = compute(scenario)
+    options = engine.bandwidth_options(scenario.raw, scenario.tables)
+    assert result["status"] == "COMPLETE"
+    assert result["summary"] == dict(total=3, eligible=2, complete=2, unavailable=0, skipped=1)
+    assert result["devices"][0]["bandwidth_provenance"] == options[0]["bandwidth_provenance"] == provenance
+    assert result["devices"][0]["frozen_model"]["source_doc"] == "保留原始资料声明"
+    assert result["devices"][0]["radio_parameters"]["bw"] == 3
+    assert original["devices"][0]["frozen_model"]["bandwidth_khz"] == ""
+    assert (scenario.raw, scenario.tables) == before
+
+
+@pytest.mark.parametrize("missing", ["bandwidth", "power", "height", "model", "antenna", "plan"])
+def test_v4_idle_missing_parameters_are_not_failures(scenario, monkeypatch, missing):
+    only_first_link(scenario)
+    fake_cells(monkeypatch)
+    model = deepcopy(scenario.tables["device_model.csv"][0])
+    model["model_id"] = "IDLE-MODEL"
+    scenario.tables["device_model.csv"].append(model)
+    device = scenario.raw["detail"]["devices"][1]
+    plan = scenario.raw["detail"]["params"]["params"][1]
+    device["model_id"] = plan["model_id"] = model["model_id"]
+    if missing == "bandwidth":
+        model["bandwidth_khz"] = ""
+    elif missing in ("power", "height"):
+        plan["tx_power_dbm" if missing == "power" else "antenna_height_m"] = None
+    elif missing == "model":
+        scenario.tables["device_model.csv"].pop()
+    elif missing == "antenna":
+        device["antenna_id"] = plan["antenna_id"] = "MISSING-ANTENNA"
+    else:
+        scenario.raw["detail"]["params"]["params"].remove(plan)
+    result = compute(scenario)
+    idle = result["devices"][1]
+    assert idle["status"] == "SKIPPED" and idle["reason_code"] == "NO_ASSIGNED_FREQUENCY"
+    assert idle["radio_parameters"] is None and idle["computations"] == []
+    assert "rx_bandwidth" in idle and result["status"] == "COMPLETE"
+
+
+@pytest.mark.parametrize("field,value", [("node_id", "OTHER"), ("model_id", "OTHER"),
+    ("antenna_id", "OTHER"), ("band", "OTHER"), ("tx_power_dbm", "bad"),
+    ("antenna_height_m", -1)])
+def test_v4_idle_does_not_mask_given_invalid_plan(scenario, monkeypatch, field, value):
+    only_first_link(scenario)
+    fake_cells(monkeypatch)
+    scenario.raw["detail"]["params"]["params"][1][field] = value
+    with pytest.raises(engine.FrozenCoverageError) as error:
+        compute(scenario)
+    assert error.value.code == "COVERAGE_INPUT"
+
+
+@pytest.mark.parametrize("change", ["node", "device", "band", "frequency", "identity", "duplicate"])
+def test_v4_inactive_links_still_validate_structure(scenario, change):
+    for row in scenario.raw["detail"]["links"]:
+        row["is_available"] = "false"
+    detail = scenario.raw["detail"]
+    if change == "node":
+        detail["links"][0]["node_a_id"] = "OTHER"
+    elif change == "device":
+        detail["links"][0]["device_a_id"] = "OTHER"
+    elif change == "band":
+        detail["links"][0]["device_class"] = "HF"
+    elif change == "frequency":
+        detail["frequency"]["link_assignments"][0]["freq_khz"] = -1
+    elif change == "identity":
+        detail["devices"][0]["device_id"] = "BAD\nID"
+    else:
+        detail["devices"].append(deepcopy(detail["devices"][0]))
+    with pytest.raises(engine.FrozenCoverageError):
+        compute(scenario)
+
+
+@pytest.mark.parametrize("field,value", [("bandwidth_origin", "MANUFACTURER"),
+    ("bandwidth_source_id", "OTHER"), ("bandwidth_source_sha256", "D" * 64),
+    ("bandwidth_source_note", " "), ("bandwidth_original_khz", "3"),
+    ("bandwidth_source_id", None), ("bandwidth_khz", "3;25"), ("bandwidth_khz", "25")])
+def test_v4_assumption_invalid_source_is_rejected_even_without_active_links(scenario, field, value):
+    hf(scenario)
+    assumption_model(scenario.tables["device_model.csv"][0])
+    scenario.tables["device_model.csv"][0][field] = value
+    for link in scenario.raw["detail"]["links"]:
+        link["is_available"] = "false"
+    with pytest.raises(engine.FrozenCoverageError):
+        compute(scenario)
+    with pytest.raises(engine.FrozenCoverageError):
+        engine.bandwidth_options(scenario.raw, scenario.tables)
+
+
+def test_v4_summary_and_frozen_provenance_reject_tampered_result(scenario, monkeypatch):
+    fake_cells(monkeypatch)
+    result = compute(scenario)
+    result["summary"]["complete"] = True
+    with pytest.raises(engine.FrozenCoverageError):
+        engine.validate_v4_result(result)

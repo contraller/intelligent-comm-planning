@@ -90,6 +90,9 @@ def test_routes_registered_once():
         "/api/v1/planning-coverages/jobs/{job_id}/cancel": {"post"},
         "/api/v1/planning-coverages/{plan_id}/compute": {"post"},
         "/api/v1/planning-coverages/{plan_id}/cache": {"get"},
+        "/api/v1/planning-coverages/{plan_id}/bandwidth-options": {"get"},
+        "/api/v1/planning-coverages/{plan_id}/bandwidth-selections": {"post"},
+        "/api/v1/planning-coverages/{plan_id}/bandwidth-selections/{saved_id}": {"get"},
     }
 
 

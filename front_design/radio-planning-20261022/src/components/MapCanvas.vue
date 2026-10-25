@@ -453,6 +453,7 @@ import {
 import type { CoverageDisplay, PlanningCoverage } from '../types/coverage';
 import type { FrozenCoverageOverlay } from '../types/frozen-coverage';
 import { frozenCoverageLayer } from '../maps/frozen-coverage-layers';
+import { createGisDeviceStatusLayer, observeGisDeviceStatusRender, type GisDeviceStatusOverlay, type GisDeviceStatusRender } from '../maps/gis-device-status-layer';
 import type { DeviceCoverageOverlay } from '../types/device-coverage';
 import { createDeviceCoverageLayers } from '../maps/device-coverage-layers';
 import { usePlanningCoverage } from '../composables/usePlanningCoverage';
@@ -506,6 +507,7 @@ const props = withDefaults(
     hoverPreview?: GisHoverContext;
     planningOverlay?: PlanningMapOverlay | null;
     frozenNetwork?: GisNetwork | null;
+    frozenDeviceStatus?: GisDeviceStatusOverlay | null;
     interferenceProjection?: MapProjection | null;
     planningCandidates?: CandidateMapFrame;
     deploymentConstraints?: DeploymentConstraintFrame | null;
@@ -602,6 +604,8 @@ const emit = defineEmits<{
   selectFrozenNode: [id: string];
   selectFrozenLink: [id: string];
   selectFrozenDemand: [id: string];
+  selectFrozenDevice: [id: string];
+  deviceStatusRendered: [value: GisDeviceStatusRender];
   selectPlanningCandidate: [selection: CandidateSelection];
   gisPick: [result: GisPickResult];
   gisPickCancel: [key: string];
@@ -635,6 +639,14 @@ function readOwner() {
 const legendOpen = ref(false);
 // 普通 GIS 传入设备实例，站点参考点继续使用独立图层。
 const devicePoints = createGisDeviceLayer();
+const statusDevices = createGisDeviceStatusLayer();
+let releaseStatusRender: (() => void) | undefined;
+function updateStatusDevices() {
+  const frame = statusDevices.update(props.frozenNetwork, props.interferenceProjection ? null : props.frozenDeviceStatus);
+  if (map && !fullScene.value && props.frozenNetwork && !props.interferenceProjection && frame) {
+    if (!map.getLayers().getArray().includes(statusDevices.layer)) map.addLayer(statusDevices.layer);
+  } else if (map?.getLayers().getArray().includes(statusDevices.layer)) map.removeLayer(statusDevices.layer);
+}
 // 候选有独立图层和事件身份，选择/筛选只更新本层。
 const planningCandidatePoints = createPlanningCandidateLayer();
 // 输入约束有独立生命周期；地图操作只调整显示范围。
@@ -1086,7 +1098,11 @@ function paint() {
       interferenceGeometryNotice.value = layer.get('geometryNotice') ?? '';
       layers.push(layer);
     }
-    else if (props.frozenNetwork) layers.push(gisPlanLayer(props.frozenNetwork, { node: props.selectedId, link: props.selectedLinkId, demand: props.selectedDemandId }, { linksVisible: props.showLinks, topologyOpacity: props.topologyOpacity }));
+    else if (props.frozenNetwork) {
+      layers.push(gisPlanLayer(props.frozenNetwork, { node: props.selectedId, link: props.selectedLinkId, demand: props.selectedDemandId }, { linksVisible: props.showLinks, topologyOpacity: props.topologyOpacity }));
+      statusDevices.update(props.frozenNetwork, props.frozenDeviceStatus);
+      if (statusDevices.key()) layers.push(statusDevices.layer);
+    }
     else layers.push(resourceReadLayer(props.resourceFrame, props.selectedId, props.resourceSelectedKind));
     if (props.planningOverlay)
       layers.push(
@@ -1436,6 +1452,8 @@ onMounted(() => {
     }),
     controls: defaults({ attributionOptions: { collapsible: false } }).extend([new ScaleLine()]),
   });
+  releaseStatusRender = observeGisDeviceStatusRender(map, statusDevices, () => props.interferenceProjection ? null : props.frozenDeviceStatus,
+    value => emit('deviceStatusRendered', value));
   // 闪烁只使当前链路层重绘；不调用 paint、重建覆盖图或请求业务数据。
   faultPulse = createFaultPulse((dimmed) => {
     linkDisplay.faultDimmed = dimmed;
@@ -1523,6 +1541,14 @@ onMounted(() => {
       return;
     }
     map?.forEachFeatureAtPixel(event.pixel, (feature) => {
+      const statusTarget = statusDevices.pick(feature as Feature);
+      if (statusTarget) {
+        if (statusTarget.ids.length === 1 && event.originalEvent && readClicks.get(event.originalEvent) === readOwner()) {
+          emit('selectFrozenDevice', statusTarget.ids[0]);
+          return true;
+        }
+        return undefined;
+      }
       const frozenKind = feature.get('kind');
       if (typeof frozenKind === 'string' && frozenKind.startsWith('workbench-')) {
         if (!event.originalEvent || readClicks.get(event.originalEvent) !== readOwner() || feature.get('owner') !== readOwner()) return true;
@@ -1696,6 +1722,7 @@ watch(
 // 显示偏好只更新已有图层，保留图片源与当前业务快照。
 // 冻结覆盖是不可变大快照，不加入旧深监听，避免遍历每个原生采样点。
 watch(()=>props.frozenCoverage,paint);
+watch(() => props.frozenDeviceStatus, updateStatusDevices);
 watch(
   () => props.deploymentConstraints,
   (frame, previous) => {
@@ -1771,6 +1798,8 @@ onBeforeUnmount(() => {
   renderedCoverage = null;
   deviceLayers.dispose();
   devicePoints.dispose();
+  releaseStatusRender?.();
+  statusDevices.dispose();
   planningCandidatePoints.dispose();
   candidatePress = undefined;
   deploymentLayer.dispose();

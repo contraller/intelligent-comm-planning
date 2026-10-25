@@ -522,4 +522,57 @@ details {
 p {
   line-height: 1.8;
 }
+@media (max-width: 760px) {
+  .split {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .split > aside,
+  .split > section {
+    min-width: 0;
+    max-width: 100%;
+  }
+  .side-list {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 6px;
+  }
+  .side-list button {
+    min-width: 0;
+    white-space: normal;
+  }
+  .page-heading,
+  .split > section > .panel-head {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .page-heading > .toolbar,
+  .split > section > .panel-head > .toolbar {
+    justify-content: flex-start;
+  }
+  .system-table :deep(.p-datatable-table-container) {
+    width: 100%;
+    max-width: 100%;
+    overflow-x: auto;
+  }
+}
+@media (max-width: 600px) {
+  .panel-head,
+  .panel-body {
+    padding: 12px;
+  }
+  .filters {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .filters input:not([type='checkbox']),
+  .filters select {
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+  }
+  .toolbar .btn {
+    max-width: 100%;
+    white-space: normal;
+  }
+}
 </style>

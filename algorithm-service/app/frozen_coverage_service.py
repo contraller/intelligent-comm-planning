@@ -19,6 +19,8 @@ from . import frozen_coverage_engine as algorithm
 ROOT = Path(__file__).resolve().parents[2]
 KIND = "FROZEN_COVERAGE_V1"
 ENGINE_VERSION = algorithm.ENGINE_VERSION
+ENGINE_VERSIONS = ("V01-1", "V01-2", "V01-3", "V01-4")
+SELECTION_ENGINE_VERSIONS = ("V01-3", "V01-4")
 ACTIVE = {"PENDING", "RUNNING"}
 JOB_ID = re.compile(r"FCJ-[0-9a-f]{32}\Z")
 
@@ -56,9 +58,9 @@ def _parameters(value):
 def _cache_key(anchor, parameters, selection_id=None, selection_hash=None):
     value = {"anchor": anchor, "parameters": parameters}
     version = anchor.get("engine_version")
-    if version == "V01-3":
+    if version in SELECTION_ENGINE_VERSIONS:
         value.update(bandwidth_selection_id=selection_id, bandwidth_selection_hash=selection_hash)
-    elif version not in ("V01-1", "V01-2"):
+    elif version not in ("V01-1", "V01-2") or selection_id is not None or selection_hash is not None:
         raise CoverageServiceError("覆盖引擎持久版本无法识别", 5002, 503)
     return "FCC-" + _hash(value)
 
@@ -211,7 +213,7 @@ class FrozenCoverageService:
             valid = False
         if not valid:
             raise CoverageServiceError("覆盖请求摘要或冻结锚点损坏", 5002, 503)
-        if job["anchor"]["engine_version"] == "V01-3":
+        if job["anchor"]["engine_version"] in SELECTION_ENGINE_VERSIONS:
             sid = job.get("bandwidth_selection_id")
             if ("bandwidth_selection_id" not in job or "bandwidth_selection_hash" not in job
                     or sid != job["request_body"].get("bandwidth_selection_id")):
@@ -353,13 +355,18 @@ class FrozenCoverageService:
                 raise CoverageServiceError("覆盖结果来源与冻结缓存不一致", 5002, 503)
         if provenance.get("parameters") != job["parameters"] or result.get("solution_id") != anchor["snapshot_id"][4:]:
             raise CoverageServiceError("覆盖结果参数或快照不一致", 5002, 503)
-        if anchor["engine_version"] == "V01-3":
+        if anchor["engine_version"] in SELECTION_ENGINE_VERSIONS:
             selection = self._job_selection(job)
             for key in ("bandwidth_selection_id", "bandwidth_selection_hash"):
                 if key not in provenance or provenance[key] != job[key]:
                     raise CoverageServiceError("覆盖结果选择版本不一致", 5002, 503)
             if provenance.get("bandwidth_choices") != (selection["choices"] if selection else []):
                 raise CoverageServiceError("覆盖结果选值与持久版本不一致", 5002, 503)
+        if anchor["engine_version"] == "V01-4":
+            try:
+                algorithm.validate_v4_result(result)
+            except algorithm.FrozenCoverageError as exc:
+                raise CoverageServiceError("V4覆盖结果统计或设备契约无法核验", 5002, 503) from exc
         return deepcopy(result)
 
     def _job_selection(self, job):
@@ -384,7 +391,7 @@ class FrozenCoverageService:
     def _dto(self, job):
         result = deepcopy({key: job[key] for key in ("job_id", "request_id", "state", "progress", "stage", "anchor", "cache_key",
             "parameters", "from_cache", "cancel_requested", "error", "created_at", "updated_at", "finished_at")})
-        if job["anchor"]["engine_version"] == "V01-3":
+        if job["anchor"]["engine_version"] in SELECTION_ENGINE_VERSIONS:
             result.update({key: job[key] for key in ("bandwidth_selection_id", "bandwidth_selection_hash")})
         return result
 
@@ -453,8 +460,16 @@ class FrozenCoverageService:
             self._queue.put((jid, source))
             return self._dto(job), 202
 
-    def cache(self, plan_id, task_id, snapshot_id, parameters=None, *, bandwidth_selection_id=None, audit_context=None):
+    def cache(self, plan_id, task_id, snapshot_id, parameters=None, *, bandwidth_selection_id=None,
+              engine_version=None, audit_context=None):
+        version = ENGINE_VERSION if engine_version is None else engine_version
+        if version not in ENGINE_VERSIONS:
+            raise CoverageServiceError("覆盖缓存引擎版本无效")
+        if version not in SELECTION_ENGINE_VERSIONS and bandwidth_selection_id is not None:
+            raise CoverageServiceError("该历史覆盖版本不支持接收带宽选择")
         source, anchor = self._source(plan_id, task_id, snapshot_id, audit_context=audit_context)
+        # 历史缓存只能显式读取，不以旧结果满足新引擎计算请求。
+        anchor["engine_version"] = version
         options = _parameters(parameters)
         selection = self.bandwidth.get(bandwidth_selection_id, anchor, source=source) if bandwidth_selection_id is not None else None
         selection_hash = selection["selection_hash"] if selection else None
@@ -481,8 +496,7 @@ class FrozenCoverageService:
             if any(job["anchor"].get(key) != value for key, value in (("plan_id", plan_id), ("task_id", task_id), ("snapshot_id", snapshot_id))):
                 raise CoverageServiceError("覆盖作业冻结锚点不匹配", 1205, 409)
             _, anchor = self._source(plan_id, task_id, snapshot_id, audit_context=audit_context)
-            historical = job["anchor"]["engine_version"] in ("V01-1", "V01-2")
-            expected = {**anchor, "engine_version": job["anchor"]["engine_version"]} if historical else anchor
+            expected = {**anchor, "engine_version": job["anchor"]["engine_version"]}
             if job["anchor"] != expected:
                 raise CoverageServiceError("覆盖作业来源版本已变化", 1205, 409)
             return self._dto(job)

@@ -4,9 +4,10 @@ import { interferenceVariants } from '../src/mocks/interference-presets';
 import { planningResultDetailsCatalog, PLANNING_RESULT_DETAILS_ASSET_VERSION } from '../src/mocks/planning-result-details';
 import { assertMockResultDetails, getPresetResultDetails, getVariantResultDetails } from '../src/services/planning-result-details-mock';
 import { assertPlanningResultDetails, readPlanningResultDetails } from '../src/services/planning-result-details-validation';
+import { deploymentDetailCells } from '../src/services/planning-result-details-display';
 import { bindResultDemands } from '../src/services/planning-snapshot';
 import type { PlanningInput } from '../src/types/planning';
-import type { PlanningResultDetails, PlanningResultDetailsContext } from '../src/types/planning-result-details';
+import type { PlanningDeploymentSummary, PlanningResultDetails, PlanningResultDetailsContext } from '../src/types/planning-result-details';
 
 function fixture(presetId = 'balanced', variantId?: string, frozenInput?: PlanningInput) {
   const preset = planningPresets.find(row => row.id === presetId)!;
@@ -85,6 +86,81 @@ describe('独立规划补充明细教学资产', () => {
 });
 
 describe('补充明细契约与冻结引用校验', () => {
+  const summary = (): PlanningDeploymentSummary => ({
+    mode: 'FIXED_COUNT', requestedCount: 5, actualCount: 3, requestedSolutionCount: 2, returnedSolutionCount: 1,
+    countSatisfied: false, shortfallReasons: ['符合条件的候选不足'], forcedSiteIds: ['FORCED-SITE-1'], lowerBound: 2, provedOptimal: false,
+  });
+  it('部署摘要旧快照缺省保留，新摘要及候选限制读取为独立副本', () => {
+    const { context, details } = fixture();
+    expect(readPlanningResultDetails(details, context)).not.toHaveProperty('deploymentSummary');
+    expect(readPlanningResultDetails(details, context).candidateScreening).not.toHaveProperty('unavailableReasons');
+    expect(readPlanningResultDetails(details, context).candidateScreening).not.toHaveProperty('dataSources');
+    details.deploymentSummary = null;
+    expect(readPlanningResultDetails(details, context).deploymentSummary).toBeNull();
+    details.deploymentSummary = summary();
+    details.candidateScreening!.unavailableReasons = ['未提供通视资料'];
+    details.candidateScreening!.dataSources = ['冻结候选表（来源待确认）'];
+    const read = readPlanningResultDetails(details, context);
+    expect(read.deploymentSummary).toEqual(summary());
+    details.deploymentSummary.shortfallReasons!.push('后续变更');
+    details.candidateScreening!.unavailableReasons!.push('后续变更');
+    details.candidateScreening!.dataSources!.push('后续变更');
+    expect(read.deploymentSummary!.shortfallReasons).toEqual(['符合条件的候选不足']);
+    expect(read.candidateScreening!.unavailableReasons).toEqual(['未提供通视资料']);
+    expect(read.candidateScreening!.dataSources).toEqual(['冻结候选表（来源待确认）']);
+  });
+  it('部署零值、否值、未知和明确空集合分别保留，不从数量推断服务结论', () => {
+    const { context, details } = fixture();
+    details.deploymentSummary = { ...summary(), requestedCount: 0, actualCount: 0, returnedSolutionCount: 0,
+      requestedSolutionCount: null, shortfallReasons: [], forcedSiteIds: [], lowerBound: 0 };
+    const read = readPlanningResultDetails(details, context);
+    expect(deploymentDetailCells(read)).toMatchObject({ actualCount: 0, requestedCount: 0, returnedSolutionCount: 0,
+      requestedSolutionCount: '未提供', countSatisfied: '未满足', lowerBound: 0, provedOptimal: '未证明最优',
+      shortfallReasons: '服务未列出缺口原因', forcedSiteIds: '未指定强制部署候选点' });
+    details.deploymentSummary = { mode: null, requestedCount: null, actualCount: null, requestedSolutionCount: null,
+      returnedSolutionCount: null, countSatisfied: null, shortfallReasons: null, forcedSiteIds: null, lowerBound: null, provedOptimal: null };
+    expect(Object.values(deploymentDetailCells(readPlanningResultDetails(details, context)))).toEqual(Array(10).fill('未提供'));
+  });
+  it.each([
+    ['未知模式', { mode: 'OTHER' }], ['字符串数量', { actualCount: '3' }], ['负数量', { requestedCount: -1 }],
+    ['小数份数', { requestedSolutionCount: 1.5 }], ['无穷数量', { returnedSolutionCount: Infinity }],
+    ['非安全下界', { lowerBound: Number.MAX_SAFE_INTEGER + 1 }], ['字符串结论', { countSatisfied: 'false' }],
+    ['数字证明', { provedOptimal: 0 }], ['空原因', { shortfallReasons: [' '] }],
+    ['原因类型错误', { shortfallReasons: [0] }], ['非列表原因', { shortfallReasons: '不足' }],
+    ['重复强制点', { forcedSiteIds: ['SITE-1', 'SITE-1'] }], ['空强制点', { forcedSiteIds: [''] }],
+  ])('部署摘要损坏时整批拒绝：%s', (_label, change) => {
+    const { context, details } = fixture();
+    details.deploymentSummary = Object.assign(summary(), change);
+    expect(() => readPlanningResultDetails(details, context)).toThrow('deploymentSummary');
+  });
+  it('已提供部署摘要不能省略可空字段或提供undefined', () => {
+    const { context, details } = fixture();
+    details.deploymentSummary = summary();
+    delete (details.deploymentSummary as Partial<PlanningDeploymentSummary>).actualCount;
+    expect(() => readPlanningResultDetails(details, context)).toThrow('缺少字段');
+    Object.assign(details, { deploymentSummary: undefined });
+    expect(() => readPlanningResultDetails(details, context)).toThrow('deploymentSummary');
+  });
+  it.each([{ reasons: null }, { reasons: [] }, { reasons: ['未提供通视资料'] }])('候选限制允许明确null、空集合和原因：%j', ({ reasons }) => {
+    const { context, details } = fixture();
+    details.candidateScreening!.unavailableReasons = reasons;
+    expect(readPlanningResultDetails(details, context).candidateScreening!.unavailableReasons).toEqual(reasons);
+  });
+  it.each([{ reasons: undefined }, { reasons: '未提供通视资料' }, { reasons: [false] }, { reasons: [' '] }])('候选限制损坏时拒绝已提供明细：%j', ({ reasons }) => {
+    const { context, details } = fixture();
+    Object.assign(details.candidateScreening!, { unavailableReasons: reasons });
+    expect(() => readPlanningResultDetails(details, context)).toThrow('unavailableReasons');
+  });
+  it.each([{ sources: null }, { sources: [] }, { sources: ['冻结候选表（来源待确认）', '道路：roads_taihang.geojson.gz；250m距离栅格近似，通行条件待确认'] }])('候选来源保留null、空集合及原文：%j', ({ sources }) => {
+    const { context, details } = fixture();
+    details.candidateScreening!.dataSources = sources;
+    expect(readPlanningResultDetails(details, context).candidateScreening!.dataSources).toEqual(sources);
+  });
+  it.each([{ sources: undefined }, { sources: '冻结候选表' }, { sources: [null] }, { sources: [' '] }, { sources: [{ source: '冻结候选表' }] }])('候选来源损坏时拒绝整个结果：%j', ({ sources }) => {
+    const { context, details } = fixture();
+    Object.assign(details.candidateScreening!, { dataSources: sources });
+    expect(() => readPlanningResultDetails(details, context)).toThrow('dataSources');
+  });
   it('保留 0、false、负裕度和比例边界；HTTP 自有版本不依赖 Mock 目录', () => {
     const { context, details } = fixture();
     details.assetVersion = 'http-service-release-2026';

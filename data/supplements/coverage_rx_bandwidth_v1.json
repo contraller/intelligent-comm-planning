@@ -1,0 +1,124 @@
+{
+  "schema_version": 1,
+  "supplement_id": "R5-HF-RX-3KHZ-V1",
+  "data_origin": "SYNTHETIC_COVERAGE_ASSUMPTION",
+  "unit": "kHz",
+  "notice": "构造覆盖接收假设，沿项目既有HF推定3kHz；非厂家实参、非设备生效确认。仅供本项目显式采用补充资料后，在新隔离库的新资源版本中开展覆盖联调，不代表四型号全部工作模式的接收带宽或实测等效噪声带宽。",
+  "basis": [
+    "scripts/devicespec.py 的 SpecFiller 对空带宽先取同 device_class 已知字段的首项，排序后按 len(values)//2 取上中位值；同频段全部缺失时才取标准代入值。",
+    "当前 HF 型号已有带宽首项为 [24, 0.5, 3, 2.1] kHz，排序为 [0.5, 2.1, 3, 24] kHz，上中位值为 3 kHz。DM-0001、DM-0002、DM-0003、DM-0008 的原字段均为空，当前 planner 对四型号均实际代入 3 kHz。",
+    "只读内存对比已调用现有 SpecFiller：仅把四个空值改为字符串 3 后，全部 16 个型号的有效建模带宽均保持一致。该结论限当前型号表，不表示新规划结果、覆盖结果或现场性能已经通过验证。",
+    "厂家资料用于核查模式能力和数据边界。IF 滤波宽度、选择性测量宽度、数据通道带宽、信道间隔和跳频范围不互相替代；本资料统一保留为项目构造接收假设。"
+  ],
+  "models": [
+    {
+      "model_id": "DM-0001",
+      "model_name": "AN/PRC-150(C)",
+      "device_class": "HF",
+      "value_khz": 3
+    },
+    {
+      "model_id": "DM-0002",
+      "model_name": "RF-7800H-MP",
+      "device_class": "HF",
+      "value_khz": 3
+    },
+    {
+      "model_id": "DM-0003",
+      "model_name": "RF-5800H-MP",
+      "device_class": "HF",
+      "value_khz": 3
+    },
+    {
+      "model_id": "DM-0008",
+      "model_name": "FT-891",
+      "device_class": "HF",
+      "value_khz": 3
+    }
+  ],
+  "base_model_sources": [
+    {
+      "path": "data/raw/equipment_docs/device_model.csv",
+      "sha256": "a983a1cb38582e81200c17afc00340a99187ce03f77f79bbdac7f15018b53b1a",
+      "expected_original_bandwidth_khz": ""
+    },
+    {
+      "path": "data/synthetic/nodes/device_models_v1.csv",
+      "sha256": "a983a1cb38582e81200c17afc00340a99187ce03f77f79bbdac7f15018b53b1a",
+      "expected_original_bandwidth_khz": ""
+    }
+  ],
+  "planner_basis": {
+    "path": "scripts/devicespec.py",
+    "sha256": "632f82e87ed10295548e9c725ab0495296aec47a8dbc4b9cff740361286e64c6",
+    "entrypoint": "SpecFiller.bandwidth",
+    "missing_value_rule": "SAME_BAND_FIRST_VALUES_UPPER_MEDIAN",
+    "hf_known_first_values_khz": [24, 0.5, 3, 2.1],
+    "hf_sorted_first_values_khz": [0.5, 2.1, 3, 24],
+    "effective_missing_value_khz": 3,
+    "compared_model_count": 16,
+    "all_model_effective_bandwidths_equal_after_supplement": true,
+    "verification_scope": "READ_ONLY_IN_MEMORY_SPECFILLER_COMPARISON"
+  },
+  "source_evidence": [
+    {
+      "evidence_id": "R5-A-E01",
+      "model_id": "DM-0001",
+      "source_type": "LOCAL_MANUFACTURER_DOCUMENT",
+      "path": "data/imported/data_zip_20260911/raw/docs/PRC-150_用户操作手册.pdf",
+      "sha256": "3c654f5dbf928ea1e3b7d7ce57ac654b3fe50d6a35b706b8a9ecb0d131fc08b5",
+      "publication": "AN/PRC-150(C) Operation Manual, 10515-0103-4100, June 2007 Rev. G",
+      "pdf_pages": [182, 183],
+      "printed_pages": ["4-37", "4-38"],
+      "finding": "USB/LSB 的 IF BANDWIDTH 可选 2.0、2.4、2.7、3.0 kHz；CW 另列 0.35、0.5、1.0、1.5 kHz。该表支持 3.0 kHz 为部分模式的可选 IF 宽度，不证明设备当前选值或等效噪声带宽。"
+    },
+    {
+      "evidence_id": "R5-A-E02",
+      "model_id": "DM-0002",
+      "source_type": "LOCAL_MANUFACTURER_DOCUMENT",
+      "path": "data/imported/data_zip_20260911/raw/docs/RF-7800H-MP_数据手册.pdf",
+      "sha256": "3832864ed9eb6d286e58918b69815bb4d1c1ed53830a927568b14e5998b7b1d6",
+      "publication": "RF-7800H-MP Wideband HF/VHF Tactical Radio System, 5/13 DS-488F",
+      "pdf_pages": [1, 2],
+      "finding": "第 1 页的 3 至 24 kHz 为数据传输带宽；第 2 页接收机规格未给出接收滤波宽度或等效噪声带宽，不能据此认定接收带宽为 3 kHz。"
+    },
+    {
+      "evidence_id": "R5-A-E03",
+      "model_id": "DM-0003",
+      "source_type": "LOCAL_MANUFACTURER_DOCUMENT",
+      "path": "data/imported/data_zip_20260911/raw/docs/RF-5800H-MP_数据手册.pdf",
+      "sha256": "b1ec33bf491ec83d926f2bdf4d1d77b6f6868f61dbac6595f1eaeadb7af0efc6",
+      "publication": "RF-5800H-MP Advanced HF/VHF Tactical Radio System, 08/04 DS-211H",
+      "pdf_pages": [1, 2],
+      "finding": "两页数据手册未给出接收滤波宽度或等效噪声带宽。SSB 灵敏度、数据速率与其他规格不能换算出本型号接收带宽，3 kHz 仅沿项目既有推定。"
+    },
+    {
+      "evidence_id": "R5-A-E04",
+      "model_id": "DM-0008",
+      "source_type": "LOCAL_COPY_OF_MANUFACTURER_DOCUMENT",
+      "path": "data/imported/data_zip_20260911/raw/docs/FT891_操作手册.pdf",
+      "sha256": "76e278b4a5a1b5867871f807cd7d949243fe8a67a92c05f246c4bbc46e364181",
+      "publication": "Yaesu FT-891 Operating Manual; local copy includes third-party wrapper pages",
+      "pdf_pages": [63],
+      "printed_pages": ["57"],
+      "finding": "接收选择性表按工作模式及衰减口径给出宽度；SSB/CW 的 -6 dB 条目为 2.4 kHz or better，不能把该数值或 -60 dB 宽度直接当作实测等效噪声带宽。"
+    },
+    {
+      "evidence_id": "R5-A-E05",
+      "model_id": "DM-0008",
+      "source_type": "MANUFACTURER_WEB_PDF",
+      "url": "https://yaesu.com/Files/4CB893D7-1018-01AF-FA97E9E9AD48B50C/FT-891_CAT_OM_ENG_1909-C.pdf?ts=3%2F26%2F2026+6%3A44%3A28+PM",
+      "publication": "Yaesu FT-891 CAT Operation Reference Book, 1909-C, 2019",
+      "pdf_pages": [18],
+      "printed_pages": ["18"],
+      "finding": "SH WIDTH 表中 SSB Wide 的 P3=20 对应 3000 Hz，默认项为 2400 Hz。该表仅证明有 3.0 kHz 可选滤波宽度，不证明项目设备当前设置；未下载或另存本文件。"
+    }
+  ],
+  "limitations": [
+    "不是厂家统一规格、实测参数或设备已生效配置；不能据此宣称四型号全部工作模式采用 3 kHz。",
+    "仅补充列出的四个空带宽字段，不补其他未知参数，不改变频率池、通联需求、拓扑约束、校验门槛或 DEM。",
+    "资料文件不自动修改资源；由主集成的显式脚本在新的隔离库中校验并创建新资源版本，保留 source_doc，冻结本文件最终字节 SHA256 及构造来源标签。",
+    "旧 CSV、旧资源版本、旧方案、旧带宽选择和旧覆盖缓存保持原来源及原结论；新资源须正常保存任务并重新规划、选择及计算。",
+    "本文未执行数据库事务、真实 HTTP、浏览器操作或新规划覆盖实跑；相关验证由主集成另行执行和登记。"
+  ]
+}

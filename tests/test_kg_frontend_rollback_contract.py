@@ -107,6 +107,44 @@ def rollback(env, request):
     return facade.mutate("rollback", request, env.identities["reviewer"])
 
 
+@pytest.mark.parametrize("action", ["review", "publish"])
+def test_author_cannot_review_or_publish_even_with_both_permission_flags(env, action):
+    # 服务身份夹具显式具备双权限，排除仅因角色缺权而拒绝的情况；不改运行账号。
+    editor = deepcopy(env.identities["editor"])
+    editor["permissions"] += ["knowledge.review", "knowledge.publish"]
+    state = workflow.workspace(env.old_path)
+    saved = workflow.save_draft(env.old_path, {
+        "request_id": "author-guard-save", "actor": editor["account_id"],
+        "_identity": facade.identity_snapshot(editor), "base_revision": state["revision"],
+        "base_version": state["current_version"], "note": "构造作者分离检查",
+        "ops": [{"op": "add_triple", "head_type": "DeviceModel", "head": "DM-ROLLBACK",
+                 "relation": "hasFunction", "tail_type": "Function", "tail": "作者保护测试功能",
+                 "source": SOURCE}],
+    })
+    saved = workflow.transition(env.old_path, saved["change_id"], {
+        "request_id": "author-guard-submit", "actor": editor["account_id"],
+        "base_revision": saved["workspace_revision"], "revision": saved["revision"],
+    }, "SUBMIT")
+    if action == "publish":
+        reviewer = env.identities["reviewer"]
+        saved = workflow.transition(env.old_path, saved["change_id"], {
+            "request_id": "author-guard-independent-review", "actor": reviewer["account_id"],
+            "base_revision": saved["workspace_revision"], "revision": saved["revision"],
+            "submission": 1, "approved": True,
+        }, "REVIEW")
+    before = database_snapshot(env)
+    request = KnowledgeMutation(
+        requestId="author-guard-" + action, actorId=editor["account_id"],
+        baseRevision=f"KG-{saved['workspace_revision']}", changeId=saved["change_id"],
+        revision=saved["revision"], submission=1, approved=True,
+    )
+    with pytest.raises(workflow.KgWorkflowError) as rejected:
+        facade.mutate(action, request, editor)
+    assert (rejected.value.status, rejected.value.code) == (403, 1003)
+    assert "作者不能审核或发布自己的变更" in str(rejected.value)
+    assert database_snapshot(env) == before
+
+
 @pytest.mark.parametrize("publish_count", [1, 2])
 def test_published_current_version_rolls_back_to_its_parent_as_new_immutable_version(env, publish_count):
     for _ in range(publish_count):

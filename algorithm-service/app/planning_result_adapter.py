@@ -2,22 +2,26 @@
 from __future__ import annotations
 
 import hashlib
+import math
 from collections import defaultdict
 from copy import deepcopy
 from typing import Any
 
 from . import planning_w4
+from .planning_result_details import project_result_details
 
 
 _LINK_STATES = {"EXCELLENT", "GOOD", "WARNING", "FAULT"}
 
 
 def _number(value: Any) -> float | None:
+    if isinstance(value, bool):
+        return None
     try:
         number = float(value)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         return None
-    return number
+    return number if math.isfinite(number) else None
 
 
 def _bool(value: Any) -> bool:
@@ -107,15 +111,21 @@ def _checks(plan: dict[str, Any], input_data: dict[str, Any],
     survivability = constraint.get("survivability", {})
     relay = constraint.get("max_relay_hops", {})
     conflicts = detail.get("frequency", {}).get("conflicts", [])
-    demand_ids = {row["id"] for row in input_data["demands"]}
+    demand_ids = {row["id"] for row in input_data["demands"]
+                  if row.get("mandatory") is True}
     routed = {row["demandId"] for row in route_rows if not row["backup"]}
-    connectivity_passed = bool(connectivity.get("pass")) and demand_ids <= routed
+    connectivity_passed = (bool(demand_ids) and connectivity.get("pass") is True
+                           and demand_ids <= routed)
+    connectivity_detail = (
+        f"必要需求已生成主路由 {len(demand_ids & routed)}/{len(demand_ids)} 条；"
+        f"算法值 {_number(connectivity.get('value'))}"
+        if demand_ids else "无必要需求，无法评价必要通联连通率。"
+    )
     return [
         {
             "id": "connectivity", "label": "必要通联连通率",
             "passed": connectivity_passed,
-            "detail": (f"已生成主路由 {len(routed)}/{len(demand_ids)} 条；"
-                       f"算法值 {_number(connectivity.get('value'))}"),
+            "detail": connectivity_detail,
         },
         {
             "id": "survivability", "label": "抗毁性",
@@ -224,7 +234,9 @@ def adapt_planning_result(plan: dict[str, Any], input_data: dict[str, Any], *, r
                 "antennaHeightM": _number(param.get("antenna_height_m")
                                            if param.get("antenna_height_m") is not None
                                            else (source or {}).get("antenna_height_m")),
-                "tiltDeg": _number(param.get("tilt_deg") or (source or {}).get("tilt_deg")),
+                "tiltDeg": _number(param.get("tilt_deg")
+                                   if param.get("tilt_deg") is not None
+                                   else (source or {}).get("tilt_deg")),
                 "azimuthDeg": _number((source or {}).get("azimuth_deg")),
             }
         device_for_key.setdefault(key, device_id)
@@ -301,6 +313,8 @@ def adapt_planning_result(plan: dict[str, Any], input_data: dict[str, Any], *, r
     checks = _checks(plan, input_data, route_rows)
     summary = plan.get("summary", {})
     objectives = summary.get("objectives", {})
+    connectivity = _number(objectives.get("e2e_connectivity"))
+    survivability = _number(objectives.get("survivability"))
     route_source = detail.get("routes", {}).get("routes", [])
     delays = [_number(row.get("primary", {}).get("total_delay_ms"))
               for row in route_source if isinstance(row.get("primary"), dict)]
@@ -321,9 +335,9 @@ def adapt_planning_result(plan: dict[str, Any], input_data: dict[str, Any], *, r
             "frequencies": frequencies,
         },
         "metrics": {
-            "connectivityPercent": (_number(objectives.get("e2e_connectivity")) or 0.0) * 100,
+            "connectivityPercent": None if connectivity is None else connectivity * 100,
             "totalRadiatedPowerW": _number(objectives.get("total_radiated_power_w")),
-            "survivabilityPercent": (_number(objectives.get("survivability")) or 0.0) * 100,
+            "survivabilityPercent": None if survivability is None else survivability * 100,
             "coveragePercent": None,
             "delayMs": max((value for value in delays if value is not None), default=None),
         },
@@ -332,4 +346,5 @@ def adapt_planning_result(plan: dict[str, Any], input_data: dict[str, Any], *, r
         "checks": checks,
         "notes": ["覆盖计算未包含在本次 SR4 方案结果中。"],
     }
+    result["result_details"] = project_result_details(plan, input_data, result)
     return result, _outcome(plan, checks)

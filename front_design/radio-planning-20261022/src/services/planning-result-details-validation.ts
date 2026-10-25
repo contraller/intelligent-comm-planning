@@ -30,6 +30,11 @@ function strings(value: unknown, field: string): string[] {
   if (new Set(value).size !== value.length) invalid(field + ' 重复身份');
   return value;
 }
+function nullableStrings(value: unknown, field: string) {
+  if (value === null) return;
+  if (!Array.isArray(value)) return invalid(field);
+  value.forEach(item => text(item, field));
+}
 function rows(value: unknown, field: string): Record<string, unknown>[] | null {
   if (value === null) return null;
   if (!Array.isArray(value)) return invalid(field);
@@ -48,7 +53,28 @@ export function assertPlanningResultDetails(value: unknown, context: PlanningRes
   if (root.schemaVersion !== 1) invalid('schemaVersion');
   text(root.assetVersion, 'assetVersion');
   // 可选候选扩展沿结果读取；统计与当前明细条数无等量假设。
-  if (Object.hasOwn(root, 'candidateScreening') && root.candidateScreening !== null) assertPlanningCandidateScreening(root.candidateScreening);
+  if (Object.hasOwn(root, 'candidateScreening') && root.candidateScreening !== null) {
+    assertPlanningCandidateScreening(root.candidateScreening);
+    if (Object.hasOwn(root.candidateScreening, 'unavailableReasons'))
+      nullableStrings(root.candidateScreening.unavailableReasons, 'candidateScreening.unavailableReasons');
+    if (Object.hasOwn(root.candidateScreening, 'dataSources'))
+      nullableStrings(root.candidateScreening.dataSources, 'candidateScreening.dataSources');
+  }
+  // 旧结果缺省保留；只校验服务声明，不从数量反推满足条件或最优性。
+  if (Object.hasOwn(root, 'deploymentSummary') && root.deploymentSummary !== null) {
+    const summary = record(root.deploymentSummary, 'deploymentSummary');
+    fields(summary, ['mode', 'requestedCount', 'actualCount', 'requestedSolutionCount', 'returnedSolutionCount',
+      'countSatisfied', 'shortfallReasons', 'forcedSiteIds', 'lowerBound', 'provedOptimal'], 'deploymentSummary');
+    if (summary.mode !== null && summary.mode !== 'MIN_COUNT' && summary.mode !== 'FIXED_COUNT') invalid('deploymentSummary.mode');
+    for (const key of ['requestedCount', 'actualCount', 'requestedSolutionCount', 'returnedSolutionCount', 'lowerBound']) {
+      nullableNumber(summary[key], 'deploymentSummary.' + key, 0, true);
+      if (summary[key] !== null && !Number.isSafeInteger(summary[key])) invalid('deploymentSummary.' + key);
+    }
+    nullableBoolean(summary.countSatisfied, 'deploymentSummary.countSatisfied');
+    nullableBoolean(summary.provedOptimal, 'deploymentSummary.provedOptimal');
+    nullableStrings(summary.shortfallReasons, 'deploymentSummary.shortfallReasons');
+    if (summary.forcedSiteIds !== null) strings(summary.forcedSiteIds, 'deploymentSummary.forcedSiteIds');
+  }
   if (Object.hasOwn(root, 'optimization') && root.optimization !== null) assertPlanningOptimization(root.optimization, context);
   const { nodes, devices, links, configuration, demandIds } = context;
   const identities = [nodes.map(row => row.id), devices.map(row => row.id), links.map(row => row.id),

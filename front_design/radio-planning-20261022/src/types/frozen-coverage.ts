@@ -1,6 +1,10 @@
-export interface FrozenCoverageQuery { planId:string;taskId:string;snapshotId:string;resourceRevision:string;context:'planning'|'gis';bandwidthSelection?:FrozenCoverageSelectionRef }
+export type FrozenCoverageEngineVersion='V01-2'|'V01-3'|'V01-4';
+export interface FrozenCoverageQuery { planId:string;taskId:string;snapshotId:string;resourceRevision:string;context:'planning'|'gis';bandwidthSelection?:FrozenCoverageSelectionRef;engineVersion?:FrozenCoverageEngineVersion }
 export interface FrozenCoverageSelectionRef { selectionId:string;selectionHash:string }
 export interface FrozenCoverageBandwidthChoice { device_id:string;rx_bandwidth_khz:number }
+export interface FrozenCoverageBandwidthProvenance {
+  origin:'SYNTHETIC_COVERAGE_ASSUMPTION';source_id:'R5-HF-RX-3KHZ-V1';source_sha256:string;source_note:string;original_khz:'';
+}
 export type FrozenCoverageSourceAnchor=Omit<FrozenCoverageAnchor,'engine_version'>;
 export interface FrozenCoverageBandwidthSelection {
   selection_id:string;selection_hash:string;source_anchor:FrozenCoverageSourceAnchor;
@@ -10,6 +14,7 @@ export interface FrozenCoverageBandwidthOption {
   device_id:string;node_id:string;model_id:string;band:string|null;model_bandwidth_khz:string|number|null;options_khz:number[]|null;
   state:'SINGLE_VALUE'|'SELECTION_REQUIRED'|'UNKNOWN'|'NO_ASSIGNED_FREQUENCY';
   reason_code:null|'RX_BANDWIDTH_SELECTION_REQUIRED'|'RX_BANDWIDTH_UNKNOWN'|'NO_ASSIGNED_FREQUENCY';reason:string;
+  bandwidth_provenance?:FrozenCoverageBandwidthProvenance|null;
 }
 export interface FrozenCoverageBandwidthOptions {
   anchor:FrozenCoverageAnchor;devices:FrozenCoverageBandwidthOption[];current_selection:FrozenCoverageBandwidthSelection|null;
@@ -31,12 +36,17 @@ export interface FrozenCoverageFeature {
 }
 export interface FrozenCoverageDevice {
   device_id:string;node_id:string;model_id:string;antenna_id:string;lon:number;lat:number;band:string|null;
-  status:'COMPLETE'|'UNAVAILABLE';reasons:string[];
+  status:'COMPLETE'|'UNAVAILABLE'|'SKIPPED';reasons:string[];
+  reason_code?:null|'NO_ASSIGNED_FREQUENCY'|'RX_BANDWIDTH_UNKNOWN'|'RX_BANDWIDTH_SELECTION_REQUIRED'|'FROZEN_PARAMETERS_UNKNOWN';
+  bandwidth_provenance?:FrozenCoverageBandwidthProvenance|null;
   rx_bandwidth?:{value_khz:number|null;source:'EXPLICIT_COMPUTE_PARAMETER'|'FROZEN_MODEL_SINGLE_VALUE'|'UNSELECTED'|'UNKNOWN'};
+  frozen_model?:Record<string,unknown>|null;frozen_antenna?:Record<string,unknown>|null;planned_parameters?:Record<string,unknown>|null;
+  radio_parameters?:{tx_dbm:number;height:number;gain:number;sens:number;fmin:number;fmax:number;pattern:string;bw:number}|null;
   computations:{freq_khz:number;link_ids:string[];shape:'CELLS'|'RINGS';geojson:{type:'FeatureCollection';features:FrozenCoverageFeature[]}}[];
 }
 export interface FrozenCoverageResult {
-  schema_version:1;solution_id:string;status:'COMPLETE'|'PARTIAL'|'UNAVAILABLE';devices:FrozenCoverageDevice[];
+  schema_version:1|2;solution_id:string;status:'COMPLETE'|'PARTIAL'|'UNAVAILABLE'|'NOT_APPLICABLE';devices:FrozenCoverageDevice[];
+  summary?:{total:number;eligible:number;complete:number;unavailable:number;skipped:number};
   provenance:FrozenCoverageSelectionBinding&{raw_snapshot_sha256:string;frozen_tables_sha256:string;terrain_fingerprint:string;engine_version:string;bandwidth_choices?:FrozenCoverageBandwidthChoice[];
     parameters:FrozenCoverageParameters;dem_bbox:[number,number,number,number];units:{margin_db:'dB';frequency:'kHz';ring_radius:'m'};limitations:string[]};
 }

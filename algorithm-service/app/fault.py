@@ -5,6 +5,7 @@ import csv
 import hashlib
 import io
 import json
+import math
 import os
 import sys
 import threading
@@ -842,37 +843,129 @@ def _report_content(diagnosis, impact, suggestions):
             "generated_at": datetime.now(timezone.utc).isoformat()}
 
 
-def _report_docx(content, path):
+def _report_value(value):
+    if value is None or value == "":
+        return "未提供"
+    if isinstance(value, bool):
+        return "是" if value else "否"
+    if isinstance(value, float) and not math.isfinite(value):
+        return "未提供"
+    if isinstance(value, (list, tuple)):
+        if not value:
+            return "未提供"
+        shown = "、".join(_report_value(item) for item in value[:12])
+        return shown + (f"（另 {len(value) - 12} 项见 JSON）" if len(value) > 12 else "")
+    if isinstance(value, dict):
+        return "结构化详情见同运行 JSON" if value else "未提供"
+    return str(value)
+
+
+def _report_score(value):
+    return f"{value:.3f}" if isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value) else "未提供"
+
+
+def _report_sections(content, source=None):
+    from .kg_display import FAULT_TYPES as fault_names
+
+    # 只生成展示摘要，不改写原始诊断、证据或 JSON 机器导出。
+    source = source or {}
+    diagnosis, scenario = content.get("diagnosis") or {}, content.get("scenario") or {}
+    sections = [("来源与场景", [
+        ("运行编号", source.get("run_id")), ("任务编号", source.get("task_id") or diagnosis.get("network_task_id")),
+        ("方案编号", source.get("plan_id") or diagnosis.get("network_solution_id")),
+        ("网络快照", source.get("snapshot_id")), ("方案修订", diagnosis.get("network_revision")),
+        ("资源版本", diagnosis.get("network_resource_revision")), ("知识版本", diagnosis.get("knowledge_version")),
+        ("场景编号", content.get("scenario_id")), ("场景名称", scenario.get("scenario_name")),
+        ("场景版本", source.get("scenario_version") or diagnosis.get("scenario_version_id")),
+        ("诊断任务", source.get("diagnose_task_id")), ("影响任务", source.get("impact_task_id")),
+        ("生成时间", content.get("generated_at")),
+    ])]
+    object_names = {"NODE": "节点", "DEVICE": "设备", "LINK": "链路"}
+    branch_names = {"RULE": "规则推理", "KG": "知识图谱", "ML": "机器学习",
+                    "CONSTRUCTED": "构造联调", "MANUAL_REVIEW": "人工研判", "ROUTE_ANALYSIS": "路由分析"}
+    state_names = {"INTERRUPTED": "中断", "DEGRADED": "降级"}
+
+    def fault_name(value):
+        return f"{fault_names[value]}（{value}）" if value in fault_names else value
+
+    for index, fault in enumerate(scenario.get("faults") or [], 1):
+        sections.append((f"故障输入 {index}", [
+            ("对象类型", object_names.get(fault.get("object_type"), fault.get("object_type"))),
+            ("对象编号", fault.get("object_id")), ("故障类型", fault_name(fault.get("fault_type"))),
+            ("现象编号", fault.get("symptom_ids")),
+            ("发生时间", fault.get("occur_time")),
+        ]))
+    for item in diagnosis.get("results") or []:
+        fused, obj = item.get("fused") or {}, item.get("fault_object") or {}
+        sections.append(("诊断结论 · " + _report_value(obj.get("object_id")), [
+            ("故障类型", fault_name(fused.get("fault_type"))), ("根因", fused.get("root_cause")),
+            ("故障部件", item.get("fault_component")), ("融合得分", _report_score(fused.get("confidence"))),
+            ("需要人工研判", fused.get("need_manual_review")),
+        ]))
+        for branch in item.get("branches") or []:
+            evidence = branch.get("evidence") or {}
+            rows = [("分支结论", fault_name(branch.get("fault_type"))), ("分支得分", _report_score(branch.get("confidence"))),
+                    ("不可用原因", branch.get("disabled_reason"))]
+            if branch.get("source") == "RULE":
+                rows.extend([("规则编号", evidence.get("rule_ids")), ("匹配方式", {
+                    "EXACT": "精确匹配", "PARTIAL_MISSING_INPUT": "输入缺失下的部分匹配",
+                }.get(evidence.get("match_kind"), evidence.get("match_kind"))),
+                    ("来源案例编号", evidence.get("source_case_ids")), ("来源标识", evidence.get("source"))])
+            elif branch.get("source") == "KG":
+                rows.extend([("选用案例", evidence.get("case_id")), ("三元组编号", evidence.get("triple_ids")),
+                             ("来源文档", evidence.get("source_docs") or evidence.get("source_doc")),
+                             ("同等支持案例", evidence.get("equally_supported_cases"))])
+                rankings = evidence.get("candidate_rankings") or []
+                rows.append(("候选案例数", len(rankings)))
+                for index, candidate in enumerate(rankings[:5], 1):
+                    rows.append((f"候选摘要 {index}", "案例 %s；类型 %s；得分 %s；匹配现象数 %s" % (
+                        _report_value(candidate.get("case_id")), _report_value(fault_name(candidate.get("fault_type"))),
+                        _report_score(candidate.get("score")), _report_value(candidate.get("matched_symptom_count")))))
+                if len(rankings) > 5:
+                    rows.append(("其余候选", f"另 {len(rankings) - 5} 项见同运行 JSON"))
+            sections.append((branch_names.get(branch.get("source"), "其他分支") + "依据", rows))
+    impact = content.get("impact") or {}
+    summary = impact.get("summary") or {}
+    sections.append(("影响统计", [(label, summary.get(key)) for key, label in (
+        ("affected_node_count", "受影响节点数"), ("direct_count", "直接影响节点数"),
+        ("indirect_count", "间接影响节点数"), ("interrupted_node_count", "中断节点数"),
+        ("degraded_node_count", "降级节点数"), ("affected_link_count", "受影响链路数"),
+        ("total_bandwidth_loss_kbps", "通联需求速率损失 / kbit/s"),
+        ("affected_mandatory_demand_ids", "受影响必要需求编号"),
+    )]))
+    for key, id_field, title in (("affected_nodes", "node_id", "受影响节点"), ("affected_links", "link_id", "受影响链路")):
+        for row in impact.get(key) or []:
+            sections.append((title + " · " + _report_value(row.get(id_field)), [
+                ("影响状态", state_names.get(row.get("state"), row.get("state"))),
+                ("影响程度", {"SEVERE": "严重", "MODERATE": "中等", "MINOR": "轻微"}.get(row.get("level"), row.get("level"))),
+                ("原因", row.get("reason")),
+            ]))
+    for index, row in enumerate((content.get("suggestions") or {}).get("suggestions") or [], 1):
+        sections.append((f"处置建议 {index}", [("优先级", row.get("priority")), ("建议行动", row.get("action")),
+            ("来源", branch_names.get(row.get("source"), row.get("source"))), ("步骤", row.get("steps")),
+            ("所需备件", row.get("required_spares")), ("所需工具", row.get("required_tools")),
+            ("预计用时 / min", row.get("estimated_time_min")), ("依据三元组", row.get("kg_source_triple_ids"))]))
+    return [(title, [(label, _report_value(value)) for label, value in rows]) for title, rows in sections]
+
+
+def _report_docx(content, path, *, source=None):
     from docx import Document
+    from docx.oxml.ns import qn
     doc = Document()
+    for name in ("Normal", "Title", "Heading 1"):
+        doc.styles[name].font.name = "宋体"
+        doc.styles[name]._element.get_or_add_rPr().rFonts.set(qn("w:eastAsia"), "宋体")
     doc.add_heading("故障诊断报告", 0)
     doc.add_paragraph("数据性质：CONSTRUCTED 合成测试数据；结果不能作为真实设备诊断准确率证明。")
-    doc.add_paragraph("场景：" + content["scenario_id"])
-    if content["scenario"]:
-        doc.add_paragraph("场景名称：" + content["scenario"]["scenario_name"])
-        for fault in content["scenario"]["faults"]:
-            doc.add_paragraph("故障输入：%s %s；现象：%s；发生时间：%s" %
-                              (fault["object_type"], fault["object_id"],
-                               ", ".join(fault.get("symptom_ids") or []), fault.get("occur_time", "未知")))
-    for item in content["diagnosis"]["results"]:
-        doc.add_heading(item["fault_object"]["object_id"], level=1)
-        fused = item["fused"]
-        doc.add_paragraph("类型：%s；根因：%s；融合得分：%.3f；人工研判：%s" %
-                          (fused["fault_type"], fused["root_cause"], fused["confidence"],
-                           "是" if fused["need_manual_review"] else "否"))
-        for branch in item["branches"]:
-            doc.add_paragraph("%s：%s；依据：%s" %
-                              (branch["source"], branch["confidence"], branch["evidence"]))
-    if content["impact"]:
-        doc.add_heading("影响范围", level=1)
-        doc.add_paragraph(json.dumps(content["impact"]["summary"], ensure_ascii=False))
-    doc.add_heading("处置建议", level=1)
-    for row in content["suggestions"]["suggestions"]:
-        doc.add_paragraph("%s. %s（来源：%s）" % (row["priority"], row["action"], row["source"]))
+    for title, rows in _report_sections(content, source):
+        doc.add_heading(title, level=1)
+        for label, value in rows:
+            doc.add_paragraph(f"{label}：{value}")
+    doc.add_paragraph("完整证据、候选排序及机器字段保留在同一运行的 JSON 导出中。")
     doc.save(path)
 
 
-def _report_pdf(content, path):
+def _report_pdf(content, path, *, source=None):
     from html import escape
     from reportlab.lib.pagesizes import A4
     from reportlab.lib.styles import ParagraphStyle
@@ -883,32 +976,14 @@ def _report_pdf(content, path):
     pdfmetrics.registerFont(UnicodeCIDFont("STSong-Light"))
     style = ParagraphStyle("Chinese", fontName="STSong-Light", fontSize=10, leading=17)
     heading = ParagraphStyle("Heading", parent=style, fontSize=16, leading=24)
+    section = ParagraphStyle("Section", parent=style, fontSize=12, leading=20, spaceBefore=10, keepWithNext=True)
     story = [Paragraph("故障诊断报告", heading), Spacer(1, 12),
-             Paragraph("数据性质：CONSTRUCTED 合成测试数据，结果须人工研判。", style),
-             Paragraph("场景：%s" % escape(content["scenario_id"]), style)]
-    if content["scenario"]:
-        story.append(Paragraph("场景名称：%s" % escape(content["scenario"]["scenario_name"]), style))
-        for fault in content["scenario"]["faults"]:
-            story.append(Paragraph("故障输入：%s %s；现象：%s；发生时间：%s" %
-                                   (escape(fault["object_type"]), escape(fault["object_id"]),
-                                    escape(", ".join(fault.get("symptom_ids") or [])),
-                                    escape(str(fault.get("occur_time", "未知")))), style))
-    for item in content["diagnosis"]["results"]:
-        fused = item["fused"]
-        story.append(Spacer(1, 8))
-        story.append(Paragraph("对象：%s" % escape(item["fault_object"]["object_id"]), style))
-        story.append(Paragraph("类型：%s；根因：%s；融合得分：%.3f" %
-                               (escape(str(fused["fault_type"])),
-                                escape(str(fused["root_cause"])), fused["confidence"]), style))
-        for branch in item["branches"]:
-            story.append(Paragraph("%s：%s；依据：%s" %
-                                   (branch["source"], branch["confidence"],
-                                    escape(str(branch["evidence"]))), style))
-    if content["impact"]:
-        story.append(Paragraph("影响统计：%s" % escape(str(content["impact"]["summary"])), style))
-    for row in content["suggestions"]["suggestions"]:
-        story.append(Paragraph("建议 %s：%s" %
-                               (row["priority"], escape(str(row["action"]))), style))
+             Paragraph("数据性质：CONSTRUCTED 合成测试数据，结果须人工研判。", style)]
+    for title, rows in _report_sections(content, source):
+        story.append(Paragraph(escape(title), section))
+        for label, value in rows:
+            story.append(Paragraph(escape(f"{label}：{value}"), style))
+    story.append(Paragraph("完整证据、候选排序及机器字段保留在同一运行的 JSON 导出中。", style))
     SimpleDocTemplate(str(path), pagesize=A4).build(story)
 
 
@@ -936,9 +1011,9 @@ def create_report(payload):
     if fmt == "json":
         path.write_text(json.dumps(content, ensure_ascii=False, indent=2), encoding="utf-8")
     elif fmt == "docx":
-        _report_docx(content, path)
+        _report_docx(content, path, source={"diagnose_task_id": payload.get("diagnose_task_id"), "impact_task_id": payload.get("impact_task_id")})
     else:
-        _report_pdf(content, path)
+        _report_pdf(content, path, source={"diagnose_task_id": payload.get("diagnose_task_id"), "impact_task_id": payload.get("impact_task_id")})
     return _ok({"report_url": "/api/v1/files/%s" % filename, "format": fmt,
                 "data_source": "CONSTRUCTED"})
 
@@ -950,7 +1025,143 @@ def report_path(filename):
     return path if path.is_file() else None
 
 
-def export_impact(tid, fmt):
+def _impact_geometry(impact, network=None):
+    if network is not None and network.get("id") != impact.get("network_solution_id"):
+        raise ValueError("影响图的冻结方案与影响结果不一致")
+    if network is not None and impact.get("network_task_id") and network.get("taskId") != impact["network_task_id"]:
+        raise ValueError("影响图的冻结任务与影响结果不一致")
+    affected_nodes = {row["node_id"]: row for row in impact.get("affected_nodes") or []}
+    affected_links = {row["link_id"]: row for row in impact.get("affected_links") or []}
+    nodes, links, missing = {}, [], 0
+
+    def valid(point):
+        return (isinstance(point, (list, tuple)) and len(point) == 2
+                and all(isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v) for v in point)
+                and abs(point[0]) <= 180 and abs(point[1]) <= 90)
+
+    if network is not None:
+        rows = (network.get("inputSnapshot") or {}).get("stations") or []
+        for row in rows:
+            if not row.get("id") or not valid(row.get("coordinate")):
+                missing += 1
+                continue
+            if row["id"] in nodes:
+                raise ValueError("影响图冻结节点编号重复")
+            nodes[row["id"]] = {"id": row["id"], "coordinate": tuple(row["coordinate"]),
+                                "state": affected_nodes.get(row["id"], {}).get("state")}
+        for row in network.get("links") or []:
+            if row.get("id") and row.get("a") in nodes and row.get("b") in nodes:
+                links.append({"id": row["id"], "a": row["a"], "b": row["b"],
+                              "state": affected_links.get(row["id"], {}).get("state")})
+    else:
+        # 无冻结网络时只使用影响任务已有点，不回填当前资源或构造链路。
+        for feature in (impact.get("impact_scope") or {}).get("features") or []:
+            geometry, properties = feature.get("geometry") or {}, feature.get("properties") or {}
+            if geometry.get("type") != "Point" or not properties.get("node_id") or not valid(geometry.get("coordinates")):
+                missing += 1
+                continue
+            nid = properties["node_id"]
+            nodes[nid] = {"id": nid, "coordinate": tuple(geometry["coordinates"]), "state": properties.get("state")}
+    return {"nodes": list(nodes.values()), "links": links, "missing_coordinates": missing,
+            "unlocated_nodes": len(set(affected_nodes) - nodes.keys()),
+            "unlocated_links": len(set(affected_links) - {row["id"] for row in links}),
+            "frozen_network": network is not None}
+
+
+def _impact_font(size):
+    from PIL import ImageFont
+    # 优先只读本次交付已有共享字体资产，不复制字体或安装后端依赖。
+    candidates = [ROOT / "front_design/radio-planning-20261022/public/fonts/NotoSansCJKsc-Regular.otf"]
+    candidates += [Path(os.environ.get("WINDIR", "C:/Windows")) / "Fonts" / name for name in ("msyh.ttc", "simsun.ttc")]
+    candidates += [Path("/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc"),
+                   Path("/usr/share/fonts/truetype/wqy/wqy-zenhei.ttc")]
+    for candidate in candidates:
+        if candidate.is_file():
+            try:
+                return ImageFont.truetype(str(candidate), size)
+            except OSError:
+                continue
+    raise RuntimeError("影响 PNG 缺少可用中文字体，请配置已有系统中文字体；未生成缺字图片")
+
+
+def _impact_png(impact, network=None, source=None):
+    from PIL import Image, ImageDraw, PngImagePlugin
+    diagram, source = _impact_geometry(impact, network), source or {}
+    if network and source.get("snapshot_id") and source["snapshot_id"] != network.get("snapshotId"):
+        raise ValueError("影响图网络快照与来源编号不一致")
+    image = Image.new("RGB", (900, 640), "white")
+    draw = ImageDraw.Draw(image)
+    title_font, font, small = _impact_font(22), _impact_font(14), _impact_font(12)
+
+    def wrapped(text, y, selected_font=font, color="#26323d"):
+        line = ""
+        line_height = selected_font.size + 6
+        for char in text:
+            candidate = line + char
+            if line and draw.textbbox((0, 0), candidate, font=selected_font)[2] > 840:
+                draw.text((30, y), line, fill=color, font=selected_font)
+                y += line_height
+                line = char
+            else:
+                line = candidate
+        draw.text((30, y), line, fill=color, font=selected_font)
+        return y + line_height
+
+    y = wrapped("故障影响示意（构造联调，非实测）", 12, title_font)
+    y = wrapped("运行：%s；场景：%s" % (_report_value(source.get("run_id")), _report_value(impact.get("scenario_id"))), y)
+    y = wrapped("任务：%s；方案：%s" % (_report_value(source.get("task_id") or impact.get("network_task_id")),
+                                      _report_value(impact.get("network_solution_id"))), y)
+    y = wrapped("快照：%s；WGS84 经纬度示意，连线不表示传播路径" % _report_value((network or {}).get("snapshotId")), y)
+    top, bottom = max(132, y + 10), 520
+    draw.rectangle((30, top, 870, bottom), outline="#cbd1d8")
+    colors = {"INTERRUPTED": "#c83832", "DEGRADED": "#e6aa39"}
+    nodes = {row["id"]: row for row in diagram["nodes"]}
+    positions = {}
+    if nodes:
+        xs, ys = [row["coordinate"][0] for row in nodes.values()], [row["coordinate"][1] for row in nodes.values()]
+        scale = min(780 / max(max(xs) - min(xs), .001), max(1, bottom - top - 50) / max(max(ys) - min(ys), .001))
+        cx, cy = (min(xs) + max(xs)) / 2, (min(ys) + max(ys)) / 2
+        positions = {nid: (450 + (row["coordinate"][0] - cx) * scale,
+                           (top + bottom) / 2 - (row["coordinate"][1] - cy) * scale) for nid, row in nodes.items()}
+        priority = {"DEGRADED": 1, "INTERRUPTED": 2}
+        for link in sorted(diagram["links"], key=lambda row: priority.get(row["state"], 0)):
+            a, b = positions[link["a"]], positions[link["b"]]
+            draw.line((*a, *b), fill=colors.get(link["state"], "#a4adb7"), width=3 if link["state"] in colors else 1)
+            if link["state"] in colors:
+                px, py = (a[0] + b[0]) / 2, (a[1] + b[1]) / 2
+                width = draw.textbbox((0, 0), link["id"], font=small)[2]
+                draw.text((max(35, min(865 - width, px)), max(top + 3, min(bottom - 18, py))), link["id"], fill="#26323d", font=small)
+        # 影响对象后绘制，避免同位置的未知背景覆盖中断或降级标记。
+        for nid, row in sorted(nodes.items(), key=lambda item: priority.get(item[1]["state"], 0)):
+            px, py = positions[nid]
+            radius = 6 if row["state"] in colors else 3
+            draw.ellipse((px - radius, py - radius, px + radius, py + radius), fill=colors.get(row["state"], "#697887"))
+            if row["state"] in colors or len(nodes) <= 12:
+                width = draw.textbbox((0, 0), nid, font=small)[2]
+                draw.text((max(35, min(865 - width, px + 8)), max(top + 3, min(bottom - 18, py - 17))), nid, fill="#26323d", font=small)
+    else:
+        draw.text((55, top + 30), "未提供可绘制的真实节点坐标", font=font, fill="#697887")
+    draw.line((35, 550, 61, 550), fill="#a4adb7", width=2)
+    draw.text((68, 540), "冻结背景／影响状态未提供", font=font, fill="#26323d")
+    draw.ellipse((352, 545, 364, 557), fill=colors["INTERRUPTED"])
+    draw.text((373, 540), "中断", font=font, fill="#26323d")
+    draw.ellipse((466, 545, 478, 557), fill=colors["DEGRADED"])
+    draw.text((487, 540), "降级", font=font, fill="#26323d")
+    wrapped("已绘 %s 节点 / %s 链路；缺失坐标 %s；未定位影响节点 %s / 链路 %s" % (
+        len(nodes), len(diagram["links"]), diagram["missing_coordinates"], diagram["unlocated_nodes"], diagram["unlocated_links"]), 574, small)
+    wrapped("来源：%s；仅示对象位置与已有拓扑，不表示覆盖边界；完整数据见 JSON。" % (
+        "本运行冻结网络" if diagram["frozen_network"] else "冻结网络未提供，仅使用原影响点，未构造链路"), 603, small)
+    metadata = PngImagePlugin.PngInfo()
+    for key, value in {"Title": "故障影响示意", "PlanId": impact.get("network_solution_id"),
+                       "SnapshotId": (network or {}).get("snapshotId"), "RunId": source.get("run_id"),
+                       "RenderedNodes": len(nodes), "RenderedLinks": len(diagram["links"])}.items():
+        metadata.add_itxt(key, _report_value(value))
+    buf = io.BytesIO()
+    image.save(buf, format="PNG", pnginfo=metadata)
+    return buf.getvalue(), "image/png"
+
+
+def export_impact(tid, fmt, *, network=None, source=None):
     impact = _impact(tid)
     if impact is None:
         return None
@@ -970,21 +1181,5 @@ def export_impact(tid, fmt):
         book.save(buf)
         return buf.getvalue(), "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     if fmt == "png":
-        from PIL import Image, ImageDraw
-        image = Image.new("RGB", (900, 640), "white")
-        draw = ImageDraw.Draw(image)
-        features = impact["impact_scope"]["features"]
-        coords = [f["geometry"]["coordinates"] for f in features]
-        if coords:
-            xs, ys = [p[0] for p in coords], [p[1] for p in coords]
-            x0, x1, y0, y1 = min(xs), max(xs), min(ys), max(ys)
-            for feature in features:
-                x, y = feature["geometry"]["coordinates"]
-                px = 50 + (x - x0) / max(x1 - x0, 0.01) * 800
-                py = 590 - (y - y0) / max(y1 - y0, 0.01) * 540
-                color = "#c83832" if feature["properties"]["state"] == "INTERRUPTED" else "#e6aa39"
-                draw.ellipse((px - 5, py - 5, px + 5, py + 5), fill=color)
-        buf = io.BytesIO()
-        image.save(buf, format="PNG")
-        return buf.getvalue(), "image/png"
+        return _impact_png(impact, network, source)
     return None

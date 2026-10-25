@@ -17,6 +17,8 @@ export interface PlanningCandidateSite {
   rejectReason: string | null;
 }
 export interface PlanningCandidateScreening {
+  dataSources?: string[] | null;
+  unavailableReasons?: string[] | null;
   sourceLabel: string;
   candidateCount: number | null;
   deployableCount: number | null;

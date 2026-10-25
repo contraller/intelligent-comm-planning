@@ -19,7 +19,8 @@ QUERY = {"plan_id": "P1", "task_id": "T1", "snapshot_id": "SNP-PL-UNIT", "actor_
 
 def synthetic_result(raw, tables, **kwargs):
     selection = kwargs.get("bandwidth_selection")
-    return {"schema_version": 1, "solution_id": raw["solution_id"], "status": "COMPLETE", "devices": [],
+    return {"schema_version": 2, "solution_id": raw["solution_id"], "status": "NOT_APPLICABLE", "devices": [],
+            "summary": dict(total=0, eligible=0, complete=0, unavailable=0, skipped=0),
             "provenance": {"raw_snapshot_sha256": algorithm._digest(raw), "frozen_tables_sha256": algorithm._digest(tables),
                 "terrain_fingerprint": raw["terrain_fingerprint"], "engine_version": module.ENGINE_VERSION,
                 "bandwidth_selection_id": selection["selection_id"] if selection else None,
@@ -526,7 +527,7 @@ def test_public_status_is_readonly_and_reports_lifecycle_and_storage_fault(conte
     assert service.status() == {"state": "disabled", "worker_alive": False, "stop_requested": True, "storage_fault": False}
 
 
-def test_rx_bandwidth_v2_history_scan_reads_jobs_and_preserves_exact_bytes(context):
+def test_v4_history_scan_reads_v1_to_v3_jobs_cache_and_preserves_exact_bytes(context):
     import uuid
 
     service = context.make(engine=synthetic_result)
@@ -538,7 +539,7 @@ def test_rx_bandwidth_v2_history_scan_reads_jobs_and_preserves_exact_bytes(conte
     legacy = context.make(runtime_root=service.root.parent / "legacy-only")
     legacy.root.mkdir()
     paths = []
-    for version in ("V01-1", "V01-2"):
+    for version in ("V01-1", "V01-2", "V01-3"):
         for state in ("SUCCESS", "FAILED"):
             old = deepcopy(base)
             old["job_id"] = "FCJ-" + uuid.uuid4().hex
@@ -546,14 +547,19 @@ def test_rx_bandwidth_v2_history_scan_reads_jobs_and_preserves_exact_bytes(conte
             old["request_body"]["request_id"] = old["request_id"]
             old["request_digest"] = module._hash(old["request_body"])
             old["anchor"]["engine_version"] = version
-            old["cache_key"] = "FCC-" + module._hash({"anchor": old["anchor"], "parameters": old["parameters"]})
-            old.pop("bandwidth_selection_id")
-            old.pop("bandwidth_selection_hash")
+            old["cache_key"] = module._cache_key(old["anchor"], old["parameters"])
+            if version != "V01-3":
+                old.pop("bandwidth_selection_id")
+                old.pop("bandwidth_selection_hash")
             old["state"] = state
             if state == "SUCCESS":
                 old["result"]["provenance"]["engine_version"] = version
-                for key in ("bandwidth_selection_id", "bandwidth_selection_hash", "bandwidth_choices"):
-                    old["result"]["provenance"].pop(key)
+                old["result"]["schema_version"] = 1
+                old["result"]["status"] = "COMPLETE"
+                old["result"].pop("summary")
+                if version != "V01-3":
+                    for key in ("bandwidth_selection_id", "bandwidth_selection_hash", "bandwidth_choices"):
+                        old["result"]["provenance"].pop(key)
                 old["result_sha256"] = module._hash(old["result"])
             else:
                 old["result"] = None
@@ -568,7 +574,11 @@ def test_rx_bandwidth_v2_history_scan_reads_jobs_and_preserves_exact_bytes(conte
     for path, original, old in paths:
         page = reopened.get_job(old["job_id"], **QUERY)
         assert page["state"] == old["state"] and page["anchor"]["engine_version"] == old["anchor"]["engine_version"]
-        assert "bandwidth_selection_id" not in page and path.read_bytes() == original
+        assert ("bandwidth_selection_id" in page) == (old["anchor"]["engine_version"] == "V01-3")
+        assert path.read_bytes() == original
+        cache = reopened.cache("P1", "T1", "SNP-PL-UNIT", SMALL, engine_version=old["anchor"]["engine_version"])
+        assert cache["state"] == "HIT" and cache["result"]["schema_version"] == 1
+        assert "summary" not in cache["result"] and cache["result"]["status"] == "COMPLETE"
         replay, status = reopened.submit("P1", {k: v for k, v in old["request_body"].items() if k != "plan_id"}, ACTOR)
         assert status == 200 and replay["job_id"] == old["job_id"]
     reopened.close()
@@ -577,6 +587,35 @@ def test_rx_bandwidth_v2_history_scan_reads_jobs_and_preserves_exact_bytes(conte
     with pytest.raises(module.CoverageServiceError) as error:
         reopened.get_job(paths[0][2]["job_id"], **QUERY)
     assert error.value.code == 1205
+
+
+@pytest.mark.parametrize("change", ["summary", "overall", "schema"])
+def test_v4_inconsistent_engine_result_never_publishes(context, change):
+    def wrong(*args, **kwargs):
+        result = synthetic_result(*args, **kwargs)
+        if change == "summary":
+            result["summary"]["total"] = 1
+        elif change == "overall":
+            result["status"] = "COMPLETE"
+        else:
+            result["schema_version"] = 1
+        return result
+
+    service = context.make(engine=wrong)
+    service.start()
+    job, status = service.submit("P1", BODY, ACTOR)
+    assert status == 202
+    finished = terminal(service, job["job_id"])
+    assert finished["state"] == "FAILED" and finished["error"]["code"] == "5002"
+    assert service.cache("P1", "T1", "SNP-PL-UNIT", SMALL)["state"] == "MISS"
+
+
+@pytest.mark.parametrize("version", ["", "V01-5", 4, True])
+def test_v4_cache_unknown_version_rejected_without_runtime_write(context, version):
+    service = context.make()
+    with pytest.raises(module.CoverageServiceError) as error:
+        service.cache("P1", "T1", "SNP-PL-UNIT", SMALL, engine_version=version)
+    assert error.value.code == 1001 and not service.root.exists()
 
 
 def test_rx_bandwidth_local_owner_write_shared_read_and_revocation(local_cache):

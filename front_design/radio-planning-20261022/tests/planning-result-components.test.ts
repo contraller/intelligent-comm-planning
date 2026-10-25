@@ -1,10 +1,19 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as Vue from 'vue';
 import { createRenderer, h, nextTick, ssrContextKey, toRaw, type App, type Slots } from 'vue';
 import { createPinia, disposePinia, setActivePinia } from 'pinia';
 import { createRouter, createMemoryHistory, RouterView } from 'vue-router';
 import PlanningApiView from '../src/views/PlanningApiView.vue';
 import PlanningApiResultPanel from '../src/components/PlanningApiResultPanel.vue';
+import PlanningCandidatePanel from '../src/components/PlanningCandidatePanel.vue';
+import PlanningHistoryDrawer from '../src/components/PlanningHistoryDrawer.vue';
+import DeploymentConstraintsSummary from '../src/components/DeploymentConstraintsSummary.vue';
+import PlanningOptionsSummary from '../src/components/PlanningOptionsSummary.vue';
+import PlanningSolutionsPanel from '../src/components/PlanningSolutionsPanel.vue';
+import FrozenCoveragePanel from '../src/components/FrozenCoveragePanel.vue';
+import FrozenCoverageBandwidthEditor from '../src/components/FrozenCoverageBandwidthEditor.vue';
+import PlanningAdjustmentDrawer from '../src/components/PlanningAdjustmentDrawer.vue';
+import PlanningAdjustmentPreview from '../src/components/PlanningAdjustmentPreview.vue';
 import AppTable from '../src/components/AppTable.vue';
 import { usePlanningApiStore } from '../src/stores/planning-api';
 import { useTaskInputStore } from '../src/stores/task-input';
@@ -42,6 +51,11 @@ vi.mock('../src/components/PlanComparisonPanel.vue', () => ({ default: { inherit
 
 vi.mock('../src/components/PlanningApiVersionsPanel.vue', () => ({ default: { render: () => null } }));
 vi.mock('../src/components/ResourceReadStatus.vue', () => ({ default: { render: () => null } }));
+// 本文件只注入Mock规划服务；冻结覆盖保留真实未接入状态，不访问外部HTTP。
+vi.mock('../src/services/http', async original => {
+  const actual = await original<typeof import('../src/services/http')>();
+  return { ...actual, collaborationHttp: { ...actual.collaborationHttp, frozenCoverage: undefined } };
+});
 
 
 interface HostNode {
@@ -77,9 +91,27 @@ async function click(root: HostNode, label: string) {
 }
 
 
-await Promise.all([clientTemplate(PlanningApiView, 'src/views/PlanningApiView.vue', 'coverage-render.ts'), clientTemplate(PlanningApiResultPanel, 'src/components/PlanningApiResultPanel.vue', 'coverage-render.ts'), clientTemplate(AppTable, 'src/components/AppTable.vue', 'coverage-render.ts')]);
+const templates = [
+  [PlanningApiView, 'src/views/PlanningApiView.vue'],
+  [PlanningApiResultPanel, 'src/components/PlanningApiResultPanel.vue'],
+  [AppTable, 'src/components/AppTable.vue'],
+  [PlanningCandidatePanel, 'src/components/PlanningCandidatePanel.vue'],
+  [PlanningHistoryDrawer, 'src/components/PlanningHistoryDrawer.vue'],
+  [DeploymentConstraintsSummary, 'src/components/DeploymentConstraintsSummary.vue'],
+  [PlanningOptionsSummary, 'src/components/PlanningOptionsSummary.vue'],
+  [PlanningSolutionsPanel, 'src/components/PlanningSolutionsPanel.vue'],
+  [FrozenCoveragePanel, 'src/components/FrozenCoveragePanel.vue'],
+  [FrozenCoverageBandwidthEditor, 'src/components/FrozenCoverageBandwidthEditor.vue'],
+  [PlanningAdjustmentDrawer, 'src/components/PlanningAdjustmentDrawer.vue'],
+  [PlanningAdjustmentPreview, 'src/components/PlanningAdjustmentPreview.vue'],
+] as const;
+for (const [component, filename] of templates) await clientTemplate(component, filename, 'coverage-render.ts');
 let app: App<HostNode> | undefined, pinia: ReturnType<typeof createPinia> | undefined;
-afterEach(() => { app?.unmount(); app = undefined; if (pinia) disposePinia(pinia); pinia = undefined; vi.restoreAllMocks(); vi.unstubAllGlobals(); });
+let mountStage = '未开始', mountState: () => unknown = () => null;
+afterEach(({ task }) => {
+  if (task.result?.state === 'fail') console.error('[R4D_HOST_FAILURE]', mountStage, mountState());
+  app?.unmount(); app = undefined; if (pinia) disposePinia(pinia); pinia = undefined; vi.restoreAllMocks(); vi.unstubAllGlobals();
+});
 const map = (root: HostNode) => find(root, row => row.tag === 'map-probe')!;
 const table = (root: HostNode, id: string) => find(root, row => row.tag === 'table-probe' && (row.props.value as { id: string }[]).some(item => item.id === id))!;
 async function select(root: HostNode, id: string) {
@@ -87,7 +119,10 @@ async function select(root: HostNode, id: string) {
   (target.props.select as (row: unknown) => void)((target.props.value as { id: string }[]).find(row => row.id === id)); await nextTick();
 }
 async function mountPlanning(presetId = 'balanced') {
-  vi.stubGlobal('window', new EventTarget()); vi.stubGlobal('document', { activeElement: null });
+  mountStage = '准备服务夹具';
+  vi.stubGlobal('window', new EventTarget());
+  class TestDocument extends EventTarget { hidden = false; activeElement = null; }
+  vi.stubGlobal('Document', TestDocument);vi.stubGlobal('document', new TestDocument());vi.stubGlobal('ShadowRoot', class {});
   pinia = createPinia(); setActivePinia(pinia); const auth = authorizeStore();
   const storage = new TestStorage(), raw = createMockService(() => storage);let time=Date.parse('2026-10-03T00:00:00Z');vi.spyOn(Date,'now').mockImplementation(()=>time);
   for(const [name,method] of Object.entries(raw))if(typeof method==='function')vi.spyOn(previewService as any,name).mockImplementation(method);
@@ -95,20 +130,42 @@ async function mountPlanning(presetId = 'balanced') {
   const submitted=await raw.submitPlanning(await savedRequest(storage,{baseRevision:'initial',requestId:'submit',taskId:null,parentPlanVersionId:null,input:structuredClone(preset.input)}));time+=20000;
   const saved=await raw.savePlanVersion({baseRevision:submitted.workspace.revision,jobId:submitted.view.job.id,requestId:'save',name:'联动测试方案',note:''});
   const preview=usePreviewStore();await preview.load();const resources=useResourceReadStore();await resources.activate('planning');
-  const task=useTaskInputStore();await task.initialize('planning');await task.open(saved.plan.taskId,false);
+  const task=useTaskInputStore();await task.initialize('planning');expect(await task.open(saved.plan.taskId,false),task.error).toBe(true);
   vi.spyOn(resources,'activate').mockResolvedValue(true);vi.spyOn(task,'initialize').mockResolvedValue();
-  const planning=usePlanningApiStore();const started=vi.spyOn(planning,'start').mockImplementation(()=>{});await nextTick();
-  planning.selectedPlan=await raw.getPlanningPlan({context:'planning',taskId:task.taskId,planId:saved.plan.id});planning.step=2;
+  const planning=usePlanningApiStore();await planning.refreshJob(submitted.view.job.id);
+  mountState = () => ({ taskId: task.taskId, savedTaskId: task.saved?.taskId, planId: planning.selectedPlan?.id,
+    feedback: planning.feedback, queryFeedback: planning.queryFeedback, readable: task.readable, busy: planning.busy });
+  let complete!: () => void, fail!: (reason: unknown) => void;
+  const initialized = new Promise<void>((resolve, reject) => { complete = resolve;fail = reject; });
+  // 等待页面真实恢复流程完成，不用独立轮询超时掩盖onMounted中的错误。
+  const started=vi.spyOn(planning,'start').mockImplementation(() => { mountStage = '页面初始化完成';complete(); });
+  const selectPlan = planning.selectPlan;
+  vi.spyOn(planning, 'selectPlan').mockImplementation(async (...args) => {
+    mountStage = '恢复保存方案';const selected = await selectPlan(...args);mountStage = '保存方案已读取';return selected;
+  });
   const router = createRouter({ history: createMemoryHistory(), routes: [{ path: '/planning', component: PlanningApiView }] });
-  await router.push('/planning?taskId='+task.taskId); await router.isReady();
   app = renderer.createApp({ render: () => h(RouterView) }); app.use(pinia); app.use(router); app.provide(ssrContextKey, {});
-  const root = node('root'); app.mount(root); await vi.waitFor(()=>expect(started).toHaveBeenCalled());await nextTick();
+  app.config.errorHandler = reason => { fail(reason);throw reason; };
+  mountStage = '初始路由';await router.push({ path: '/planning', query: { taskId: task.taskId, planId: saved.plan.id } });await router.isReady();
+  const root = node('root');mountStage = '页面挂载';app.mount(root);await initialized;await nextTick();
+  expect(started).toHaveBeenCalled();expect(planning.selectedPlan?.id).toBe(saved.plan.id);expect(planning.step).toBe(2);
   return { root, planning, task, preview, auth, storage, raw, writes: storage.writes, jobId: submitted.view.job.id };
 }
 
 describe('规划页面实际模板联动', () => {
-  it('正式配置抽屉读取独立服务配置，产物缺失后关闭且不能借用规划配置重开', async () => {
-    const s = await mountPlanning(), plan = structuredClone(toRaw(s.planning.selectedPlan!));
+  // 按既有R2原生fixture模式准备页面，交互断言仍使用默认5秒预算。
+  const pageIt = it.extend<{ page: Awaited<ReturnType<typeof mountPlanning>> }>({
+    page: [async ({}, use) => { await use(await mountPlanning()); }, { auto: true }],
+  });
+  const constrainedIt = it.extend<{ page: Awaited<ReturnType<typeof mountPlanning>> }>({
+    page: [async ({}, use) => { await use(await mountPlanning('constrained')); }, { auto: true }],
+  });
+  // 在准备钩子请求fixture；runner把test内首次解析fixture也计入默认5秒。
+  beforeEach<{ page: Awaited<ReturnType<typeof mountPlanning>> }>(({ page }) => {
+    mountStage = '交互断言';expect(page.planning.result).not.toBeNull();
+  });
+  pageIt('正式配置抽屉读取独立服务配置，产物缺失后关闭且不能借用规划配置重开', async ({ page: s }) => {
+    const plan = structuredClone(toRaw(s.planning.selectedPlan!));
     app!.unmount();
     const confirmed = Vue.ref<import('../src/types/planning-api').PlanningConfirmedConfiguration | null>({ sourcePlanId: plan.id, sourcePlanVersion: plan.version, sourceSnapshotId: plan.result.snapshotId, confirmedAt: '2026-10-21T01:00:00Z', configuration: structuredClone(plan.result.configuration) });
     confirmed.value!.configuration.devices[0].txPowerDbm = 0;
@@ -122,8 +179,8 @@ describe('规划页面实际模板联动', () => {
     confirmed.value = null;await nextTick();expect(find(root, row => row.tag === 'aside')).toBeUndefined();
     panel.value!.openConfiguration('confirmed-owner', 'confirmed');await nextTick();expect(find(root, row => row.tag === 'aside')).toBeUndefined();
   });
-  it('部署数量只取当前对象，保留零值且不借用其他结果的数量', async () => {
-    const s=await mountPlanning(),plan=s.planning.selectedPlan!;
+  pageIt('部署数量只取当前对象，保留零值且不借用其他结果的数量', async ({ page: s }) => {
+    const plan=s.planning.selectedPlan!;
     s.planning.job!.solutions=[{solutionId:'another-result',label:'另一结果',radioCount:7,result:plan.result,outcome:plan.outcome,savedPlanId:null,expired:false}];s.planning.selectedSolutionId='another-result';
     plan.radioCount=0;await nextTick();
     const summary=()=>textOf(find(s.root,row=>row.props['aria-label']==='新增部署单元数')!);
@@ -132,14 +189,82 @@ describe('规划页面实际模板联动', () => {
     s.planning.selectedPlan=null;await nextTick();expect(summary()).toBe('新增部署单元数：7');
     delete s.planning.job!.solutions;await nextTick();expect(summary()).toBe('新增部署单元数：未提供');
   });
-  it('覆盖说明明确热力和边界含义，显示方式仍联动同一地图', async () => {
-    const s=await mountPlanning();await click(s.root,'覆盖与场强');
+  pageIt('部署页直接展示实际请求数量、缺口和证明状态，未知不借旧数量补值', async ({ page: s }) => {
+    const plan = s.planning.selectedPlan!, details = plan.result.resultDetails!;
+    plan.radioCount = 99;
+    details.deploymentSummary = { mode: 'FIXED_COUNT', requestedCount: 5, actualCount: 3,
+      requestedSolutionCount: 2, returnedSolutionCount: 1, countSatisfied: false,
+      shortfallReasons: ['符合条件的候选不足'], forcedSiteIds: ['SITE-FORCED'], lowerBound: 2, provedOptimal: false };
+    await nextTick();
+    const summary = () => textOf(find(s.root, row => row.props['aria-label'] === '部署求解摘要')!);
+    expect(summary()).toContain('新增部署单元（实际 / 请求）：3 / 5');
+    expect(summary()).toContain('完整结果份数（实际 / 请求）：1 / 2');
+    expect(summary()).toContain('数量条件：未满足');
+    expect(summary()).toContain('数量下界：2');expect(summary()).toContain('未证明最优');
+    expect(summary()).toContain('符合条件的候选不足');expect(summary()).toContain('SITE-FORCED');
+    const count = () => textOf(find(s.root, row => row.props['aria-label'] === '新增部署单元数')!);
+    expect(count()).toBe('新增部署单元数：3');
+    Object.assign(details.deploymentSummary, { mode: 'MIN_COUNT', actualCount: 0, requestedCount: null,
+      returnedSolutionCount: 0, countSatisfied: true, lowerBound: 0, provedOptimal: true, shortfallReasons: [], forcedSiteIds: [] });
+    await nextTick();expect(summary()).toContain('求解模式：最少数量');
+    expect(summary()).toContain('新增部署单元（实际 / 请求）：0 / 未提供');
+    expect(summary()).toContain('数量条件：满足');expect(summary()).toContain('最优性证明：已证明最优');
+    Object.assign(details.deploymentSummary, { actualCount: null, provedOptimal: null });await nextTick();
+    expect(count()).toBe('新增部署单元数：未提供');expect(summary()).toContain('最优性证明：未提供');
+    delete details.deploymentSummary;await nextTick();
+    expect(summary()).toContain('新增部署单元（实际 / 请求）：未提供 / 未提供');
+    expect(count()).toBe('新增部署单元数：99');expect(s.storage.writes).toBe(s.writes);
+  });
+  pageIt('参考方案直接显示本方案outcome原因，换方案后不残留旧原因', async ({ page: s }) => {
+    const plan = s.planning.selectedPlan!;
+    plan.state = 'REFERENCE';plan.outcome = { code: 3001, message: '指定部署数量未满足',
+      gap: [{ objectId: 'TASK-REF', field: 'deploymentSolve.fixedCount', message: '仅找到3个合法候选' }], suggestions: ['核对筛选条件'] };
+    s.planning.job!.outcome = { code: 3001, message: '另一作业原因', gap: [], suggestions: [] };
+    await nextTick();
+    const reason = find(s.root, row => row.props['aria-label'] === '当前方案服务结论')!;
+    expect(textOf(reason)).toContain('指定部署数量未满足');expect(textOf(reason)).toContain('仅找到3个合法候选');
+    expect(textOf(reason)).toContain('核对筛选条件');expect(textOf(reason)).not.toContain('另一作业原因');
+    expect(textOf(reason)).not.toContain('读取方案失败');
+    const next = structuredClone(toRaw(plan));next.id = 'next-plan';next.state = 'SAVED';
+    next.outcome = { code: 0, message: '规划完成', gap: [], suggestions: [] };
+    s.planning.selectedPlan = next;await nextTick();
+    expect(find(s.root, row => row.props['aria-label'] === '当前方案服务结论')).toBeUndefined();
+    expect(textOf(s.root)).not.toContain('仅找到3个合法候选');
+  });
+  pageIt('未知规划坐标和候选限制如实展示，缺少覆盖轮廓不补零', async ({ page: s }) => {
+    const plan = s.planning.selectedPlan!;
+    const row = plan.result.configuration.deployment[0];delete row.plannedCoordinate;
+    await nextTick();const probe = table(s.root, row.stationId);
+    (probe.props.expand as (id: string) => void)(row.stationId);await nextTick();
+    expect(textOf(s.root)).toContain('未提供规划坐标');expect(textOf(s.root)).not.toContain('沿用输入位置');
+    expect(textOf(s.root)).not.toContain('候选数据限制');
+    expect(find(s.root, row => row.props['aria-label'] === '候选数据来源')).toBeUndefined();
+    const sources = () => textOf(find(s.root, row => row.props['aria-label'] === '候选数据来源')!);
+    plan.result.resultDetails!.candidateScreening!.dataSources = ['冻结候选表（来源待确认）', '道路：roads_taihang.geojson.gz；250m距离栅格近似，通行条件待确认'];await nextTick();
+    expect(sources()).toContain('冻结候选表（来源待确认）；道路：roads_taihang.geojson.gz；250m距离栅格近似，通行条件待确认');
+    plan.result.resultDetails!.candidateScreening!.dataSources = null;await nextTick();
+    expect(sources()).toContain('候选数据来源：未提供');
+    plan.result.resultDetails!.candidateScreening!.dataSources = [];await nextTick();
+    expect(sources()).toContain('服务未列出数据来源');
+    delete plan.result.resultDetails!.candidateScreening!.dataSources;await nextTick();
+    expect(find(s.root, row => row.props['aria-label'] === '候选数据来源')).toBeUndefined();
+    plan.result.resultDetails!.candidateScreening!.unavailableReasons = ['未提供通视资料'];await nextTick();
+    expect(textOf(s.root)).toContain('候选数据限制：未提供通视资料');
+    plan.result.resultDetails!.candidateScreening!.unavailableReasons = null;await nextTick();
+    expect(textOf(s.root)).toContain('候选数据限制：未提供');
+    plan.result.coverage.contour = null;await click(s.root, '覆盖与场强');
+    expect(textOf(s.root)).toContain('覆盖轮廓数量：未提供');expect(textOf(s.root)).not.toContain('0 个覆盖轮廓');
+    plan.result.coverage.contour = { type: 'FeatureCollection', features: [] };await nextTick();
+    expect(textOf(s.root)).toContain('覆盖轮廓数量：0');
+  });
+  pageIt('覆盖说明明确热力和边界含义，显示方式仍联动同一地图', async ({ page: s }) => {
+    await click(s.root,'覆盖与场强');
     const selector=find(s.root,row=>row.props['aria-label']==='覆盖显示方式')!,body=selector.parent!.parent!;
     expect(textOf(body)).toContain('场强热力图以颜色呈现场强空间分布');expect(textOf(body)).toContain('dBμV/m');expect(textOf(body)).toContain('覆盖轮廓显示已提供的覆盖边界');expect(textOf(body)).not.toContain('PNG');
     (selector.props.onChange as Function)({target:{value:'raster'}});await nextTick();expect(map(s.root).props.coverageDisplay).toBe('raster');
   });
-  it('配置查看随方案切换和失去查看权限关闭，重开读取当前冻结结果', async () => {
-    const s=await mountPlanning();await click(s.root,'查看完整配置');expect(find(s.root,row=>row.tag==='aside')).toBeDefined();
+  pageIt('配置查看随方案切换和失去查看权限关闭，重开读取当前冻结结果', async ({ page: s }) => {
+    await click(s.root,'查看完整配置');expect(find(s.root,row=>row.tag==='aside')).toBeDefined();
     const next=structuredClone(toRaw(s.planning.selectedPlan!));next.id='configuration-next';next.version='V9';next.result.configuration.devices[0].txPowerDbm=12;
     s.planning.selectedPlan=next;await nextTick();expect(find(s.root,row=>row.tag==='aside')).toBeUndefined();
     await click(s.root,'查看完整配置');
@@ -149,8 +274,8 @@ describe('规划页面实际模板联动', () => {
     const entry=find(s.root,row=>row.tag==='button'&&textOf(row).trim()==='查看完整配置')!;expect(entry.props.disabled).toBe(true);
     (entry.props.onClick as Function)();await nextTick();expect(find(s.root,row=>row.tag==='aside')).toBeUndefined();
   });
-  it('切换及切回页签都只将明细回顶，保留整页滚动位置', async () => {
-    const s=await mountPlanning(), scroll=find(s.root,row=>row.props.class==='result-scroll')!;
+  pageIt('切换及切回页签都只将明细回顶，保留整页滚动位置', async ({ page: s }) => {
+    const scroll=find(s.root,row=>row.props.class==='result-scroll')!;
     s.root.scrollTop=88;scroll.scrollTop=720;
     await click(s.root,'路由路径');expect(scroll.scrollTop).toBe(0);expect(s.root.scrollTop).toBe(88);
     scroll.scrollTop=240;await click(s.root,'频率分配');expect(scroll.scrollTop).toBe(0);
@@ -159,8 +284,8 @@ describe('规划页面实际模板联动', () => {
     expect(candidates).toHaveLength(0);await click(s.root,'部署点位');
     expect(all(s.root,row=>row.tag==='details'&&textOf(row).includes('候选筛选与依据'))[0].props.open).not.toBe(true);
   });
-  it('备用路由整条高亮且行选中，链路行改用双端定位，地图点击替换选择', async () => {
-    const s = await mountPlanning(), before = JSON.stringify(s.preview.data);await click(s.root,'路由路径');
+  pageIt('备用路由整条高亮且行选中，链路行改用双端定位，地图点击替换选择', async ({ page: s }) => {
+    const before = JSON.stringify(s.preview.data);await click(s.root,'路由路径');
     await select(s.root, 'ROUTE-3');
     expect(map(s.root).props).toMatchObject({ selectedId: 'ND-0001', selectedLinkId: '', highlightLinkIds: ['LINK-B', 'LINK-C'], highlightStationIds: ['ND-0001', 'ND-0004', 'ND-0003'] });
     expect(table(s.root, 'ROUTE-3').props.selection).toMatchObject({ id: 'ROUTE-3' });
@@ -172,8 +297,8 @@ describe('规划页面实际模板联动', () => {
     expect(table(s.root, 'LINK-C').props.selection).toBeNull();
     expect(JSON.stringify(s.preview.data)).toBe(before); expect(s.storage.writes).toBe(s.writes);
   });
-  it('切换页签、清除选择恢复默认范围；覆盖偏好和冻结结果保持', async () => {
-    const s = await mountPlanning();await click(s.root,'路由路径');
+  pageIt('切换页签、清除选择恢复默认范围；覆盖偏好和冻结结果保持', async ({ page: s }) => {
+    await click(s.root,'路由路径');
     await select(s.root, 'ROUTE-3'); await click(s.root, '设备参数');
     expect((map(s.root).props.highlightStationIds as string[]).length).toBeGreaterThan(0);
     await select(s.root, 'DV-0001');
@@ -189,8 +314,8 @@ describe('规划页面实际模板联动', () => {
     expect(map(s.root).props).toMatchObject({ coverageDisplay: 'contour', showCoverage: true, selectedId: '', selectedLinkId: '' });
     expect(s.storage.writes).toBe(s.writes);
   });
-  it('部署定位采用保存输出坐标，不读取当前资源的新坐标', async () => {
-    const s = await mountPlanning(), plan = s.planning.selectedPlan!;
+  pageIt('部署定位采用保存输出坐标，不读取当前资源的新坐标', async ({ page: s }) => {
+    const plan = s.planning.selectedPlan!;
     plan.result.configuration.deployment[0].plannedCoordinate = [114.8, 37.8];
     s.preview.data!.resources.stations.find(row => row.id === 'ND-0001')!.coordinate = [120, 30];
     await click(s.root, '部署点位'); await select(s.root, 'ND-0001');
@@ -198,8 +323,8 @@ describe('规划页面实际模板联动', () => {
     expect((map(s.root).props.planningOverlay as {nodes:{id:string;coordinate:number[]}[]}).nodes.find(row => row.id === 'ND-0001')!.coordinate).toEqual([114.8, 37.8]);
     expect(plan.result.nodes.find(row => row.id === 'ND-0001')!.coordinate).not.toEqual([114.8, 37.8]);
   });
-  it('频率池和分配行按明确 ID 关联；无关系和不完整关联不保留上次高亮', async () => {
-    const s = await mountPlanning(), plan = s.planning.selectedPlan!, configuration = plan.result.configuration;
+  pageIt('频率池和分配行按明确 ID 关联；无关系和不完整关联不保留上次高亮', async ({ page: s }) => {
+    const plan = s.planning.selectedPlan!, configuration = plan.result.configuration;
     plan.result.resultDetails!.frequencyAssignments = plan.result.resultDetails!.frequencyAssignments!.filter(row => row.linkId === 'LINK-A');
     const assignment = plan.result.resultDetails!.frequencyAssignments![0];
     await click(s.root, '频率分配'); await select(s.root, 'hf-full');
@@ -215,8 +340,8 @@ describe('规划页面实际模板联动', () => {
     expect(map(s.root).props.highlightLinkIds).toEqual([]);
     expect(textOf(s.root)).toContain('所选结果关联不完整');
   });
-  it('复用表格实例收到旧频率行时不串版本，失效关系清除后保留提示', async () => {
-    const s = await mountPlanning(); await click(s.root, '频率分配');
+  pageIt('复用表格实例收到旧频率行时不串版本，失效关系清除后保留提示', async ({ page: s }) => {
+    await click(s.root, '频率分配');
     const assignment = s.planning.selectedPlan!.result.resultDetails!.frequencyAssignments![0], oldTable = table(s.root, assignment.id), oldRow = (oldTable.props.value as { id: string }[]).find(row => row.id === assignment.id)!;
     await select(s.root, assignment.id);
     const copy = structuredClone(toRaw(s.planning.selectedPlan!)); copy.id = 'new-frequency-owner'; vi.mocked(previewService.getPlanningPlan).mockResolvedValue(copy);
@@ -229,8 +354,8 @@ describe('规划页面实际模板联动', () => {
     expect(table(s.root, assignment.id).props.selection).toBeNull(); expect(map(s.root).props.highlightLinkIds).toEqual([]);
     expect(textOf(s.root)).toContain('关联不完整');
   });
-  it('参数路由明细保留零值与否值，旧版仍保留核心结果并提示缺省', async () => {
-    const s = await mountPlanning(), details = s.planning.selectedPlan!.result.resultDetails!;await click(s.root,'路由路径');
+  pageIt('参数路由明细保留零值与否值，旧版仍保留核心结果并提示缺省', async ({ page: s }) => {
+    const details = s.planning.selectedPlan!.result.resultDetails!;await click(s.root,'路由路径');
     const route = details.routeQuality![0]; route.hopCount = 0; route.reliability = 0; route.isFeasible = false;
     await nextTick();
     const rows = table(s.root, route.routeId).props.value as Record<string, unknown>[];
@@ -243,8 +368,8 @@ describe('规划页面实际模板联动', () => {
     await click(s.root, '频率分配'); await select(s.root, 'hf-full');
     expect(map(s.root).props.highlightLinkIds).toEqual([]); expect(textOf(s.root)).toContain('未提供明确分配关系');
   });
-  it('第三步配置快照展示同一冻结明细及空集合，未读取当前输入补值', async () => {
-    const s = await mountPlanning(), details = s.planning.selectedPlan!.result.resultDetails!;
+  pageIt('第三步配置快照展示同一冻结明细及空集合，未读取当前输入补值', async ({ page: s }) => {
+    const details = s.planning.selectedPlan!.result.resultDetails!;
     details.frequencyConflicts = []; details.frequencyGap = { requiredChannels: 353, availableChannels: 48, shortage: 0 }; details.conflictFree = true;
     details.routeQuality = []; s.task.draft!.demands[0].minReliability = 0.123;
     s.planning.step = 3; await nextTick(); await click(s.root, '查看完整配置');
@@ -259,8 +384,8 @@ describe('规划页面实际模板联动', () => {
     expect((table(s.root,assignment.id).props.value as Record<string,unknown>[])[0]).toMatchObject({linkId:assignment.linkId,frequencyKhz:assignment.frequencyKhz});
     expect(s.storage.writes).toBe(s.writes);
   });
-  it('取消版本切换保留选择，实际换版即使复用快照和对象 ID 也清除', async () => {
-    const s = await mountPlanning();await click(s.root,'路由路径'); await select(s.root, 'ROUTE-3');
+  pageIt('取消版本切换保留选择，实际换版即使复用快照和对象 ID 也清除', async ({ page: s }) => {
+    await click(s.root,'路由路径'); await select(s.root, 'ROUTE-3');
     const copy = structuredClone(toRaw(s.planning.selectedPlan!)); copy.id = 'new-owner';
     vi.mocked(previewService.getPlanningPlan).mockResolvedValue(copy);await s.planning.openPlanAdjustment();
     s.planning.updateAdjustment({...structuredClone(toRaw(s.planning.adjustmentDraft!)),manualOverrides:[{deviceId:'DV-0001',txPowerDbm:33}]});
@@ -272,8 +397,8 @@ describe('规划页面实际模板联动', () => {
     expect(table(s.root, 'ROUTE-3').props.selection).toBeNull();
     expect(map(s.root).props.highlightLinkIds).toEqual(['LINK-A', 'LINK-B', 'LINK-C']);
   });
-  it('同版本重读保留选择，权限丢失立即清除并拒绝新事件', async () => {
-    const s = await mountPlanning();await click(s.root,'路由路径'); await select(s.root, 'ROUTE-3');
+  pageIt('同版本重读保留选择，权限丢失立即清除并拒绝新事件', async ({ page: s }) => {
+    await click(s.root,'路由路径'); await select(s.root, 'ROUTE-3');
     const copy = structuredClone(toRaw(s.planning.selectedPlan!));
     s.planning.selectedPlan=copy; await nextTick();
     expect(table(s.root, 'ROUTE-3').props.selection).toMatchObject({ id: 'ROUTE-3' });
@@ -282,8 +407,8 @@ describe('规划页面实际模板联动', () => {
     expect(table(s.root, 'ROUTE-3').props.selection).toBeNull();
     expect(map(s.root).props.highlightLinkIds).toEqual([]);
   });
-  it('输入地图与结果选择独立，历史快照保留节点链路回退表', async () => {
-    const s = await mountPlanning();await click(s.root,'路由路径'); await select(s.root, 'ROUTE-3');
+  pageIt('输入地图与结果选择独立，历史快照保留节点链路回退表', async ({ page: s }) => {
+    await click(s.root,'路由路径'); await select(s.root, 'ROUTE-3');
     s.planning.step = 1; await nextTick();
     (map(s.root).props.select as (id: string) => void)('ND-0004'); await nextTick();
     s.planning.step = 2; await nextTick();
@@ -298,8 +423,7 @@ describe('规划页面实际模板联动', () => {
     await click(s.root,'设备参数');const device=s.planning.selectedPlan!.result.configuration.devices[0];await select(s.root,device.deviceId);expect(map(s.root).props.selectedId).toBe(device.stationId);
 
   });
-  it('指标颜色和文字来自当前结果，参考方案的抗毁性明确未达标', async () => {
-    const s = await mountPlanning('constrained');
+  constrainedIt('指标颜色和文字来自当前结果，参考方案的抗毁性明确未达标', async ({ page: s }) => {
     const connectivity = find(s.root, row => row.tag === 'article' && textOf(row).includes('连通率'))!;
     const survival = find(s.root, row => row.tag === 'article' && textOf(row).includes('抗毁性'))!;
     const power = find(s.root, row => row.tag === 'article' && textOf(row).includes('总辐射功率'))!;
@@ -308,8 +432,8 @@ describe('规划页面实际模板联动', () => {
     expect(power.props.class).toContain('objective'); expect(textOf(power)).toContain('最小化目标');expect(textOf(power)).toContain('未提供单项达标结论');
     expect(textOf(power)).not.toContain('最优');
   });
-  it('路由主表关闭排序，辅助指标可展开且不改变地图选择', async () => {
-    const s=await mountPlanning(); await click(s.root,'路由路径');
+  pageIt('路由主表关闭排序，辅助指标可展开且不改变地图选择', async ({ page: s }) => {
+    await click(s.root,'路由路径');
     const route=s.planning.selectedPlan!.result.configuration.routes[0], probe=table(s.root,route.id);
     const columns=all(probe,row=>row.tag==='column-probe'&&!!row.props.field);
     expect(columns.map(row=>row.props.field)).toEqual(['demandId','path','isFeasible']);

@@ -4,6 +4,7 @@ from __future__ import annotations
 import hashlib
 import io
 import json
+import os
 import threading
 import uuid
 from datetime import datetime, timezone
@@ -69,8 +70,10 @@ def _source_changed(plan: PlanningPlan) -> bool:
     return plan.resource_revision != frontend_integration.resource_revision()
 
 
-def _dto(plan: PlanningPlan, current_plan_id: str | None = None) -> dict[str, Any]:
-    source_changed = _source_changed(plan)
+def _dto(plan: PlanningPlan, current_plan_id: str | None = None, *,
+         source_changed: bool | None = None) -> dict[str, Any]:
+    if source_changed is None:
+        source_changed = _source_changed(plan)
     data = {
         "plan_id": plan.plan_id,
         "task_id": plan.task_id,
@@ -103,8 +106,19 @@ def _current_plan_id(session: Session, task_id: str) -> str | None:
     return pointer.plan_id if pointer is not None else None
 
 
-def _plan_dto(session: Session, plan: PlanningPlan) -> dict[str, Any]:
-    return _dto(plan, _current_plan_id(session, plan.task_id))
+def _plan_dto(session: Session, plan: PlanningPlan, *, same_transaction_resource=False) -> dict[str, Any]:
+    changed = None
+    if same_transaction_resource:
+        from .resource_dataset_models import ResourceDatasetCurrent, ResourceDatasetVersion
+        dataset = frontend_integration.resource_dataset
+        # 大快照flush可能持SQLite排他锁，后台不能另开连接读当前资源而等待自己。
+        # 沿原事务完整解码/校验，仍拒绝坏指针、摘要或资源，不用跨请求缓存。
+        pointer = session.get(ResourceDatasetCurrent, dataset.SCOPE)
+        row = session.get(ResourceDatasetVersion, pointer.revision) if pointer is not None else None
+        if pointer is not None and row is None:
+            raise dataset.ResourceDatasetError("当前资源指针引用的快照不存在")
+        changed = plan.resource_revision != dataset._decode(row)["revision"]
+    return _dto(plan, _current_plan_id(session, plan.task_id), source_changed=changed)
 
 
 def _replay(session: Session, request_id: str,
@@ -148,31 +162,146 @@ def _job_result(payload: PlanningPlanSaveRequest,
     return data
 
 
+def _interference_save_proof(session, payload, request):
+    """后台只消费数据库已受理的采纳授权，不创建会话或放宽HTTP身份门禁。"""
+    from .interference_analysis_engine import digest as canonical_digest
+    from .interference_replan_service import InterferenceReplanService
+    from .interference_workbench_models import InterferenceWorkbenchAdoption, InterferenceWorkbenchOperation
+    from .interference_workbench_service import InterferenceWorkbenchService
+    from .system_management_models import LocalAccount, LocalRole
+
+    required = {"adoption_id", "planning_request_id", "planning_job_id", "actor_id", "task_id",
+                "source", "measure", "change_set", "interference_origin"}
+    if type(request) is not dict or not required.issubset(request):
+        raise PlanningPlanError(1203, "后台保存缺少完整采纳授权", 409)
+    row = session.get(InterferenceWorkbenchAdoption, request["adoption_id"])
+    if row is None or row.task_id != request["task_id"] or row.state not in (
+            "PENDING", "RUNNING", "CANCEL_REQUESTED", "SUCCESS"):
+        raise PlanningPlanError(1203, "后台保存没有可用的已受理采纳", 409)
+    run = InterferenceWorkbenchService._run(session, row.run_id, row.task_id)
+    origin = InterferenceReplanService.origin(row)
+    measure = next((item for item in (run.result_snapshot or {}).get("measures", [])
+                    if item["measure_id"] == row.measure_id), None)
+    if (run.state != "SUCCESS" or row.source_hash != run.source_hash
+            or row.change_hash != canonical_digest(row.change_set)
+            or measure is None or not measure["available"] or measure["change_set"] != row.change_set
+            or request["planning_request_id"] != row.planning_request_id
+            or request["planning_job_id"] != row.planning_job_id or request["actor_id"] != row.actor_id
+            or request["source"] != run.source_snapshot or request["measure"] != measure
+            or request["change_set"] != row.change_set or request["interference_origin"] != origin):
+        raise PlanningPlanError(1203, "后台保存与已受理来源或措施不一致", 409)
+    validator = InterferenceReplanService(None)
+    job = validator._job(session, row, run, request["planning_job_id"])
+    expected = PlanningPlanSaveRequest(context="planning", request_id="interference-save-" + row.adoption_id,
+        task_id=job.task_id, expected_revision=job.revision_id, job_id=job.job_id,
+        name="干扰措施重算 " + measure["type"], note="冻结场景算法预测；非实测。来源采纳：" + row.adoption_id)
+    if job.status != "SUCCESS" or payload.model_dump() != expected.model_dump():
+        raise PlanningPlanError(1203, "后台保存不属于该成功子作业的固定请求", 409)
+    # 不可变回执是授权来源；仅接受创建此采纳的原受理人及changed=true原件。
+    accepted = []
+    operations = session.scalars(select(InterferenceWorkbenchOperation).where(
+        InterferenceWorkbenchOperation.operation == "ADOPT_MEASURE",
+        InterferenceWorkbenchOperation.object_id == row.adoption_id,
+        InterferenceWorkbenchOperation.actor_id == row.actor_id)).all()
+    for operation in operations:
+        receipt = InterferenceWorkbenchService._operation_dto(operation)
+        if receipt.get("changed") is True:
+            accepted.append(receipt)
+    if (len(accepted) != 1 or accepted[0].get("task_id") != row.task_id
+            or accepted[0].get("status") != "ACCEPTED" or accepted[0].get("object_type") != "ADOPTION"
+            or accepted[0].get("source_hash") != row.source_hash
+            or accepted[0].get("adoption_id") != row.adoption_id
+            or accepted[0].get("planning_request_id") != row.planning_request_id):
+        raise PlanningPlanError(1203, "后台保存缺少唯一不可变采纳受理证明", 409)
+    snapshot = None
+    if os.environ.get("AUTH_MODE") == "LOCAL_PASSWORD":
+        account = session.get(LocalAccount, row.actor_id, populate_existing=True)
+        role = session.get(LocalRole, account.role_id, populate_existing=True) if account is not None else None
+        permissions = {"planning.view", "situation.view", "planning.execute", "planning.save"}
+        if account is None or not account.enabled or role is None or not permissions.issubset(role.permissions):
+            raise PlanningPlanError(1104, "采纳受理人的当前账号或保存权限不可用", 403)
+        snapshot = {"id": account.id, "name": account.name, "roleId": role.id, "roleName": role.name}
+    return row, run, validator, snapshot, accepted[0]["request_id"]
+
+
+def _check_interference_saved(session, payload, proof, plan, *, replay=False):
+    from .interference_analysis_engine import digest as canonical_digest
+    from .system_audit_service import append_system_audit
+    from .system_management_models import SystemAuditEvent
+    row, run, validator, snapshot, accepted_request_id = proof
+    expected_digest = canonical_digest({"operation": "interference.plan.save", "body": _digest(payload),
+        "origin": validator.origin(row)})
+    if plan.request_id != payload.request_id or plan.request_digest != expected_digest:
+        raise PlanningPlanError(1204, "后台保存的原请求摘要不一致", 409)
+    validator._plan(session, row, run, plan.plan_id, accepting=True)
+    if row.state == "SUCCESS" and row.result_plan_id != plan.plan_id:
+        raise PlanningPlanError(1203, "已完成采纳的子方案绑定不一致", 409)
+    if snapshot is None:
+        return
+    changes = {"adoption_id": row.adoption_id, "run_id": row.run_id,
+        "accepted_request_id": accepted_request_id, "job_id": plan.job_id,
+        "parent_plan_id": run.plan_id, "task_id": plan.task_id, "revision_id": plan.revision_id}
+    if replay:
+        events = session.scalars(select(SystemAuditEvent).where(
+            SystemAuditEvent.action == "interference.plan.save", SystemAuditEvent.request_id == payload.request_id,
+            SystemAuditEvent.object_id == plan.plan_id)).all()
+        if (len(events) != 1 or events[0].actor != snapshot or events[0].changes != changes
+                or events[0].module != "interference" or events[0].outcome != "SUCCESS"):
+            raise PlanningPlanError(5002, "后台保存的原子审计证明不一致", 503)
+    else:
+        # 独立后台动作不冒充当前登录请求的plan.save归属证明；审计与方案同事务。
+        append_system_audit(session, None, now=int(datetime.now(timezone.utc).timestamp()),
+            action="interference.plan.save", module="interference", snapshot=snapshot,
+            object_id=plan.plan_id, request_id=payload.request_id, changes=changes,
+            summary="已受理干扰采纳的子方案已保存；未自动转正或下发")
+
+
 def save_planning_plan(payload: PlanningPlanSaveRequest,
                        factory: sessionmaker[Session] | None = None, *,
-                       audit_context: LocalBusinessContext | None = None
+                       audit_context: LocalBusinessContext | None = None,
+                       _interference_request: dict | None = None, _runtime_root=None
                        ) -> dict[str, Any]:
-    owner = _business_context(audit_context)
     factory = factory or get_session_factory()
+    worker = _interference_request is not None
+    if worker:
+        if type(_interference_request) is not dict or audit_context is not None:
+            raise PlanningPlanError(1203, "后台采纳授权不能混入交互会话", 409)
+        planning_job_service.validate_interference_runtime(factory, _runtime_root)
+        owner = None
+    else:
+        owner = _business_context(audit_context)
     digest = _digest(payload)
+    if worker:
+        from .interference_analysis_engine import digest as canonical_digest
+        digest = canonical_digest({"operation": "interference.plan.save", "body": digest,
+            "origin": _interference_request.get("interference_origin")})
     if owner is not None:
         digest = owner.digest(digest, operation="plan.save")
     with factory() as session, session.begin():
+        proof = _interference_save_proof(session, payload, _interference_request) if worker else None
         if owner is not None:
             owner.prepare(session, "planning.save")
         replay = _replay(session, payload.request_id, digest, owner)
         if replay is not None:
-            return _plan_dto(session, replay)
+            if worker:
+                _check_interference_saved(session, payload, proof, replay, replay=True)
+            return _plan_dto(session, replay, same_transaction_resource=worker)
 
     job_data = _job_result(payload, factory)
     raw_snapshot = planning_adjustment_service.capture_raw_snapshot(job_data["result"])
     now = datetime.now(timezone.utc)
     try:
         with _SAVE_LOCK, factory() as session, session.begin():
+            if worker:
+                # 该后台入口已限定SQLite隔离库；冻结授权复核至方案/审计一起提交。
+                session.connection().exec_driver_sql("BEGIN IMMEDIATE")
+            proof = _interference_save_proof(session, payload, _interference_request) if worker else None
             prepared = owner.prepare(session, "planning.save") if owner is not None else None
             replay = _replay(session, payload.request_id, digest, owner)
             if replay is not None:
-                return _plan_dto(session, replay)
+                if worker:
+                    _check_interference_saved(session, payload, proof, replay, replay=True)
+                return _plan_dto(session, replay, same_transaction_resource=worker)
             existing = session.scalar(select(PlanningPlan).where(
                 PlanningPlan.job_id == payload.job_id
             ))
@@ -214,17 +343,22 @@ def save_planning_plan(payload: PlanningPlanSaveRequest,
             )
             session.add(plan)
             session.flush()
+            if worker:
+                _check_interference_saved(session, payload, proof, plan)
             if owner is not None:
                 _append_owner(owner, session, prepared, operation="plan.save", request_id=payload.request_id,
                     object_id=plan.plan_id, page_context="planning", task_id=plan.task_id, revision_id=plan.revision_id)
-            return _plan_dto(session, plan)
+            return _plan_dto(session, plan, same_transaction_resource=worker)
     except IntegrityError:
         with factory() as session, session.begin():
+            proof = _interference_save_proof(session, payload, _interference_request) if worker else None
             if owner is not None:
                 owner.prepare(session, "planning.save")
             replay = _replay(session, payload.request_id, digest, owner)
             if replay is not None:
-                return _plan_dto(session, replay)
+                if worker:
+                    _check_interference_saved(session, payload, proof, replay, replay=True)
+                return _plan_dto(session, replay, same_transaction_resource=worker)
             if owner is not None:
                 raise
             existing = session.scalar(select(PlanningPlan).where(

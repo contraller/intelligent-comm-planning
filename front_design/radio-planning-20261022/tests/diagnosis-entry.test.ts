@@ -11,6 +11,7 @@ import DiagnosisFaultTypePicker from '../src/components/DiagnosisFaultTypePicker
 import DiagnosisProgressPanel from '../src/components/DiagnosisProgressPanel.vue';
 import DiagnosisSourceDrawer from '../src/components/DiagnosisSourceDrawer.vue';
 import DiagnosisImportDrawer from '../src/components/DiagnosisImportDrawer.vue';
+import DiagnosisFeedbackDrawer from '../src/components/DiagnosisFeedbackDrawer.vue';
 import DecisionDialog from '../src/components/DecisionDialog.vue';
 import { useDiagnosisStore } from '../src/stores/diagnosis';
 import { usePreviewStore } from '../src/stores/preview';
@@ -56,13 +57,37 @@ vi.mock('../src/components/DiagnosisReportDrawer.vue',async()=>{
   ]):null;}})};
 });
 // 在内存宿主执行真实客户端模板；不把宿主事件验证当作浏览器视觉验收。
+let stageNumber = 0;
+const beginStage = () => {
+  if (process.env.R6_DIAGNOSIS_STAGE !== '1') return (_label: string) => {};
+  const trace = ++stageNumber, started = performance.now();
+  let previous = started;
+  return (label: string) => {
+    const now = performance.now();
+    console.info(`[R6-DIAGNOSIS] trace=${trace} ${label} delta_ms=${(now - previous).toFixed(3)} elapsed_ms=${(now - started).toFixed(3)}`);
+    previous = now;
+  };
+};
+let stage = (_label: string) => {};
+const clickRejections: { label: string; error: unknown }[] = [];
 async function click(root: HostNode, label: string) {
+  const mark = stage;
+  mark(`click:${label}:start`);
   const el = find(root, n => n.tag === 'button' && textOf(n).trim() === label);
-  expect(el, label).toBeDefined(); await (el!.props.onClick as () => unknown)(); await nextTick();
+  expect(el, label).toBeDefined();
+  // DOM事件派发不等待异步处理器；待决操作由用例随后明确完成。
+  const result = (el!.props.onClick as () => unknown)();
+  mark(`click:${label}:dispatched`);
+  void Promise.resolve(result).catch(error => { clickRejections.push({ label, error }); });
+  await nextTick();
+  mark(`click:${label}:tick`);
 }
 async function radio(root: HostNode, label: string) {
+  const mark = stage;
+  mark(`radio:${label}:start`);
   const el = find(root, n => n.props['aria-label'] === label);
-  expect(el, label).toBeDefined(); (el!.props.onChange as () => void)(); await nextTick();
+  expect(el, label).toBeDefined(); (el!.props.onChange as () => void)();
+  mark(`radio:${label}:dispatched`);await nextTick();mark(`radio:${label}:tick`);
 }
 async function settle() { for (let i = 0; i < 12; i++) await nextTick(); }
 
@@ -72,40 +97,108 @@ await Promise.all([
   [DiagnosisScenarioDrawer,'src/components/DiagnosisScenarioDrawer.vue'],[DiagnosisFaultTypePicker,'src/components/DiagnosisFaultTypePicker.vue'],
   [DiagnosisProgressPanel,'src/components/DiagnosisProgressPanel.vue'],[DecisionDialog,'src/components/DecisionDialog.vue'],
   [DiagnosisSourceDrawer,'src/components/DiagnosisSourceDrawer.vue'],[DiagnosisImportDrawer,'src/components/DiagnosisImportDrawer.vue'],
+  [DiagnosisFeedbackDrawer,'src/components/DiagnosisFeedbackDrawer.vue'],
 ].map(([component,path])=>clientTemplate(component as Component,path as string, 'diagnosis-render.ts')));
 let app:App<HostNode>|undefined,pinia:ReturnType<typeof createPinia>|undefined;
 const initialMode=env.mode;
-afterEach(()=>{app?.unmount();app=undefined;if(pinia)disposePinia(pinia);pinia=undefined;vi.restoreAllMocks();vi.unstubAllGlobals();probes.locate.mockClear();(env as {mode:string}).mode=initialMode;});
+afterEach(async()=>{
+  const mark = stage;
+  mark('afterEach:start');
+  app?.unmount();app=undefined;if(pinia)disposePinia(pinia);pinia=undefined;vi.restoreAllMocks();vi.unstubAllGlobals();probes.locate.mockClear();(env as {mode:string}).mode=initialMode;
+  mark('afterEach:cleanup');
+  await nextTick();
+  expect(clickRejections.splice(0),'Unexpected asynchronous click handler rejection').toEqual([]);
+  mark('afterEach:done');
+});
 const map=(root:HostNode)=>find(root,n=>n.tag==='map-probe')!;
-async function mountPage(demo:DiagnosisDemo='normal') {
-  vi.stubGlobal('window',new EventTarget());vi.stubGlobal('document',{activeElement:null});
-  pinia=createPinia();setActivePinia(pinia);const auth=authorizeStore(),storage=new TestStorage();
+function freezeSeed<T>(value:T):T {
+  if(value!==null&&typeof value==='object'&&!Object.isFrozen(value)){
+    for(const child of Object.values(value))freezeSeed(child);
+    Object.freeze(value);
+  }
+  return value;
+}
+async function buildSeed(demo:DiagnosisDemo) {
+  const mark=beginStage(),storage=new TestStorage();
+  mark(`seed:build:${demo}:start`);
   let time=Date.parse('2026-10-07T00:00:00Z');
   const current={resources:structuredClone(resources) as ResourcesData,meta:initialMeta()};
+  mark('seed:resources:cloned');
   const resourceSource=()=>({...current,meta:{...current.meta,taskWorkspace:taskMeta(storage)}});
   const planningService=createPlanningMock(()=>storage,resourceSource,()=>time);
-  const job=await planningService.submitPlanning(await savedRequest(storage,{baseRevision:'initial',requestId:'submit',taskId:null,parentPlanVersionId:null,input:structuredClone(planningPresets[0].input)}));
+  mark('seed:planning:start');
+  const request=await savedRequest(storage,{baseRevision:'initial',requestId:'submit',taskId:null,parentPlanVersionId:null,input:structuredClone(planningPresets[0].input)});
+  mark('seed:planning:task-saved');
+  const job=await planningService.submitPlanning(request);
+  mark('seed:planning:submitted');
   time+=10000;
   const saved=await planningService.savePlanVersion({baseRevision:job.workspace.revision,requestId:'save',jobId:job.view.job.id,name:'诊断页面测试网络',note:''});
+  mark('seed:planning:saved');
   const confirmed=await planningService.confirmPlanVersion({baseRevision:saved.workspace.revision,requestId:'confirm',planId:saved.plan.id});
+  mark('seed:planning:confirmed');
   const service=createDiagnosisMock(()=>storage,resourceSource,()=>time);
-  const mutation=async()=>({baseRevision:(await service.loadDiagnosisWorkspace()).workspace!.revision,requestId:crypto.randomUUID()});
+  const mutation=async()=>{
+    mark('seed:mutation:workspace:start');
+    const loaded=await service.loadDiagnosisWorkspace();
+    mark('seed:mutation:workspace:loaded');
+    return {baseRevision:loaded.workspace!.revision,requestId:crypto.randomUUID()};
+  };
   const runIds:string[]=[];
-  for(const id of ['balanced:hardware','balanced:multiple']) {
+  mark('seed:diagnosis:start');
+  for(const [index,id] of ['balanced:hardware','balanced:multiple'].entries()) {
     const preset=diagnosisPresets.find(p=>p.id===id)!;
-    const workspace=await service.saveDiagnosisScenario({...await mutation(),scenarioId:null,draft:{name:preset.label,description:'',planId:confirmed.plan.id,faults:structuredClone(preset.faults)}});
-    const submitted=await service.submitDiagnosis({...await mutation(),scenarioVersionId:workspace.scenarios.at(-1)!.versions.at(-1)!.id,demo});
+    const saving=await mutation();mark(`seed:diagnosis:${index}:save:start`);
+    const workspace=await service.saveDiagnosisScenario({...saving,scenarioId:null,draft:{name:preset.label,description:'',planId:confirmed.plan.id,faults:structuredClone(preset.faults)}});
+    mark(`seed:diagnosis:${index}:saved`);
+    const submitting=await mutation();mark(`seed:diagnosis:${index}:submit:start`);
+    const submitted=await service.submitDiagnosis({...submitting,scenarioVersionId:workspace.scenarios.at(-1)!.versions.at(-1)!.id,demo});
+    mark(`seed:diagnosis:${index}:submitted`);
     runIds.push(submitted.view.run.id);time+=12000;
   }
+  mark('seed:diagnosis:done');
+  const seed=freezeSeed(structuredClone({
+    entries:[...storage.entries].map(([key,value])=>[key,value] as const),
+    writes:storage.writes,readHistory:[...storage.readHistory],writeHistory:[...storage.writeHistory],
+    current,confirmedWorkspace:confirmed.workspace,runIds,time,
+  }));
+  mark('seed:immutable:ready');
+  return seed;
+}
+// 顶层依次真实建库，不占用页面动作的5秒预算，也不共享可变服务或存储。
+const pageSeeds=Object.freeze({
+  normal:await buildSeed('normal'),
+  'diagnosis-failed':await buildSeed('diagnosis-failed'),
+  'impact-failed':await buildSeed('impact-failed'),
+});
+
+async function mountPage(demo:DiagnosisDemo='normal') {
+  const mark=beginStage();stage=mark;
+  mark('mount:enter');
+  if(demo!=='normal'&&demo!=='diagnosis-failed'&&demo!=='impact-failed')throw new Error('该演示分支尚未建立独立页面夹具');
+  const seed=pageSeeds[demo];
+  vi.stubGlobal('window',new EventTarget());vi.stubGlobal('document',{activeElement:null});
+  pinia=createPinia();setActivePinia(pinia);const auth=authorizeStore(),storage=new TestStorage();
+  mark('mount:identity:ready');
+  // 字符串可复用，Map、计数、历史数组、资源对象及模拟时钟均属于本用例。
+  storage.entries=new Map(seed.entries);storage.writes=seed.writes;
+  storage.readHistory=[...seed.readHistory];storage.writeHistory=[...seed.writeHistory];
+  const current=structuredClone(seed.current),runIds=[...seed.runIds];
+  let time=seed.time;
+  const resourceSource=()=>({...current,meta:{...current.meta,taskWorkspace:taskMeta(storage)}});
+  const service=createDiagnosisMock(()=>storage,resourceSource,()=>time);
+  mark('mount:seed:restored');
   // 只替换传输边界，页面、store、校验和 Mock 服务全部实际运行。
   const target=previewService as unknown as Record<string,(...args:any[])=>Promise<any>>;
   for(const [key,method]of Object.entries(service))vi.spyOn(target,key).mockImplementation(method);
+  mark('mount:services:bound');
   const preview=usePreviewStore();preview.data=await createMockService(()=>storage).loadPreview();
-  const planning=usePlanningStore();planning.workspace=confirmed.workspace;
+  mark('mount:preview:loaded');
+  const planning=usePlanningStore();planning.workspace=structuredClone(seed.confirmedWorkspace);
   // 注册页面已有的规划链接，避免宿主缺路由产生无关警告。
   const diagnosis=useDiagnosisStore(),router=createRouter({history:createMemoryHistory(),routes:[{path:'/',component:DiagnosisView},{path:'/diagnosis',component:DiagnosisView},{path:'/planning',component:{render:()=>null}},{path:'/situation',component:{render:()=>null}}]});
-  await router.push('/');await router.isReady();
-  const root=node('root');app=renderer.createApp({render:()=>h(RouterView)});app.use(pinia);app.use(router);app.provide(ssrContextKey,{});app.mount(root);await settle();
+  mark('mount:stores:created');
+  mark('mount:router:push');await router.push('/');mark('mount:router:pushed');await router.isReady();mark('mount:router:ready');
+  const root=node('root');app=renderer.createApp({render:()=>h(RouterView)});app.use(pinia);app.use(router);app.provide(ssrContextKey,{});mark('mount:render:start');app.mount(root);mark('mount:render:done');await settle();mark('mount:settle:done');
   return {root,auth,storage,diagnosis,preview,planning,service,runIds,current,router,writes:storage.writes,advance:(ms=12000)=>{time+=ms;}};
 }
 describe('实际诊断页面的类型与根因展示',()=>{
@@ -207,10 +300,11 @@ describe('实际诊断页面的类型与根因展示',()=>{
   it('首次无运行显示创建引导，明确选择网络才建立草稿，历史手动打开',async()=>{
     const s=await mountPage();await s.service.resetDiagnosisWorkspace(s.diagnosis.workspace!.revision);await s.diagnosis.reload();await settle();
     expect(s.diagnosis.record).toBeNull();expect(textOf(s.root)).toContain('创建故障诊断场景');expect(map(s.root)).toBeUndefined();
-    await click(s.root,'新建场景');expect(find(s.root,n=>n.tag==='drawer-probe'&&n.props.title==='新建故障场景')).toBeDefined();
+    await click(s.root,'新建场景');await vi.waitFor(()=>expect(find(s.root,n=>n.tag==='drawer-probe'&&n.props.title==='新建故障场景')).toBeDefined());
     const select=find(s.root,n=>n.props['aria-label']==='新场景绑定网络')!;
     expect(find(s.root,n=>n.tag==='button'&&textOf(n)==='创建场景草稿')!.props.disabled).toBe(true);
     (select.props['onUpdate:modelValue'] as (id:string)=>void)(s.diagnosis.sources.plans[0].id);await settle();await click(s.root,'创建场景草稿');await settle();
+    await vi.waitFor(()=>expect(find(s.root,n=>n.tag==='drawer-probe'&&n.props.title==='新建故障场景')).toBeUndefined());
     expect(s.diagnosis.draft!.planId).toBe(s.diagnosis.sources.plans[0].id);expect(s.diagnosis.record).toBeNull();
     expect(textOf(s.root)).toContain('故障输入 · 0 个对象');expect(textOf(s.root)).toContain('尚未设置故障对象');
     expect(find(s.root,n=>n.tag==='button'&&textOf(n)==='保存并开始诊断')!.props.disabled).toBe(true);
@@ -218,20 +312,26 @@ describe('实际诊断页面的类型与根因展示',()=>{
     const opening=s.diagnosis.selectLegacy('DG-HW');await vi.waitFor(()=>expect(s.diagnosis.decision).not.toBeNull());s.diagnosis.answer('save');await opening;await settle();
     expect(textOf(s.root)).toContain('88 °C');expect(textOf(s.root)).toContain('低于设定值 12 dB');expect(textOf(s.root)).toContain('预览历史诊断报告');
   });
-  it('复制在多网络中优先原网络，取消不改快照，原网络不可用时要求重新选择',async()=>{
+  it('复制在多网络中优先原网络，取消不改快照',async()=>{
     const s=await mountPage(),record=s.diagnosis.record!,before=JSON.stringify(record);
+    const drawer=()=>find(s.root,n=>n.tag==='drawer-probe'&&n.props.title==='复制为新场景');
     // 把其他网络放在首位，防止复制入口隐式绑定列表第一项。
     const options=s.diagnosis.sources.plans.map(plan=>({...plan,canCreate:true,unavailableReason:null}));
     const other={...options[0],id:'another-network'};
     vi.mocked(previewService.loadDiagnosisSourceOptions).mockResolvedValue({plans:[other,...options],error:null});
-    await click(s.root,'复制为新场景');await settle();
-    await click(s.root,'取消');await settle();expect(JSON.stringify(s.diagnosis.record)).toBe(before);
-    await click(s.root,'复制为新场景');await settle();await click(s.root,'创建场景草稿');await settle();
+    await click(s.root,'复制为新场景');await vi.waitFor(()=>expect(drawer()).toBeDefined());
+    await click(s.root,'取消');await vi.waitFor(()=>expect(drawer()).toBeUndefined());expect(JSON.stringify(s.diagnosis.record)).toBe(before);
+    await click(s.root,'复制为新场景');await vi.waitFor(()=>expect(drawer()).toBeDefined());await click(s.root,'创建场景草稿');await vi.waitFor(()=>expect(drawer()).toBeUndefined());
     expect(s.diagnosis.draft!.planId).toBe(record.network.id);expect(s.diagnosis.network!.id).toBe(record.network.id);
     expect(JSON.stringify(record)).toBe(before);expect(s.storage.writes).toBe(s.writes);
-    s.diagnosis.discardDraft();await s.diagnosis.selectRun(s.runIds[1]);await settle();
+  });
+  // 原复合用例的失效原网分支独立挂载，保留同样的重选、只读及写数断言。
+  it('复制时原网络不可用必须重新选择，原快照不变',async()=>{
+    const s=await mountPage(),record=s.diagnosis.record!,before=JSON.stringify(record);
+    const options=s.diagnosis.sources.plans.map(plan=>({...plan,canCreate:true,unavailableReason:null}));
+    const other={...options[0],id:'another-network'};
     vi.mocked(previewService.loadDiagnosisSourceOptions).mockResolvedValue({plans:[other],error:null});
-    await click(s.root,'复制为新场景');await settle();
+    await click(s.root,'复制为新场景');await vi.waitFor(()=>expect(find(s.root,n=>n.tag==='drawer-probe'&&n.props.title==='复制为新场景')).toBeDefined());
     expect(textOf(s.root)).toContain('原网络当前不可用，请明确选择替代网络');
     expect(find(s.root,n=>n.tag==='button'&&textOf(n)==='创建场景草稿')!.props.disabled).toBe(true);
     expect(JSON.stringify(s.diagnosis.record)).toBe(before);expect(s.storage.writes).toBe(s.writes);
@@ -281,6 +381,7 @@ describe('实际诊断页面的类型与根因展示',()=>{
     const before=JSON.stringify(s.diagnosis.draft),history=JSON.stringify(s.diagnosis.undoStack);
     expect(textOf(s.root)).not.toContain('连续标绘');expect(textOf(s.root)).not.toContain('编辑场景');
     await click(s.root,'在 GIS 标绘');
+    await vi.waitFor(()=>expect(s.router.currentRoute.value.path).toBe('/situation'));
     expect(s.router.currentRoute.value.query).toEqual({faultEdit:'1',scenarioId:version.scenarioId,versionId:version.id});
     expect(s.router.currentRoute.value.path).toBe('/situation');expect(JSON.stringify(s.diagnosis.draft)).toBe(before);
     expect(JSON.stringify(s.diagnosis.undoStack)).toBe(history);expect(s.diagnosis.dirty).toBe(true);

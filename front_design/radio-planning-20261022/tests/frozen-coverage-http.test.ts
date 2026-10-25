@@ -2,7 +2,7 @@ import { describe,expect,it,vi } from 'vitest';
 import { createFrozenCoverageHttp } from '../src/services/frozen-coverage-http';
 import type { AuthenticatedRequest } from '../src/services/auth-http';
 import { coverageParameters } from '../src/services/frozen-coverage-decode';
-import { bandwidthCase,coverageCase } from './helpers/frozen-coverage';
+import { bandwidthCase,coverageCase,coverageV4Case } from './helpers/frozen-coverage';
 describe('冻结覆盖HTTP契约',()=>{
   it('GET只读绑定明确参数与来源，不调用旧CSV覆盖接口',async()=>{
     const f=coverageCase(),request=vi.fn<AuthenticatedRequest>().mockResolvedValue(f.cache),client=createFrozenCoverageHttp(request as AuthenticatedRequest),control=new AbortController();
@@ -110,5 +110,132 @@ describe('V3接收带宽选择HTTP契约',()=>{
     const f=bandwidthCase(),client=createFrozenCoverageHttp(vi.fn<AuthenticatedRequest>().mockResolvedValue(f.selection) as AuthenticatedRequest);
     await expect(client.getBandwidthSelection(f.query,'FBS-'+'4'.repeat(32))).rejects.toMatchObject({code:'INVALID_FROZEN_COVERAGE_RESPONSE'});
     await expect(client.saveBandwidthSelection(f.query,[{device_id:'D1',rx_bandwidth_khz:0.5}],'different')).rejects.toMatchObject({code:'INVALID_FROZEN_COVERAGE_RESPONSE'});
+  });
+});
+
+describe('V4活动分类与冻结构造来源',()=>{
+  it.each([{complete:226,unavailable:26,skipped:208},{complete:1,unavailable:0,skipped:2},{complete:0,unavailable:1,skipped:1},{complete:0,unavailable:0,skipped:2},{complete:0,unavailable:0,skipped:0}])('只按活动设备判定状态并核对summary %j',async counts=>{
+    const f=coverageV4Case(counts),request=vi.fn<AuthenticatedRequest>().mockResolvedValue(f.cache),client=createFrozenCoverageHttp(request as AuthenticatedRequest);
+    const cached=await client.getCache(f.query,f.parameters);
+    expect(cached.result?.summary).toEqual({total:counts.complete+counts.unavailable+counts.skipped,eligible:counts.complete+counts.unavailable,...counts});
+    expect(cached.result?.status).toBe(counts.complete+counts.unavailable===0?'NOT_APPLICABLE':counts.unavailable===0?'COMPLETE':counts.complete?'PARTIAL':'UNAVAILABLE');
+  });
+  it('新冻结型号构造来源逐字段保留，旧选择六字段可绑定同来源V4',async()=>{
+    const f=coverageV4Case({complete:1,unavailable:0,skipped:1},true,true),request=vi.fn<AuthenticatedRequest>().mockResolvedValueOnce(f.options).mockResolvedValueOnce(f.cache).mockResolvedValueOnce(f.selection),client=createFrozenCoverageHttp(request as AuthenticatedRequest);
+    const before=structuredClone(f);
+    expect((await client.getBandwidthOptions(f.query)).devices[0]!.bandwidth_provenance).toEqual(f.result.devices[0]!.bandwidth_provenance);
+    expect((await client.getCache(f.query,f.parameters)).result?.devices[0]!.frozen_model?.source_doc).toBe('原冻结型号资料');
+    expect(Object.keys(await client.getBandwidthSelection(f.query,f.selection.selection_id))).toHaveLength(6);
+    expect(f).toEqual(before);
+  });
+  it.each(['missing','origin','id','hash','note','original','source-doc','mixed','raw-source','raw-bandwidth'] as const)('拒绝损坏或混合的构造来源%s',async kind=>{
+    const f=coverageV4Case({complete:1,unavailable:0,skipped:0},true),device=f.result.devices[0]!,source=device.bandwidth_provenance!;
+    if(kind==='missing')delete device.bandwidth_provenance;
+    if(kind==='origin')Object.assign(source,{origin:'MANUFACTURER'});
+    if(kind==='id')Object.assign(source,{source_id:'unknown'});
+    if(kind==='hash')source.source_sha256='A'.repeat(64);
+    if(kind==='note')source.source_note=' ';
+    if(kind==='original')Object.assign(source,{original_khz:'3'});
+    if(kind==='source-doc'){delete (source as Partial<typeof source>).original_khz;Object.assign(source,{source_doc:''});}
+    if(kind==='mixed')Object.assign(source,{source_doc:''});
+    if(kind==='raw-source')device.frozen_model!.bandwidth_source_sha256='0'.repeat(64);
+    if(kind==='raw-bandwidth')device.frozen_model!.bandwidth_khz='25';
+    await expect(createFrozenCoverageHttp(vi.fn<AuthenticatedRequest>().mockResolvedValue(f.cache) as AuthenticatedRequest).getCache(f.query,f.parameters)).rejects.toMatchObject({code:'INVALID_FROZEN_COVERAGE_RESPONSE'});
+  });
+  it.each(['missing','extra','origin','original','band','bandwidth'] as const)('V4选项目录严格检查每设备来源%s',async kind=>{
+    const f=coverageV4Case({complete:1,unavailable:0,skipped:0},true),device=f.options.devices[0]!;
+    if(kind==='missing')delete device.bandwidth_provenance;
+    if(kind==='extra')Object.assign(device.bandwidth_provenance!,{source_doc:''});
+    if(kind==='origin')Object.assign(device.bandwidth_provenance!,{origin:'UNKNOWN'});
+    if(kind==='original')Object.assign(device.bandwidth_provenance!,{original_khz:null});
+    if(kind==='band')device.band='VUHF';
+    if(kind==='bandwidth')device.options_khz=[25];
+    await expect(createFrozenCoverageHttp(vi.fn<AuthenticatedRequest>().mockResolvedValue(f.options) as AuthenticatedRequest).getBandwidthOptions(f.query)).rejects.toMatchObject({code:'INVALID_FROZEN_COVERAGE_RESPONSE'});
+  });
+  it.each(['model','band','antenna','pattern','plan','plan-node','number','duplicate','radio','computations','reason','summary','fraction','extra-summary','schema','missing-bandwidth','extra-bandwidth','missing-source','partial-raw-source'] as const)('SKIPPED不能放过结构损坏%s',async kind=>{
+    const f=coverageV4Case({complete:0,unavailable:0,skipped:1}),device=f.result.devices[0]!;
+    if(kind==='model')device.frozen_model!.model_id='unknown';
+    if(kind==='band'){device.band='unknown';device.frozen_model!.device_class='unknown';}
+    if(kind==='antenna')device.frozen_antenna!.antenna_id='other';
+    if(kind==='pattern')device.frozen_antenna!.pattern_type=3;
+    if(kind==='plan')device.planned_parameters!.device_id='other';
+    if(kind==='plan-node')device.planned_parameters!.node_id='other';
+    if(kind==='number')device.planned_parameters!.tx_power_dbm='bad';
+    if(kind==='duplicate')f.result.devices.push(structuredClone(device));
+    if(kind==='radio')device.radio_parameters=coverageV4Case().result.devices[0]!.radio_parameters;
+    if(kind==='computations')device.computations=coverageV4Case().result.devices[0]!.computations;
+    if(kind==='reason')device.reason_code='RX_BANDWIDTH_UNKNOWN';
+    if(kind==='summary')f.result.summary!.skipped=0;
+    if(kind==='fraction')f.result.summary!.eligible=0.5;
+    if(kind==='extra-summary')Object.assign(f.result.summary!,{failed:0});
+    if(kind==='schema')f.result.schema_version=1;
+    if(kind==='missing-bandwidth')delete device.rx_bandwidth;
+    if(kind==='extra-bandwidth')Object.assign(device.rx_bandwidth!,{origin:'ignored'});
+    if(kind==='missing-source')delete device.bandwidth_provenance;
+    if(kind==='partial-raw-source')device.frozen_model!.bandwidth_original_khz='';
+    await expect(createFrozenCoverageHttp(vi.fn<AuthenticatedRequest>().mockResolvedValue(f.cache) as AuthenticatedRequest).getCache(f.query,f.parameters)).rejects.toMatchObject({code:'INVALID_FROZEN_COVERAGE_RESPONSE'});
+  });
+  it('缺失射频资料的合法SKIPPED及有带宽的参数缺失分别保留原状态',async()=>{
+    const f=coverageV4Case({complete:0,unavailable:1,skipped:1}),unavailable=f.result.devices[0]!,skipped=f.result.devices[1]!;
+    unavailable.reason_code='FROZEN_PARAMETERS_UNKNOWN';unavailable.rx_bandwidth={value_khz:2.4,source:'FROZEN_MODEL_SINGLE_VALUE'};
+    unavailable.frozen_model!.bandwidth_khz='2.4';
+    skipped.frozen_model=null;skipped.frozen_antenna=null;skipped.band=null;
+    skipped.rx_bandwidth={value_khz:null,source:'UNKNOWN'};
+    const result=(await createFrozenCoverageHttp(vi.fn<AuthenticatedRequest>().mockResolvedValue(f.cache) as AuthenticatedRequest).getCache(f.query,f.parameters)).result!;
+    expect(result.devices.map(row=>row.status)).toEqual(['UNAVAILABLE','SKIPPED']);
+  });
+  it.each(['summary','reason','source'] as const)('旧V3响应不得混入未核验的V4字段%s',async kind=>{
+    const f=bandwidthCase();
+    if(kind==='summary')f.result.summary={total:1,eligible:1,complete:1,unavailable:0,skipped:0};
+    if(kind==='reason')f.result.devices[0]!.reason_code=null;
+    if(kind==='source')f.result.devices[0]!.bandwidth_provenance=null;
+    await expect(createFrozenCoverageHttp(vi.fn<AuthenticatedRequest>().mockResolvedValue(f.cache) as AuthenticatedRequest).getCache(f.query,f.parameters)).rejects.toMatchObject({code:'INVALID_FROZEN_COVERAGE_RESPONSE'});
+  });
+  it.each(['missing-summary','overall','radio','raw-radio','reason','null-computation'] as const)('V4完成结果拒绝损坏状态或射频参数%s',async kind=>{
+    const f=coverageV4Case({complete:1,unavailable:0,skipped:0}),device=f.result.devices[0]!;
+    if(kind==='missing-summary')delete f.result.summary;
+    if(kind==='overall')f.result.status='PARTIAL';
+    if(kind==='radio')device.radio_parameters!.bw=3;
+    if(kind==='raw-radio')device.planned_parameters!.tx_power_dbm=99;
+    if(kind==='reason')device.reasons=['错误完成状态'];
+    if(kind==='null-computation')device.computations[0]=null as never;
+    await expect(createFrozenCoverageHttp(vi.fn<AuthenticatedRequest>().mockResolvedValue(f.cache) as AuthenticatedRequest).getCache(f.query,f.parameters)).rejects.toMatchObject({code:'INVALID_FROZEN_COVERAGE_RESPONSE'});
+  });
+  it.each(['single-mismatch','empty-token','negative','zero','nonfinite','unselected-scalar','unknown-known','explicit-outside'] as const)('V4普通型号原始带宽联核拒绝%s，跳过也不例外',async kind=>{
+    const f=coverageV4Case(kind==='single-mismatch'||kind==='explicit-outside'?{complete:1,unavailable:0,skipped:0}:{complete:0,unavailable:0,skipped:1},false,kind==='explicit-outside'),device=f.result.devices[0]!;
+    if(kind==='single-mismatch'||kind==='explicit-outside')device.frozen_model!.bandwidth_khz='25';
+    if(kind==='empty-token')device.frozen_model!.bandwidth_khz='0.5;;3';
+    if(kind==='negative')device.frozen_model!.bandwidth_khz='0.5;-3';
+    if(kind==='zero')device.frozen_model!.bandwidth_khz=0;
+    if(kind==='nonfinite')device.frozen_model!.bandwidth_khz='Infinity';
+    if(kind==='unselected-scalar')device.rx_bandwidth={value_khz:null,source:'UNSELECTED'};
+    if(kind==='unknown-known')device.rx_bandwidth={value_khz:null,source:'UNKNOWN'};
+    await expect(createFrozenCoverageHttp(vi.fn<AuthenticatedRequest>().mockResolvedValue(f.cache) as AuthenticatedRequest).getCache(f.query,f.parameters)).rejects.toMatchObject({code:'INVALID_FROZEN_COVERAGE_RESPONSE'});
+  });
+  it('V4合法选项去重不替用户选值，同来源显式选值仍须属于原集合',async()=>{
+    const f=coverageV4Case({complete:1,unavailable:0,skipped:1},false,true),complete=f.result.devices[0]!,skipped=f.result.devices[1]!;
+    complete.frozen_model!.bandwidth_khz='0.5;2.4;2.4';
+    skipped.frozen_model!.bandwidth_khz='3;3';skipped.rx_bandwidth={value_khz:null,source:'UNSELECTED'};
+    const result=(await createFrozenCoverageHttp(vi.fn<AuthenticatedRequest>().mockResolvedValue(f.cache) as AuthenticatedRequest).getCache(f.query,f.parameters)).result!;
+    expect(result.devices[0]!.rx_bandwidth).toEqual({value_khz:2.4,source:'EXPLICIT_COMPUTE_PARAMETER'});
+    expect(result.devices[1]!.rx_bandwidth).toEqual({value_khz:null,source:'UNSELECTED'});
+  });
+  it.each(['0x1e','0b11110','0o36'])('SKIPPED不能将JS扩展数值%s当作合法冻结参数',async raw=>{
+    const f=coverageV4Case({complete:0,unavailable:0,skipped:1});f.result.devices[0]!.planned_parameters!.tx_power_dbm=raw;
+    await expect(createFrozenCoverageHttp(vi.fn<AuthenticatedRequest>().mockResolvedValue(f.cache) as AuthenticatedRequest).getCache(f.query,f.parameters)).rejects.toMatchObject({code:'INVALID_FROZEN_COVERAGE_RESPONSE'});
+  });
+  it.each([' +3e1 ',' -3.0e1 ',' .5 ',' 30. '])('SKIPPED仍接受范围内十进制/指数和空白%s',async raw=>{
+    const f=coverageV4Case({complete:0,unavailable:0,skipped:1});f.result.devices[0]!.planned_parameters!.tx_power_dbm=raw;
+    expect((await createFrozenCoverageHttp(vi.fn<AuthenticatedRequest>().mockResolvedValue(f.cache) as AuthenticatedRequest).getCache(f.query,f.parameters)).result?.devices[0]!.status).toBe('SKIPPED');
+  });
+  it('engineVersion仅发送到cache历史GET，其他请求沿原契约且不将V3补成V4',async()=>{
+    const f=bandwidthCase(),query={...f.query,engineVersion:'V01-3' as const},request=vi.fn<AuthenticatedRequest>().mockResolvedValueOnce(f.cache).mockResolvedValueOnce(f.job).mockResolvedValueOnce(f.options),client=createFrozenCoverageHttp(request as AuthenticatedRequest);
+    const cached=await client.getCache(query,f.parameters);await client.compute(query,f.parameters,'request-1');await client.getBandwidthOptions(query);
+    expect(new URL(request.mock.calls[0]![0],'http://localhost').searchParams.get('engine_version')).toBe('V01-3');
+    expect(JSON.parse(request.mock.calls[1]![1]!.body as string)).not.toHaveProperty('engine_version');
+    expect(new URL(request.mock.calls[2]![0],'http://localhost').searchParams.has('engine_version')).toBe(false);
+    expect(cached.result?.schema_version).toBe(1);expect(cached.result).not.toHaveProperty('summary');expect(cached.result?.devices[0]).not.toHaveProperty('bandwidth_provenance');
+    request.mockResolvedValueOnce(coverageV4Case().cache);
+    await expect(client.getCache(query,f.parameters)).rejects.toMatchObject({code:'INVALID_FROZEN_COVERAGE_RESPONSE'});
   });
 });

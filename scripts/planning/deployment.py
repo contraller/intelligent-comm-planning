@@ -308,6 +308,8 @@ def candidate_stations(rows, subtype, id_prefix="CS", templates=None):
     templates = templates or {}
     out = []
     for r in rows:
+        if r.get("eligible_subtypes") is not None and subtype not in r["eligible_subtypes"]:
+            continue
         radio = {}
         for band in E.bands_of(subtype):
             t = templates.get((subtype, band)) or templates.get(("*", band))
@@ -357,9 +359,48 @@ def _gain_bound(fm, sol, ci, band_of_orphan):
     return best, best_margin
 
 
+def candidate_site_id(station):
+    return station.sid.split("-", 2)[-1]
+
+
+def _compatible_site(fm, index, chosen, spacing):
+    from terrain import haversine_m
+    from candidate_sites import same_position
+    station = fm.stations[index]
+    for other_index in chosen:
+        other = fm.stations[other_index]
+        if candidate_site_id(station) == candidate_site_id(other):
+            return False
+        if same_position(station.lon, station.lat, other.lon, other.lat):
+            return False
+        if spacing and haversine_m(station.lon, station.lat, other.lon, other.lat) < spacing:
+            return False
+    return True
+
+
+def _required_sites(fm, base_idx, cand_idx, required, spacing):
+    chosen = []
+    for site_id in required:
+        best = None
+        for index in cand_idx:
+            if (candidate_site_id(fm.stations[index]) != site_id
+                    or not _compatible_site(fm, index, chosen, spacing)):
+                continue
+            fm.extend_pairs(chosen + [index])
+            trial = solve_assignment(fm, active=base_idx + chosen + [index])
+            key = (len(trial.unconnected), E.DEPLOY_COST[fm.stations[index].subtype], index)
+            if best is None or key < best[0]:
+                best = key, index
+        if best is None:
+            raise ValueError("强制部署点没有合法类型或与其他强制点间距冲突：" + site_id)
+        chosen.append(best[1])
+    return chosen
+
+
 def p1_solve(base_stations, candidate_rows, terrain, types=E.DEPLOYABLE_TYPES,
              margin_min=None, max_add=30, shortlist=24, refine=True,
-             refine_seconds=30.0, verbose=False):
+             refine_seconds=30.0, verbose=False, required_site_ids=(),
+             min_site_spacing_m=None, enforce_sites=False):
     """P1：最少电台数，使所有节点连通到根。
 
     外层贪心用**惰性求值**：每轮先用位运算算出每个候选的增量上界（微秒级），
@@ -388,9 +429,11 @@ def p1_solve(base_stations, candidate_rows, terrain, types=E.DEPLOYABLE_TYPES,
     if verbose:
         print("  候选 (位置 × 类型) %d 个，基线台站 %d 个" % (len(pool), len(base_idx)))
 
-    chosen = []
-    sol = solve_assignment(fm, active=base_idx)
-    lb = lower_bound(fm, sol)          # 下界必须在**部署前**的失联集合上算
+    chosen = (_required_sites(fm, base_idx, cand_idx, required_site_ids, min_site_spacing_m)
+              if enforce_sites else [])
+    baseline = solve_assignment(fm, active=base_idx)
+    sol = solve_assignment(fm, active=base_idx + chosen) if chosen else baseline
+    lb = lower_bound(fm, baseline)     # 下界必须在**部署前**的失联集合上算
     if verbose:
         print("  未部署时失联 %d 个，容量下界 %d 部" % (len(sol.unconnected), lb))
 
@@ -409,6 +452,8 @@ def p1_solve(base_stations, candidate_rows, terrain, types=E.DEPLOYABLE_TYPES,
         for ci in cand_idx:
             if ci in chosen:
                 continue
+            if enforce_sites and not _compatible_site(fm, ci, chosen, min_site_spacing_m):
+                continue
             ub, avg_margin = _gain_bound(fm, sol, ci, band_of_orphan)
             if ub > 0:
                 # 排序键：增量上界降序 → 部署代价升序 → **平均链路余量降序**
@@ -424,6 +469,8 @@ def p1_solve(base_stations, candidate_rows, terrain, types=E.DEPLOYABLE_TYPES,
         for neg_ub, cost, neg_margin, ci in ranked[:shortlist]:
             if best is not None and -neg_ub <= best[0][0] * -1:
                 break                       # 上界已不可能超过当前最优，剪枝
+            if enforce_sites:
+                fm.extend_pairs(chosen + [ci])
             trial = solve_assignment(fm, active=base_idx + chosen + [ci])
             n_exact += 1
             gain = len(sol.unconnected) - len(trial.unconnected)
@@ -445,6 +492,8 @@ def p1_solve(base_stations, candidate_rows, terrain, types=E.DEPLOYABLE_TYPES,
 
     # 冗余消除：逐个试着撤掉，仍全连通则永久撤
     for ci in list(chosen):
+        if candidate_site_id(fm.stations[ci]) in required_site_ids:
+            continue
         rest = [x for x in chosen if x != ci]
         t2 = solve_assignment(fm, active=base_idx + rest)
         if len(t2.unconnected) <= len(sol.unconnected):
@@ -461,7 +510,8 @@ def p1_solve(base_stations, candidate_rows, terrain, types=E.DEPLOYABLE_TYPES,
         branch_and_bound = None
 
     # 贪心已达下界就不必搜索；否则用自研分支定界尝试改进并证明最优性
-    if refine and branch_and_bound and len(chosen) > lb and chosen:
+    if (refine and branch_and_bound and len(chosen) > lb and chosen
+            and not (enforce_sites and (required_site_ids or min_site_spacing_m))):
         best, proved, st_bb = branch_and_bound(fm, base_idx, cand_idx, chosen,
                                                time_limit=refine_seconds,
                                                verbose=verbose)
@@ -484,7 +534,8 @@ def p1_solve(base_stations, candidate_rows, terrain, types=E.DEPLOYABLE_TYPES,
 
 
 def p2_solve(fm, base_idx, cand_idx, p, shortlist=24, objective="connect",
-             verbose=False):
+             verbose=False, required_site_ids=(), min_site_spacing_m=None,
+             enforce_sites=False):
     """P2：人工指定部署数量 p，求该数量下的最优位置（SR-4.2.1.2 c）。
 
     objective:
@@ -495,8 +546,14 @@ def p2_solve(fm, base_idx, cand_idx, p, shortlist=24, objective="connect",
     p 小于最少需求时，返回「最多能连通多少」并给出仍失联的清单 ——
     这正是 SR-4.2.1.2 扩展流 1 要求的「提示原因并给出参数调整建议」。
     """
-    chosen = []
-    sol = solve_assignment(fm, active=base_idx)
+    if p < len(required_site_ids):
+        raise ValueError("指定部署数量小于强制部署点数量")
+    chosen = (_required_sites(fm, base_idx, cand_idx, required_site_ids, min_site_spacing_m)
+              if enforce_sites else [])
+    sol = solve_assignment(fm, active=base_idx + chosen)
+    if enforce_sites:
+        # 固定数量不足时保留实际短缺，不填入无合法连接的占位电台。
+        cand_idx = list(cand_idx)
     while len(chosen) < p:
         band_of_orphan = {}
         for band in E.BANDS:
@@ -513,6 +570,8 @@ def p2_solve(fm, base_idx, cand_idx, p, shortlist=24, objective="connect",
         for ci in cand_idx:
             if ci in chosen:
                 continue
+            if enforce_sites and not _compatible_site(fm, ci, chosen, min_site_spacing_m):
+                continue
             ub, avg = _gain_bound(fm, sol, ci, band_of_orphan)
             if ub > 0:
                 ranked.append((-ub, E.DEPLOY_COST[fm.stations[ci].subtype], -avg, ci))
@@ -523,12 +582,16 @@ def p2_solve(fm, base_idx, cand_idx, p, shortlist=24, objective="connect",
             for ci in cand_idx:
                 if ci in chosen:
                     continue
+                if enforce_sites and not _compatible_site(fm, ci, chosen, min_site_spacing_m):
+                    continue
                 gain = _margin_bound(fm, sol, ci)
                 if gain > 0:
                     ranked.append((-gain, E.DEPLOY_COST[fm.stations[ci].subtype], 0.0, ci))
         if not ranked and objective != "connect":
             for ci in cand_idx:
                 if ci in chosen:
+                    continue
+                if enforce_sites and not _compatible_site(fm, ci, chosen, min_site_spacing_m):
                     continue
                 ub, avg = _redundancy_bound(fm, sol, ci)
                 if ub > 0:
@@ -540,6 +603,8 @@ def p2_solve(fm, base_idx, cand_idx, p, shortlist=24, objective="connect",
 
         best = None
         for _nub, cost, _nm, ci in ranked[:shortlist]:
+            if enforce_sites:
+                fm.extend_pairs(chosen + [ci])
             trial = solve_assignment(fm, active=base_idx + chosen + [ci])
             score = _plan_score(fm, trial, objective)
             if best is None or score > best[0]:

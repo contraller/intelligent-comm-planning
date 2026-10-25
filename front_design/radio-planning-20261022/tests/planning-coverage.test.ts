@@ -112,6 +112,22 @@ describe('覆盖几何与图片',()=>{
     expect(style.getStroke()!.getWidth()).toBe(5);expect(style.getText()!.getFont()).toContain('bold');
     expect(JSON.stringify(job.input.demands)).toBe(before);
   });
+  it('规划文字原生避让不裁掉节点符号或改写需求和链路身份',()=>{
+    const job=apiJob(),before=JSON.stringify(job),layer=planningApiLayer({nodes:job.result!.nodes,links:job.result!.links,demands:job.input.demands},'N1','L1');
+    expect((layer as unknown as {getDeclutter():string}).getDeclutter()).toBe('planning-api-captions');
+    const features=layer.getSource()!.getFeatures();expect(features).toHaveLength(4);
+    for(const feature of features){
+      const style=feature.getStyle() as Style,kind=feature.get('kind');
+      if(kind==='api-planning-node'){
+        expect(style.getImage()!.getDeclutterMode()).toBe('none');
+        expect(style.getText()!.getDeclutterMode()).toBe('declutter');
+        expect(style.getText()!.getText()).toBe(job.result!.nodes.find(node=>node.id===feature.get('objectId'))!.name);
+      }else if(kind==='task-demand'){
+        expect(style.getText()!.getDeclutterMode()).toBe('declutter');expect(style.getStroke()!.getLineDash()).toEqual([8,6]);
+      }else{expect(style.getText()).toBeNull();expect(feature.get('objectId')).toBe('L1');}
+    }
+    expect(JSON.stringify(job)).toBe(before);layer.dispose();
+  });
   it('切换快照取消旧图片，迟到结果不创建 URL，卸载释放当前 URL',async()=>{
     const f=await storeFixture(),snapshot=ref('S1');let resolve!:(blob:Blob)=>void;
     const read=vi.spyOn(previewService,'getPlanningCoverageImage').mockImplementationOnce(()=>new Promise(r=>resolve=r)).mockResolvedValue(png());

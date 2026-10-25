@@ -671,10 +671,11 @@ watch(
 // 保存后返回或直接访问时，只按明确的场景与版本定位，不启动诊断。
 let handledReturn = '';
 watch(
-  () => [route.query.scenarioId, route.query.versionId, !!diagnosis.workspace, auth.generation],
+  () => [route.query.scenarioId, route.query.versionId, !!diagnosis.workspace, diagnosis.locked, auth.generation],
   async () => {
     const { scenarioId, versionId } = route.query;
-    if ((scenarioId === undefined && versionId === undefined) || !diagnosis.workspace) return;
+    if (scenarioId === undefined && versionId === undefined) { handledReturn = ''; return; }
+    if (!diagnosis.workspace || diagnosis.locked) return;
     const target = JSON.stringify([auth.generation, scenarioId, versionId]);
     if (target === handledReturn) return;
     handledReturn = target;
@@ -1147,6 +1148,75 @@ select {
   }
   .scenario-list {
     max-height: 750px;
+  }
+}
+@media (max-width: 760px) {
+  .diagnosis-page {
+    min-width: 0;
+    min-height: 0;
+  }
+  .diagnosis-workspace,
+  .diagnosis-workspace.result-collapsed {
+    grid-template-columns: minmax(0, 1fr);
+    min-width: 0;
+    flex: none;
+  }
+  .scenario-list {
+    min-width: 0;
+    max-height: 240px;
+  }
+  .diagnosis-main {
+    min-height: 0;
+    overflow-y: visible;
+    scrollbar-gutter: auto;
+  }
+  .result-workspace {
+    grid-column: auto;
+    max-height: none;
+    min-width: 0;
+    overflow: visible;
+  }
+  .diagnosis-workspace.result-collapsed .result-workspace {
+    position: static;
+    transform: none;
+  }
+  .result-restore {
+    width: auto;
+    min-height: 36px;
+    flex-direction: row;
+  }
+  .result-restore span {
+    writing-mode: horizontal-tb;
+    letter-spacing: 0;
+  }
+  .page-heading,
+  .context-card,
+  .submit-row {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .page-actions {
+    justify-content: flex-start;
+  }
+  .scene-actions {
+    flex-wrap: wrap;
+  }
+}
+@media (max-width: 600px) {
+  .scenario-list {
+    max-height: 220px;
+  }
+  .page-actions,
+  .buttons {
+    width: 100%;
+  }
+  .diagnosis-page .btn {
+    max-width: 100%;
+    white-space: normal;
+  }
+  .empty-panel {
+    min-height: 0;
+    padding: 16px;
   }
 }
 </style>

@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import sys
-import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -14,7 +13,7 @@ from sqlalchemy.orm import sessionmaker
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "algorithm-service"))
-from app import frontend_integration, planning_plan_service  # noqa: E402
+from app import frontend_integration, planning_plan_service, integration_identity_service as identity  # noqa: E402
 from app.database import Base, DatabaseConfigurationError  # noqa: E402
 from app.main import app  # noqa: E402
 from app.planning_job_models import PlanningJob  # noqa: E402
@@ -23,12 +22,10 @@ from app.task_input_models import PlanningTask, PlanningTaskRevision  # noqa: E4
 
 
 @pytest.fixture
-def api(monkeypatch):
+def api(monkeypatch, tmp_path):
     monkeypatch.setenv("FRONTEND_INTEGRATION_DEMO", "1")
     monkeypatch.setattr(frontend_integration, "resource_revision", lambda: "current")
-    runtime = ROOT / "data/runtime"
-    runtime.mkdir(parents=True, exist_ok=True)
-    url = f"sqlite:///{(runtime / ('plan_history_' + uuid.uuid4().hex + '.sqlite')).as_posix()}"
+    url = f"sqlite:///{(tmp_path / 'plan_history.sqlite').as_posix()}"
     engine = create_engine(url)
     Base.metadata.create_all(engine)
     factory = sessionmaker(bind=engine, expire_on_commit=False)
@@ -93,12 +90,60 @@ def test_summary_is_lean_paged_and_searchable(api):
     assert page(client, state="CONFIRMED", search="不存在").json()["data"]["total"] == 0
 
 
-@pytest.mark.parametrize("params", [{"context": "gis"}, {"context": ""}, {"page": 0},
+@pytest.mark.parametrize("params", [{"context": "ledger"}, {"context": "unknown"}, {"context": ""}, {"page": 0},
     {"page": "1.5"}, {"page_size": 7}, {"state": "ALL"}, {"search": "a" * 121}, {"search": "a\nb"}])
 def test_invalid_queries_are_rejected(api, params):
     response = page(api[0], **params)
     assert response.status_code == 422
     assert response.json()["code"] == 1001
+
+
+@pytest.mark.parametrize("params", [{}, {"page": 2}, {"state": "REFERENCE"},
+    {"state": "CONFIRMED", "search": "T2"}, {"search": "%"}, {"page_size": 10}])
+def test_gis_preserves_planning_catalog_pagination_filters_and_summaries(api, monkeypatch, params):
+    client, factory, _, _ = api
+    seed(factory)
+
+    def require(request, permission, writing=False):
+        assert permission in {"planning.view", "situation.view"} and not writing
+        return {"account_id": "catalog-test-actor"}
+
+    monkeypatch.setattr(identity, "require", require)
+    planning = page(client, **params)
+    gis = page(client, context="gis", **params)
+    assert planning.status_code == gis.status_code == 200
+    assert gis.json() == planning.json()
+
+
+@pytest.mark.parametrize("context,permissions,expected,calls", [
+    ("gis", {"planning.view", "situation.view"}, 200, ["planning.view", "situation.view"]),
+    ("gis", {"planning.view"}, 403, ["planning.view", "situation.view"]),
+    ("gis", {"situation.view"}, 403, ["planning.view"]),
+    ("gis", set(), 403, ["planning.view"]),
+    ("planning", {"planning.view"}, 200, ["planning.view"]),
+    ("planning", {"situation.view"}, 403, ["planning.view"]),
+])
+def test_context_permissions_are_checked_before_catalog_read(api, monkeypatch, context, permissions, expected, calls):
+    actual, reads = [], []
+
+    def require(request, permission, writing=False):
+        actual.append(permission)
+        assert not writing
+        if permission not in permissions:
+            raise identity.IdentityError("catalog permission denied", 1104, 403)
+        return {"account_id": "catalog-test-actor"}
+
+    def history(*args):
+        reads.append(args)
+        return {"items": [], "total": 0, "page": 1, "page_size": 5, "data_origin": "SYNTHETIC_INTEGRATION"}
+
+    monkeypatch.setattr(identity, "require", require)
+    monkeypatch.setattr(planning_plan_service, "list_saved_plan_history", history)
+    response = page(api[0], context=context)
+    assert response.status_code == expected
+    assert response.json()["code"] == (0 if expected == 200 else 1104)
+    assert actual == calls
+    assert reads == ([(1, 5, None, None)] if expected == 200 else [])
 
 
 def test_mode_gate_and_missing_context(api, monkeypatch):

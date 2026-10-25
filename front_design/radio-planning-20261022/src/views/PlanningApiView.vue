@@ -57,7 +57,7 @@
         v-for="(label, i) in ['任务与约束输入', '规划计算与结果', '方案调整与对比']"
         :key="label"
         :class="{ active: planning.step === i + 1 }"
-        @click="planning.step = i + 1"
+        @click="changePlanningStep(i + 1)"
         >{{ i + 1 }} · {{ label }}</button
       ></div
     >
@@ -245,6 +245,7 @@
             :candidates="candidates.view.value"
             @candidate-active="candidateTab = $event"
             :result="planning.result"
+            :outcome="planning.selectedPlan?.outcome"
             :radio-count="resultRadioCount"
             :confirmed-configuration="planning.selectedPlan?.confirmedConfiguration"
             :owner-key="resultOwner"
@@ -253,7 +254,7 @@
             @focus="resultFocus"
             @coverage="showCoverage = $event"
           />
-          <FrozenCoveragePanel v-if="planning.step !== 1 && frozenCoverageQuery" :query="frozenCoverageQuery"
+          <FrozenCoveragePanel v-if="lastCoverageQuery" v-show="!!frozenCoverageQuery || coveragePanel?.hasProtectedSelection()" ref="coveragePanel" :query="lastCoverageQuery" :active="!!frozenCoverageQuery"
             :services="collaborationHttp.frozenCoverage" @overlay="frozenCoverage=$event" />
           <PlanningAdjustmentDrawer
             v-if="
@@ -353,13 +354,13 @@
         <div class="step-actions"
           ><button
             class="btn small"
-            @click="planning.step = planning.step === 3 ? 2 : 1"
+            @click="changePlanningStep(planning.step === 3 ? 2 : 1)"
             >{{ planning.step === 3 ? '返回规划结果' : '返回任务输入' }}</button
           >
           <button
             v-if="planning.step === 2"
             class="btn primary small"
-            @click="planning.step = 3"
+            @click="changePlanningStep(3)"
             >下一步：保存或调整方案</button
           >
         </div>
@@ -468,10 +469,20 @@ const route = useRoute();
 const router = useRouter();
 const auth = useAuthStore();
 const frozenCoverage=shallowRef<FrozenCoverageOverlay|null>(null);
+const coveragePanel=ref<InstanceType<typeof FrozenCoveragePanel>>();
+let changingStep=false;
+async function changePlanningStep(step:number){
+  if(changingStep||step===planning.step)return;
+  changingStep=true;const session=auth.generation,current=planning.step;
+  try{if((!coveragePanel.value||await coveragePanel.value.requestLeave())&&session===auth.generation&&!auth.blocked&&planning.step===current)planning.step=step;}
+  finally{changingStep=false;}
+}
 const frozenCoverageQuery=computed<FrozenCoverageQuery|null>(()=>{
   const plan=planning.selectedPlan;
   return plan?.resourceRevision?{planId:plan.id,taskId:plan.taskId,snapshotId:plan.result.snapshotId,resourceRevision:plan.resourceRevision,context:'planning'}:null;
 });
+const lastCoverageQuery=shallowRef<FrozenCoverageQuery|null>(null);
+watch(frozenCoverageQuery,query=>{if(query)lastCoverageQuery.value=query;},{immediate:true});
 const frozenCoverageForMap=computed(()=>{
   const query=frozenCoverageQuery.value,value=frozenCoverage.value;
   return planning.step!==1&&query&&value&&value.anchor.plan_id===query.planId&&value.anchor.snapshot_id===query.snapshotId?value:null;
@@ -636,12 +647,14 @@ const currentObjectLabel = computed(() =>
     ? `${planning.selectedPlan.name} · ${planning.selectedPlan.version}`
     : (planning.currentSolution?.label ?? planning.job?.input.name ?? '尚无规划结果'),
 );
-// 数量只属于当前显示对象；已保存方案缺失时不借用作业或父方案数量。
-const resultRadioCount = computed(() =>
-  planning.selectedPlan
+// 新摘要的显式缺值保留；旧结果只读当前对象，不借用作业或父方案数量。
+const resultRadioCount = computed(() => {
+  const summary = planning.result?.resultDetails?.deploymentSummary;
+  if (summary != null) return summary.actualCount;
+  return planning.selectedPlan
     ? (planning.selectedPlan.radioCount ?? null)
-    : (planning.currentSolution?.radioCount ?? null),
-);
+    : (planning.currentSolution?.radioCount ?? null);
+});
 const workflowHint = computed(() =>
   planning.step === 2
     ? planning.result

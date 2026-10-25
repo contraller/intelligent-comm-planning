@@ -208,17 +208,17 @@ def _dto(job: PlanningJob, revision: PlanningTaskRevision) -> dict[str, Any]:
 
 
 def _validate_supported_input(input_data: dict[str, Any]) -> None:
-    unsupported = [key for key in (
-        "deploymentSolve", "deploymentConstraints"
-    ) if input_data.get(key) is not None]
-    if unsupported:
-        raise PlanningJobError(
-            1001,
-            "当前 SR4 提交尚不支持以下高级条件：" + "、".join(unsupported),
-            422,
-            [{"objectId": "task", "field": key, "message": "该条件尚未接入 SR4"}
-             for key in unsupported],
-        )
+    from .task_input_schemas import DeploymentConstraints, DeploymentSolve
+    from pydantic import ValidationError
+
+    for key, model in (("deploymentSolve", DeploymentSolve),
+                       ("deploymentConstraints", DeploymentConstraints)):
+        if input_data.get(key) is not None:
+            try:
+                model.model_validate(input_data[key])
+            except ValidationError as exc:
+                raise PlanningJobError(1001, f"部署条件无效：{key}", 422,
+                    [{"objectId": "task", "field": key, "message": str(exc)}]) from exc
 
 
 def _validate_resources(input_data: dict[str, Any], revision: str) -> None:
@@ -248,11 +248,18 @@ def _algorithm_payload(payload: PlanningJobSubmitRequest,
     if frozen_rows is None:
         frozen_rows = (resource_dataset.algorithm_tables(revision.resource_revision)
                        if resource_dataset.database_mode() else None)
+    csv_compatibility = frozen_rows is None
+    if frozen_rows is None:
+        # CSV兼容入口同样冻结整套表；工作线程不能混入后续磁盘变更。
+        frozen_rows = {name: planning_w4._load(name) for name in (
+            "node.csv", "device.csv", "device_model.csv", "antenna_model.csv",
+            "comm_demand.csv", "frequency_resource.csv", "interference_source.csv",
+            "link_metric.csv", "candidate_site.csv")}
     frequency_constraints = input_data.get("frequencyConstraints")
     if frequency_constraints is not None:
         from .task_input_schemas import FrequencyConstraints
         frequency_constraints = FrequencyConstraints.model_validate(frequency_constraints).model_dump(mode="json")
-        if frozen_rows is None:
+        if csv_compatibility:
             raise PlanningJobError(1001, "高级频率条件要求数据库冻结资源，不能回退CSV", 422)
         by_id = {row["freq_id"]: row for row in frozen_rows["frequency_resource.csv"]}
         for index, entry in enumerate(frequency_constraints["filters"]):
@@ -311,6 +318,13 @@ def _algorithm_payload(payload: PlanningJobSubmitRequest,
     }
     if frozen_rows is not None:
         algorithm_payload["resource_rows"] = deepcopy(frozen_rows)
+        algorithm_payload["resource_rows"]["planning_input"] = {
+            "schema_version": 1,
+            "bbox": deepcopy(input_data["bbox"]),
+            "stationIds": list(input_data["stationIds"]),
+            "deploymentConstraints": deepcopy(input_data.get("deploymentConstraints")),
+            "deploymentSolve": deepcopy(input_data.get("deploymentSolve")),
+        }
         # W4既有转交完整资源容器；此内部元数据不替换任何CSV原表。
         algorithm_payload["resource_rows"]["frequency_constraints"] = (None if frequency_constraints is None else {
             "filters": [{"device_class": row["deviceClass"], "range_khz": row["rangeKhz"],
@@ -860,10 +874,14 @@ def query_planning_job(job_id: str, task_id: str | None,
                       if saved is not None and saved.adjustment and saved.adjustment.get("interference_origin")
                       else None)
         frozen_result_tables = None
-        if (job.adjustment or {}).get("interference_origin"):
+        if status == "SUCCESS":
             from .resource_dataset_models import ResourceDatasetVersion
-            frozen_result_tables = resource_dataset._decode(
-                session.get(ResourceDatasetVersion, job.resource_revision))["tables"]
+            try:
+                frozen_result_tables = resource_dataset._decode(
+                    session.get(ResourceDatasetVersion, job.resource_revision))["tables"]
+            except resource_dataset.ResourceDatasetError as exc:
+                raise PlanningJobError(exc.code,
+                    f"SR4作业冻结资源不可读（{job.resource_revision}）：{exc}", exc.status) from exc
 
     if status == "SUCCESS":
         if saved_data is not None:
@@ -879,11 +897,8 @@ def query_planning_job(job_id: str, task_id: str | None,
         if not isinstance(plan, dict):
             raise PlanningJobError(5001, "SR4 作业对应的方案文件不存在", 500)
         try:
-            if frozen_result_tables is None:
-                result, outcome = planning_result_adapter.adapt_planning_result(plan, data["input"])
-            else:
-                result, outcome = planning_result_adapter.adapt_planning_result(
-                    plan, data["input"], resource_rows=frozen_result_tables)
+            result, outcome = planning_result_adapter.adapt_planning_result(
+                plan, data["input"], resource_rows=frozen_result_tables)
             if data.get("adjustment") is not None:
                 planning_adjustment_service.verify_adjusted_result(
                     data["adjustment"], result, raw_detail=plan.get("detail"))

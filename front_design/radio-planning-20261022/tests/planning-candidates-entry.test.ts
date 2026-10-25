@@ -84,6 +84,14 @@ async function entry(mode:'mock'|'api'){
 describe('候选两种真实规划入口',()=>{
   it.each(['mock','api'] as const)('%s 清单地图双向联动，隐藏后定位不恢复图层且不写业务数据',async mode=>{
     const s=await entry(mode),before=JSON.stringify([s.input(),s.configuration(),s.details()]),writes=s.writes();
+    const initial=find(panel(s.root),n=>n.tag==='input'&&n.props.type==='checkbox')!;
+    expect(initial.props.checked).toBe(false);expect((map(s.root).props.frame as CandidateMapFrame).visible).toBe(false);
+    const points=(map(s.root).props.frame as CandidateMapFrame).points;
+    expect(points.map(point=>point.siteId)).toEqual(s.details().candidateScreening!.candidates!.map(point=>point.siteId));
+    (initial.props.onChange as Function)({target:{checked:true}});await nextTick();
+    expect(find(panel(s.root),n=>n.tag==='input'&&n.props.type==='checkbox')!.props.checked).toBe(true);
+    expect((map(s.root).props.frame as CandidateMapFrame).visible).toBe(true);
+    expect((map(s.root).props.frame as CandidateMapFrame).points).toEqual(points);
     const first=row(s.root);(table(s.root).props.select as Function)(first);await nextTick();expect((map(s.root).props.frame as CandidateMapFrame).selectedId).toBe(first.siteId);expect(textOf(panel(s.root))).toContain(first.siteId);
     const checkbox=find(panel(s.root),n=>n.tag==='input'&&n.props.type==='checkbox')!;(checkbox.props.onChange as Function)({target:{checked:false}});await nextTick();
     expect((map(s.root).props.frame as CandidateMapFrame).visible).toBe(false);await click(find(table(s.root),n=>n.tag==='row-probe'&&n.props.id===first.id)!,'定位候选');
@@ -94,7 +102,9 @@ describe('候选两种真实规划入口',()=>{
     if(mode==='api')expect(textOf(panel(s.root))).toContain('已返回明细条数：1');
   });
   it.each(['mock','api'] as const)('%s 标签/版本/权限切换后旧控件和旧地图事件不能影响新结果',async mode=>{
-    const s=await entry(mode),oldRow=row(s.root),oldSelect=table(s.root).props.select as Function,oldMap=map(s.root).props.select as Function;
+    const s=await entry(mode),checkbox=find(panel(s.root),n=>n.tag==='input'&&n.props.type==='checkbox')!;
+    (checkbox.props.onChange as Function)({target:{checked:true}});await nextTick();
+    const oldRow=row(s.root),oldSelect=table(s.root).props.select as Function,oldMap=map(s.root).props.select as Function;
     oldSelect(oldRow);await nextTick();await click(s.root,'路由路径');expect((map(s.root).props.frame as CandidateMapFrame).visible).toBe(false);
     await click(s.root,'部署点位');oldSelect(oldRow);oldMap(oldRow);await nextTick();expect(table(s.root).props.selected).toBeNull();
     const prior=row(s.root);s.swap();await settle();(table(s.root).props.select as Function)(prior);await nextTick();expect(table(s.root).props.selected).toBeNull();

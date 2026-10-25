@@ -515,8 +515,11 @@ def export_file(run_id, kind, fmt, filters=""):
     with get_session_factory()() as session:
         row = _get_run(session, run_id)
         diagnosis, impact = row.diagnosis["result"], row.impact["result"]
+        source = {"run_id": row.id, "task_id": row.task_id, "plan_id": row.plan_id,
+                  "snapshot_id": record["network"].get("snapshotId"), "scenario_version": record["scenarioVersion"],
+                  "diagnose_task_id": row.diagnose_task_id, "impact_task_id": row.impact_task_id}
         if kind == "impact":
-            data = fault.export_impact(row.impact_task_id, fmt)
+            data = fault.export_impact(row.impact_task_id, fmt, network=record["network"], source=source)
             if data is None:
                 fail("影响导出格式不支持或原始任务不可用")
             return data
@@ -527,5 +530,5 @@ def export_file(run_id, kind, fmt, filters=""):
         content = fault._report_content(diagnosis, impact, fault._engine().suggestions(diagnosis, impact))
         fault.REPORT_DIR.mkdir(parents=True, exist_ok=True)
         path = fault.REPORT_DIR / f"report_{run_id}_{uuid.uuid4().hex}.{fmt}"
-        (fault._report_docx if fmt == "docx" else fault._report_pdf)(content, path)
+        (fault._report_docx if fmt == "docx" else fault._report_pdf)(content, path, source=source)
         return path.read_bytes(), "application/pdf" if fmt == "pdf" else "application/vnd.openxmlformats-officedocument.wordprocessingml.document"

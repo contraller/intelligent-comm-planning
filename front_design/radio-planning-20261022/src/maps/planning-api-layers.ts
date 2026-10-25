@@ -24,12 +24,13 @@ export function planningApiLayer(overlay: PlanningMapOverlay, selectedId = '', s
     const feature = new Feature({ geometry: new LineString([projectCoordinate(a), projectCoordinate(b)]), kind: 'task-demand', objectId: demand.id });
     // 选中需求保留紫色语义，以线宽和文字共同强调。
     const selected = demand.id === overlay.selectedDemandId;
-    feature.setStyle(new Style({ stroke: new Stroke({ color: '#c79bef', width: selected ? 5 : 2, lineDash: [8, 6] }), text: new Text({ text: demand.id, font: selected ? 'bold 13px Microsoft YaHei' : undefined, fill: new Fill({ color: '#e7d2ff' }), stroke: new Stroke({ color: '#102132', width: 3 }) }) })); features.push(feature);
+    feature.setStyle(new Style({ stroke: new Stroke({ color: '#c79bef', width: selected ? 5 : 2, lineDash: [8, 6] }), text: new Text({ text: demand.id, declutterMode: 'declutter', font: selected ? 'bold 13px Microsoft YaHei' : undefined, fill: new Fill({ color: '#e7d2ff' }), stroke: new Stroke({ color: '#102132', width: 3 }) }) })); features.push(feature);
   }
   for (const node of overlay.nodes) {
     const feature = new Feature({ geometry: new Point(projectCoordinate(node.coordinate)), kind: 'api-planning-node', objectId: node.id });
     const color = node.id === selectedId || highlights.includes(node.id) ? '#ffe08a' : node.status === 'FAULT' ? '#ef788b' : node.alert === true ? '#efa84c' : node.alert === null ? '#a9b8ca' : '#60ccbb';
-    feature.setStyle(new Style({ image: new Circle({ radius: node.id === selectedId ? 8 : 6, fill: new Fill({ color }), stroke: new Stroke({ color: '#14273e', width: 2 }) }), text: new Text({ text: node.name, offsetY: -15, fill: new Fill({ color: '#d9e8f6' }), stroke: new Stroke({ color: '#112033', width: 3 }) }) })); features.push(feature);
+    feature.setStyle(new Style({ image: new Circle({ radius: node.id === selectedId ? 8 : 6, declutterMode: 'none', fill: new Fill({ color }), stroke: new Stroke({ color: '#14273e', width: 2 }) }), text: new Text({ text: node.name, declutterMode: 'declutter', offsetY: -15, fill: new Fill({ color: '#d9e8f6' }), stroke: new Stroke({ color: '#112033', width: 3 }) }) })); features.push(feature);
   }
-  return new VectorLayer({ source: new VectorSource({ features }), zIndex: 40 });
+  // 仅避让站名和需求文字；站点符号与链路仍完整绘制、保留点选身份。
+  return new VectorLayer({ source: new VectorSource({ features }), declutter: 'planning-api-captions', zIndex: 40 });
 }

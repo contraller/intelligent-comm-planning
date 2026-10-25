@@ -2,7 +2,7 @@ import { describe,expect,it } from 'vitest';
 import { frozenCoverageLayer } from '../src/maps/frozen-coverage-layers';
 import Polygon from 'ol/geom/Polygon';
 import type { FrozenCoverageFeature,FrozenCoverageOverlay } from '../src/types/frozen-coverage';
-import { bandwidthCase,coverageCase } from './helpers/frozen-coverage';
+import { bandwidthCase,coverageCase,coverageV4Case } from './helpers/frozen-coverage';
 describe('冻结覆盖原生几何层',()=>{
   it('VUHF是余量采样点，属性不冒充场强或连续覆盖面',()=>{
     const f=coverageCase(),overlay:FrozenCoverageOverlay={anchor:f.anchor,result:f.result,deviceId:'D1'},layer=frozenCoverageLayer(overlay,f.query.snapshotId,f.query.planId);
@@ -28,5 +28,16 @@ describe('冻结覆盖原生几何层',()=>{
     if(kind==='old-v2'){overlay.anchor.engine_version='V01-2';overlay.result.provenance.engine_version='V01-2';}
     const features=frozenCoverageLayer(overlay,f.query.snapshotId,f.query.planId).getSource()!.getFeatures();
     expect(features).toHaveLength(kind==='matching'?1:0);
+  });
+  it.each(['matching','id','hash','missing','engine','schema','skipped','unavailable'] as const)('V4图层%s保留冻结选择校验且只绘制COMPLETE',kind=>{
+    const f=coverageV4Case({complete:1,unavailable:0,skipped:0},false,true),overlay:FrozenCoverageOverlay={anchor:f.anchor,result:f.result,deviceId:'D1',bandwidthSelection:{...f.query.bandwidthSelection!}};
+    if(kind==='id')overlay.bandwidthSelection!.selectionId='FBS-'+'4'.repeat(32);
+    if(kind==='hash')overlay.bandwidthSelection!.selectionHash='0'.repeat(64);
+    if(kind==='missing')delete overlay.bandwidthSelection;
+    if(kind==='engine')f.result.provenance.engine_version='V01-3';
+    if(kind==='schema')f.result.schema_version=1;
+    if(kind==='skipped')f.result.devices[0]!.status='SKIPPED';
+    if(kind==='unavailable')f.result.devices[0]!.status='UNAVAILABLE';
+    expect(frozenCoverageLayer(overlay,f.query.snapshotId,f.query.planId).getSource()!.getFeatures()).toHaveLength(kind==='matching'?1:0);
   });
 });

@@ -12,7 +12,7 @@ import pytest
 import uvicorn
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine, func, select
+from sqlalchemy import create_engine, event, func, select
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import sessionmaker
 
@@ -339,3 +339,133 @@ def test_isolated_socket_http_projection_and_errors(api, monkeypatch):
             thread.join(timeout=10)
         listener.close()
     assert not thread.is_alive(), "隔离HTTP服务未正常退出"
+
+
+def _main_plans_get_rows(factory):
+    with factory() as session:
+        return {
+            model.__tablename__: [
+                {column.key: deepcopy(getattr(row, column.key)) for column in model.__table__.columns}
+                for row in session.scalars(select(model)).all()
+            ]
+            for model in (PlanningTask, PlanningTaskRevision, PlanningJob, PlanningPlan, PlanningCurrentPlan)
+        }
+
+
+@pytest.fixture
+def main_plans_get_api(api, monkeypatch):
+    """真实main handler/service + 现有构造库；身份仅stub边界，不是LOCAL集成。"""
+    client, factory, db = api
+    # 不启动main.app的middleware/lifespan，也不使用调用进程的运行数据库。
+    monkeypatch.setenv("DATABASE_URL", "sqlite:///" + db.as_posix())
+    from app import main as main_module
+
+    monkeypatch.setattr(main_module.planning_plan_service, "get_session_factory", lambda: factory)
+    auth = {"authenticated": True, "permissions": {"planning.view", "situation.view"}, "calls": []}
+
+    def require_stub(request, permission=None, *, writing=False):
+        assert request.method == "GET" and writing is False
+        auth["calls"].append(permission)
+        if not auth["authenticated"]:
+            raise identity.IdentityError("handler身份边界stub：未鉴权", 1101, 401)
+        if permission not in auth["permissions"]:
+            raise identity.IdentityError("handler身份边界stub：缺少权限", 1104, 403)
+        return {"permissions": sorted(auth["permissions"])}
+
+    monkeypatch.setattr(main_module.integration_identity, "require", require_stub)
+    client.app.add_api_route("/api/v1/plans/{solution_id}", main_module.plans_get, methods=["GET"])
+    before = _main_plans_get_rows(factory)
+    with factory() as session:
+        engine = session.get_bind()
+    mutations = []
+
+    def observe_sql(_connection, _cursor, statement, _parameters, _context, _executemany):
+        operation = statement.lstrip().split(None, 1)[0].upper()
+        if operation in {"INSERT", "UPDATE", "DELETE", "REPLACE", "CREATE", "ALTER", "DROP", "TRUNCATE"}:
+            mutations.append(statement)
+
+    event.listen(engine, "before_cursor_execute", observe_sql)
+    try:
+        yield client, factory, auth
+    finally:
+        event.remove(engine, "before_cursor_execute", observe_sql)
+        assert mutations == [], "main详情GET不得发出业务或DDL写入"
+        assert _main_plans_get_rows(factory) == before, "main详情GET不得改任务/作业/冻结方案/当前指针"
+
+
+def test_main_plans_get_gis_matches_planning_and_keeps_historical_snapshot(main_plans_get_api, monkeypatch):
+    client, factory, auth = main_plans_get_api
+    monkeypatch.setattr(resources, "_rows", lambda *args: pytest.fail("不得用当前资源修补历史方案"))
+    planning = client.get("/api/v1/plans/P1", params={"context": "planning", "task_id": "T1"})
+    assert planning.status_code == 200, planning.text
+    # planning分支的身份middleware不在本handler测试宿主中；这里只验兼容响应。
+    assert auth["calls"] == []
+    gis = client.get("/api/v1/plans/P1", params={"context": "gis", "task_id": "T1"})
+    assert gis.status_code == 200, gis.text
+    assert auth["calls"] == ["planning.view", "situation.view"]
+    assert gis.json() == planning.json()
+    data = gis.json()["data"]
+    assert data["plan_id"] == "P1" and data["task_id"] == "T1" and data["version"] == "V1"
+    assert data["input_version"] == "I1" and data["condition_version"] == "C1"
+    assert data["resource_revision"] == "resource-old"
+    assert data["source_changed"] is True and data["current"] is False
+    assert data["state"] == "CONFIRMED"
+    assert data["input"] == frozen_input() and data["result"] == frozen_result()
+    with factory() as session:
+        assert session.get(PlanningCurrentPlan, "T1").plan_id == "P1"
+        assert session.get(PlanningPlan, "P1").result_snapshot == frozen_result()
+
+
+@pytest.mark.parametrize("context", ["ledger", "demo", "unknown", "", None])
+def test_main_plans_get_rejects_unknown_context(main_plans_get_api, context):
+    client, _, auth = main_plans_get_api
+    params = {"task_id": "T1", **({"context": context} if context is not None else {})}
+    response = client.get("/api/v1/plans/P1", params=params)
+    assert response.status_code == 422 and response.json()["code"] == 1001, response.text
+    assert response.json()["data"] is None
+    assert auth["calls"] == []
+
+
+@pytest.mark.parametrize("permissions", [set(), {"planning.view"}, {"situation.view"}])
+def test_main_plans_get_gis_requires_both_permissions(main_plans_get_api, permissions):
+    client, _, auth = main_plans_get_api
+    auth["permissions"] = permissions
+    response = client.get("/api/v1/plans/P1", params={"context": "gis", "task_id": "T1"})
+    assert response.status_code == 403 and response.json()["code"] == 1104, response.text
+    assert response.json()["data"] is None
+    assert auth["calls"] == (["planning.view", "situation.view"]
+                             if "planning.view" in permissions else ["planning.view"])
+
+
+def test_main_plans_get_gis_unauthenticated_preserves_401(main_plans_get_api):
+    client, _, auth = main_plans_get_api
+    auth["authenticated"] = False
+    response = client.get("/api/v1/plans/P1", params={"context": "gis", "task_id": "T1"})
+    assert response.status_code == 401 and response.json()["code"] == 1101, response.text
+    assert response.json()["data"] is None
+    assert auth["calls"] == ["planning.view"]
+
+
+@pytest.mark.parametrize("plan_id,task_id", [("P1", "OTHER"), ("MISSING", "T1")])
+def test_main_plans_get_gis_task_mismatch_or_missing_is_404(main_plans_get_api, plan_id, task_id):
+    client, _, auth = main_plans_get_api
+    response = client.get("/api/v1/plans/" + plan_id, params={"context": "gis", "task_id": task_id})
+    assert response.status_code == 404 and response.json()["code"] == 2001, response.text
+    assert response.json()["data"] is None
+    assert auth["calls"] == ["planning.view", "situation.view"]
+
+
+def test_main_plans_get_without_task_keeps_legacy_dispatch(main_plans_get_api, monkeypatch):
+    from app import main as main_module
+    client, _, auth = main_plans_get_api
+    calls = []
+    expected = {"code": 0, "message": "legacy-dispatch-stub", "data": {"solution_id": "OLD1"}}
+
+    def legacy(plan_id):
+        calls.append(plan_id)
+        return expected
+
+    monkeypatch.setattr(main_module, "get_plan", legacy)
+    response = client.get("/api/v1/plans/OLD1", params={"context": "gis"})
+    assert response.status_code == 200 and response.json() == expected
+    assert calls == ["OLD1"] and auth["calls"] == []

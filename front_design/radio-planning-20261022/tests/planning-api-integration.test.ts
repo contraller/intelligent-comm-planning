@@ -99,6 +99,44 @@ function resultDetailsDto() { return { schemaVersion: 1 as const, assetVersion: 
   frequencyAssignments: [{ id: 'A1', linkId: 'L1', resourceGroupId: 'F1', freqId: null, frequencyKhz: 3000, bandwidthKhz: 25, reuseGroup: 0 }],
   frequencyConflicts: [], frequencyGap: { requiredChannels: 353, availableChannels: 48, shortage: 0 }, conflictFree: true, unreachableDemandIds: [] }; }
 describe('网络规划与 GIS HTTP 页面组合',()=>{
+  it('HTTP保存参考方案显示同快照部署缺口和具体原因，旧快照不补造摘要', async () => {
+    const details = { ...resultDetailsDto(),
+      deploymentSummary: { mode: 'FIXED_COUNT', requestedCount: 5, actualCount: 0,
+        requestedSolutionCount: 2, returnedSolutionCount: 1, countSatisfied: false,
+        shortfallReasons: ['没有满足条件的新增部署点', '强制点 SITE-1 未进入最终部署'], forcedSiteIds: [], lowerBound: null, provedOptimal: false },
+      candidateScreening: { sourceLabel: '冻结候选筛选', candidateCount: null, deployableCount: null,
+        candidates: null, rejectedStats: null, unavailableReasons: ['尚无通视资料'], dataSources: ['冻结候选表（来源待确认）'] } };
+    const plan = planDto();plan.state = 'REFERENCE';
+    plan.outcome = { code: 3001, message: '指定部署数量未满足', suggestions: ['核对部署条件'],
+      gap: [{ objectId: 'T1', field: 'deploymentSolve.fixedCount', message: '实际新增部署数量为0' }] };
+    Object.assign(plan.result, { result_details: details });serverPlans = [plan];
+    const { root, planning } = await mount('/planning?taskId=T1&planId=P-1');
+    await vi.waitFor(() => expect(planning.selectedPlan?.id).toBe('P-1'));await nextTick();
+    const summary = () => text(find(root, n => n.props['aria-label'] === '部署求解摘要')!);
+    expect(summary()).toContain('新增部署单元（实际 / 请求）：0 / 5');
+    expect(summary()).toContain('完整结果份数（实际 / 请求）：1 / 2');
+    expect(summary()).toContain('数量下界：未提供');expect(summary()).toContain('未证明最优');
+    expect(summary()).toContain('没有满足条件的新增部署点');expect(text(root)).toContain('候选数据限制：尚无通视资料');
+    expect(summary()).toContain('强制点 SITE-1 未进入最终部署');expect(summary()).toContain('数量条件：未满足');
+    expect(text(root)).toContain('候选数据来源：冻结候选表（来源待确认）');
+    const cause = find(root, n => n.props['aria-label'] === '当前方案服务结论')!;
+    expect(visible(cause)).toBe(true);expect(text(cause)).toContain('实际新增部署数量为0');
+    expect(text(cause)).toContain('核对部署条件');expect(text(cause)).not.toContain('读取方案失败');
+    expect(planning.canConfirm).toBe(false);
+    await button(root, '路由路径').props.onClick();await nextTick();
+    const route = find(root, n => n.tag === 'table-stub' && n.props.rows.some((row: any) => row.id === 'R1'))!;
+    expect(route.props.rows[0]).toMatchObject({ totalDelayMs: '未提供', bottleneckMarginDb: -2, reliability: '0%', isFeasible: '不可行' });
+    await button(root, '频率分配').props.onClick();await nextTick();
+    expect(text(root)).toContain('所需信道：353 · 可用信道：48 · 缺口：0');
+    delete planning.selectedPlan!.result.resultDetails!.deploymentSummary;
+    delete planning.selectedPlan!.result.resultDetails!.candidateScreening!.unavailableReasons;
+    delete planning.selectedPlan!.result.resultDetails!.candidateScreening!.dataSources;
+    await button(root, '部署点位').props.onClick();await nextTick();
+    expect(summary()).toContain('新增部署单元（实际 / 请求）：未提供 / 未提供');
+    expect(text(root)).not.toContain('候选数据限制');
+    expect(find(root, n => n.props['aria-label'] === '候选数据来源')).toBeUndefined();
+    expect(fetcher.mock.calls.some(([, init]) => ['POST', 'PUT', 'DELETE'].includes(init?.method ?? 'GET'))).toBe(false);
+  });
   it('各步骤保留资源过期提示，刷新只在输入步骤提供且不重算规划',async()=>{
     const {root,planning}=await mount(),resources=useResourceReadStore(pinia);
     await vi.waitFor(()=>expect(resources.workspace).not.toBeNull());await nextTick();

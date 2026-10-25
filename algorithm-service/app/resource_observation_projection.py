@@ -17,14 +17,9 @@ def project_device_items(
     """调用方先授权并取同版全量设备；投影后再统一筛选、分页或导出。"""
     try:
         with (factory if factory is not None else get_session_factory())() as session:
-            snapshot, original = status._snapshot(session, snapshot_id)
-            if snapshot.resource_revision != resource_revision:
+            header, records = status.resolve_full_snapshot(session, snapshot_id)
+            if header["resource_revision"] != resource_revision:
                 raise ResourceDatasetError("观测快照与资源版本不符", 1205, 409)
-            # required IDs 只取批次全体，资源未覆盖设备不是损坏或缺失成员。
-            header, records = status.resolve_snapshot(
-                session, snapshot_id, snapshot.snapshot_revision, resource_revision,
-                [record.device_id for record in original.records],
-            )
             observed = {record["device_id"]: record for record in records}
             result = deepcopy(items)
             for item in result:

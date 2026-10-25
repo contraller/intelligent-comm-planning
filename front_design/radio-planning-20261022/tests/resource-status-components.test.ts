@@ -32,14 +32,14 @@ function client(): DeviceStatusClient { return {
   importSnapshot: vi.fn(), getImport: vi.fn(),
 }; }
 async function settle() { for (let i = 0; i < 15; i++) await nextTick(); }
-async function mount(services?: DeviceStatusClient, allowImport = false) {
+async function mount(services?: DeviceStatusClient, allowImport = false, options: { allowFollow?: boolean; completeSnapshot?: boolean; backgroundEnabled?: boolean } = {}) {
   pinia = createPinia(); setActivePinia(pinia); const auth = authorizeStore();
   const permissions = auth.identity!.permissions as string[];
   if (!permissions.includes('resources.device.status.import')) permissions.push('resources.device.status.import');
   const selected = vi.fn(), root = node('root');
   const dirty = vi.fn(), busy = vi.fn(), imported = vi.fn();
   let exposed!: { requestLeave(): Promise<boolean>; canRefreshDirectoryInBackground(): boolean; refreshDirectoryInBackground(signal?: AbortSignal): Promise<boolean> };
-  const state = shallowReactive({ resourceRevision: revision, services, enabled: true, queryBusy: false });
+  const state = shallowReactive({ resourceRevision: revision, services, enabled: true, queryBusy: false, ...options });
   app = renderer.createApp({ render: () => h(Panel, { ...state, total: null, allowImport,
     ref: value => { exposed = value as unknown as typeof exposed; }, 'onSnapshot-selected': selected, onDirty: dirty, onBusy: busy, onImported: imported }) });
   app.use(pinia); app.provide(ssrContextKey, {}); app.mount(root); await settle();
@@ -74,6 +74,14 @@ it('blocks leaving while file content is still being read and reports busy', asy
   await settle(); expect(s.busy).toHaveBeenLastCalledWith(true); expect(await s.leave()).toBe(false);
   done('unsubmitted-file-content'); await reading; await settle(); expect(s.busy).toHaveBeenLastCalledWith(false); expect(await s.leave()).toBe(false);
 });
+it('allows opening another detail during a pending read-only directory and discards its late result', async () => {
+  const services = client(), done = deferredDirectory(services), s = await mount(services), status = useResourceStatusStore();
+  const signal = vi.mocked(services.listSnapshots).mock.calls[0][1]?.signal;
+  expect(status.busy).toBe(true); expect(status.pendingImport).toBeNull();
+  expect(await s.leave()).toBe(true); expect(signal?.aborted).toBe(true); expect(status.busy).toBe(false);
+  done(directory([nextHeader])); await settle(); expect(status.snapshots).toBeNull();
+  expect(textOf(s.root)).not.toContain('尚有文件读取、待核实原号或未提交导入输入');
+});
 const fileRequest: DeviceStatusImport = {
   schema_version: schema, context: 'ledger', request_id: 'status-file-original', base_revision: revision,
   data_origin: 'SYNTHETIC_INTEGRATION', source_label: '原构造文件', provenance_note: '测试构造，不是真实上报',
@@ -84,6 +92,20 @@ function chooseFile(root: HostNode, file: TestFile): Promise<void> {
   const input = find(root, n => n.tag === 'input' && n.props.type === 'file')!;
   return (input.props.onChange as (event: Event) => Promise<void>)({ target: { files: [file] } } as unknown as Event);
 }
+it('still refuses leaving during an actual import and never cancels its signal', async () => {
+  const services = client(); let done!: (value: Awaited<ReturnType<DeviceStatusClient['importSnapshot']>>) => void;
+  vi.mocked(services.importSnapshot).mockImplementationOnce(() => new Promise(resolve => { done = resolve; }));
+  const s = await mount(services, true);
+  await chooseFile(s.root, { name: 'status.json', size: 100, text: async () => JSON.stringify(fileRequest) });
+  const submit = find(s.root, n => n.tag === 'button' && textOf(n) === '校验并导入')!;
+  const pending = (submit.props.onClick as () => Promise<void>)(); await settle();
+  const signal = vi.mocked(services.importSnapshot).mock.calls[0][1]?.signal;
+  expect(useResourceStatusStore().pendingImport?.request_id).toBe(fileRequest.request_id);
+  expect(await s.leave()).toBe(false); expect(signal?.aborted).toBe(false);
+  done({ schema_version: schema, request_id: fileRequest.request_id, snapshot_id: header.snapshot_id, snapshot_revision: header.snapshot_revision,
+    resource_revision: revision, imported_at: header.imported_at, total: 1, content_hash: header.content_hash, data_origin: header.data_origin });
+  await pending; await settle(); expect(await s.leave()).toBe(true);
+});
 it.each(['oversize', 'read-error'] as const)('invalidates old JSON when replacement file fails: %s', async failure => {
   const services = client(), s = await mount(services, true);
   await chooseFile(s.root, { name: 'original.json', size: 100, text: async () => JSON.stringify(fileRequest) });
@@ -271,5 +293,52 @@ it('retains GIS unknown-state color and cluster behavior independently of status
   app = renderer.createApp({ render: () => h(GisDeviceClusterPanel, { members: points, disabled: false, onSelect: choose }) }); app.provide(ssrContextKey, {}); app.mount(root);
   expect(textOf(root)).toContain('状态未提供 · 告警未提供');
   const el = find(root, n => n.props['aria-label'] === '查看聚合设备 DV-0004')!; (el.props.onClick as Function)(); expect(choose).toHaveBeenCalledWith('DV-0004');
+});
+
+async function changeRefreshMode(root: HostNode, value: 'fixed' | 'latest') {
+  const radio = find(root, n => n.tag === 'input' && n.props.type === 'radio' && n.props.value === value)!;
+  expect(radio).toBeDefined(); (radio.props.onChange as Function)(); await settle();
+}
+function serveFollow(services: DeviceStatusClient) {
+  vi.mocked(services.listSnapshots).mockResolvedValue(directory([nextHeader, header]));
+  vi.mocked(services.getSnapshot).mockImplementation(async input => input.snapshot_id === nextHeader.snapshot_id ? nextHeader : header);
+  vi.mocked(services.queryDevices).mockImplementation(async input => ({ schema_version: schema, snapshot_id: input.snapshot_id, snapshot_revision: input.snapshot_revision, resource_revision: revision,
+    total: 1, page: input.page ?? 1, page_size: input.page_size ?? 20,
+    items: [{ device_id: 'D1', node_id: 'N1', model_id: 'M1', status: null, alert: null, observed_at: null, unknown_reasons: ['缺原始采集时间'], availability: 'ACTIVE' }] }));
+}
+it('keeps fixed mode by default and exposes checked time without switching the historical selection', async () => {
+  const services = client(), s = await mount(services, false, { allowFollow: true }), status = useResourceStatusStore();
+  await status.select(header); serveFollow(services);
+  expect(status.refreshMode).toBe('fixed'); expect(await s.background()).toBe(true); await settle();
+  expect(status.batch?.snapshot_id).toBe(header.snapshot_id); expect(textOf(s.root)).toContain('有待应用的目录检查结果');
+  const marker = find(s.root, n => n.props['data-testid'] === 'gis-status-refresh')!;
+  expect(marker.props['data-checked-at']).toBeTruthy(); expect(marker.props['data-mode']).toBe('fixed');
+});
+it('explicitly follows page-one latest and exposes the atomically applied identity and time in the actual template', async () => {
+  const services = client(), s = await mount(services, false, { allowFollow: true, completeSnapshot: true }), status = useResourceStatusStore();
+  serveFollow(services); await status.select(header); await changeRefreshMode(s.root, 'latest');
+  expect(await s.background()).toBe(true); await settle();
+  expect(services.listSnapshots).toHaveBeenLastCalledWith(expect.objectContaining({ page: 1, resource_revision: revision }), expect.anything());
+  expect(services.queryDevices).toHaveBeenLastCalledWith(expect.objectContaining({ page_size: 100 }), expect.anything());
+  const marker = find(s.root, n => n.props['data-testid'] === 'gis-status-state')!;
+  expect(marker.props['data-snapshot-id']).toBe(nextHeader.snapshot_id); expect(marker.props['data-snapshot-revision']).toBe(nextHeader.snapshot_revision);
+  expect(marker.props['data-applied-at']).toBeTruthy(); expect(textOf(marker)).toContain('已读 1/1 台');
+  await changeRefreshMode(s.root, 'fixed'); expect(await s.background()).toBe(true); expect(status.refreshMode).toBe('fixed');
+});
+it('shows a latest-read failure while retaining the old applied version and its time', async () => {
+  const services = client(), s = await mount(services, false, { allowFollow: true }), status = useResourceStatusStore();
+  await status.select(header); const appliedAt = status.appliedAt; serveFollow(services);
+  vi.mocked(services.queryDevices).mockRejectedValueOnce(new Error('latest details failed'));
+  await changeRefreshMode(s.root, 'latest'); expect(await s.background()).toBe(false); await settle();
+  expect(textOf(s.root)).toContain('latest details failed'); expect(status.batch?.snapshot_id).toBe(header.snapshot_id); expect(status.appliedAt).toBe(appliedAt);
+  expect(await s.background()).toBe(true); await settle(); expect(textOf(s.root)).not.toContain('latest details failed');
+});
+it('an explicit historical batch selection ends following; unsupported or paused hosts do not start it', async () => {
+  const services = client(), s = await mount(services, false, { allowFollow: true }), status = useResourceStatusStore(); serveFollow(services);
+  await changeRefreshMode(s.root, 'latest'); expect(await s.background()).toBe(true); await settle();
+  const historical = find(s.root, n => n.tag === 'button' && textOf(n) === header.source_label)!;
+  await (historical.props.onClick as Function)(); await settle(); expect(status.refreshMode).toBe('fixed'); expect(status.batch?.snapshot_id).toBe(header.snapshot_id);
+  s.state.backgroundEnabled = false; await settle(); expect(await s.background()).toBe(false);
+  s.state.allowFollow = false; await settle(); expect(find(s.root, n => n.props['aria-label'] === '状态刷新方式')).toBeUndefined();
 });
 

@@ -66,7 +66,17 @@
       <div
         ref="resultScroll"
         class="result-scroll"
-        ><p
+        ><div
+          v-if="outcome && (outcome.code !== 0 || outcome.gap.length || outcome.suggestions.length)"
+          class="panel-body notice warn result-outcome"
+          role="status"
+          aria-label="当前方案服务结论"
+        >
+          <strong>{{ outcome.message }}</strong>
+          <p v-for="(issue, index) in outcome.gap" :key="index">{{ planningIssueText(issue) }}</p>
+          <p v-for="(suggestion, index) in outcome.suggestions" :key="index">{{ suggestion }}</p>
+        </div>
+        <p
           v-if="!details"
           class="panel-body muted"
           >此结果未提供补充明细。</p
@@ -79,7 +89,16 @@
               aria-label="新增部署单元数"
               >新增部署单元数：{{ radioCount ?? '未提供' }}</p
             ></div
-          ><AppTable
+          ><div class="panel-body deployment-summary" aria-label="部署求解摘要">
+            <p>求解模式：{{ deploymentSummary.mode }}</p>
+            <p>新增部署单元（实际 / 请求）：{{ deploymentSummary.actualCount }} / {{ deploymentSummary.requestedCount }}</p>
+            <p>完整结果份数（实际 / 请求）：{{ deploymentSummary.returnedSolutionCount }} / {{ deploymentSummary.requestedSolutionCount }}</p>
+            <p>数量条件：{{ deploymentSummary.countSatisfied }}</p>
+            <p>数量下界：{{ deploymentSummary.lowerBound }} · 最优性证明：{{ deploymentSummary.provedOptimal }}</p>
+            <p>数量缺口原因：{{ deploymentSummary.shortfallReasons }}</p>
+            <p>强制部署候选点：{{ deploymentSummary.forcedSiteIds }}</p>
+          </div>
+          <AppTable
             :sortable="false"
             compact
             :rows="deploymentRows"
@@ -94,7 +113,7 @@
               ><small class="cell-secondary">{{ row.role }}</small></template
             ><template #deviceIds="{ row }">{{ row.deviceIds.join(' / ') }}</template
             ><template #detail-plannedCoordinate="{ row }">{{
-              row.plannedCoordinate?.join(', ') ?? '沿用输入位置'
+              row.plannedCoordinate?.join(', ') ?? '未提供规划坐标'
             }}</template
             ><template #actions="{ row }"
               ><button
@@ -107,7 +126,12 @@
             v-if="candidates"
             class="support-details"
             ><summary>候选筛选与依据</summary><PlanningCandidatePanel :view="candidates" /></details
-        ></template>
+          ><p v-if="candidateSources !== null" class="panel-body" aria-label="候选数据来源">
+            候选数据来源：{{ candidateSources }}
+          </p>
+          <p v-if="candidateLimitations !== null" class="panel-body">
+            候选数据限制：{{ candidateLimitations }}
+          </p></template>
         <div
           v-else-if="tab === '覆盖与场强'"
           class="panel-body"
@@ -132,7 +156,7 @@
             >覆盖率：{{ result.metrics.coveragePercent ?? '未提供'
             }}{{ result.metrics.coveragePercent === null ? '' : '%' }}</p
           ><p
-            >{{ result.coverage.contour?.features.length ?? 0 }} 个覆盖轮廓 ·
+            >覆盖轮廓数量：{{ result.coverage.contour?.features.length ?? '未提供' }} ·
             {{ result.coverage.rasterPng ? '已提供场强热力图' : '未提供场强热力图' }}</p
           >
           <p
@@ -367,7 +391,7 @@
         table-min-width="600px"
         :page-size="10"
         ><template #plannedCoordinate="{ row }">{{
-          row.plannedCoordinate?.join(', ') ?? '沿用输入位置'
+          row.plannedCoordinate?.join(', ') ?? '未提供规划坐标'
         }}</template></AppTable
       >
       <h4>设备参数</h4
@@ -414,9 +438,11 @@ import PlanningCandidatePanel from './PlanningCandidatePanel.vue';
 import PlanningOptimizationPanel from './PlanningOptimizationPanel.vue';
 import type { PlanningCandidatesView } from '../types/planning-candidates';
 import { planningMetricCards } from '../services/planning-result-display';
-import type { ApiPlanningResult, PlanningConfirmedConfiguration } from '../types/planning-api';
+import type { ApiPlan, ApiPlanningResult, PlanningConfirmedConfiguration } from '../types/planning-api';
 import type { CoverageDisplay } from '../types/coverage';
+import { planningIssueText } from '../services/planning-issue-display';
 import {
+  deploymentDetailCells,
   deviceDetailCells,
   routeDetailCells,
   deviceDetailColumns,
@@ -433,6 +459,7 @@ import type { FrequencySelection } from '../services/planning-result-details-dis
 const props = withDefaults(
   defineProps<{
     result: ApiPlanningResult | null;
+    outcome?: ApiPlan['outcome'] | null;
     radioCount?: number | null;
     confirmedConfiguration?: PlanningConfirmedConfiguration | null;
     historical: boolean;
@@ -487,6 +514,15 @@ const checkSummary = computed(() =>
 );
 const frequencyOverview = ref(false);
 const details = computed(() => props.result?.resultDetails);
+const deploymentSummary = computed(() => deploymentDetailCells(details.value));
+const candidateSources = computed(() => {
+  const sources = details.value?.candidateScreening?.dataSources;
+  return sources === undefined ? null : sources === null ? '未提供' : sources.join('；') || '服务未列出数据来源';
+});
+const candidateLimitations = computed(() => {
+  const reasons = details.value?.candidateScreening?.unavailableReasons;
+  return reasons === undefined ? null : reasons === null ? '未提供' : reasons.join('；') || '服务未列出限制原因';
+});
 // 切换结果即关闭配置，避免把上一快照的抽屉当作当前配置。
 const configurationOpen = ref(false);
 const configurationMode = ref<'result' | 'confirmed'>('result');
@@ -881,6 +917,11 @@ const deviceSummaryColumns = [
   background: #142b3d;
   overflow-wrap: anywhere;
 }
+.result-outcome {
+  display: block;
+  margin: 8px 12px;
+  overflow-wrap: anywhere;
+}
 .configuration-origin p {
   margin: 0;
 }
@@ -895,6 +936,10 @@ const deviceSummaryColumns = [
 .deployment-heading h4,
 .deployment-summary {
   margin: 0;
+}
+.deployment-summary p {
+  margin: 4px 0;
+  overflow-wrap: anywhere;
 }
 .deployment-summary {
   font-size: 12px;

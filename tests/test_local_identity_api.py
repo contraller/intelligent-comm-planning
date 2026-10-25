@@ -21,6 +21,7 @@ def test_anonymous_never_defaults_to_demo_and_local_capabilities(local_system):
     assert e.client.get("/api/v1/auth/session").json()["data"] is None
     caps = e.client.get("/api/v1/auth/capabilities").json()["data"]
     assert caps["authMode"] == "LOCAL_PASSWORD" and caps["initialized"] is True
+    assert caps["passwordPolicy"] == {"minScalars": 8, "maxScalars": 128}
     for path in ("/api/v1/auth/integration/identities", "/api/v1/auth/identities"):
         assert e.client.get(path).status_code == 404
     assert e.client.post("/api/v1/auth/integration/switch", json={"accountId": "operator"}).status_code == 404

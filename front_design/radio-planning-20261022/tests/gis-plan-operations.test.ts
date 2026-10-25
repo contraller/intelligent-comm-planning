@@ -1,5 +1,36 @@
 import { readFileSync } from 'node:fs';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { defineComponent, h, nextTick, reactive, ssrContextKey, type App } from 'vue';
+import GisPlanOperations from '../src/components/GisPlanOperations.vue';
+import type { GisNetwork, GisPlanOperationServices } from '../src/types/gis-plan';
+import { clientTemplate, node, renderer, find, textOf, type HostNode } from './helpers/vue-client';
+
+const stores = vi.hoisted(() => ({ auth: null as any, analysis: null as any, status: null as any, config: null as any, runtime: null as any }));
+vi.mock('../src/stores/auth', () => ({ useAuthStore: () => stores.auth }));
+vi.mock('../src/stores/interference', () => ({ useInterferenceStore: () => stores.analysis }));
+vi.mock('../src/stores/resource-status', () => ({ useResourceStatusStore: () => stores.status }));
+vi.mock('../src/stores/device-configuration-acceptance', () => ({ useDeviceConfigurationAcceptanceStore: () => stores.config }));
+vi.mock('../src/stores/runtime-parameters', () => ({ useRuntimeParametersStore: () => stores.runtime }));
+vi.mock('../src/components/MapCanvas.vue', () => ({ default: { render: () => null } }));
+vi.mock('../src/components/InterferenceAnalysisPanel.vue', () => ({ default: { render: () => null } }));
+vi.mock('../src/components/InterferenceHistoryDrawer.vue', () => ({ default: { render: () => null } }));
+vi.mock('../src/components/DeviceMonitoringPanel.vue', () => ({ default: { render: () => null } }));
+vi.mock('../src/components/LinkMonitoringPanel.vue', () => ({ default: { render: () => null } }));
+vi.mock('../src/components/SpectrumMonitoringPanel.vue', () => ({ default: { render: () => null } }));
+vi.mock('../src/components/DeviceConfigurationDrawer.vue', () => ({ default: { render: () => null } }));
+vi.mock('../src/components/ResourceStatusPanel.vue', () => ({ default: defineComponent({ setup(_, { expose }) {
+  expose({ requestLeave: async () => true, canRefreshDirectoryInBackground: () => false }); return () => null;
+} }) }));
+vi.mock('../src/components/InterferenceMeasureDrawer.vue', () => ({ default: defineComponent({ emits: ['openAdoption'], setup(_, { emit }) {
+  return () => h('measure-probe', { onAdoption: (value: { adoptionId: string }) => emit('openAdoption', value) });
+} }) }));
+vi.mock('../src/components/InterferenceAdoptionDetailDrawer.vue', () => ({ default: defineComponent({
+  props: ['visible', 'taskId', 'adoptionId', 'services'], emits: ['update:visible'], setup(props, { emit }) {
+    return () => h('adoption-probe', { taskId: props.taskId, adoptionId: props.adoptionId, services: props.services,
+      onClose: () => emit('update:visible', false) });
+  },
+}) }));
+await clientTemplate(GisPlanOperations, 'src/components/GisPlanOperations.vue', 'gis-plan-operations-render.ts');
 const component = readFileSync(
   new URL('../src/components/GisPlanOperations.vue', import.meta.url),
   'utf8',
@@ -60,12 +91,27 @@ describe('GIS跨组宿主静态边界', () => {
     expect(situation).toContain('frozenPanel.value?.openIdentity({ taskId, planId })');
     expect(situation).not.toContain('analysis.selected.run.network');
   });
+  it('采纳详情接E只读抽屉，查询身份取自已匹配的真实采纳而非猜当前任务', () => {
+    expect(component).toContain('@open-adoption="openAdoptionDetail"');
+    expect(component).toContain('<InterferenceAdoptionDetailDrawer');
+    expect(component).toContain(':task-id="adoptionDetail.taskId"');
+    expect(component).toContain(':adoption-id="adoptionDetail.adoptionId"');
+    expect(component).toContain(':services="services.interferenceWorkbench"');
+    expect(component).toContain('row.task_id !== run.task_id');
+    expect(component).toContain('row.run_id !== run.run_id');
+    expect(component).toContain('row.measure_id !== analysis.measureId');
+    expect(component).toContain('row.source_hash !== run.source_hash');
+    expect(component).toContain('taskId: row.task_id, adoptionId: row.adoption_id');
+    expect(component).toContain('props.sessionGeneration, auth.generation');
+    expect(component).toContain('props.services.interferenceWorkbench, analysis.readable, tab.value');
+    expect(component).toContain('@update:visible="!$event && (adoptionDetail = null)"');
+  });
   it('频谱只接显式成员引用，查看历史引用使用P06真实查询且可取消', () => {
     expect(component).toContain(':device-status-ref="observationStatusRef"');
     expect(component).toContain('@select-status-ref="viewObservationStatus"');
     expect(component).toContain('@select-dataset="cancelStatusRefRead"');
     expect(component).toContain('v-model="statusRefMembers"');
-    expect(component).toContain('status.select(header)');
+    expect(component).toContain('status.select(header, { complete: true })');
     expect(component).toMatch(/readObservationStatusHeader\(\s*props\.services\.deviceStatuses/);
     expect(component).not.toContain('deviceIds: props.network.devices.map');
   });
@@ -94,7 +140,7 @@ describe('GIS跨组宿主静态边界', () => {
     expect(component).toContain('auth.registerLeave(requestLeave, hasPending)');
     expect(situation).toContain('additionalPending: () => httpMode');
   });
-  it('PAR1只用唯一运行参数实例串行刷新目录，离页取消且不重启旧观测', () => {
+  it('PAR1默认目录检查，显式跟随可读取全集，离页取消且不重启旧观测', () => {
     expect(component).toContain('useRuntimeParametersStore()');
     expect(component).toContain("runtime.snapshot?.values['PAR-01']");
     expect(component).toContain('canRefreshDirectoryInBackground()');
@@ -103,6 +149,13 @@ describe('GIS跨组宿主静态边界', () => {
     expect(component).not.toContain('runtime.bind(');
     expect(component).not.toContain('status.list()');
     expect(component).not.toContain('setInterval(');
+    expect(component).toContain(':allow-follow="sameResource"');
+    expect(component).toContain('complete-snapshot');
+    expect(component).toContain('验收风险：配置周期超过 60 秒');
+    expect(component).toContain("emit('deviceStatus', value)");
+    expect(host).toContain(':frozen-device-status="deviceStatus"');
+    expect(map).toContain('observeGisDeviceStatusRender(map, statusDevices');
+    expect(map).toContain("watch(() => props.frozenDeviceStatus, updateStatusDevices)");
   });
   it('旧监控包装不再裸挂需要HTTP服务的新组件，也不创建第二个客户端', () => {
     expect(legacyMonitoring).not.toContain('<SpectrumMonitoringPanel v-else />');
@@ -117,5 +170,68 @@ describe('GIS跨组宿主静态边界', () => {
     expect(actions).toMatch(/!frozenView\.value\s*&&\s*epoch === topologyEpoch\.value/);
     expect(actions).toContain('if (!current()) return');
     expect(actions).toContain('if (current()) links.value');
+  });
+});
+
+let app: App<HostNode> | undefined;
+afterEach(() => { app?.unmount(); app = undefined; vi.unstubAllGlobals(); });
+async function settle() { for (let i = 0; i < 8; i++) await nextTick(); }
+function mountAdoptionParent() {
+  vi.stubGlobal('window', { addEventListener: vi.fn(), removeEventListener: vi.fn() });
+  vi.stubGlobal('document', { hidden: false, addEventListener: vi.fn(), removeEventListener: vi.fn() });
+  stores.auth = reactive({ blocked: false, generation: 1, identity: { permissions: ['resources.view', 'situation.view'] }, registerLeave: () => vi.fn() });
+  stores.analysis = reactive({ mapProjection: null, filteredImpact: null, readable: true,
+    selected: { task_id: 'adoption-task', run_id: 'run', source_hash: 'source' }, measureId: 'measure',
+    adoptions: [{ adoption_id: 'adoption', task_id: 'adoption-task', run_id: 'run', measure_id: 'measure', source_hash: 'source' }],
+    bindServices: vi.fn(), start: vi.fn(), stop: vi.fn(), prepareLeave: vi.fn(async () => true),
+    dirty: false, busy: false, pendingScene: null, pendingWrites: [] });
+  stores.status = reactive({ mode: 'baseline', batch: null, refreshMode: 'fixed', pendingImport: null,
+    busy: false, cancel: vi.fn(), project: vi.fn(), setRefreshMode: vi.fn() });
+  stores.config = reactive({ busy: false, pending: null });
+  stores.runtime = reactive({ snapshot: null, loading: false, error: '', clearApplied: vi.fn(), reportApplied: vi.fn() });
+  const network = { identity: { task_id: 'network-task', plan_id: 'plan', snapshot_id: 'network', resource_revision: 'resource' }, devices: [] } as unknown as GisNetwork;
+  const props = reactive({ network, services: { interferenceWorkbench: { getAdoption: vi.fn(), getRun: vi.fn() } } as unknown as GisPlanOperationServices,
+    sessionGeneration: 1, currentResourceRevision: 'resource', planVersion: 'V1', initialTab: 'interference' as const });
+  const root = node('root');
+  app = renderer.createApp({ render: () => h(GisPlanOperations, props) }); app.provide(ssrContextKey, {}); app.mount(root);
+  return { root, props };
+}
+async function openAdoption(root: HostNode, adoptionId = 'adoption') {
+  const measure = find(root, n => n.tag === 'measure-probe')!;
+  expect(measure).toBeDefined();
+  (measure.props.onAdoption as (value: { adoptionId: string }) => void)({ adoptionId }); await settle();
+}
+
+describe('GIS采纳详情真实父模板接线', () => {
+  it('按钮事件打开E抽屉，使用真实采纳任务身份而非冻结网络任务，关闭后销毁', async () => {
+    const s = mountAdoptionParent(); await openAdoption(s.root);
+    const detail = find(s.root, n => n.tag === 'adoption-probe')!;
+    expect(detail.props.taskId).toBe('adoption-task'); expect(detail.props.adoptionId).toBe('adoption');
+    expect(detail.props.services).toBe(s.props.services.interferenceWorkbench);
+    expect(s.props.services.interferenceWorkbench.getAdoption).not.toHaveBeenCalled();
+    (detail.props.onClose as () => void)(); await settle(); expect(find(s.root, n => n.tag === 'adoption-probe')).toBeUndefined();
+  });
+  it.each(['task_id', 'run_id', 'measure_id', 'source_hash'] as const)('拒绝%s错配的原采纳，不向E抽屉传入猜测身份', async field => {
+    const s = mountAdoptionParent(); stores.analysis.adoptions[0][field] = 'different'; await openAdoption(s.root);
+    expect(find(s.root, n => n.tag === 'adoption-probe')).toBeUndefined(); expect(textOf(s.root)).toContain('该采纳与当前分析、措施或来源不一致');
+  });
+  it('拒绝不存在的采纳编号', async () => {
+    const s = mountAdoptionParent(); await openAdoption(s.root, 'missing');
+    expect(find(s.root, n => n.tag === 'adoption-probe')).toBeUndefined();
+  });
+  it.each(['network', 'session', 'generation', 'permission', 'analysis', 'measure', 'services', 'tab'] as const)('在%s切换时清理E抽屉选择，旧上下文不保留', async change => {
+    const s = mountAdoptionParent(); await openAdoption(s.root); expect(find(s.root, n => n.tag === 'adoption-probe')).toBeDefined();
+    if (change === 'network') s.props.network = { ...s.props.network, identity: { ...s.props.network.identity, snapshot_id: 'next-network' } };
+    if (change === 'session') s.props.sessionGeneration++;
+    if (change === 'generation') stores.auth.generation++;
+    if (change === 'permission') stores.analysis.readable = false;
+    if (change === 'analysis') stores.analysis.selected.run_id = 'next-run';
+    if (change === 'measure') stores.analysis.measureId = 'next-measure';
+    if (change === 'services') s.props.services = { ...s.props.services, interferenceWorkbench: { ...s.props.services.interferenceWorkbench } };
+    if (change === 'tab') {
+      const tab = find(s.root, n => n.props.role === 'tab' && textOf(n) === '链路态势')!;
+      await (tab.props.onClick as () => Promise<void>)();
+    }
+    await settle(); expect(find(s.root, n => n.tag === 'adoption-probe')).toBeUndefined();
   });
 });

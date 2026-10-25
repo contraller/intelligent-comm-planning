@@ -83,6 +83,114 @@ def _point_in_polygon(lon, lat, poly):
     return inside
 
 
+def _on_ring(lon, lat, ring):
+    for a, b in zip(ring, ring[1:] + ring[:1]):
+        cross = (lon - a[0]) * (b[1] - a[1]) - (lat - a[1]) * (b[0] - a[0])
+        if (abs(cross) <= 1e-12 and min(a[0], b[0]) - 1e-12 <= lon <= max(a[0], b[0]) + 1e-12
+                and min(a[1], b[1]) - 1e-12 <= lat <= max(a[1], b[1]) + 1e-12):
+            return True
+    return False
+
+
+def in_exclusion_polygon(lon, lat, polygon):
+    """GeoJSON外环减内环；所有环的边界均属于禁部署边界。"""
+    rings = polygon["coordinates"]
+    if any(_on_ring(lon, lat, ring) for ring in rings):
+        return True
+    return (_point_in_polygon(lon, lat, rings[0])
+            and not any(_point_in_polygon(lon, lat, ring) for ring in rings[1:]))
+
+
+def validate_exclusion_polygon(polygon, checkpoint=None):
+    """格式校验之外，拒绝自交、交叉内环和外部内环等歧义禁区。"""
+    rings = polygon["coordinates"]
+    segments = [(ri, index, a, b) for ri, ring in enumerate(rings)
+                for index, (a, b) in enumerate(zip(ring, ring[1:]))]
+
+    def orient(a, b, c):
+        return (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0])
+
+    for pos, (ri, index, a, b) in enumerate(segments):
+        if checkpoint:
+            checkpoint()
+        for rj, other, c, d in segments[:pos]:
+            if checkpoint:
+                checkpoint()
+            if ri == rj and (abs(index - other) == 1 or {index, other} == {0, len(rings[ri]) - 2}):
+                continue
+            if (max(a[0], b[0]) < min(c[0], d[0]) or max(c[0], d[0]) < min(a[0], b[0])
+                    or max(a[1], b[1]) < min(c[1], d[1]) or max(c[1], d[1]) < min(a[1], b[1])):
+                continue
+            if orient(a, b, c) * orient(a, b, d) <= 0 and orient(c, d, a) * orient(c, d, b) <= 0:
+                raise ValueError("禁部署区存在自相交或相交坐标环，不能推定有效区域")
+    for index, ring in enumerate(rings[1:], 1):
+        if checkpoint:
+            checkpoint()
+        if not _point_in_polygon(*ring[0], rings[0]):
+            raise ValueError("禁部署区内环不在外环内部")
+        if any(_point_in_polygon(*ring[0], other) or _point_in_polygon(*other[0], ring)
+               for other in rings[1:index]):
+            raise ValueError("禁部署区内环嵌套，Polygon不能表达独立内部岛区")
+
+
+def grid_layout(bbox, step_m):
+    """只做规模计算，不生成格点或申请与格点数量相关的内存。"""
+    west, south, east, north = bbox
+    if not math.isfinite(step_m) or step_m <= 0:
+        raise ValueError("候选网格间距必须是有限正数")
+    dlon = step_m / (111320.0 * math.cos(math.radians((south + north) / 2)))
+    dlat = step_m / 111320.0
+    if dlon <= 0 or dlat <= 0:
+        raise ValueError("候选网格间距过小，扫描规模不可表示")
+    columns, rows = (east - west) / dlon, (north - south) / dlat
+    if not math.isfinite(columns) or not math.isfinite(rows):
+        raise ValueError("候选网格间距过小，扫描规模超出可计算上限")
+    return int(columns) + 1, int(rows) + 1, dlon, dlat
+
+
+def grid_points(bbox, step_m):
+    """与原生scan保持同一网格定位；调用方逐点保留筛选证据。"""
+    columns, rows, dlon, dlat = grid_layout(bbox, step_m)
+    west, south, _east, _north = bbox
+    for row in range(rows):
+        for col in range(columns):
+            yield west + col * dlon, south + row * dlat
+
+
+POSITION_EPS_DEG = 1e-9
+
+
+def same_position(lon_a, lat_a, lon_b, lat_b):
+    return abs(float(lon_a) - float(lon_b)) <= POSITION_EPS_DEG and abs(float(lat_a) - float(lat_b)) <= POSITION_EPS_DEG
+
+
+class PositionIndex:
+    """按物理坐标查重，编号及站型不能把同一地点变成多个部署位置。"""
+    def __init__(self, checkpoint=None):
+        self.buckets = {}
+        self.checkpoint = checkpoint
+
+    @staticmethod
+    def _key(lon, lat):
+        return math.floor(float(lon) / POSITION_EPS_DEG), math.floor(float(lat) / POSITION_EPS_DEG)
+
+    def find(self, lon, lat):
+        x, y = self._key(lon, lat)
+        for dx in (-1, 0, 1):
+            for dy in (-1, 0, 1):
+                if self.checkpoint:
+                    self.checkpoint()
+                for a, b, value in self.buckets.get((x + dx, y + dy), ()):
+                    if same_position(lon, lat, a, b):
+                        return value
+        return None
+
+    def add(self, lon, lat, value):
+        if self.checkpoint:
+            self.checkpoint()
+        self.buckets.setdefault(self._key(lon, lat), []).append((float(lon), float(lat), value))
+
+
 def scan(terrain, road_field, bbox, nodes, constraints,
          forced_include=(), forced_exclude_polygons=(), progress=None):
     """遍历规划区域筛选候选点位。
@@ -200,24 +308,33 @@ def scan(terrain, road_field, bbox, nodes, constraints,
     return kept, reject, scanned
 
 
-def thin_by_spacing(sites, min_spacing_m, lat_mid):
+def thin_by_spacing(sites, min_spacing_m, lat_mid, checkpoint=None):
     """贪心空间稀释：按分数从高到低取点，与已选点距离不足门限的丢弃。
 
     用网格桶做邻域查询，避免与全部已选点两两比距。
     """
+    if checkpoint:
+        checkpoint()
     if not min_spacing_m or min_spacing_m <= 0:
-        return list(sites)
+        result = list(sites)
+        if checkpoint:
+            checkpoint()
+        return result
     m_lon = 111320.0 * math.cos(math.radians(lat_mid))
     cell = min_spacing_m
     buckets = {}
     kept = []
     for s in sorted(sites, key=lambda x: -x["score"]):
+        if checkpoint:
+            checkpoint()
         cx = int(s["lon"] * m_lon / cell)
         cy = int(s["lat"] * 111320.0 / cell)
         clash = False
         for dx in (-1, 0, 1):
             for dy in (-1, 0, 1):
                 for o in buckets.get((cx + dx, cy + dy), ()):
+                    if checkpoint:
+                        checkpoint()
                     if haversine_m(s["lon"], s["lat"], o["lon"], o["lat"]) < min_spacing_m:
                         clash = True
                         break
@@ -228,6 +345,8 @@ def thin_by_spacing(sites, min_spacing_m, lat_mid):
         if not clash:
             kept.append(s)
             buckets.setdefault((cx, cy), []).append(s)
+    if checkpoint:
+        checkpoint()
     return kept
 
 

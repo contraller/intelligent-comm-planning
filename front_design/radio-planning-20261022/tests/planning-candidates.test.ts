@@ -57,8 +57,25 @@ function controller() {
   return { state, locate, scope, value };
 }
 describe('候选显示生命周期', () => {
+  it('默认隐藏但保留点集顺序和可选性；显式开启后地图选择可用', () => {
+    const s = controller(), before = JSON.stringify(s.state.screening);
+    const points = s.value.frame.value.points.map(row => ({ siteId: row.siteId, coordinate: row.coordinate }));
+    expect(s.value.view.value.visible).toBe(false); expect(s.value.frame.value.visible).toBe(false);
+    expect(points).toEqual(s.state.screening.candidates!.map(row => ({ siteId: row.siteId, coordinate: row.coordinate })));
+    let view = s.value.view.value;
+    view.actions.select(view.rows[0]); expect(s.value.view.value.selected?.siteId).toBe(view.rows[0].siteId);
+    view = s.value.view.value; view.actions.clear();
+    s.value.selectMap(view.rows[0]); expect(s.value.view.value.selected).toBeNull();
+    s.value.view.value.actions.visible({ target: { checked: true } } as never);
+    expect(s.value.frame.value.visible).toBe(true);
+    expect(s.value.frame.value.points.map(row => ({ siteId: row.siteId, coordinate: row.coordinate }))).toEqual(points);
+    view = s.value.view.value; s.value.selectMap(view.rows[0]);
+    expect(s.value.view.value.selected?.siteId).toBe(view.rows[0].siteId);
+    expect(JSON.stringify(s.state.screening)).toBe(before); s.scope.stop();
+  });
   it('筛选清除隐藏选择；关层保留详情及定位且不自动恢复', () => {
-    const s = controller(), row = s.value.view.value.rows[0], actions = s.value.view.value.actions;
+    const s = controller(); s.value.view.value.actions.visible({ target: { checked: true } } as never);
+    const row = s.value.view.value.rows[0], actions = s.value.view.value.actions;
     actions.select(row); actions.visible({ target: { checked: false } } as never);
     expect(s.value.view.value.selected?.siteId).toBe(row.siteId); expect(s.value.frame.value.visible).toBe(false);
     const current = s.value.view.value; current.actions.locate(current.rows[0]); expect(s.locate).toHaveBeenCalledWith([114.88, 37.21]); expect(s.value.frame.value.visible).toBe(false);

@@ -31,6 +31,7 @@ import radio_params as RP
 import plan_check
 import multi_objective as MO
 import interference as IF
+import deployment_inputs as DI
 from plan_pipeline import (topology_from_deployment, alternative_parent_solutions,
                            _representative_device)
 
@@ -489,6 +490,13 @@ def run_from_parent(parent_snapshot, adjustment, device_refs, task_id, demand_ro
                     interference_rows=None, progress=None, resource_rows=None):
     """固定父方案拓扑，重算人工调整后的下游规划结果。"""
     started = time.time()
+    monotonic_start = time.monotonic()
+
+    def parent_checkpoint():
+        if time.monotonic() >= monotonic_start + TIME_LIMIT_S:
+            raise TimeoutError("固定父方案重算超过既有SR4时间预算，未返回过期候选结果")
+
+    parent_checkpoint()
     read = _resource_reader(resource_rows)
     detail = parent_snapshot["detail"]
     nodes = copy.deepcopy(detail["nodes"])
@@ -602,6 +610,19 @@ def run_from_parent(parent_snapshot, adjustment, device_refs, task_id, demand_ro
     optimization["tradeoff"] = []
     optimization["feasible"] = (all(item["pass"] for item in constraint_check.values())
                                 and check["passed"])
+    # 子方案只重算当前固定拓扑，父方案备选从未逐套重算，不能继承其成功计数。
+    parent_checkpoint()
+    child_deployment = optimization.get("deployment_solve")
+    if isinstance(child_deployment, dict):
+        child_deployment["solutions"] = []
+        child_deployment["returned_solution_count"] = 0
+        child_deployment["proved_optimal"] = False
+        child_deployment["shortfall_reasons"] = [
+            "固定父方案重算未逐套验证父方案候选，父候选解及返回计数已失效",
+        ]
+        if not optimization["feasible"]:
+            child_deployment["shortfall_reasons"].append("子方案实际重算未通过完整校验")
+    parent_checkpoint()
     if optimization["feasible"]:
         optimization["infeasible"] = None
     else:
@@ -622,6 +643,7 @@ def run_from_parent(parent_snapshot, adjustment, device_refs, task_id, demand_ro
     if progress:
         progress(0.95, "干扰分析已重算")
     elapsed = time.time() - started
+    parent_checkpoint()
     return dict(
         task_id=task_id, steps=[("固定父方案拓扑并重算", elapsed)],
         total_s=elapsed, within_limit=elapsed <= TIME_LIMIT_S,
@@ -731,6 +753,17 @@ def run(task_id=None, preset="TERRAIN", strategy="MAX_RELIABILITY",
     pool_rows = constrained_frequency_rows(pool_rows, frequency_constraints)
     metrics_rows, cand_rows = read("link_metric.csv"), read("candidate_site.csv")
     stations = stations_from_nodes(nodes, devices, models, antennas)
+    planning_input = copy.deepcopy((resource_rows or {}).get("planning_input"))
+
+    def deployment_checkpoint():
+        if time.monotonic() >= monotonic_start + TIME_LIMIT_S:
+            raise TimeoutError("候选扫描超过既有SR4时间预算，未返回部分扫描冒充完成")
+
+    cand_rows, candidate_filter = DI.prepare_candidates(
+        cand_rows, planning_input, terrain, nodes, stations, checkpoint=deployment_checkpoint)
+    solve_options = (planning_input or {}).get("deploymentSolve") or {}
+    requested_solutions = solve_options.get("solutionCount", 1)
+    problem_options = ({"candidate_relays": 0} if solve_options.get("mode") == "FIXED_COUNT" else {})
     steps.append(("1 任务条件输入（需求 %d 条）" % len(demands), time.time() - t0))
     if progress:
         progress(0.15, "任务与资源已加载")
@@ -738,7 +771,7 @@ def run(task_id=None, preset="TERRAIN", strategy="MAX_RELIABILITY",
     # ── 2 电台部署（第 2 周 P1）──
     t0 = time.time()
     fm, sol, links0, nodes1, devices1 = topology_from_deployment(
-        stations, terrain, nodes, devices, models, cand_rows)
+        stations, terrain, nodes, devices, models, cand_rows, deployment_options=planning_input)
     steps.append(("2 电台部署（新增 %d 台）" % len(sol.added), time.time() - t0))
     if progress:
         progress(0.30, "电台部署完成")
@@ -758,7 +791,7 @@ def run(task_id=None, preset="TERRAIN", strategy="MAX_RELIABILITY",
     cons.update(constraints or {})
     opt_demands = demands if (task_id is None or survivability_scope == "TASK") else demands_all
     pb = MO.Problem(fm, sol, opt_demands, caps1,
-                    survivability_threshold=cons["survivability_threshold"])
+                    survivability_threshold=cons["survivability_threshold"], **problem_options)
     opt = MO.optimize(pb, constraints=cons, pop_size=pop_size, generations=generations)
     steps.append(("4 多目标优化（评估 %d 次）" % opt["evaluations"], time.time() - t0))
     if progress:
@@ -788,6 +821,12 @@ def run(task_id=None, preset="TERRAIN", strategy="MAX_RELIABILITY",
             interference_rows=jam_rows, channel_preference=preference,
             optimize_bindings=optimize_bindings, search_checkpoint=search.checkpoint,
             channel_admissible=channel_admissible, radio_anchor=radio_anchor)
+        sites = DI.selected_sites(result["nodes"], nodes, cand_rows, checkpoint=deployment_checkpoint)
+        issues = DI.final_issues(sites, planning_input, cand_rows, nodes=result["nodes"],
+            params=result["params"], terrain=terrain, checkpoint=deployment_checkpoint)
+        result["deployment_issues"] = issues
+        if issues:
+            result["score"] = (result["score"][0] + len(issues),) + result["score"][1:]
         check_cost = max(0.25, time.monotonic() - started)
         return result
 
@@ -817,7 +856,10 @@ def run(task_id=None, preset="TERRAIN", strategy="MAX_RELIABILITY",
             if selected is None or result["score"] < selected["score"]:
                 selected = dict(result, solution=solution)
                 pb, opt = problem, optimization
-            if result["score"][0] == 0 and result["objectives"]["e2e_connectivity"] == 1.0:
+            if (result["score"][0] == 0 and result["objectives"]["e2e_connectivity"] == 1.0
+                    and (requested_solutions == 1 or len(DI.verified_solutions(
+                        verified, selected, nodes, cand_rows, requested_solutions,
+                        checkpoint=deployment_checkpoint)) >= requested_solutions)):
                 return True
         return False
 
@@ -859,7 +901,7 @@ def run(task_id=None, preset="TERRAIN", strategy="MAX_RELIABILITY",
             if checked >= 24 or not search.checkpoint() or time.monotonic() + max(10, 3 * check_cost) >= search.deadline:
                 break
             alt_pb = MO.Problem(fm, alt, opt_demands, caps1,
-                                survivability_threshold=cons["survivability_threshold"])
+                                survivability_threshold=cons["survivability_threshold"], **problem_options)
             alt_opt = MO.optimize(alt_pb, constraints=cons,
                                   pop_size=max(12, min(pop_size // 2, 20)),
                                   generations=max(8, min(generations // 2, 16)))
@@ -936,10 +978,24 @@ def run(task_id=None, preset="TERRAIN", strategy="MAX_RELIABILITY",
         failed_constraints.append("plan_check")
     if binding_errors:
         failed_constraints.append("device_binding")
+    deployment_issues = selected.get("deployment_issues", [])
+    if deployment_issues:
+        failed_constraints.append("deployment_input")
     feasible = not failed_constraints
+    selected_sites = DI.selected_sites(nodes2, nodes, cand_rows, checkpoint=deployment_checkpoint)
+    alternatives = DI.verified_solutions(verified, selected, nodes, cand_rows, requested_solutions,
+                                        checkpoint=deployment_checkpoint)
+    deployment_solve = DI.solve_detail(planning_input, selected_sites, sol, deployment_issues, alternatives,
+        forced_site_ids=[row["site_id"] for row in cand_rows if row.get("forced")], checkpoint=deployment_checkpoint)
     out = dict(task_id=task_id, steps=steps, total_s=total, within_limit=total <= TIME_LIMIT_S,
                deployment=dict(added=[fm.stations[i].sid for i, _s in sol.added]),
                optimization=dict(feasible=feasible, uplinks=copy.deepcopy(selected["uplinks"]),
+                                 planning_input={"schema_version": 1,
+                                     "bbox": copy.deepcopy((planning_input or {}).get("bbox")),
+                                     "station_ids": list((planning_input or {}).get("stationIds", [])),
+                                     "deployment_constraints": copy.deepcopy((planning_input or {}).get("deploymentConstraints")),
+                                     "deployment_solve": copy.deepcopy((planning_input or {}).get("deploymentSolve"))},
+                                 candidate_filter=candidate_filter, deployment_solve=deployment_solve,
                                  actual_search={"evaluations": search.evaluations,
                                                 "budget_exhausted": search.exhausted,
                                                 "checked_candidates": checked,
@@ -978,6 +1034,7 @@ def run(task_id=None, preset="TERRAIN", strategy="MAX_RELIABILITY",
                links=links, nodes=nodes2, devices=devices2)
     if verbose:
         _report(out)
+    deployment_checkpoint()
     return out
 
 

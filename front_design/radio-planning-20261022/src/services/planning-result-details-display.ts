@@ -4,6 +4,18 @@ import type { PlanningResultDetails, PlanningResultDetailsContext } from '../typ
 export const detailValue = (value: string | number | null | undefined) => value ?? '未提供';
 export const detailBoolean = (value: boolean | null | undefined, yes = '是', no = '否') => value === true ? yes : value === false ? no : '未提供';
 export const detailCollection = (rows: readonly unknown[] | null | undefined, empty = '没有记录') => rows == null ? '未提供' : rows.length ? '' : empty;
+export function deploymentDetailCells(details: PlanningResultDetails | undefined) {
+  const summary = details?.deploymentSummary;
+  return {
+    mode: summary?.mode === 'MIN_COUNT' ? '最少数量' : summary?.mode === 'FIXED_COUNT' ? '指定数量' : '未提供',
+    requestedCount: detailValue(summary?.requestedCount), actualCount: detailValue(summary?.actualCount),
+    requestedSolutionCount: detailValue(summary?.requestedSolutionCount), returnedSolutionCount: detailValue(summary?.returnedSolutionCount),
+    countSatisfied: detailBoolean(summary?.countSatisfied, '满足', '未满足'),
+    lowerBound: detailValue(summary?.lowerBound), provedOptimal: detailBoolean(summary?.provedOptimal, '已证明最优', '未证明最优'),
+    shortfallReasons: summary?.shortfallReasons == null ? '未提供' : summary.shortfallReasons.join('；') || '服务未列出缺口原因',
+    forcedSiteIds: summary?.forcedSiteIds == null ? '未提供' : summary.forcedSiteIds.join(' / ') || '未指定强制部署候选点',
+  };
+}
 export function deviceDetailCells(details: PlanningResultDetails | undefined, deviceId: string) {
   const row = details?.deviceParameters?.find(item => item.deviceId === deviceId);
   return { tiltDeg: detailValue(row?.tiltDeg), tiltEffective: detailBoolean(row?.tiltEffective, '参与', '未参与') };

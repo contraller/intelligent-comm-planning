@@ -57,4 +57,46 @@ describe('设备图标及真实 OpenLayers 聚合', () => {
     manager.update(); expect(manager.layer.getVisible()).toBe(false); manager.dispose(); manager.update(data);
     expect(manager.pick(member)).toBeUndefined();
   });
+  it('原生避让只作用于外部caption，所有实体符号及聚合count明确保留', () => {
+    const data = frame(), point = { ...data.points[0], manualStation: true };
+    const single = gisDeviceStyles([point], data.settings, point.id);
+    for (const style of single) {
+      if (style.getImage()) expect(style.getImage()!.getDeclutterMode()).toBe('none');
+      if (style.getText()) expect(style.getText()!.getDeclutterMode()).toBe('declutter');
+    }
+    const cluster = gisDeviceStyles([point, { ...data.points[1], status: 'FAULT', alert: true }], data.settings, point.id);
+    expect(cluster[0].getText()!.getText()).toBe('2'); expect(cluster[0].getText()!.getDeclutterMode()).toBe('none');
+    for (const style of cluster) {
+      if (style.getImage()) expect(style.getImage()!.getDeclutterMode()).toBe('none');
+      if (style !== cluster[0] && style.getText()) expect(style.getText()!.getDeclutterMode()).toBe('declutter');
+    }
+  });
+  it('caption被避让时仍由聚合描边表达故障优先于告警，选中和人工外圈独立保留', () => {
+    const data = frame(), a = { ...data.points[0], status: 'NORMAL' as const, alert: false, manualStation: false };
+    const styles = (fault: boolean, selected: boolean, manual = false) => gisDeviceStyles([
+      { ...a, manualStation: manual }, { ...data.points[1], status: fault ? 'FAULT' : 'NORMAL', alert: true, manualStation: false },
+    ], data.settings, selected ? a.id : '');
+    const fault = styles(true, true), alert = styles(false, false), manual = styles(true, false, true);
+    expect((fault[0].getImage() as RegularShape).getStroke()!.getColor()).toBe('#f27887');
+    expect((alert[0].getImage() as RegularShape).getStroke()!.getColor()).toBe('#f0bd67');
+    expect((fault[1].getImage() as RegularShape).getStroke()!.getColor()).toBe('#ffffff');
+    expect((manual[1].getImage() as RegularShape).getStroke()!.getColor()).toBe('#dcb976');
+    const unknown = gisDeviceStyles([a, { ...data.points[1], status: null, alert: null }], data.settings, '');
+    expect(labels(unknown)).toContain('状态/告警未提供 1');
+    expect((unknown[0].getImage() as RegularShape).getStroke()!.getColor()).not.toBe('#45c9af');
+  });
+  it('启用避让后保留实际成员、原状态和几何，以及故障聚合的pick编号和版本', () => {
+    const data = frame(); data.points = data.points.slice(0, 2); data.points[1].status = 'FAULT'; data.points[1].alert = true;
+    const before = JSON.stringify(data), manager = createGisDeviceLayer(); manager.update(data);
+    // OL 运行时可读避让组；类型声明将该 getter 标记为 protected。
+    expect((manager.layer as unknown as { getDeclutter(): string }).getDeclutter()).toBe('gis-device-captions');
+    const source = manager.layer.getSource()!, raw = source.getSource()!.getFeatures();
+    source.loadFeatures([-Infinity, -Infinity, Infinity, Infinity], 1, projection('EPSG:3857')!);
+    const clustered = source.getFeatures()[0], picked = manager.pick(clustered)!;
+    expect(picked.ids.slice().sort()).toEqual(data.points.map(row => row.id).sort()); expect(picked.version).toBe(data.version);
+    raw.forEach((feature, index) => expect(feature.getGeometry()!.getCoordinates()).toEqual(projectCoordinate(data.points[index].coordinate)));
+    data.selectedDeviceId = data.points[1].id; manager.update(data);
+    expect(source.getSource()!.getFeatures()[0]).toBe(raw[0]); expect(manager.pick(clustered)?.ids).toEqual(picked.ids);
+    data.selectedDeviceId = ''; expect(JSON.stringify(data)).toBe(before); manager.dispose();
+  });
 });

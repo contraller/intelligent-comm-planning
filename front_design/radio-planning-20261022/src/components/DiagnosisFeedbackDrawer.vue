@@ -16,7 +16,7 @@
   </AppDrawer>
 </template>
 <script setup lang="ts">
-import { computed, onBeforeUnmount, ref, watch } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { onBeforeRouteLeave } from 'vue-router';
 import AppDrawer from './AppDrawer.vue';
 import { useAuthStore } from '../stores/auth';
@@ -35,6 +35,9 @@ watch(()=>props.visible,value=>{if(value){index.value=0;prefill();accepted.value
 async function leave(){if(busy.value)return false;if(!dirty.value)return true;return await diagnosis.ask({title:'未提交的诊断知识反馈',message:'放弃当前反馈输入？已经保存的知识草稿仍保留。',saveLabel:'放弃输入',cancelLabel:'继续填写'})==='save';}
 const release=auth.registerLeave(leave,()=>dirty.value);
 onBeforeRouteLeave(()=>auth.bypassLeave||leave());onBeforeUnmount(release);
+const beforeUnload=(event:BeforeUnloadEvent)=>{if(props.visible&&!accepted.value&&(dirty.value||busy.value)){event.preventDefault();event.returnValue='';}};
+onMounted(()=>window.addEventListener('beforeunload',beforeUnload));
+onBeforeUnmount(()=>window.removeEventListener('beforeunload',beforeUnload));
 async function close(){if(await leave())emit('close');}
 async function submit(){if(busy.value||accepted.value||!auth.can('knowledge.edit'))return;busy.value=true;const session=auth.generation,owner=props.runId;try{const feedback={result_index:index.value,...form.value,diagnosis_steps:steps.value.split('\n').map(s=>s.trim()).filter(Boolean)};const sig=JSON.stringify([owner,feedback]);if(pending?.signature!==sig){const context=await previewService.loadDiagnosisContext();if(!context.revision)throw new Error('诊断工作区不可写');pending={signature:sig,baseRevision:context.revision,requestId:randomUuid()};}const r=await previewService.submitDiagnosisFeedback({runId:owner,feedback,baseRevision:pending.baseRevision,requestId:pending.requestId});if(session!==auth.generation||props.runId!==owner)return;accepted.value=r.entityIds[1]??r.objectId;if(diagnosis.workspace)diagnosis.workspace.revision=r.revision;error.value='';}catch(e){if(session===auth.generation)error.value=e instanceof Error?e.message:'反馈提交失败';}finally{busy.value=false;}}
 </script>

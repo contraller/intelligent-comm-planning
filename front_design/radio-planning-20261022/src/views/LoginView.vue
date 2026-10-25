@@ -311,30 +311,54 @@ const capabilities = ref<LocalIdentityCapabilities | null>(null), capabilityLoad
 const passwordOwner = ref('');
 const identityStamp = () => JSON.stringify([auth.generation, auth.identity?.id, auth.identity?.sessionId, auth.identity?.revision]);
 let capabilitySerial = 0, capabilityAbort: AbortController | undefined, passwordRequestId = '', passwordActorId = '';
-onBeforeUnmount(() => { capabilitySerial++; capabilityAbort?.abort(); password.value = ''; });
+let capabilityMounted = false, capabilityPending = true, capabilityRead: Promise<boolean> | undefined;
+const passwordWriting = ref(false);
+function invalidateCapabilities() {
+  capabilitySerial++; capabilityAbort?.abort(); capabilityRead = undefined;
+  capabilityLoading.value = false; capabilities.value = null; capabilityPending = true;
+}
+onBeforeUnmount(() => { capabilityMounted = false; invalidateCapabilities(); password.value = ''; });
 // 换号后清除输入和旧能力，不清除尚未核实的原请求编号。
-watch(identityStamp, () => { capabilitySerial++; capabilityAbort?.abort(); capabilityLoading.value = false; capabilities.value = null; passwordRequired.value = false; passwordOwner.value = ''; password.value = ''; }, { flush: 'sync' });
-async function refreshCapabilities() {
+watch(identityStamp, () => { invalidateCapabilities(); passwordRequired.value = false; passwordOwner.value = ''; password.value = ''; }, { flush: 'sync' });
+// 写入或会话切换中的能力不再沿用；稳定后只补读一次，不自动重试失败请求。
+watch(() => !!auth.busy || auth.transition, active => { if (active) invalidateCapabilities(); }, { flush: 'sync' });
+watch(() => [identityStamp(), !!auth.busy, auth.transition, passwordWriting.value], () => {
+  if (capabilityPending) void refreshCapabilities();
+}, { flush: 'post' });
+async function refreshCapabilities(reuseStable = false) {
+  if (!capabilityMounted || isMock || auth.busy || auth.transition || passwordWriting.value || auth.sessionReplaced) return false;
+  if (reuseStable && !capabilityPending && capabilities.value) return true;
+  if (capabilityRead) return capabilityRead;
   const serial = ++capabilitySerial, actor = identityStamp();
   capabilityAbort?.abort(); const controller = new AbortController(); capabilityAbort = controller; capabilityLoading.value = true;
+  capabilityPending = false;
   const timer = setTimeout(() => controller.abort(), 15000);
-  try { const value = await readLocalIdentityCapabilities({ baseUrl: env.apiBaseUrl, signal: capabilityAbort.signal });
-    if (serial !== capabilitySerial || actor !== identityStamp()) return false;
-    capabilities.value = value; passwordRequired.value = value.passwordChangeRequired; passwordOwner.value = value.passwordChangeRequired ? actor : ''; return true;
-  } catch { if (serial === capabilitySerial) { capabilities.value = null; message.value = '本地认证服务尚未就绪，请重新读取状态。'; } return false; }
-  finally { clearTimeout(timer); if (serial === capabilitySerial) capabilityLoading.value = false; }
+  const read = (async () => {
+    try { const value = await readLocalIdentityCapabilities({ baseUrl: env.apiBaseUrl, signal: controller.signal });
+      if (!capabilityMounted || controller.signal.aborted || serial !== capabilitySerial || actor !== identityStamp()) return false;
+      capabilities.value = value; passwordRequired.value = value.passwordChangeRequired; passwordOwner.value = value.passwordChangeRequired ? actor : ''; return true;
+    } catch { if (capabilityMounted && serial === capabilitySerial && actor === identityStamp()) { capabilities.value = null; message.value = '本地认证服务尚未就绪，请重新读取状态。'; } return false; }
+    finally { clearTimeout(timer); if (serial === capabilitySerial) capabilityLoading.value = false; }
+  })();
+  capabilityRead = read;
+  try { return await read; } finally { if (capabilityRead === read) capabilityRead = undefined; }
 }
 async function changeRequiredPassword(fields: PasswordFields) {
   if (passwordUncertain.value) throw new Error('请先核实原请求编号');
   if (!auth.identity || !passwordOwner.value || passwordOwner.value !== identityStamp()) throw new Error('密码表单身份已变化，请重新读取登录状态');
   if (!previewService.changeOwnPassword) throw new Error('本人改密入口尚未接线');
   passwordRequestId = randomUuid(); passwordActorId = auth.identity?.id ?? '';
-  try { return await previewService.changeOwnPassword({ requestId: passwordRequestId, currentPassword: fields.currentPassword, newPassword: fields.newPassword }); }
+  passwordWriting.value = true;
+  try { const result = await previewService.changeOwnPassword({ requestId: passwordRequestId, currentPassword: fields.currentPassword, newPassword: fields.newPassword });
+    // 旧抽屉可能已随身份清空而卸载，补读不能只依赖其 saved 事件。
+    capabilityPending = true; return result;
+  }
   catch (e) { if (e instanceof ApiError && ['NETWORK_ERROR','REQUEST_TIMEOUT','INVALID_RESPONSE','INVALID_ENVELOPE','INVALID_SYSTEM_RESPONSE','REQUEST_ABORTED'].includes(String(e.code))) {
     passwordUncertain.value = true; message.value = '改密结果待核实，请求编号：' + passwordRequestId + '。重新认证后可核实回执，不自动重试。';
   } throw e; }
+  finally { passwordWriting.value = false; }
 }
-async function passwordSaved() { passwordRequired.value = false; passwordUncertain.value = false; passwordRequestId = ''; await auth.check(); await refreshCapabilities(); message.value = '密码已提交，请使用新密码重新登录。'; }
+async function passwordSaved() { passwordRequired.value = false; passwordUncertain.value = false; passwordRequestId = ''; await auth.check(); await refreshCapabilities(true); message.value = '密码已提交，请使用新密码重新登录。'; }
 async function reconcilePassword() {
   if (!passwordUncertain.value) return true;
   if (!auth.identity || auth.identity.id !== passwordActorId) { message.value = '请使用原账号重新认证后核实，请求编号：' + passwordRequestId; return false; }
@@ -347,6 +371,7 @@ async function reconcilePassword() {
 function closePassword() { passwordRequired.value = false; }
 // 正式模式不查询演示账号目录，也不暴露本地系统恢复入口。
 onMounted(async () => {
+  capabilityMounted = true;
   if (!isMock) {
     message.value = auth.error;
     await refreshCapabilities();
@@ -366,7 +391,7 @@ async function login() {
   recoverable.value = false;
   try {
     if (await auth.login(username.value, password.value)) {
-      if (!isMock && !(await refreshCapabilities())) return;
+      if (!isMock && !(await refreshCapabilities(true))) return;
       if (passwordUncertain.value && !(await reconcilePassword())) return;
       if (!capabilities.value?.passwordChangeRequired) await router.replace(auth.firstPath(route.query.next));
     }
@@ -406,7 +431,7 @@ async function reloadSession() {
   password.value = '';
   try {
     if (await auth.discardRestricted()) {
-      if (!(await refreshCapabilities())) return;
+      if (!(await refreshCapabilities(true))) return;
       if (passwordUncertain.value && !(await reconcilePassword())) return;
       if (auth.identity && !auth.error && !capabilities.value?.passwordChangeRequired) await router.replace(auth.firstPath(route.query.next));
       else message.value = auth.error || '当前未登录，请输入账号和密码。';

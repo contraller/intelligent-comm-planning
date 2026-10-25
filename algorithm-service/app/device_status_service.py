@@ -69,7 +69,7 @@ def _counts(records):
     return {**result, "total": len(records)}
 
 
-def _snapshot(session, snapshot_id, revision=None):
+def _validated_snapshot(session, snapshot_id, revision=None):
     row = session.get(DeviceStatusSnapshot, snapshot_id)
     if row is None:
         raise DeviceStatusError("状态快照不存在", 1002, 404)
@@ -96,17 +96,23 @@ def _snapshot(session, snapshot_id, revision=None):
         originals = {item.device_id: item for item in original.records}
         if len(records) != len(originals):
             raise ValueError("快照记录数量不符")
-        # 先核验全批，再筛选分页，避免损坏的状态被 WHERE 条件悄悄藏掉。
+        # 同次校验保留完整记录映射，解析成员时不再逐设备读取。
+        validated = {}
         for item in records:
             source = devices.get(item.device_id)
             if source is None or item.device_id not in originals or item.availability != source.get("availability", "ACTIVE"):
                 raise ValueError("快照冻结设备不符")
-            _record(item, originals[item.device_id])
-        return row, original
+            validated[item.device_id] = _record(item, originals[item.device_id])
+        return row, original, validated
     except DeviceStatusError:
         raise
     except (ValidationError, ValueError, TypeError, AttributeError, KeyError) as exc:
         raise DeviceStatusError("状态快照来源或内容损坏", 5002, 503) from exc
+
+
+def _snapshot(session, snapshot_id, revision=None):
+    snapshot, original, _ = _validated_snapshot(session, snapshot_id, revision)
+    return snapshot, original
 
 
 def _receipt(session, row):
@@ -238,14 +244,18 @@ def query_devices(snapshot_id, revision, *, device_id=None, status_filter="ALL",
 
 def resolve_snapshot(session, snapshot_id, snapshot_revision, resource_revision, device_ids):
     """供 P07 同事务只读解析；不存在的设备不得构造部分状态引用。"""
-    snapshot, original = _snapshot(session, snapshot_id, snapshot_revision)
+    snapshot, _, records = _validated_snapshot(session, snapshot_id, snapshot_revision)
     if snapshot.resource_revision != resource_revision:
         raise DeviceStatusError("状态引用的资源版本不符", 1203, 409)
-    originals = {row.device_id: row for row in original.records}
     items = []
     for device_id in device_ids:
-        row = session.get(DeviceStatusRecord, (snapshot_id, device_id))
-        if row is None or device_id not in originals:
+        if device_id not in records:
             raise DeviceStatusError("快照没有该设备记录", 1002, 404)
-        items.append(_record(row, originals[device_id]))
+        items.append(deepcopy(records[device_id]))
     return _header(snapshot), items
+
+
+def resolve_full_snapshot(session, snapshot_id):
+    """在调用方事务内完整校验一次，按原批次顺序返回全部记录。"""
+    snapshot, original, records = _validated_snapshot(session, snapshot_id)
+    return _header(snapshot), [records[record.device_id] for record in original.records]

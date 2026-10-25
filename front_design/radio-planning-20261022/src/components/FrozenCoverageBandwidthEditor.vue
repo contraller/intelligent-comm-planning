@@ -48,7 +48,7 @@
     <div class="toolbar">
       <button class="btn small" :disabled="locked || !changesCount" @click="review">预览选择</button>
       <button class="btn primary small" :disabled="locked || !reviewing || !changesCount" @click="confirm">确认并提交选择</button>
-      <button class="btn small" :disabled="busy || !changesCount" @click="discard">放弃本次选择</button>
+      <button class="btn small" :disabled="busy || !changesCount" @click="discardLocal">放弃本次选择</button>
     </div>
   </section>
 </template>
@@ -57,7 +57,7 @@
 export interface CoverageBandwidthRow {
   deviceId: string; modelId: string; modelName: string;
   optionsKhz: readonly number[] | null; frozenKhz: number | null; frozenSource: string;
-  editable: boolean; unavailableReason: string;
+  editable: boolean; unavailableReason: string; participation?: 'SKIPPED';
 }
 interface BandwidthDraft { before: number | null; value: number; modelId: string; options: string }
 export interface CoverageBandwidthChange { deviceId: string; before: number | null; bandwidthKhz: number }
@@ -68,6 +68,7 @@ export function bandwidthOptionsValid(row: CoverageBandwidthRow) {
     && (row.frozenKhz === null || row.optionsKhz.includes(row.frozenKhz));
 }
 export function bandwidthRowState(row: CoverageBandwidthRow) {
+  if (row.participation === 'SKIPPED') return '本次无活动链路';
   if (!row.optionsKhz?.length) return '无资料';
   return !bandwidthOptionsValid(row) ? '资料待核验' : row.frozenKhz === null ? '未选' : '合法';
 }
@@ -76,7 +77,7 @@ export function bandwidthConfirmation(rows: readonly CoverageBandwidthRow[], dra
   if (byId.size !== rows.length) throw new Error('设备资料重复，请重新读取');
   return Object.entries(drafts).sort(([a], [b]) => a.localeCompare(b)).map(([deviceId, draft]) => {
     const row = byId.get(deviceId);
-    if (!row || !row.editable || !bandwidthOptionsValid(row) || row.modelId !== draft.modelId
+    if (!row || !row.editable || row.participation === 'SKIPPED' || !bandwidthOptionsValid(row) || row.modelId !== draft.modelId
       || JSON.stringify(row.optionsKhz) !== draft.options || row.frozenKhz !== draft.before || !row.optionsKhz!.includes(draft.value))
       throw new Error('设备带宽资料或已冻结选择已变化，请重新读取并核对');
     return { deviceId, before: draft.before, bandwidthKhz: draft.value };
@@ -86,14 +87,14 @@ export function bandwidthConfirmation(rows: readonly CoverageBandwidthRow[], dra
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
 const props = withDefaults(defineProps<{ rows: readonly CoverageBandwidthRow[]; sourceKey: string; writable: boolean; loading?: boolean; busy?: boolean; error?: string }>(), { loading: false, busy: false, error: '' });
-const emit = defineEmits<{ confirm: [value: { sourceKey: string; changes: CoverageBandwidthChange[] }]; dirtyChange: [dirty: boolean] }>();
+const emit = defineEmits<{ confirm: [value: { sourceKey: string; changes: CoverageBandwidthChange[] }]; dirtyChange: [dirty: boolean]; discard: [] }>();
 const modelId = ref(''), onlyUnselected = ref(false), page = ref(1), checked = ref<string[]>([]), batchValue = ref('');
 const emptyDrafts = () => Object.create(null) as Record<string, BandwidthDraft>;
 const drafts = ref<Record<string, BandwidthDraft>>(emptyDrafts()), reviewing = ref(false), localError = ref('');
 let sourceSerial = 0;
 const preview = ref<CoverageBandwidthChange[]>([]), pageSize = 20;
 const locked = computed(() => !props.sourceKey || !props.writable || props.loading || props.busy);
-const selectable = (row: CoverageBandwidthRow) => row.editable && bandwidthOptionsValid(row);
+const selectable = (row: CoverageBandwidthRow) => row.participation !== 'SKIPPED' && row.editable && bandwidthOptionsValid(row);
 const validOptions = (row: CoverageBandwidthRow) => bandwidthOptionsValid(row) ? row.optionsKhz! : [];
 const models = computed(() => [...new Map(props.rows.map(row => [row.modelId, { id: row.modelId, name: row.modelName || row.modelId }])).values()]);
 const filtered = computed(() => props.rows.filter(row => (!modelId.value || row.modelId === modelId.value) && (!onlyUnselected.value || row.frozenKhz === null)));
@@ -105,6 +106,7 @@ const batchOptions = computed(() => checkedRows.value.length ? validOptions(chec
 const changesCount = computed(() => Object.keys(drafts.value).length);
 const selection = (row: CoverageBandwidthRow) => String(drafts.value[row.deviceId]?.value ?? row.frozenKhz ?? '');
 function discard() { if (props.busy) return; drafts.value = emptyDrafts(); preview.value = []; reviewing.value = false; localError.value = ''; }
+function discardLocal() { if (props.busy) return; discard(); emit('discard'); }
 watch(() => props.sourceKey, () => {
   // 来源切换只清理本地意图，不向新来源回放旧确认。
   sourceSerial++; drafts.value = emptyDrafts(); preview.value = []; reviewing.value = false; localError.value = '';
@@ -158,6 +160,7 @@ function confirm() {
     emit('confirm', { sourceKey: props.sourceKey, changes }); reviewing.value = false; localError.value = '';
   } catch (reason) { reviewing.value = false; localError.value = reason instanceof Error ? reason.message : '选择资料无效'; }
 }
+defineExpose({ discard });
 </script>
 <style scoped>
 .bandwidth-editor { min-width: 0; max-width: 100%; font-size: 12px; }
