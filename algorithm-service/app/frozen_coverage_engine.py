@@ -533,7 +533,8 @@ def compute_frozen_coverage(raw_snapshot: dict, frozen_tables: dict, *,
                             terrain: Callable[[], Any], fingerprint: Callable[[], str | None],
                             params: dict | None = None, cancelled: Callable[[], bool] | None = None,
                             progress: Callable[[float, str], None] | None = None,
-                            bandwidth_selection: dict | None = None) -> dict:
+                            bandwidth_selection: dict | None = None,
+                            _field_surface: bool = False) -> dict:
     """计算冻结物理设备覆盖。调用方负责权限、任务、原子缓存与终态。"""
     def check():
         if cancelled is not None and cancelled():
@@ -654,6 +655,12 @@ def compute_frozen_coverage(raw_snapshot: dict, frozen_tables: dict, *,
                 "UNSELECTED": "RX_BANDWIDTH_SELECTION_REQUIRED"}.get(item["rx_bandwidth"]["source"], "FROZEN_PARAMETERS_UNKNOWN")
             output.append(item)
             continue
+        if _field_surface and ((item["band"] == "HF" and any(not 1600 <= f <= 30000 for f in frequencies[did]))
+                or (item["band"] == "VUHF" and any(not 30000 <= f <= 6000000 for f in frequencies[did]))):
+            item.update(status="UNAVAILABLE", reason_code="FROZEN_PARAMETERS_UNKNOWN",
+                        reasons=["冻结工作频率超出当前传播模型适用范围，未生成外推场强"], radio_parameters=None)
+            output.append(item)
+            continue
         item["radio_parameters"] = dict(radio)
         station = feasibility.Station(nid, node["lon"], node["lat"], node.get("node_subtype"),
                                       {item["band"]: _CheckedRadio(radio, check)})
@@ -662,7 +669,15 @@ def compute_frozen_coverage(raw_snapshot: dict, frozen_tables: dict, *,
             if not radio["fmin"] <= freq <= radio["fmax"]:
                 _fail("冻结计划频率超出本设备型号范围：" + did)
             try:
-                if item["band"] == "VUHF":
+                if _field_surface:
+                    from . import coverage_field_surface as surface
+                    field_item = dict(item, frequency=freq)
+                    if item["band"] == "VUHF":
+                        result = surface.vuhf_surface(checked, field_item, options, check, MAX_CELLS - cell_count)
+                        cell_count += len(result["cells"])
+                    else:
+                        result = surface.hf_surface(checked, field_item, options, check, _circle)
+                elif item["band"] == "VUHF":
                     native = viewshed.vuhf_coverage(checked, station, radius_m=options["radius_m"],
                         cell_m=options["cell_m"], az_step=options["az_step_deg"], margin_min=options["margin_min_db"],
                         freq_khz=freq, rx_height_m=options["rx_height_m"])
@@ -713,7 +728,61 @@ def compute_frozen_coverage(raw_snapshot: dict, frozen_tables: dict, *,
                       "HF沿用冻结站点地物和指定hour的既有传播假设，不代表远域DEM实测或实时电离层",
                       "hf_max_km仅限制地波距离搜索，原生天波环半径保留，不构造全域覆盖率"]}}
     validate_v4_result(result)
+    if _field_surface:
+        from . import coverage_field_surface as surface
+        result["provenance"].update(engine_version=surface.VERSION, field_strength=surface.metadata(),
+            algorithms=["propagation.vuhf_path_loss/P1812", "propagation.hf_ground_wave_loss/P368", "prop.p533.path_loss"],
+            sampling={"vuhf":"DEM内逐格中心地形剖面与接收预算；仅染色达标格面，不插值跨越盲区",
+                      "hf":"1km距离预算分带；静区不染色；不按固定倍数设定天波外缘",
+                      "computed_device_frequencies":done, "native_cell_count":cell_count},
+            limitations=["预测场强dBuV/m由路径损耗、冻结功率与增益求得，非余量改名、非实测",
+                "VUHF格面代表中心采样，边界精度受网格限制；DEM外与nodata不补造",
+                "HF为距离环带模型，站点地物与假设电离层不代表远域逐方向地形",
+                "P.368绝对定标与P.533电离层仍待实测订正，不能作为实测准确率证明",
+                "分级为现有接收门限余量10/20dB显示规则，非新增验收门限",
+                "接收带宽选择仅用于覆盖，不回写父方案；无活动链路设备不绘制",
+                "方向图、方位与倾角资料未纳入；联合优化及其验收尚待完成"])
+        result["provenance"]["units"]["field_strength"] = "dBuV/m"
+        validate_field_result(result)
     _json(result, "COVERAGE_RESULT")
     tick(1, "冻结覆盖计算完成，待调用方原子发布")
     verify()
     return result
+
+
+def compute_frozen_field_coverage(*args, **kwargs):
+    """V5新计算入口；旧V4计算与冻结缓存保持原有语义。"""
+    return compute_frozen_coverage(*args, **kwargs, _field_surface=True)
+
+
+def validate_field_result(result):
+    """V5严格检查预算场强，不允许把历史余量或采样点当作新覆盖面。"""
+    from . import coverage_field_surface as surface
+    validate_v4_result(result)
+    provenance = result.get("provenance", {})
+    if (provenance.get("engine_version") != surface.VERSION
+            or provenance.get("field_strength") != surface.metadata()
+            or provenance.get("units", {}).get("field_strength") != "dBuV/m"):
+        _fail("V5预测场强来源或单位无效", "COVERAGE_RESULT")
+    for device in result["devices"]:
+        for part in device["computations"]:
+            freq = _number(part.get("freq_khz"), "field.freq", lo=1e-9)
+            for feature in part.get("geojson", {}).get("features", []):
+                props = feature.get("properties", {})
+                if props.get("device_id") != device["device_id"] or props.get("node_id") != device["node_id"] or props.get("freq_khz") != freq:
+                    _fail("V5场强面设备或频率不一致", "COVERAGE_RESULT")
+                for key in ("rx_power_dbm", "path_loss_db", "margin_db", "field_strength_dbuvm", "required_field_dbuvm"):
+                    _number(props.get(key), "field."+key, code="COVERAGE_RESULT")
+                rx, field = props["rx_power_dbm"], props["field_strength_dbuvm"]
+                expected_rx = device["radio_parameters"]["tx_dbm"] + device["radio_parameters"]["gain"] - props["path_loss_db"]
+                expected_class = "STRONG" if props["margin_db"] >= 20 else "MEDIUM" if props["margin_db"] >= 10 else "WEAK"
+                if (not math.isclose(rx, expected_rx, abs_tol=1e-7)
+                        or not math.isclose(field, surface.field_strength(rx, freq), abs_tol=1e-7)
+                        or not math.isclose(field-props["required_field_dbuvm"], props["margin_db"], abs_tol=1e-7)
+                        or props.get("strength_class") != expected_class
+                        or type(props.get("is_coverage")) is not bool
+                        or props["is_coverage"] != (props["margin_db"] >= provenance["parameters"]["margin_min_db"])):
+                    _fail("V5场强预算或分级不一致", "COVERAGE_RESULT")
+                geometry = feature.get("geometry")
+                if geometry is not None and geometry.get("type") != "Polygon":
+                    _fail("V5覆盖必须为计算格面或环带", "COVERAGE_RESULT")

@@ -102,6 +102,14 @@ describe('故障类型选择及场景配置', () => {
 });
 
 describe('根因与三路摘要实际模板', () => {
+  it('空现象的未知故障说明补证据，不误显示成网络来源无效', () => {
+    const value=result(), current=value.conclusions[0];value.conclusions=[current];
+    current.fault!.symptomIds=[];current.faultType='UNKNOWN';current.confidence=0;current.rootCause='未提供根因';
+    const before=JSON.stringify(value),s=mount(()=>h(DiagnosisResultPanel,{result:value,impactReady:true,reportReady:true,exporting:false}));
+    expect(textOf(s.root)).toContain('未识别故障类型');expect(textOf(s.root)).toContain('未填写故障现象');
+    expect(textOf(s.root)).toContain('配置故障与现象');expect(textOf(s.root)).not.toContain('有效性无法核实');
+    expect(JSON.stringify(value)).toBe(before);
+  });
   it('现象名称及 ID、独立原因和部件、自由链条都可读取', () => {
     const c=result().conclusions[0];c.chain=['先检查','自由链条第二段','保留原文'];
     const s=mount(()=>h(DiagnosisRootCausePanel,{conclusion:c,symptoms:diagnosisSymptoms}));

@@ -5,6 +5,11 @@
   >
     <h3>冻结规划覆盖</h3>
     <p class="muted">接收带宽仅用于本次覆盖预测，不改变设备参数或父方案路由指标。</p>
+    <label>结果版本<select v-model="coverageVersion" aria-label="覆盖结果版本" :disabled="state.running.value || hasProtectedSelection()">
+      <option value="V01-5">预测场强与地形覆盖面</option><option value="V01-4">历史余量采样与环带（只读）</option>
+    </select></label>
+    <p v-if="query.context==='gis'" class="muted">GIS只读。尚无新版缓存时，请在网络规划中打开同一方案生成新版覆盖结果。</p>
+    <p v-if="coverageVersion==='V01-4'" class="muted">历史版本仅回读，不修改带宽或重新计算；切换到“预测场强与地形覆盖面”后可在规划页发起新版计算。</p>
     <p v-if="!active || !currentBinding" role="status">来源或身份已变化，原输入只读保留，请先处理原选择。</p>
     <div class="toolbar">
       <button class="btn small" :disabled="!readable || (!!retainedSelection && !selectionConfirmed) || (bandwidthDirty && !state.bandwidthReceipt.value) || state.bandwidthLoading.value || state.bandwidthSaving.value || !!state.bandwidthPending.value" @click="state.loadBandwidthOptions">刷新带宽选项与选择</button>
@@ -26,7 +31,7 @@
     />
     <div class="toolbar parameters">
       <label
-        >半径（km）<input
+        >超短波半径（km）<input
           v-model.number="radiusKm"
           type="number"
           min="0.25"
@@ -44,7 +49,7 @@
           :disabled="inputLocked"
       /></label>
       <label
-        >方位步长（度）<select
+        >历史缓存方位步长（度）<select
           v-model.number="azStep"
           :disabled="inputLocked"
           ><option
@@ -65,6 +70,8 @@
           :disabled="inputLocked"
       /></label>
     </div>
+    <label>短波最远预测（km）<input v-model.number="hfMaxKm" type="number" min="1" max="900" step="1" :disabled="inputLocked" /></label>
+    <p class="muted">超短波按网格计算地形遮蔽；短波使用独立距离范围。方位步长仅用于匹配历史缓存，新版逐格计算不按射线连成圆。覆盖结果为传播模型预测。</p>
     <div class="toolbar">
       <button
         class="btn small"
@@ -159,7 +166,23 @@
             type="checkbox"
           />覆盖图层</label
         >
+        <label v-if="fieldSurface">覆盖显示<select v-model="state.display.value" aria-label="预测覆盖显示方式">
+          <option value="strength">强 / 中 / 弱分级</option><option value="field">预测场强热力图</option><option value="boundary">覆盖边界</option>
+        </select></label>
       </div>
+      <template v-if="fieldSurface">
+        <p>预测场强 {{ fieldRange }} dBμV/m · 分辨率：VUHF {{ cellM }} m / HF 1 km。点击地图“全域”查看所选设备的全部覆盖。</p>
+        <p v-if="state.display.value==='strength'" class="coverage-strength-legend"><span style="color:#176b3b">■ 强</span>　<span style="color:#84cc7a">■ 中</span>　<span style="color:#f0c541">■ 弱</span></p>
+        <p v-else-if="state.display.value==='field'">最低场强 <span style="display:inline-block;width:120px;height:12px;background:linear-gradient(to right,#e7d855,#198f40)"></span> 最高场强（见上方数值范围）</p>
+        <p v-else>仅显示已计算格面与环带的边界；静区和未达标格不填色。</p>
+        <p class="muted">分级按各频点接收门限以上的场强：强 ≥20 dB，中 ≥10 dB，其余达标格为弱；沿用现有质量显示界限，非实测等级。热力色阶对应上方实际预测场强范围，单位 dBμV/m。</p>
+        <details v-if="selected?.band==='HF'"><summary>短波跳距、静区与覆盖距离</summary>
+          <p v-for="part in selected.computations" :key="part.freq_khz">{{ part.freq_khz }} kHz · {{ part.skip_distance_m === null ? '当前模型无可返回的单跳天波' : part.skip_distance_m === 0 ? '当前频点与时刻无跳距静区' : `跳距 ${((part.skip_distance_m??0)/1000).toFixed(1)} km` }} · 预测距离上限 {{ ((part.max_distance_m??0)/1000).toFixed(0) }} km</p>
+          <p v-for="(ring,index) in hfBands" :key="index">{{ ring.frequency }} kHz · {{ ring.inner }}–{{ ring.outer }} km · {{ ring.note }}{{ ring.covered ? ` · ${ring.field} dBμV/m` : ' · 不绘制为覆盖' }}</p>
+          <p>无静区时可呈连续覆盖圆盘；不人为挖孔。环带为假设电离层下的距离预测，不代表远域逐方向地形或实测。</p>
+        </details>
+      </template>
+      <p v-else class="muted">历史覆盖仅含余量采样或旧环带，不是场强面；在规划页重新计算可生成新版预测覆盖，旧缓存保留。</p>
       <p
         v-for="reason in selected?.reasons ?? []"
         :key="reason"
@@ -169,7 +192,7 @@
       <p v-if="selected">{{ selectedFrequencies || (selected.status === 'SKIPPED' ? '本次无活动链路' : '无覆盖计算结果') }}</p>
       <p v-if="selected?.bandwidth_provenance">{{ assumptionLabel(selected.bandwidth_provenance) }}</p>
       <p class="muted"
-        >VUHF：量化网格中心，余量单位 dB；HF：覆盖环带，静区不计入覆盖。算法预测，非实测场强。</p
+        >{{ fieldSurface ? 'VUHF：逐格地形剖面与预算场强面；HF：地波与天波预算分带，静区不计入覆盖。预测值，非实测。' : 'VUHF：量化网格中心，余量单位 dB；HF：历史覆盖环带，静区不计入覆盖。算法预测，非实测场强。' }}</p
       >
       <details
         ><summary>来源与算法限制</summary
@@ -215,6 +238,8 @@ const auth = useAuthStore(),
   cellM = ref(5000),
   azStep = ref(10),
   hour = ref(12);
+const hfMaxKm=ref(900);
+const coverageVersion=ref<'V01-4'|'V01-5'>('V01-5');
 const bandwidthDirty=ref(false),bandwidthLocalError=ref('');
 const bandwidthEditor=ref<InstanceType<typeof FrozenCoverageBandwidthEditor>>();
 const actor=()=>JSON.stringify([auth.identity?.id,auth.identity?.sessionId,auth.generation]);
@@ -231,7 +256,7 @@ const readable = computed(
     (props.query.context !== 'gis' || auth.can('situation.view')),
 );
 const canWrite = computed(
-  () => readable.value && props.query.context === 'planning' && auth.can('planning.execute'),
+  () => readable.value && props.query.context === 'planning' && auth.can('planning.execute') && coverageVersion.value==='V01-5',
 );
 const guardedClient=computed<FrozenCoverageClient|undefined>(()=>{
   const client=props.services;if(!client)return undefined;
@@ -248,12 +273,13 @@ const guardedClient=computed<FrozenCoverageClient|undefined>(()=>{
 });
 const state = useFrozenCoverage({
   // 未处理输入或原号时固定来源；失权冻结现场，不把它挂到新账号/新方案。
-  query: () => binding.value.query,
+  query: () => ({...binding.value.query,engineVersion:coverageVersion.value}),
   parameters: () => ({
     radius_m: radiusKm.value * 1000,
     cell_m: cellM.value,
     az_step_deg: azStep.value,
     hour: hour.value,
+    hf_max_km:hfMaxKm.value,
   }),
   client: () => guardedClient.value,
   owner: () => binding.value.actor,
@@ -289,7 +315,7 @@ watch(state.bandwidthReady,ready=>{if(ready&&selectionConfirmed.value){retainedS
 const unverifiedSelection=computed(()=>state.bandwidthSaving.value||!!state.bandwidthPending.value||!!state.bandwidthReceipt.value&&!state.bandwidthReady.value);
 const hasProtectedSelection=()=>bandwidthDirty.value||unverifiedSelection.value||!!retainedSelection.value;
 const owner=()=>JSON.stringify([binding.value.actor,binding.value.query]);
-watch([actor,()=>JSON.stringify(props.query),hasProtectedSelection,()=>auth.blocked,()=>props.active,()=>props.services],()=>{
+watch([actor,()=>JSON.stringify(props.query),hasProtectedSelection,()=>auth.blocked,()=>props.active,()=>props.services,coverageVersion],()=>{
   if(!readable.value)state.stop();
   if(hasProtectedSelection()||leaveDecision.value||auth.blocked)return;
   const changed=!currentBinding.value;
@@ -371,6 +397,17 @@ const inputLocked = computed(() => locked.value || state.running.value);
 const selected = computed(() =>
   state.devices.value.find((row) => row.device_id === state.selectedDeviceId.value),
 );
+const fieldSurface=computed(()=>state.cache.value?.anchor.engine_version==='V01-5');
+const selectedFeatures=computed(()=>selected.value?.computations.flatMap(part=>part.geojson.features)??[]);
+const fieldRange=computed(()=>{
+  const values=selectedFeatures.value.filter(row=>row.geometry&&row.properties.is_coverage).map(row=>row.properties.field_strength_dbuvm).filter((v):v is number=>typeof v==='number'&&Number.isFinite(v));
+  if(!values.length)return '无达标采样';
+  let lo=Infinity,hi=-Infinity;for(const value of values){lo=Math.min(lo,value);hi=Math.max(hi,value);}
+  return `${lo.toFixed(1)}–${hi.toFixed(1)}`;
+});
+const hfBands=computed(()=>selectedFeatures.value.map(row=>({frequency:row.properties.freq_khz,
+  inner:((row.properties.inner_m??0)/1000).toFixed(0),outer:((row.properties.outer_m??0)/1000).toFixed(0),
+  note:row.properties.note??'',covered:row.properties.is_coverage,field:row.properties.field_strength_dbuvm?.toFixed(1)??'未提供'})));
 const completedDevices = computed(() => state.devices.value.filter(row => row.status === 'COMPLETE').length);
 const missingBandwidthDevices = computed(() => state.devices.value.filter(row => row.status === 'UNAVAILABLE' && row.reason_code === 'RX_BANDWIDTH_UNKNOWN').length);
 const unselectedBandwidthDevices = computed(() => state.devices.value.filter(row => row.status === 'UNAVAILABLE' && row.reason_code === 'RX_BANDWIDTH_SELECTION_REQUIRED').length);

@@ -12,6 +12,21 @@ export function coverageCase(){
   const job:FrozenCoverageJob={job_id:'FCJ-'+'1'.repeat(32),request_id:'request-1',state:'SUCCESS',progress:1,stage:'完成',anchor,cache_key:cache.cache_key,parameters,from_cache:false,cancel_requested:false,error:null,created_at:'2026-10-24T00:00:00Z',updated_at:'2026-10-24T00:00:01Z',finished_at:'2026-10-24T00:00:01Z'};
   return {query,parameters,anchor,result,cache,job};
 }
+export function coverageV5Case(){
+  const value=coverageV4Case({complete:1,unavailable:0,skipped:0});
+  value.anchor.engine_version='V01-5';value.result.provenance.engine_version='V01-5';
+  value.result.provenance.units.field_strength='dBuV/m';
+  value.result.provenance.field_strength={kind:'PREDICTED_FIELD_STRENGTH',unit:'dBuV/m',receiver_gain_dbi:0,
+    conversion:'E=Pr+20log10(f_MHz)+77.21',grading_basis:'RECEIVER_THRESHOLD_MARGIN',medium_margin_db:10,strong_margin_db:20,
+    grading_note:'构造专项：沿用接收门限分级，非实测',hf_geometry:'P368_P533_RADIAL_BUDGET',vuhf_geometry:'P1812_TERRAIN_GRID'};
+  const device=value.result.devices[0]!,part=device.computations[0]!;
+  const offset=20*Math.log10(part.freq_khz/1000)+77.21;
+  part.geojson.features=[7,15,25].map((margin,index)=>({type:'Feature',geometry:{type:'Polygon',coordinates:[[[114+index*.01,37.5],[114.01+index*.01,37.5],[114.01+index*.01,37.51],[114+index*.01,37.5]]]},
+    properties:{device_id:device.device_id,node_id:device.node_id,freq_khz:part.freq_khz,is_coverage:true,
+      margin_db:margin,path_loss_db:130-margin,rx_power_dbm:-100+margin,field_strength_dbuvm:-100+margin+offset,required_field_dbuvm:-100+offset,
+      strength_class:margin>=20?'STRONG':margin>=10?'MEDIUM':'WEAK',surface_kind:'TERRAIN_CELL'}}));
+  return value;
+}
 export function bandwidthCase(selected=true){
   const value=coverageCase();value.anchor.engine_version='V01-3';value.result.provenance.engine_version='V01-3';
   const {engine_version:_,...source_anchor}=value.anchor;

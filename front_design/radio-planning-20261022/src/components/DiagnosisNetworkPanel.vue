@@ -18,7 +18,15 @@
         {{ network.links.length }} 条规划链路</small
       ></div
     >
-    <div class="network-canvas"
+    <p
+      v-if="mode === 'topology'"
+      class="topology-hint"
+      role="note"
+      >滚轮缩放、拖动平移。优先显示选中对象及部分场景注入标签，其余节点、设备和链路悬浮查看详情。</p
+    >
+    <div
+      ref="canvas"
+      class="network-canvas"
       ><MapCanvas
         v-if="mode === 'map'"
         ref="map"
@@ -155,7 +163,7 @@
 </template>
 <script setup lang="ts">
 import { planStations } from '../services/planning-snapshot';
-import { computed, nextTick, ref, watch } from 'vue';
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import type { EChartsCoreOption } from 'echarts/core';
 import type { PlanVersion } from '../types/domain';
 import type { DiagnosisResult, FaultInput, ImpactLevel } from '../types/diagnosis';
@@ -187,6 +195,28 @@ const focused = ref<{ type: FaultInput['objectType']; id: string } | null>(null)
   map = ref<InstanceType<typeof MapCanvas>>();
 const detailVisible = ref(false);
 const expanded = ref<string[]>([]);
+const canvas = ref<HTMLDivElement>();
+const viewport = ref({ width: 800, height: 500 });
+let canvasObserver: ResizeObserver | undefined, resizeFrame: number | undefined;
+onMounted(() => {
+  const measure = () => {
+    const width = canvas.value?.clientWidth ?? 0, height = canvas.value?.clientHeight ?? 0;
+    if (width > 0 && height > 0 && (width !== viewport.value.width || height !== viewport.value.height)) viewport.value = { width, height };
+  };
+  measure();
+  if (canvas.value && typeof ResizeObserver !== 'undefined') {
+    // 只读取诊断画布尺寸，按帧合并观察通知，不反向写入容器高度。
+    canvasObserver = new ResizeObserver(() => {
+      if (resizeFrame !== undefined) return;
+      resizeFrame = requestAnimationFrame(() => { resizeFrame = undefined; measure(); });
+    });
+    canvasObserver.observe(canvas.value);
+  }
+});
+onBeforeUnmount(() => {
+  canvasObserver?.disconnect();
+  if (resizeFrame !== undefined) cancelAnimationFrame(resizeFrame);
+});
 function toggleStation(id: string) {
   expanded.value = expanded.value.includes(id)
     ? expanded.value.filter((value) => value !== id)
@@ -289,6 +319,7 @@ const graph = computed<EChartsCoreOption>(() =>
     paths.value,
     expanded.value,
     focused.value ? { objectType: focused.value.type, objectId: focused.value.id } : null,
+    viewport.value,
   ),
 );
 const detail = computed(() => {
@@ -344,6 +375,14 @@ const detail = computed(() => {
   flex: 1 1 0;
   min-height: 350px;
   overflow: hidden;
+}
+.topology-hint {
+  margin: 0;
+  padding: 0 12px 8px;
+  color: #9bbbc9;
+  font-size: 11px;
+  line-height: 1.7;
+  flex-shrink: 0;
 }
 .network-canvas > :deep(.map-wrap),
 .network-canvas > :deep(.chart-canvas) {
@@ -424,6 +463,10 @@ const detail = computed(() => {
   gap: 8px;
   flex-wrap: wrap;
   font-size: 11px;
+  max-height: 112px;
+  overflow-y: auto;
+  flex-shrink: 0;
+  align-content: flex-start;
 }
 .topology-controls small {
   width: 100%;

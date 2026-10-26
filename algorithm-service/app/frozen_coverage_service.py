@@ -18,9 +18,9 @@ from . import frozen_coverage_engine as algorithm
 
 ROOT = Path(__file__).resolve().parents[2]
 KIND = "FROZEN_COVERAGE_V1"
-ENGINE_VERSION = algorithm.ENGINE_VERSION
-ENGINE_VERSIONS = ("V01-1", "V01-2", "V01-3", "V01-4")
-SELECTION_ENGINE_VERSIONS = ("V01-3", "V01-4")
+ENGINE_VERSION = "V01-5"
+ENGINE_VERSIONS = ("V01-1", "V01-2", "V01-3", "V01-4", "V01-5")
+SELECTION_ENGINE_VERSIONS = ("V01-3", "V01-4", "V01-5")
 ACTIVE = {"PENDING", "RUNNING"}
 JOB_ID = re.compile(r"FCJ-[0-9a-f]{32}\Z")
 
@@ -160,7 +160,7 @@ class FrozenCoverageService:
         self.source_loader, self.session_factory = source_loader, session_factory
         self.terrain = terrain_provider or _default_terrain
         self.fingerprint = fingerprint_provider or _default_fingerprint
-        self.engine = engine or algorithm.compute_frozen_coverage
+        self.engine = engine or algorithm.compute_frozen_field_coverage
         self._lock = threading.RLock()
         self._owner = None
         self._thread = None
@@ -367,6 +367,11 @@ class FrozenCoverageService:
                 algorithm.validate_v4_result(result)
             except algorithm.FrozenCoverageError as exc:
                 raise CoverageServiceError("V4覆盖结果统计或设备契约无法核验", 5002, 503) from exc
+        elif anchor["engine_version"] == "V01-5":
+            try:
+                algorithm.validate_field_result(result)
+            except algorithm.FrozenCoverageError as exc:
+                raise CoverageServiceError("V5预测场强面契约无法核验", 5002, 503) from exc
         return deepcopy(result)
 
     def _job_selection(self, job):
@@ -480,6 +485,13 @@ class FrozenCoverageService:
             if self._thread is None:
                 self._scan()
             result = self._cached(key)
+        if version == "V01-5" and result is not None:
+            # 原生逐公里/逐格剖面留在已校验持久文件；GIS只需要显示面。
+            # 不把重复的原始采样随每次读取发送到浏览器（全网可达近100MB）。
+            for device in result["devices"]:
+                for part in device["computations"]:
+                    for raw_key in ("cells", "radial_samples", "rings"):
+                        part.pop(raw_key, None)
         stale = self.fingerprint() != anchor["terrain_fingerprint"]
         return dict(state="STALE" if stale else "HIT" if result is not None else "MISS", cache_key=key,
                     anchor=anchor, parameters=options, result=None if stale else result,

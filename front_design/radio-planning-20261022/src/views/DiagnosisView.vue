@@ -340,6 +340,11 @@
           <div class="buttons"
             ><button
               class="btn small"
+              :disabled="!diagnosis.canEdit || diagnosis.locked"
+              @click="scenarioDrawer = true"
+              >配置故障与现象</button
+            ><button
+              class="btn small"
               :disabled="!gisEditable"
               @click="openGisEditor"
               >在 GIS 标绘</button
@@ -360,7 +365,7 @@
               >保存场景版本</button
             ></div
           >
-          <!-- 核对当前场景输入；修改仍交给既有模板、GIS 标绘及导入流程。 -->
+          <!-- 直接复用场景表单补充现象，避免只填写注入类型就误认为完成根因诊断。 -->
           <section
             class="input-summary"
             aria-label="当前故障输入"
@@ -369,7 +374,7 @@
             <p
               v-if="!faults.length"
               class="empty-copy"
-              >尚未设置故障对象，请在 GIS 标绘或导入故障场景。</p
+              >尚未设置故障对象，请点击“配置故障与现象”，也可在 GIS 标绘或导入故障场景。</p
             >
             <ul v-else>
               <li
@@ -379,6 +384,7 @@
                 <strong>{{ diagnosisLabel(fault.objectType) }} {{ fault.objectId }}</strong>
                 <span>{{ diagnosisLabel(fault.faultType) }}</span>
                 <p>现象：{{ faultSymptoms(fault.symptomIds) }}</p>
+                <p v-if="!fault.symptomIds.length" class="source-state">未选择观察现象：只能分析注入影响，无法据此识别根因。</p>
               </li>
             </ul>
           </section>
@@ -486,6 +492,18 @@
         ><p>故障场景设置不会改变实际资源状态。</p></aside
       >
     </div>
+    <DiagnosisScenarioDrawer
+      v-if="diagnosis.draft && diagnosis.network"
+      :visible="scenarioDrawer"
+      :draft="diagnosis.draft"
+      :network="diagnosis.network"
+      :symptoms="diagnosis.symptoms"
+      :interference-ids="diagnosis.interferenceIds"
+      :selected="[]"
+      @dirty="diagnosis.formDirty = $event"
+      @apply="applyScenario"
+      @close="closeScenario"
+    />
     <DiagnosisImportDrawer
       :visible="importDrawer"
       @close="closeImport"
@@ -529,6 +547,7 @@ import type {
   DiagnosisScenarioSummary,
   DiagnosisScenarioVersion,
   DiagnosisVersionSummary,
+  DiagnosisDraft,
   FaultInput,
 } from '../types/diagnosis';
 import DiagnosisImportDrawer from '../components/DiagnosisImportDrawer.vue';
@@ -538,6 +557,7 @@ import DiagnosisResultPanel from '../components/DiagnosisResultPanel.vue';
 import DiagnosisReportDrawer from '../components/DiagnosisReportDrawer.vue';
 import DiagnosisSourceDrawer from '../components/DiagnosisSourceDrawer.vue';
 import DiagnosisFeedbackDrawer from '../components/DiagnosisFeedbackDrawer.vue';
+import DiagnosisScenarioDrawer from '../components/DiagnosisScenarioDrawer.vue';
 import DecisionDialog from '../components/DecisionDialog.vue';
 import { diagnosisLabel } from '../reports/diagnosis-report';
 import { diagnosisOriginLabel } from '../services/diagnosis-presentation';
@@ -584,6 +604,18 @@ async function openGisEditor() {
 useDiagnosisLeaveGuard();
 // 抽屉显示与地图筛选状态分别声明，便于独立维护。
 const importDrawer = ref(false);
+const scenarioDrawer = ref(false);
+// 表单未应用的输入保留离开保护；应用只更新草稿，不修改历史版本。
+async function closeScenario() {
+  if (diagnosis.formDirty && await diagnosis.ask({title:'未应用的故障现象',message:'放弃本次表单修改？已保存场景及历史诊断保留。',saveLabel:'放弃修改',cancelLabel:'继续编辑'}) !== 'save') return;
+  diagnosis.formDirty = false;
+  scenarioDrawer.value = false;
+}
+function applyScenario(value: DiagnosisDraft) {
+  if (!diagnosis.canEdit || diagnosis.locked) return;
+  diagnosis.applyFaults(value.faults, value.name, value.description);
+  scenarioDrawer.value = false;
+}
 const feedbackDrawer = ref(false);
 const reportDrawer = ref(false);
 const resultCollapsed = ref(false),

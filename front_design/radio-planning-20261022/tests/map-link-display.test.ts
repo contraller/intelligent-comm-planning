@@ -35,6 +35,8 @@ import type { PlanningMapOverlay } from '../src/maps/planning-api-layers';
 import { coverageDto } from './fixtures/planning-api';
 // 仅复用模板编译，原有宿主、替身和业务交互保持本地。
 import { clientTemplate } from './helpers/vue-client';
+import { coverageV5Case } from './helpers/frozen-coverage';
+import { frozenCoverageLayer } from '../src/maps/frozen-coverage-layers';
 
 interface MapProbe {
   view: View; layers: BaseLayer[]; setLayers: ReturnType<typeof vi.fn>; dispose: ReturnType<typeof vi.fn>;
@@ -56,6 +58,7 @@ vi.mock('ol/Map', () => ({ default: class implements MapProbe {
     probes.maps.push(this);
   }
   getView() { return this.view; }
+  getViewport() { return {addEventListener() {},removeEventListener() {}}; }
   getSize() { return [960, 640]; }
   updateSize() {}
   on(type: string, listener: (event: { pixel: number[]; coordinate: number[] }) => void) { this.handlers.set(type, listener); }
@@ -115,6 +118,7 @@ async function mountMap(options: { reduced?: boolean; resourceRead?: boolean; wi
     topologyOpacity: options.topologyOpacity as number | undefined,
     resourceRead: options.resourceRead ?? false,
     richScene: false,
+    frozenCoverage: null as import('../src/types/frozen-coverage').FrozenCoverageOverlay|null,
     resourceFrame: null as import('../src/types/resource-read').ResourceMapFrame | null,
     collapsibleLegend: options.collapsibleLegend ?? false,
     gisSurface: options.gisSurface ?? false, resourceMarkers: false, showInterferences: true,
@@ -144,6 +148,23 @@ async function mountMap(options: { reduced?: boolean; resourceRead?: boolean; wi
   const lineStyle = (id: string) => { const value = style(id); return Array.isArray(value) ? value.at(-1)! : value!; };
   return { props, map, root, page, motion, layer, style, lineStyle, select, selectCandidateLink, selectDevice, selectDeviceCluster, selectFault, report, submit, image, httpSubmit, save };
 }
+
+describe('冻结覆盖全域定位',()=>{
+  it('全域适配所选覆盖面而非仅适配站点，关闭后不借用旧覆盖范围',async()=>{
+    const s=await mountMap({resourceRead:true,withHttpCoverage:true}),f=coverageV5Case();
+    s.props.planningOverlay={nodes:[],snapshotId:f.query.snapshotId};
+    s.props.frozenCoverage={anchor:f.anchor,result:f.result,deviceId:'D1'};
+    await nextTick();
+    const flatten=(root:HostNode):HostNode[]=>[root,...root.children.flatMap(flatten)];
+    const control=flatten(s.root).find(row=>row.tag==='button'&&textOf(row).includes('全域'));
+    expect(control).toBeDefined();
+    vi.mocked(s.map.view.fit).mockClear();(control!.props.onClick as ()=>void)();
+    const expected=frozenCoverageLayer({anchor:f.anchor,result:f.result,deviceId:'D1'},f.query.snapshotId).getSource()!.getExtent();
+    expect(s.map.view.fit).toHaveBeenCalledWith(expected,expect.objectContaining({maxZoom:13}));
+    s.props.frozenCoverage=null;await nextTick();vi.mocked(s.map.view.fit).mockClear();
+    (control!.props.onClick as ()=>void)();expect(s.map.view.fit).not.toHaveBeenCalledWith(expected,expect.objectContaining({maxZoom:13}));
+  });
+});
 
 describe('地图道路后台生命周期', () => {
   // 仅替换 Worker 传输，地图模板、业务图层及道路管理器真实执行。

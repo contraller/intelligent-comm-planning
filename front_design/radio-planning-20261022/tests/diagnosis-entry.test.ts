@@ -202,6 +202,35 @@ async function mountPage(demo:DiagnosisDemo='normal') {
   return {root,auth,storage,diagnosis,preview,planning,service,runIds,current,router,writes:storage.writes,advance:(ms=12000)=>{time+=ms;}};
 }
 describe('实际诊断页面的类型与根因展示',()=>{
+  it('空证据诊断先确认，返回补填不保存、不提交也不改变历史',async()=>{
+    const s=await mountPage(),history=JSON.stringify(s.diagnosis.record);
+    await s.diagnosis.selectVersion(s.diagnosis.workspace!.scenarios[0].versions[0]);
+    const value=JSON.parse(JSON.stringify(s.diagnosis.draft!));for(const fault of value.faults)fault.symptomIds=[];
+    s.diagnosis.updateDraft(value);await settle();const before=s.storage.writes;
+    const submit=vi.mocked(previewService.submitDiagnosisReceipt);submit.mockClear();
+    const pending=s.diagnosis.submit();await settle();
+    expect(s.diagnosis.decision).toMatchObject({title:'故障现象不足',saveLabel:'继续分析影响',cancelLabel:'返回补填现象'});
+    expect(textOf(s.root)).toContain('未选择观察现象');expect(submit).not.toHaveBeenCalled();
+    s.diagnosis.answer('cancel');await pending;expect(submit).not.toHaveBeenCalled();expect(s.storage.writes).toBe(before);
+    await click(s.root,'配置故障与现象');await settle();
+    expect(find(s.root,n=>n.tag==='drawer-probe'&&n.props.title==='故障场景配置')).toBeDefined();
+    expect(textOf(s.root)).toContain('上方类型只是注入假设');
+    expect(history).toContain('conclusions');
+  });
+  it('空证据确认期间修改草稿，旧确认不会保存或提交新输入',async()=>{
+    const s=await mountPage();await s.diagnosis.selectVersion(s.diagnosis.workspace!.scenarios[0].versions[0]);
+    const value=JSON.parse(JSON.stringify(s.diagnosis.draft!));for(const fault of value.faults)fault.symptomIds=[];
+    s.diagnosis.updateDraft(value);const before=s.storage.writes,submit=vi.mocked(previewService.submitDiagnosisReceipt);submit.mockClear();
+    const pending=s.diagnosis.submit();await settle();expect(s.diagnosis.decision?.title).toBe('故障现象不足');
+    s.diagnosis.updateDraft({...value,name:'确认期间的新草稿'});s.diagnosis.answer('save');await pending;
+    expect(submit).not.toHaveBeenCalled();expect(s.storage.writes).toBe(before);expect(s.diagnosis.draft?.name).toBe('确认期间的新草稿');
+  });
+  it('有观察现象时沿原接口提交，不额外要求空证据确认',async()=>{
+    const s=await mountPage();await s.diagnosis.selectVersion(s.diagnosis.workspace!.scenarios[0].versions[0]);
+    const submit=vi.mocked(previewService.submitDiagnosisReceipt);submit.mockClear();submit.mockRejectedValueOnce(new Error('本测试停止于受理边界'));
+    await s.diagnosis.submit();expect(s.diagnosis.decision).toBeNull();expect(submit).toHaveBeenCalledOnce();
+    expect(s.diagnosis.error).toBe('本测试停止于受理边界');
+  });
   it.each([['xlsx','影响清单 XLSX'],['png','示意图 PNG']] as const)('%s 导出失败就地显示，重新生成期间锁定按钮，成功后清除本入口错误',async(format,label)=>{
     const s=await mountPage(),id=s.diagnosis.record!.id,frozen=JSON.stringify(s.diagnosis.record);
     const download=vi.spyOn(diagnosisExport,'downloadDiagnosisFile').mockImplementation(()=>{}),impact=vi.mocked(previewService.exportDiagnosisImpact);

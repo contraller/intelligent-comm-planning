@@ -628,13 +628,14 @@ def test_bandwidth_options_do_not_mask_known_numeric_or_reference_errors(scenari
     assert error.value.code == "COVERAGE_INPUT" and not calls
 
 
-def test_bandwidth_options_engine_and_cache_version_are_v01_4(scenario, tmp_path, monkeypatch):
+def test_legacy_v4_engine_and_new_v5_cache_are_separate(scenario, tmp_path, monkeypatch):
     from app import frozen_coverage_service as service_module
 
     _model_with_bandwidth_options(scenario)
     fake_cells(monkeypatch)
     result = compute(scenario)
-    assert result["provenance"]["engine_version"] == service_module.ENGINE_VERSION == "V01-4"
+    assert result["provenance"]["engine_version"] == "V01-4"
+    assert service_module.ENGINE_VERSION == "V01-5"
     assert result["schema_version"] == 2
     source = {"plan_id": "P1", "task_id": "T1", "snapshot_id": "SNP-PL-UNIT", "input_version": "TV1",
         "condition_version": "TC1", "resource_revision": "UNIT-RES", "resource_content_hash": "b" * 64,
@@ -646,7 +647,7 @@ def test_bandwidth_options_engine_and_cache_version_are_v01_4(scenario, tmp_path
     old_key = "FCC-" + service_module._hash({"anchor": old_anchor, "parameters": page["parameters"]})
     assert page["state"] == "MISS" and page["cache_key"] != old_key and not service.root.exists()
     record = {"result": result, "result_sha256": service_module._hash(result),
-              "anchor": page["anchor"], "parameters": page["parameters"],
+              "anchor": {**page["anchor"], "engine_version":"V01-4"}, "parameters": page["parameters"],
               "bandwidth_selection_id": None, "bandwidth_selection_hash": None}
     assert service._result(record) == result
 

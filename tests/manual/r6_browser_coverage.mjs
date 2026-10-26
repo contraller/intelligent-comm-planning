@@ -484,6 +484,61 @@ export async function runCoverage(input) {
   });
 }
 
+// V5只读视觉复核：计算由独立HTTP原号完成，本入口不提交选择或计算。
+export async function caseFieldSurfaceVisual(input) {
+  await input.login('editor');
+  const expected=JSON.parse(await readFile(path.resolve(input.runtime,'..','coverage-field-live-20261026','result.json'),'utf8'));
+  const observedWrites=[];
+  const guard=request=>{const url=new URL(request.url());if(url.origin===ORIGIN&&url.pathname.startsWith('/api/v1/')&&request.method()==='POST')observedWrites.push(url.pathname);};
+  input.page.on('request',guard);
+  try {
+    return await input.record('V5-FIELD-READONLY-VISUAL',async()=>{
+      const page=input.page;
+      await page.goto(`${ORIGIN}/#/planning?taskId=${ORIGINAL.taskId}&planId=${ORIGINAL.planId}`,{waitUntil:'domcontentloaded',timeout:90000});
+      const scope=panel({page});await scope.waitFor({state:'visible',timeout:60000});
+      await field(scope,'超短波半径','input').fill('60');await field(scope,'网格','input').fill('5000');
+      await field(scope,'历史缓存方位步长','select').selectOption('10');await field(scope,'时刻','input').fill('12');
+      await field(scope,'短波最远预测','input').fill('900');
+      await B(scope,'读取覆盖缓存').waitFor({state:'visible'});
+      const deadline=Date.now()+60000;while(!await B(scope,'读取覆盖缓存').isEnabled()){assert(Date.now()<deadline,'读取入口未就绪');await new Promise(r=>setTimeout(r,100));}
+      const [response]=await Promise.all([page.waitForResponse(r=>new URL(r.url()).pathname===`/api/v1/planning-coverages/${ORIGINAL.planId}/cache`&&r.request().method()==='GET'),B(scope,'读取覆盖缓存').click()]);
+      // 大响应可能超出CDP inspector缓存；实际页面仍正常解码。
+      // 通过真实点击读取，再在页面来源明细核对独立HTTP记录的缓存键，
+      // 不重发计算或用evaluate读取隐藏store。
+      assert.equal(response.status(),200);
+      const cache=expected;
+      await page.getByLabel('预测覆盖显示方式',{exact:true}).waitFor({state:'visible'});
+      await scope.locator('summary').filter({hasText:'来源与算法限制'}).click();
+      await scope.getByText(expected.cache_key,{exact:true}).waitFor({state:'visible'});
+      const select=field(scope,'覆盖设备','select'),toggle=scope.getByLabel('覆盖图层',{exact:true});
+      const map=page.locator('.map-panel'),fit=B(map,'全域');
+      const screenshots=[];
+      for(const band of ['HF','VUHF']){
+        const device=cache.result.devices.find(row=>row.band===band&&row.status==='COMPLETE'&&row.computations.some(part=>part.geojson.features.some(f=>f.geometry&&f.properties.is_coverage&&(band!=='HF'||f.properties.surface_kind==='SKYWAVE'))
+          &&(band!=='HF'||part.geojson.features.some(f=>f.properties.surface_kind==='SKIP_ZONE'&&!f.properties.is_coverage))));
+        assert(device,'缺少可显示的'+band+'覆盖');
+        await select.selectOption(device.device_id);await toggle.check();await fit.click();await page.waitForTimeout(400);
+        await map.scrollIntoViewIfNeeded();
+        const on=path.join(input.evidence,`v5-${band.toLowerCase()}-on.png`);await map.screenshot({path:on});
+        await toggle.uncheck();await map.scrollIntoViewIfNeeded();
+        const off=path.join(input.evidence,`v5-${band.toLowerCase()}-off.png`);await map.screenshot({path:off});
+        assert.notEqual((await readFile(on)).toString('base64'),(await readFile(off)).toString('base64'),'图层开关像素未变化');
+        screenshots.push({band,deviceId:device.device_id,on,off});
+      }
+      await toggle.check();await page.getByLabel('预测覆盖显示方式',{exact:true}).selectOption('boundary');
+      await fit.click();await page.waitForTimeout(300);await map.scrollIntoViewIfNeeded();
+      await map.screenshot({path:path.join(input.evidence,'v5-vuhf-boundary.png')});
+      await page.getByLabel('预测覆盖显示方式',{exact:true}).selectOption('field');
+      await fit.click();await page.waitForTimeout(300);await map.scrollIntoViewIfNeeded();
+      await map.screenshot({path:path.join(input.evidence,'v5-vuhf-field.png')});
+      await scope.getByText('预测场强热力图',{exact:true}).count();
+      await input.shot('v5-field-controls');
+      assert.deepEqual(observedWrites,[],'只读复核不得发业务POST');
+      return {cacheKey:cache.cache_key,engine:'V01-5',screenshots,businessPosts:observedWrites};
+    });
+  } finally {input.page.off('request',guard);}
+}
+
 // Segments always reopen the same source and consume the same independent checkpoint.
 export async function caseCoverageSelection(input) {
   return environment(input, async c => {

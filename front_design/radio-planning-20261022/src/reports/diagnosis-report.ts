@@ -10,6 +10,8 @@ export const caseRepairTimeText = (value: number | null | undefined) => value ==
 export const confidenceText = (value: number | null) => value === null ? '未提供' : `${(value * 100).toFixed(1)}%`;
 export const diagnosisLabels: Record<string, string> = { CURRENT: '当前有效', HISTORICAL: '历史记录', UNKNOWN: '有效性无法核实', NODE: '节点', DEVICE: '设备', LINK: '链路', HW_FAILURE: '硬件故障', LINK_DOWN: '链路中断', SW_CONFIG: '软件配置异常', EMI: '电磁干扰', SEVERE: '严重', MODERATE: '一般', MINOR: '轻微', DIRECT: '直接', INDIRECT: '间接', INTERRUPTED: '业务中断', DEGRADED: '降级运行', NORMAL: '正常', RULE: '规则', KG: '知识图谱', ML: '机器学习' };
 export const diagnosisLabel = (value: string | null) => value === null ? '未提供' : diagnosisLabels[value] ?? value;
+// 故障未识别与网络来源未知是两种状态，不能共用 UNKNOWN 的来源文案。
+export const diagnosisFaultLabel = (value: string | null) => value === 'UNKNOWN' ? '未识别故障类型' : diagnosisLabel(value);
 
 export interface DiagnosisReportSection { title: string; text: string[]; headers: string[]; rows: string[][] }
 export function diagnosisReportSections(record: DiagnosisRecord): DiagnosisReportSection[] {
@@ -22,7 +24,7 @@ export function diagnosisReportSections(record: DiagnosisRecord): DiagnosisRepor
     ['备注',record.description],['数据来源',diagnosisOriginLabel(record.dataOrigin)],
   ]), table('故障输入', ['对象','故障类型','现象','发生时间','干扰源'], record.faults.map((f) => [`${diagnosisLabel(f.objectType)} ${f.objectId}`,diagnosisLabel(f.faultType),f.symptomIds.join('；'),f.occurTime,f.interferenceId]), record.faults.length ? [] : ['原历史记录未提供完整故障输入。'])];
   for (const c of record.result.conclusions) {
-    sections.push(table(`诊断结论 · ${c.label}`, ['项目','内容'], [['融合类型',diagnosisLabel(c.faultType)],['置信度',confidenceText(c.confidence)],['人工研判',c.needManualReview === null ? null : c.needManualReview ? '需要' : '无需'],['根因',c.rootCause],['部件',c.component],['根因链',c.chain.join(' → ')]], [record.result.disabledReason]));
+    sections.push(table(`诊断结论 · ${c.label}`, ['项目','内容'], [['融合类型',diagnosisFaultLabel(c.faultType)],['置信度',confidenceText(c.confidence)],['人工研判',c.needManualReview === null ? null : c.needManualReview ? '需要' : '无需'],['根因',c.rootCause],['部件',c.component],['根因链',c.chain.join(' → ')]], [record.result.disabledReason]));
     sections.push(table(`分路依据 · ${c.label}`, ['分路','结论 / 依据','置信度','权重 / 贡献'], c.branches.map((b) => [diagnosisLabel(b.source),[b.conclusion,b.disabledReason,...b.evidence.map((e) => `${e.label}：${e.value}`)].filter(Boolean).join('\n'),confidenceText(b.confidence),`${reportValue(b.weight)} / ${reportValue(b.contribution)}`])));
     if (c.candidates.length) sections.push(table('候选结论', ['类型','置信度'], [...c.candidates].sort((a,b) => b.confidence - a.confidence).map((c) => [diagnosisLabel(c.faultType),confidenceText(c.confidence)])));
   }

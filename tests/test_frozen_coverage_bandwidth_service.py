@@ -336,7 +336,7 @@ def test_v4_old_selection_and_v3_cache_read_without_rewrite(selected):
         bandwidth_selection_id=saved["selection_id"])["state"] == "MISS"
     current, status = reopened.submit("P1", {**body, "request_id": "V4-NEW"}, ACTOR)
     assert status == 202 and terminal(reopened, current["job_id"])["state"] == "SUCCESS"
-    assert current["anchor"]["engine_version"] == "V01-4"
+    assert current["anchor"]["engine_version"] == "V01-5"
     assert path.read_bytes() == original and selection_path.read_bytes() == selection_bytes
     context.source["resource_revision"] = "NEW-RESOURCE"
     with pytest.raises(module.CoverageServiceError) as error:

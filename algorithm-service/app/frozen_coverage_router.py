@@ -53,7 +53,7 @@ class _Cache(_Anchor):
     context: Literal["planning", "gis"] = "planning"
     parameters: str = "{}"
     bandwidth_selection_id: str | None = None
-    engine_version: Literal["V01-1", "V01-2", "V01-3", "V01-4"] | None = None
+    engine_version: Literal["V01-1", "V01-2", "V01-3", "V01-4", "V01-5"] | None = None
 
     @field_validator("bandwidth_selection_id")
     @classmethod

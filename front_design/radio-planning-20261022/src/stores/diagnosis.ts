@@ -275,6 +275,12 @@ export const useDiagnosisStore = defineStore('diagnosis', () => {
   }
   async function submit() {
     if (!canExecute.value || locked.value) return;
+    // 保留无现象的注入影响分析，但提交前必须明确其不能识别根因。
+    const session = auth.generation, signature = JSON.stringify(draft.value), version = versionId.value;
+    const missing = draft.value?.faults.filter(fault => !fault.symptomIds.length).length ?? 0;
+    if (missing && await ask({title:'故障现象不足',message:`有 ${missing} 个故障对象未填写观察现象，无法据此识别其根因；这些对象将仅按注入标记分析影响。`,saveLabel:'继续分析影响',cancelLabel:'返回补填现象'}) !== 'save') return;
+    // 确认期间身份、草稿或版本变化时，不沿用旧确认提交新输入。
+    if (session !== auth.generation || signature !== JSON.stringify(draft.value) || version !== versionId.value || !canExecute.value || locked.value) return;
     if ((dirty.value || !versionId.value) && !(await save())) return;
     busy.value = true;
     try {

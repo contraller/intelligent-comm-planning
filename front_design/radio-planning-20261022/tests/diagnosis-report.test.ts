@@ -7,7 +7,7 @@ const outputDir=process.env.FRONTEND_CHECK_OUTPUT_DIR;
 import JSZip from 'jszip';
 import { createMockService } from '../src/services/mock';
 import { createDiagnosisExport } from '../src/reports/diagnosis-export';
-import { diagnosisReportSections } from '../src/reports/diagnosis-report';
+import { diagnosisReportSections, diagnosisFaultLabel, diagnosisLabel } from '../src/reports/diagnosis-report';
 import { diagnosisFigureSvg } from '../src/reports/diagnosis-figure';
 import { diagnosisPresets, diagnosisDemoResult } from '../src/mocks/diagnosis-presets';
 import { diagnosisPresetResult } from '../src/mocks/diagnosis-result-presets';
@@ -15,6 +15,13 @@ import { planningPresets } from '../src/mocks/planning-presets';
 import { TestStorage } from './helpers/storage';
 
 afterEach(() => vi.restoreAllMocks());
+it('故障未知与来源未知采用独立文案，报告保持原始结果',async()=>{
+  expect(diagnosisFaultLabel('UNKNOWN')).toBe('未识别故障类型');expect(diagnosisLabel('UNKNOWN')).toBe('有效性无法核实');
+  const record=await sample();record.result.conclusions[0].faultType='UNKNOWN';
+  const before=JSON.stringify(record),sections=diagnosisReportSections(record);
+  expect(sections.some(section=>section.rows.some(row=>row[0]==='融合类型'&&row[1]==='未识别故障类型'))).toBe(true);
+  expect(JSON.stringify(record)).toBe(before);
+});
 const samplePng = Uint8Array.from(Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a5m8AAAAASUVORK5CYII=','base64'));
 async function sample(id = 'balanced:multiple') {
   const old = await createMockService(() => new TestStorage()).getDiagnosisReport('DG-HW');

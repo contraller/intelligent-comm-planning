@@ -1,4 +1,4 @@
-export type FrozenCoverageEngineVersion='V01-2'|'V01-3'|'V01-4';
+export type FrozenCoverageEngineVersion='V01-2'|'V01-3'|'V01-4'|'V01-5';
 export interface FrozenCoverageQuery { planId:string;taskId:string;snapshotId:string;resourceRevision:string;context:'planning'|'gis';bandwidthSelection?:FrozenCoverageSelectionRef;engineVersion?:FrozenCoverageEngineVersion }
 export interface FrozenCoverageSelectionRef { selectionId:string;selectionHash:string }
 export interface FrozenCoverageBandwidthChoice { device_id:string;rx_bandwidth_khz:number }
@@ -32,7 +32,9 @@ export interface FrozenCoverageAnchor {
 }
 export interface FrozenCoverageFeature {
   type:'Feature';geometry:{type:'Point';coordinates:[number,number]}|{type:'Polygon';coordinates:[number,number][][]}|null;
-  properties:{device_id:string;node_id:string;freq_khz:number;is_coverage:boolean;margin_db?:number;note?:string;inner_m?:number;outer_m?:number};
+  properties:{device_id:string;node_id:string;freq_khz:number;is_coverage:boolean;margin_db?:number;note?:string;inner_m?:number;outer_m?:number;
+    field_strength_dbuvm?:number;required_field_dbuvm?:number;rx_power_dbm?:number;path_loss_db?:number;
+    strength_class?:'STRONG'|'MEDIUM'|'WEAK';surface_kind?:string};
 }
 export interface FrozenCoverageDevice {
   device_id:string;node_id:string;model_id:string;antenna_id:string;lon:number;lat:number;band:string|null;
@@ -42,13 +44,14 @@ export interface FrozenCoverageDevice {
   rx_bandwidth?:{value_khz:number|null;source:'EXPLICIT_COMPUTE_PARAMETER'|'FROZEN_MODEL_SINGLE_VALUE'|'UNSELECTED'|'UNKNOWN'};
   frozen_model?:Record<string,unknown>|null;frozen_antenna?:Record<string,unknown>|null;planned_parameters?:Record<string,unknown>|null;
   radio_parameters?:{tx_dbm:number;height:number;gain:number;sens:number;fmin:number;fmax:number;pattern:string;bw:number}|null;
-  computations:{freq_khz:number;link_ids:string[];shape:'CELLS'|'RINGS';geojson:{type:'FeatureCollection';features:FrozenCoverageFeature[]}}[];
+  computations:{freq_khz:number;link_ids:string[];shape:'CELLS'|'RINGS';skip_distance_m?:number|null;max_distance_m?:number;geojson:{type:'FeatureCollection';features:FrozenCoverageFeature[]}}[];
 }
 export interface FrozenCoverageResult {
   schema_version:1|2;solution_id:string;status:'COMPLETE'|'PARTIAL'|'UNAVAILABLE'|'NOT_APPLICABLE';devices:FrozenCoverageDevice[];
   summary?:{total:number;eligible:number;complete:number;unavailable:number;skipped:number};
   provenance:FrozenCoverageSelectionBinding&{raw_snapshot_sha256:string;frozen_tables_sha256:string;terrain_fingerprint:string;engine_version:string;bandwidth_choices?:FrozenCoverageBandwidthChoice[];
-    parameters:FrozenCoverageParameters;dem_bbox:[number,number,number,number];units:{margin_db:'dB';frequency:'kHz';ring_radius:'m'};limitations:string[]};
+    parameters:FrozenCoverageParameters;dem_bbox:[number,number,number,number];units:{margin_db:'dB';frequency:'kHz';ring_radius:'m';field_strength?:'dBuV/m'};limitations:string[];
+    field_strength?:{kind:'PREDICTED_FIELD_STRENGTH';unit:'dBuV/m';receiver_gain_dbi:0;conversion:string;grading_basis:'RECEIVER_THRESHOLD_MARGIN';medium_margin_db:10;strong_margin_db:20;grading_note:string;hf_geometry:string;vuhf_geometry:string}};
 }
 export interface FrozenCoverageCache extends FrozenCoverageSelectionBinding { state:'HIT'|'MISS'|'STALE';cache_key:string;anchor:FrozenCoverageAnchor;parameters:FrozenCoverageParameters;result:FrozenCoverageResult|null;reason:string }
 export interface FrozenCoverageJob extends FrozenCoverageSelectionBinding {
@@ -56,7 +59,8 @@ export interface FrozenCoverageJob extends FrozenCoverageSelectionBinding {
   progress:number;stage:string;anchor:FrozenCoverageAnchor;cache_key:string;parameters:FrozenCoverageParameters;from_cache:boolean;cancel_requested:boolean;
   error:{code:string|number;message:string}|null;created_at:string;updated_at:string;finished_at:string|null;
 }
-export interface FrozenCoverageOverlay { anchor:FrozenCoverageAnchor;result:FrozenCoverageResult;deviceId:string;bandwidthSelection?:FrozenCoverageSelectionRef }
+export type FrozenCoverageDisplay='strength'|'field'|'boundary';
+export interface FrozenCoverageOverlay { anchor:FrozenCoverageAnchor;result:FrozenCoverageResult;deviceId:string;bandwidthSelection?:FrozenCoverageSelectionRef;display?:FrozenCoverageDisplay }
 export interface FrozenCoverageClient {
   getBandwidthOptions(query:FrozenCoverageQuery,signal?:AbortSignal):Promise<FrozenCoverageBandwidthOptions>;
   saveBandwidthSelection(query:FrozenCoverageQuery,choices:FrozenCoverageBandwidthChoice[],requestId:string,signal?:AbortSignal):Promise<FrozenCoverageBandwidthSelection>;

@@ -18,6 +18,7 @@ QUERY = {"plan_id": "P1", "task_id": "T1", "snapshot_id": "SNP-PL-UNIT", "actor_
 
 
 def synthetic_result(raw, tables, **kwargs):
+    from app.coverage_field_surface import metadata
     selection = kwargs.get("bandwidth_selection")
     return {"schema_version": 2, "solution_id": raw["solution_id"], "status": "NOT_APPLICABLE", "devices": [],
             "summary": dict(total=0, eligible=0, complete=0, unavailable=0, skipped=0),
@@ -26,7 +27,8 @@ def synthetic_result(raw, tables, **kwargs):
                 "bandwidth_selection_id": selection["selection_id"] if selection else None,
                 "bandwidth_selection_hash": selection["selection_hash"] if selection else None,
                 "bandwidth_choices": deepcopy(selection["choices"]) if selection else [],
-                "parameters": algorithm._parameters(kwargs["params"]), "test_only": True}}
+                "parameters": algorithm._parameters(kwargs["params"]), "test_only": True,
+                "field_strength": metadata(), "units": {"field_strength":"dBuV/m"}}}
 
 
 @pytest.fixture
@@ -75,7 +77,11 @@ def test_real_small_dem_compute_cache_and_read_only_restart(context):
     assert status == 202
     assert terminal(service, job["job_id"])["state"] == "SUCCESS"
     cached = service.cache("P1", "T1", "SNP-PL-UNIT", SMALL)
-    assert cached["state"] == "HIT" and cached["result"]["devices"][0]["computations"][0]["cells"]
+    assert cached["state"] == "HIT"
+    computation=cached["result"]["devices"][0]["computations"][0]
+    assert computation["geojson"]["features"][0]["geometry"]["type"]=="Polygon"
+    assert "cells" not in computation and "radial_samples" not in computation
+    assert service._job(job["job_id"])["result"]["devices"][0]["computations"][0]["cells"]
     assert cached["anchor"]["resource_revision"] == context.source["resource_revision"]
     service.close()
     reopened = context.make(engine=lambda *a, **k: pytest.fail("GET must not compute"))
@@ -610,7 +616,7 @@ def test_v4_inconsistent_engine_result_never_publishes(context, change):
     assert service.cache("P1", "T1", "SNP-PL-UNIT", SMALL)["state"] == "MISS"
 
 
-@pytest.mark.parametrize("version", ["", "V01-5", 4, True])
+@pytest.mark.parametrize("version", ["", "V01-6", 4, True])
 def test_v4_cache_unknown_version_rejected_without_runtime_write(context, version):
     service = context.make()
     with pytest.raises(module.CoverageServiceError) as error:

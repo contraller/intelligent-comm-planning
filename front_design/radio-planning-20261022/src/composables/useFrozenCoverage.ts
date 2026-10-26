@@ -1,7 +1,7 @@
 import { computed,onScopeDispose,ref,shallowRef,watch } from 'vue';
 import { ApiError } from '../services/types';
 import { coverageBandwidthChoices,coverageParameters,readFrozenBandwidthSelection } from '../services/frozen-coverage-decode';
-import type { FrozenCoverageAnchor,FrozenCoverageBandwidthChoice,FrozenCoverageBandwidthOptions,FrozenCoverageBandwidthSelection,FrozenCoverageCache,FrozenCoverageClient,FrozenCoverageInput,FrozenCoverageJob,FrozenCoverageOverlay,FrozenCoverageQuery } from '../types/frozen-coverage';
+import type { FrozenCoverageAnchor,FrozenCoverageBandwidthChoice,FrozenCoverageBandwidthOptions,FrozenCoverageBandwidthSelection,FrozenCoverageCache,FrozenCoverageClient,FrozenCoverageInput,FrozenCoverageJob,FrozenCoverageOverlay,FrozenCoverageQuery,FrozenCoverageDisplay } from '../types/frozen-coverage';
 type Pending={requestId:string;query:FrozenCoverageQuery;parameters:FrozenCoverageInput;jobId:string|null};
 const retained=new Map<string,Pending>();
 const knownJobs=new Map<string,string>();
@@ -13,6 +13,7 @@ const active=(job:FrozenCoverageJob|null)=>!!job&&['PENDING','RUNNING'].includes
 export function useFrozenCoverage(options:{query:()=>FrozenCoverageQuery|null;parameters:()=>FrozenCoverageInput;client:()=>FrozenCoverageClient|undefined;owner:()=>string;canWrite:()=>boolean;requestId?:()=>string;storage?:()=>Storage|undefined;pollMs?:number}) {
   const cache=shallowRef<FrozenCoverageCache|null>(null),job=shallowRef<FrozenCoverageJob|null>(null),pending=ref<Pending|null>(null);
   const busy=ref(false),error=ref(''),selectedDeviceId=ref(''),visible=ref(true);
+  const display=ref<FrozenCoverageDisplay>('strength');
   const knownJobId=ref('');
   const bandwidthOptions=shallowRef<FrozenCoverageBandwidthOptions|null>(null),bandwidthReceipt=shallowRef<FrozenCoverageBandwidthSelection|null>(null);
   const bandwidthPending=shallowRef<SelectionPending|null>(null),bandwidthLoading=ref(false),bandwidthSaving=ref(false),bandwidthError=ref('');
@@ -39,7 +40,7 @@ export function useFrozenCoverage(options:{query:()=>FrozenCoverageQuery|null;pa
   function rememberJob(id:string){const name='frozen-coverage.job:'+key();knownJobId.value=id;knownJobs.set(name,id);try{storage()?.setItem(name,id);}catch{ /* 已确认作业仍可在本标签回读。 */ }}
   function recallJob(){const name='frozen-coverage.job:'+key();let id=knownJobs.get(name);try{id??=storage()?.getItem(name)??undefined;}catch{ /* 不用其他身份或来源的记录回填。 */ }return id&&/^FCJ-[a-f0-9]{32}$/.test(id)?id:'';}
   function cancelRead(){serial++;control?.abort();control=null;clearTimeout(timer);timer=undefined;busy.value=false;}
-  const overlay=computed<FrozenCoverageOverlay|null>(()=>visible.value&&cache.value?.state==='HIT'&&cache.value.result&&selectedDeviceId.value?{anchor:cache.value.anchor,result:cache.value.result,deviceId:selectedDeviceId.value,...query()?.bandwidthSelection?{bandwidthSelection:query()!.bandwidthSelection}:{}}:null);
+  const overlay=computed<FrozenCoverageOverlay|null>(()=>visible.value&&cache.value?.state==='HIT'&&cache.value.result&&selectedDeviceId.value?{anchor:cache.value.anchor,result:cache.value.result,deviceId:selectedDeviceId.value,...cache.value.anchor.engine_version==='V01-5'?{display:display.value}:{},...query()?.bandwidthSelection?{bandwidthSelection:query()!.bandwidthSelection}:{}}:null);
   const devices=computed(()=>cache.value?.result?.devices??[]);
   async function run(action:(client:FrozenCoverageClient,query:FrozenCoverageQuery,signal:AbortSignal,current:()=>boolean)=>Promise<void>){
     const client=options.client(),source=query();if(disposed||busy.value||!client||!source)return;
@@ -130,5 +131,5 @@ export function useFrozenCoverage(options:{query:()=>FrozenCoverageQuery|null;pa
   watch([key,options.client],()=>{cancelRead();cache.value=null;job.value=null;error.value='';selectedDeviceId.value='';pending.value=recall();knownJobId.value=recallJob();},{immediate:true,flush:'sync'});
   onScopeDispose(()=>{disposed=true;cancelRead();bandwidthSerial++;bandwidthAbort?.abort();});
   return {cache,job,knownJobId,pending,busy,error,devices,selectedDeviceId,visible,overlay,read,refreshJob,compute:()=>write(false),cancel:()=>write(true),retry:()=>write(!!pending.value?.jobId),running:computed(()=>active(job.value)),stop:cancelRead,
-    bandwidthOptions,bandwidthReceipt,bandwidthPending,bandwidthLoading,bandwidthSaving,bandwidthError,bandwidthReady,loadBandwidthOptions,saveBandwidthSelection,retryBandwidthSelection:()=>saveBandwidthSelection()};
+    display,bandwidthOptions,bandwidthReceipt,bandwidthPending,bandwidthLoading,bandwidthSaving,bandwidthError,bandwidthReady,loadBandwidthOptions,saveBandwidthSelection,retryBandwidthSelection:()=>saveBandwidthSelection()};
 }

@@ -288,11 +288,11 @@ def test_v4_cache_version_query_does_not_expand_compute_or_selection_body(api):
     accepted = submit(client).json()["data"]
     assert terminal(service, accepted["job_id"])["state"] == "SUCCESS"
     default = client.get(PREFIX + "/P1/cache", params=CACHE).json()["data"]
-    explicit = client.get(PREFIX + "/P1/cache", params={**CACHE, "engine_version": "V01-4"}).json()["data"]
+    explicit = client.get(PREFIX + "/P1/cache", params={**CACHE, "engine_version": "V01-5"}).json()["data"]
     assert explicit == default and default["state"] == "HIT"
     assert default["result"]["schema_version"] == 2 and default["result"]["summary"]["eligible"] == 0
     assert default["result"]["status"] == "NOT_APPLICABLE"
-    for version in ("V01-1", "V01-2", "V01-3"):
+    for version in ("V01-1", "V01-2", "V01-3", "V01-4"):
         response = client.get(PREFIX + "/P1/cache", params={**CACHE, "engine_version": version})
         assert response.status_code == 200 and response.json()["data"]["state"] == "MISS"
         assert response.json()["data"]["anchor"]["engine_version"] == version
@@ -301,7 +301,7 @@ def test_v4_cache_version_query_does_not_expand_compute_or_selection_body(api):
     assert selection_request(client, body).status_code == 422
 
 
-@pytest.mark.parametrize("version", ["V01-5", "", "null"])
+@pytest.mark.parametrize("version", ["V01-6", "", "null"])
 def test_v4_unknown_cache_engine_query_rejected(api, version):
     client, _, _ = api
     response = client.get(PREFIX + "/P1/cache", params={**CACHE, "engine_version": version})

@@ -21,17 +21,19 @@
         >
         <!-- 故障类型与置信度同行展示，保留进度条并减少头部占高。 -->
         <div class="result-conclusion"
-          ><h2>{{ diagnosisLabel(current.faultType) }}</h2
+          ><h2>{{ diagnosisFaultLabel(current.faultType) }}</h2
           ><strong class="confidence">{{ confidenceText(current.confidence) }}</strong></div
         ><progress
           :value="current.confidence"
           max="1"
         /><p>{{ current.rootCause }}</p
+        ><p v-if="current.fault && !current.fault.symptomIds.length" class="manual" role="status"
+          >该记录未填写故障现象，只有注入类型，不能据此识别根因。请复制为新场景，在“配置故障与现象”中补充观察后重新诊断；原记录保留。</p
         ><p class="muted">{{ result.disabledReason }}</p
         ><p
           v-if="current.needManualReview"
           class="manual"
-          >低置信度 · 需要人工研判</p
+          >证据不足或存在歧义 · 需要人工研判</p
         ></div
       >
       <div
@@ -268,6 +270,7 @@ import type { DiagnosisResult } from '../types/diagnosis';
 import {
   confidenceText,
   diagnosisLabel,
+  diagnosisFaultLabel,
   reportValue,
   orderedDiagnosisSuggestions,
   caseRepairTimeText,

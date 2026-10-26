@@ -85,8 +85,10 @@
             }
           "
         />
-        <details
+        <details open
           ><summary>现象（{{ fault.symptomIds.length }}）</summary
+          ><p v-if="!fault.symptomIds.length" class="evidence-warning" role="status"
+            >尚未选择故障现象。上方类型只是注入假设；请按观察勾选现象，否则无法据此识别根因。</p
           ><label
             v-for="symptom in symptoms"
             :key="symptom.id"
@@ -104,11 +106,11 @@
             placeholder="2026-10-03T09:00:00+08:00"
             @input="fault.occurTime = ($event.target as HTMLInputElement).value || null"
         /></label>
-        <!-- 诊断只引用固定教学预设，不自动吸纳 GIS 新登记资源。 -->
+        <!-- 干扰源只作为已保存场景引用，不代替观察现象或诊断证据。 -->
         <p
           v-if="fault.faultType === 'EMI'"
           class="muted"
-          >以下为固定诊断预设；新增 GIS 干扰源尚无对应诊断结果。</p
+          >可引用当前诊断目录中的干扰源；指定干扰源不会自动补充故障现象或确定根因。</p
         >
         <label v-if="fault.faultType === 'EMI'"
           >干扰源<select v-model="fault.interferenceId"
@@ -285,6 +287,12 @@ async function apply() {
 .scenario-form {
   display: grid;
   gap: 16px;
+}
+.evidence-warning {
+  color: #f0c374;
+  font-size: 12px;
+  line-height: 1.7;
+  margin: 8px 0;
 }
 .scenario-form label {
   display: grid;

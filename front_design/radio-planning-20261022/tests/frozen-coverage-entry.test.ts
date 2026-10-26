@@ -6,7 +6,7 @@ import FrozenCoveragePanel from '../src/components/FrozenCoveragePanel.vue';
 import FrozenCoverageBandwidthEditor from '../src/components/FrozenCoverageBandwidthEditor.vue';
 import { useAuthStore } from '../src/stores/auth';
 import { all,clientTemplate,node,renderer,textOf,type HostNode } from './helpers/vue-client';
-import { bandwidthCase,coverageCase,coverageV4Case } from './helpers/frozen-coverage';
+import { bandwidthCase,coverageCase,coverageV4Case,coverageV5Case } from './helpers/frozen-coverage';
 import type { FrozenCoverageClient } from '../src/types/frozen-coverage';
 vi.mock('../src/services',()=>({previewService:{}}));
 vi.mock('vue-router',()=>({onBeforeRouteLeave:vi.fn()}));
@@ -36,6 +36,16 @@ async function click(root:HostNode,label:string){const button=all(root,row=>row.
 function field(root:HostNode,label:string){const control=all(root,row=>row.props['aria-label']===label)[0];expect(control).toBeDefined();return control;}
 async function choose(root:HostNode,id:string,value:string){(field(root,`设备 ${id} 带宽`).props.onChange as (event:unknown)=>void)({target:{value}});await settle();}
 describe('冻结覆盖正式入口',()=>{
+  it('新版展示场强与独立距离参数，历史模式撤去写入口且读取指定V4缓存',async()=>{
+    const f=await fixture('planning',false,coverageV5Case());
+    await click(f.root,'读取覆盖缓存');
+    expect(textOf(f.root)).toContain('dBμV/m');expect(textOf(f.root)).toContain('短波最远预测');
+    expect(field(f.root,'预测覆盖显示方式')).toBeDefined();
+    (field(f.root,'覆盖结果版本').props['onUpdate:modelValue'] as (value:string)=>void)('V01-4');await settle();
+    expect(textOf(f.root)).not.toContain('计算冻结覆盖');
+    await click(f.root,'读取覆盖缓存');expect(f.client.getCache.mock.lastCall![0].engineVersion).toBe('V01-4');
+    expect(f.client.compute).not.toHaveBeenCalled();expect(f.client.saveBandwidthSelection).not.toHaveBeenCalled();
+  });
   it('GIS只读缓存且输出真实设备图层，不出现计算命令',async()=>{
     const f=await fixture('gis');expect(f.client.getCache).not.toHaveBeenCalled();expect(textOf(f.root)).not.toContain('计算冻结覆盖');
     await click(f.root,'读取覆盖缓存');expect(f.client.getCache.mock.calls[0][0].context).toBe('gis');expect(f.overlay.mock.lastCall![0].deviceId).toBe('D1');

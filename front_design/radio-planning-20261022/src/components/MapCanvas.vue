@@ -1358,6 +1358,13 @@ function fitDeviceCoverage(snapshotId: string) {
     );
 }
 function fit() {
+  if(map&&props.frozenCoverage){
+    const layer=updateFrozenCoverage(),source=layer?.getSource(),extent=source?.getExtent();
+    if(source?.getFeatures().length&&extent&&extent.every(Number.isFinite)){
+      map.getView().fit(extent,{padding:[65,65,60,65],maxZoom:13,duration:250});
+      return;
+    }
+  }
   if (map && props.interferenceProjection) {
     const points = workbenchCoordinates(props.interferenceProjection);
     if (points.length) map.getView().fit(boundingExtent(points.map(projectCoordinate)), { padding: [65, 65, 60, 65], maxZoom: 11 });
