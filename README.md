@@ -12,7 +12,11 @@
 - `docs/design/03_接口文档.md`、`docs/design/13_新版前端接口对照矩阵.md`：接口和页面操作契约。
 - `docs/input/`、`docs/output/`及其余保留的设计资料：需求依据和软件说明。
 
-## 安装与启动
+## Windows 便携包
+
+新增 Windows x64 离线便携包制作入口，见 [packaging/windows/README.md](packaging/windows/README.md)。成品包解压后双击“启动系统.cmd”，就绪后自动打开网页；“停止系统.cmd”安全关闭本目录服务。包内含运行环境、前端静态产物、算法及所需数据，首次启动创建独立数据库与账号，不复制开发电脑的私有数据。
+
+## 源码安装与启动
 
 首次使用请按 `front_design/radio-planning-20261022/README.integration.md` 安装依赖、执行显式数据库迁移和资源初始化，再启动新版前端及后端。
 
