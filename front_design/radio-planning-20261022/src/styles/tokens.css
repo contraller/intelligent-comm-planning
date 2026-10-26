@@ -1,0 +1,19 @@
+:root {
+  font-family: 'Microsoft YaHei', 'PingFang SC', system-ui, sans-serif;
+  color: #dce7f5;
+  background: #080f1e;
+  font-synthesis: none;
+  --bg: #080f1e;
+  --panel: #101c30;
+  --panel-deep: #0c1627;
+  --line: #23334c;
+  --muted: #8195b1;
+  --text: #dce7f5;
+  --blue: #419ffc;
+  --cyan: #52d1d5;
+  --green: #40c7a0;
+  --yellow: #f4bd63;
+  --red: #f17684;
+  --radius: 7px;
+  color-scheme: dark;
+}

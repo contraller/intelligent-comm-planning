@@ -1,0 +1,17 @@
+[
+  {
+    "route_id": "CD-0001-PRIMARY",
+    "demand_id": "CD-0001",
+    "task_id": "TS-0001",
+    "route_type": "PRIMARY",
+    "node_path": ["ND-0001", "ND-0002"],
+    "link_path": ["LK-0001"],
+    "hop_count": 1,
+    "total_distance_m": 1000.0,
+    "bottleneck_margin_db": 20.0,
+    "estimated_reliability": 0.995,
+    "route_cost": 1000.0,
+    "is_feasible": true,
+    "note": "路由结果示例"
+  }
+]

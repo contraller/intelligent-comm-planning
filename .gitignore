@@ -1,0 +1,33 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# macOS
+.DS_Store
+
+# Office 临时文件
+~$*
+*.~vsdx
+
+# 大体量导入数据包仅本地保存，不直接提交到 GitHub
+/data.zip
+/radio-planning.zip
+/data/*.zip
+/data/imported/*/source/*.zip
+/data/imported/*/raw/
+/data/runtime/
+/data/results/current_dem/*_checkpoint.pkl
+/.browser-tools/
+
+# 旧前端仅作源码归档，依赖和构建缓存不参与交付。
+/old_front/**/node_modules/
+/old_front/**/dist/
+/old_front/**/.vite/
+
+# 数据库本地配置与临时测试文件
+/algorithm-service/.env
+/algorithm-service/*.db
+/algorithm-service/*.sqlite
+/algorithm-service/*.sqlite3

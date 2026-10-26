@@ -1,0 +1,2 @@
+freq_id,device_class,center_freq_khz,bandwidth_khz,channel_no,is_available,occupied_by,reuse_min_distance_m,adjacent_guard_khz,note
+FQ-0001,HF,3000,3,1,false,,60000,3,禁用-预留应急频点

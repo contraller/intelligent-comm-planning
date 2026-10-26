@@ -1,0 +1,57 @@
+{
+  "code": 0,
+  "message": "success",
+  "request_id": "req-20260911-fault-0001",
+  "data": {
+    "scenario_id": "FS-0001",
+    "fusion_mode": "TWO_WAY_DEGRADED",
+    "results": [
+      {
+        "fault_object": {
+          "object_type": "LINK",
+          "object_id": "LK-0001",
+          "node_id": null
+        },
+        "fault_component": "无(外部干扰)",
+        "fused": {
+          "fault_type": "EMI",
+          "confidence": 0.85,
+          "root_cause": "宽带噪声干扰抬升底噪",
+          "need_manual_review": false
+        },
+        "branches": [
+          {
+            "source": "RULE",
+            "fault_type": "EMI",
+            "confidence": 0.85,
+            "evidence": {
+              "rule_ids": ["RULE-0001"],
+              "matched_expr": "has_symptom('SY-0010') and device_selftest == 'NORMAL'"
+            }
+          },
+          {
+            "source": "KG",
+            "fault_type": "EMI",
+            "confidence": 0.82,
+            "evidence": {
+              "path": ["收信底噪明显抬升", "宽带噪声干扰", "启用跳频模式规避"],
+              "triple_ids": []
+            }
+          },
+          {
+            "source": "ML",
+            "fault_type": null,
+            "confidence": null,
+            "disabled_reason": "历史案例数量待确认，第一版按规则和图谱两路融合"
+          }
+        ],
+        "candidates": [
+          {
+            "fault_type": "EMI",
+            "confidence": 0.85
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -1,0 +1,43 @@
+import { describe,expect,it } from 'vitest';
+import { frozenCoverageLayer } from '../src/maps/frozen-coverage-layers';
+import Polygon from 'ol/geom/Polygon';
+import type { FrozenCoverageFeature,FrozenCoverageOverlay } from '../src/types/frozen-coverage';
+import { bandwidthCase,coverageCase,coverageV4Case } from './helpers/frozen-coverage';
+describe('冻结覆盖原生几何层',()=>{
+  it('VUHF是余量采样点，属性不冒充场强或连续覆盖面',()=>{
+    const f=coverageCase(),overlay:FrozenCoverageOverlay={anchor:f.anchor,result:f.result,deviceId:'D1'},layer=frozenCoverageLayer(overlay,f.query.snapshotId,f.query.planId);
+    const feature=layer.getSource()!.getFeatures()[0];expect(feature.getGeometry()!.getType()).toBe('Point');expect(feature.get('margin_db')).toBe(12);expect(feature.get('field_strength_dbuvm_min')).toBeUndefined();expect(layer.getZIndex()).toBe(25);
+  });
+  it('HF内孔保留；静区和不可显示跨日期线环不填覆盖',()=>{
+    const f=coverageCase(),properties={device_id:'D1',node_id:'N1',freq_khz:7000,is_coverage:true};
+    const ring:FrozenCoverageFeature={type:'Feature',properties,geometry:{type:'Polygon',coordinates:[[[113,37],[115,37],[115,38],[113,38],[113,37]],[[114,37.2],[114,37.6],[114.2,37.6],[114,37.2]]]}};
+    f.result.devices[0].computations=[{freq_khz:7000,link_ids:['L1'],shape:'RINGS',geojson:{type:'FeatureCollection',features:[ring,{...ring,properties:{...properties,is_coverage:false}},{...ring,geometry:null}]}}];
+    const features=frozenCoverageLayer({anchor:f.anchor,result:f.result,deviceId:'D1'},f.query.snapshotId).getSource()!.getFeatures();expect(features).toHaveLength(1);
+    const geometry=features[0].getGeometry();expect(geometry).toBeInstanceOf(Polygon);expect((geometry as Polygon).getCoordinates()).toHaveLength(2);
+  });
+  it.each(['plan','snapshot','device'] as const)('错%s不在当前地图绘制',kind=>{
+    const f=coverageCase(),overlay={anchor:f.anchor,result:f.result,deviceId:kind==='device'?'absent':'D1'};
+    const layer=frozenCoverageLayer(overlay,kind==='snapshot'?'SNP-other':f.query.snapshotId,kind==='plan'?'PLAN-other':f.query.planId);
+    expect(layer.getSource()!.getFeatures()).toHaveLength(0);
+  });
+  it.each(['matching','id','hash','missing','old-v2'] as const)('V3选择图层%s严格匹配，不显示另一选择的覆盖',kind=>{
+    const f=bandwidthCase(),overlay:FrozenCoverageOverlay={anchor:f.anchor,result:f.result,deviceId:'D1',bandwidthSelection:{...f.query.bandwidthSelection!}};
+    if(kind==='id')overlay.bandwidthSelection!.selectionId='FBS-'+'4'.repeat(32);
+    if(kind==='hash')overlay.bandwidthSelection!.selectionHash='0'.repeat(64);
+    if(kind==='missing')delete overlay.bandwidthSelection;
+    if(kind==='old-v2'){overlay.anchor.engine_version='V01-2';overlay.result.provenance.engine_version='V01-2';}
+    const features=frozenCoverageLayer(overlay,f.query.snapshotId,f.query.planId).getSource()!.getFeatures();
+    expect(features).toHaveLength(kind==='matching'?1:0);
+  });
+  it.each(['matching','id','hash','missing','engine','schema','skipped','unavailable'] as const)('V4图层%s保留冻结选择校验且只绘制COMPLETE',kind=>{
+    const f=coverageV4Case({complete:1,unavailable:0,skipped:0},false,true),overlay:FrozenCoverageOverlay={anchor:f.anchor,result:f.result,deviceId:'D1',bandwidthSelection:{...f.query.bandwidthSelection!}};
+    if(kind==='id')overlay.bandwidthSelection!.selectionId='FBS-'+'4'.repeat(32);
+    if(kind==='hash')overlay.bandwidthSelection!.selectionHash='0'.repeat(64);
+    if(kind==='missing')delete overlay.bandwidthSelection;
+    if(kind==='engine')f.result.provenance.engine_version='V01-3';
+    if(kind==='schema')f.result.schema_version=1;
+    if(kind==='skipped')f.result.devices[0]!.status='SKIPPED';
+    if(kind==='unavailable')f.result.devices[0]!.status='UNAVAILABLE';
+    expect(frozenCoverageLayer(overlay,f.query.snapshotId,f.query.planId).getSource()!.getFeatures()).toHaveLength(kind==='matching'?1:0);
+  });
+});

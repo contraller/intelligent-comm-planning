@@ -1,0 +1,36 @@
+{
+  "name": "landcover_taihang",
+  "crs": "EPSG:4326",
+  "width": 7200,
+  "height": 5792,
+  "dtype": "uint8",
+  "byteorder": "little",
+  "nodata": null,
+  "origin_lon": 113.15,
+  "origin_lat": 37.724,
+  "pixel_lon": 0.00025,
+  "pixel_lat": 0.00025,
+  "row_direction": "north_to_south",
+  "bbox": [
+    113.15,
+    36.275999999999996,
+    114.95,
+    37.724
+  ],
+  "source": "太行山东麓_20261009.zip / landcover/landcover_taihang.tif（ESA WorldCover 编码，约 9 m，来源待确认）",
+  "note": "原图约 9 m、未压缩 358 MB；按 3 倍最近邻降采样至约 28 m，与 DEM 的 30 m 量级对齐后 gzip 存储",
+  "downsample_factor": 3,
+  "class_histogram": {
+    "10": 9302394,
+    "20": 550,
+    "30": 12397806,
+    "40": 15455591,
+    "50": 3944094,
+    "60": 451594,
+    "80": 150112,
+    "90": 259
+  },
+  "data_file": "landcover_taihang.bin.gz",
+  "raw_bytes": 41702400,
+  "generated": "2026-10-12T10:29:35+08:00"
+}

@@ -1,0 +1,2 @@
+node_id,node_name,echelon,node_subtype,parent_node_id,node_role,mobility,lon,lat,elevation_m,region,device_class,relay_capable,status,is_key,remark
+ND-0023,Ⅲ双频机动站01,III,III_MOBILE,ND-0009;ND-0010,TASK,VEHICLE,114.0765,37.613274,1153.0,太行山区,HF;VUHF,true,NORMAL,false,

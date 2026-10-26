@@ -1,0 +1,60 @@
+{
+  "name": "dem_current",
+  "crs": "EPSG:4326",
+  "width": 6480,
+  "height": 5213,
+  "dtype": "int16",
+  "byteorder": "little",
+  "nodata": -32768.0,
+  "origin_lon": 113.14986111114996,
+  "origin_lat": 37.72402777777483,
+  "pixel_lon": 0.0002777777777778146,
+  "pixel_lat": 0.0002777777777778146,
+  "row_direction": "north_to_south",
+  "bbox": [
+    113.14986111114996,
+    36.27597222221908,
+    114.9498611111502,
+    37.72402777777483
+  ],
+  "source_bbox": [
+    113.14986111114996,
+    36.27597222221908,
+    114.9498611111502,
+    37.72402777777483
+  ],
+  "planning_bbox": [
+    113.37497663855423,
+    36.461013295002346,
+    114.72474558374593,
+    37.53898670499157
+  ],
+  "source": "\u592a\u884c\u5c71\u4e1c\u9e93_20261009.zip / dem/dem_taihang.tif",
+  "source_sha256": "a42f42e17d38218f539cb04323696cacb296c4bcc11bb50a77cccf927f91bf7f",
+  "elevation_min": 12,
+  "elevation_max": 2211,
+  "nodata_count": 0,
+  "raw_bytes": 67560480,
+  "data_file": "dem_current.bin.gz",
+  "generated": "2026-10-12T10:29:55+08:00",
+  "note": "Native geographic coordinates; synthetic stations rebuilt inside planning_bbox.",
+  "input_sha256": {
+    "node.csv": "09c34db9fb4a99bcf476971bcad814cd9b57a0f94eda8aa276c98058c7c0dfd9",
+    "device.csv": "0eda65a433425050eb938cec0249b80e2a371f418b0972c9f34946c4d327c78d",
+    "device_model.csv": "a983a1cb38582e81200c17afc00340a99187ce03f77f79bbdac7f15018b53b1a",
+    "antenna_model.csv": "fa67f9e02b94dfccbabfaa1358a3788f77872f844c3da448b44eda6eaed8a2c6",
+    "task_scenario.csv": "fca719ccc004b385879cf563ba95f7913f4620ab150f0a10e727f9079d52f5e1",
+    "comm_demand.csv": "92dd5df4a12bcaebab3d6ff33fc179d0815be4c4eb3cdc3f4474040d2d6e62fb",
+    "frequency_resource.csv": "45521c56957c95876fc67530991a475961f96cb18489bc2134faefaec268da16",
+    "interference_source.csv": "72a3f4ead3085c83f7b4f99d4d72496e93ed2d3ae62cb5e4d1d5971d48875651",
+    "link.csv": "b4170d8271d75a1372acece0888c23479e905b516e4614f2f419940ce2112597",
+    "candidate_site.csv": "74208b6d6fa4c257bc74b7a1a7accc8b6508eb65425e12f73d714ba25334583f",
+    "route.json": "3c70384a34a7fbb37ef7c1544849eca960bc88f7c5fb24217dea93ddd9d995b9",
+    "frequency_conflict.csv": "0974c55731c20a2a348f15b6d4ab1967e546269476457590f50e814bb480211a",
+    "link_metric.csv": "6496757742c985ded330c403f8b70e787cc186183c888fab3ffd153f254cd98f",
+    "fault_case.csv": "b65686aebc014d95cc72b1713c80e6aeada11e165718b325d6c7f3bc06999147",
+    "fault_rule.csv": "bdbb406d6daec681e823fc91b8f6368dd37eb08eb64e784cdef7db070629f499",
+    "fault_scenario.json": "21128ec4b708d35edba541d8467276c0c8d8e6ece3fee7ac7c1e602775249fc5",
+    "symptom_dict.csv": "a4d31c058016136bfb18d15a5e6f88d63df0561e308328cb55458c6ac27b669a"
+  }
+}

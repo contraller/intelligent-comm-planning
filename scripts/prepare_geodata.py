@@ -1,0 +1,263 @@
+#!/usr/bin/env python3
+"""把导入批次的原始地理数据转换成仓库内可用、且纯标准库可读的格式。
+
+    python3 scripts/prepare_geodata.py
+
+输入（本地归档，不进 git）：
+    data/imported/taihang_20261009/raw/      DEM、地物、道路（「太行山东麓_20261009」批次）
+    data/imported/data_zip_20260911/raw/     仅第 4 步小体量 CSV 仍取自 9/11 批次，缺失则跳过
+输出（进 git，普通文件，不走 LFS）：
+    data/raw/dem/dem_current.json        + .bin.gz    高程网格（原生经纬度，含规划区 planning_bbox）
+    data/raw/landcover/landcover_taihang.json + .bin.gz 地物网格（降采样到约 28 m）
+    data/raw/landcover/landcover_legend.csv            地物编码对照
+    data/raw/roads/roads_taihang.geojson.gz            道路（GBK 转 UTF-8）
+
+为什么不直接提交原始文件：
+    地物 GeoTIFF 展开约 358 MB，读它要逐行解码；GeoTIFF / Shapefile 通用读法都需要 GDAL 系依赖，
+    与项目「只用标准库」的约束冲突。转换后的网格用 gzip + struct 即可读取，运行时零依赖。
+    2026-10-12 起不再使用 Git LFS：没装 LFS 的人拉下来只是指针文件，地形加载直接失败。
+"""
+import csv, gzip, json, os, shutil, sys, time, zlib
+import datetime as dt
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, os.path.join(HERE, "geo"))
+from tiff import Tiff                     # noqa: E402
+from shapefile import Shp, Dbf, clip_line  # noqa: E402
+
+ROOT = os.path.normpath(os.path.join(HERE, ".."))
+BATCH = "太行山东麓_20261009.zip"
+SRC = os.path.join(ROOT, "data", "imported", "taihang_20261009", "raw")
+LEGACY_SRC = os.path.join(ROOT, "data", "imported", "data_zip_20260911", "raw")
+OUT = os.path.join(ROOT, "data", "raw")
+
+sys.path.insert(0, HERE)
+LANDCOVER_STEP = 3          # 约 9 m -> 约 28 m，与 DEM 的 30 m 量级对齐
+
+STAMP = dt.datetime.now(dt.timezone(dt.timedelta(hours=8))).isoformat(timespec="seconds")
+
+
+def human(n):
+    return "%.1f MB" % (n / 1048576.0) if n >= 1048576 else "%.0f KB" % (n / 1024.0)
+
+
+def write_grid(out_base, data, meta):
+    """落盘为 JSON 头 + gzip 原始网格。"""
+    os.makedirs(os.path.dirname(out_base), exist_ok=True)
+    binp = out_base + ".bin.gz"
+    with gzip.open(binp, "wb", compresslevel=6) as f:
+        f.write(data)
+    meta["data_file"] = os.path.basename(binp)
+    meta["raw_bytes"] = len(data)
+    meta["generated"] = STAMP
+    with open(out_base + ".json", "w", encoding="utf-8") as f:
+        json.dump(meta, f, ensure_ascii=False, indent=2)
+    return os.path.getsize(binp)
+
+
+def grid_meta(tif, width, height, step, name, source, note):
+    return dict(
+        name=name, crs="EPSG:4326",
+        width=width, height=height,
+        dtype=tif.dtype, byteorder="little",
+        nodata=tif.nodata,
+        origin_lon=tif.origin_lon, origin_lat=tif.origin_lat,
+        pixel_lon=tif.pixel_lon * step, pixel_lat=tif.pixel_lat * step,
+        row_direction="north_to_south",
+        bbox=[tif.origin_lon, tif.origin_lat - height * tif.pixel_lat * step,
+              tif.origin_lon + width * tif.pixel_lon * step, tif.origin_lat],
+        source=source, note=note)
+
+
+def convert_dem():
+    """DEM 按原生经纬度落盘，并在其正中取 120 km × 120 km 规划区（见 prepare_replacement_dem）。"""
+    from pathlib import Path
+    from prepare_replacement_dem import convert
+    src = os.path.join(SRC, "dem", "dem_taihang.tif")
+    print("[1/4] DEM")
+    t0 = time.time()
+    meta = convert(Path(src), Path(os.path.join(OUT, "dem", "dem_current")),
+                   label="%s / dem/dem_taihang.tif" % BATCH)
+    sz = os.path.getsize(os.path.join(OUT, "dem", "dem_current.bin.gz"))
+    print("      %d x %d %s   高程 %s ~ %s m   NoData %d" %
+          (meta["width"], meta["height"], meta["dtype"], meta["elevation_min"],
+           meta["elevation_max"], meta["nodata_count"]))
+    print("      %s -> %s   %.1fs" % (human(os.path.getsize(src)), human(sz), time.time() - t0))
+    return sz
+
+
+def convert_landcover():
+    src = os.path.join(SRC, "landcover", "landcover_taihang.tif")
+    print("[2/4] 地物")
+    t0 = time.time()
+    t = Tiff(src)
+    step = LANDCOVER_STEP
+    out = bytearray()
+    w = 0
+    for row in t.rows(step=step):
+        sub = row[::step]
+        w = len(sub)
+        out += sub
+    h = len(out) // w
+    t.close()
+    import collections
+    cnt = collections.Counter(out)
+    meta = grid_meta(t, w, h, step, "landcover_taihang",
+                     "%s / landcover/landcover_taihang.tif（ESA WorldCover 编码，约 9 m，来源待确认）"
+                     % BATCH,
+                     "原图约 9 m、未压缩 %.0f MB；按 %d 倍最近邻降采样至约 28 m，"
+                     "与 DEM 的 30 m 量级对齐后 gzip 存储"
+                     % (t.width * t.height / 1048576.0, step))
+    meta["downsample_factor"] = step
+    meta["class_histogram"] = {str(k): v for k, v in sorted(cnt.items())}
+    sz = write_grid(os.path.join(OUT, "landcover", "landcover_taihang"), bytes(out), meta)
+    print("      %d x %d uint8   %d 种地物码值" % (w, h, len(cnt)))
+    print("      %s -> %s   %.1fs" % (human(os.path.getsize(src)), human(sz), time.time() - t0))
+    lg = os.path.join(SRC, "landcover", "landcover_legend.csv")
+    if os.path.exists(lg):
+        os.makedirs(os.path.join(OUT, "landcover"), exist_ok=True)
+        shutil.copy2(lg, os.path.join(OUT, "landcover", "landcover_legend.csv"))
+        print("      地物编码对照表已复制")
+    return sz
+
+
+# 车辆可通行的道路等级；步道/自行车道/台阶不参与交通可达性判定
+DRIVABLE = {"motorway", "motorway_link", "trunk", "trunk_link", "primary", "primary_link",
+            "secondary", "secondary_link", "tertiary", "tertiary_link", "unclassified",
+            "residential", "service", "living_street", "track", "road"}
+
+
+def convert_roads():
+    # 道路裁到 DEM 覆盖范围。DEM 已在第 1 步重新生成，此处才读它的头文件
+    from terrain import BBOX_DATA as BBOX_BUF
+    base = os.path.join(SRC, "road", "road_taihang_bbox")
+    print("[3/4] 道路")
+    t0 = time.time()
+    dbf = Dbf(base + ".dbf", encoding="gbk")    # .cpg 声明 GBK
+    shp = Shp(base + ".shp")
+    feats, kept, dropped_class, dropped_bbox = [], 0, 0, 0
+    for idx, lines in shp:
+        rec = dbf.record(idx)
+        fclass = rec.get("fclass", "")
+        if fclass not in DRIVABLE:
+            dropped_class += 1
+            continue
+        parts = []
+        for ln in lines:
+            parts.extend(clip_line(ln, BBOX_BUF))
+        if not parts:
+            dropped_bbox += 1
+            continue
+        kept += 1
+        props = {"fclass": fclass}
+        name = rec.get("name", "")
+        if name:
+            props["name"] = name
+        for ln in parts:
+            coords = [[round(x, 6), round(y, 6)] for x, y in ln]
+            feats.append({"type": "Feature", "properties": props,
+                          "geometry": {"type": "LineString", "coordinates": coords}})
+    shp.close(); dbf.close()
+    fc = {"type": "FeatureCollection",
+          "name": "roads_taihang",
+          "crs": {"type": "name", "properties": {"name": "urn:ogc:def:crs:OGC:1.3:CRS84"}},
+          "properties": {
+              "source": "%s / road/road_taihang_bbox.shp（OpenStreetMap，ODbL 1.0）" % BATCH,
+              "generated": STAMP,
+              "bbox": list(BBOX_BUF),
+              "note": "仅保留车辆可通行等级，属性精简为 fclass 与 name；"
+                      "坐标保留 6 位小数；原 shapefile 属性为 GBK，已转 UTF-8"},
+          "features": feats}
+    os.makedirs(os.path.join(OUT, "roads"), exist_ok=True)
+    p = os.path.join(OUT, "roads", "roads_taihang.geojson.gz")
+    payload = json.dumps(fc, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+    with gzip.open(p, "wb", compresslevel=6) as f:
+        f.write(payload)
+    sz = os.path.getsize(p)
+    orig = sum(os.path.getsize(base + e) for e in (".shp", ".dbf", ".shx"))
+    print("      保留 %d 条 / %d 段   非车行丢弃 %d   框外丢弃 %d" %
+          (kept, len(feats), dropped_class, dropped_bbox))
+    print("      %s -> %s (GeoJSON 明文 %s)   %.1fs" %
+          (human(orig), human(sz), human(len(payload)), time.time() - t0))
+    return sz
+
+
+# 导入的故障案例存在列错位：行尾多一个逗号使表头多出一个空列，
+# 内容整体右移——现象落在 fault_component、原因落在 diagnosis_steps、
+# 诊断步骤落在 solution、处置方案落在 repair_time_min、来源落在末尾空列。
+# 240 行错位完全一致，按位置重映射即可。
+FAULT_COL_REMAP = {14: "symptom_text", 15: "root_cause",
+                   16: "diagnosis_steps", 17: "solution", 19: "source_doc"}
+
+# 原始 object_type 为手册中的装备分类，归并到数据字典约定的三类
+OBJECT_TYPE_MAP = {"RADIO_SET": "DEVICE", "RADIO_EQUIPMENT": "DEVICE",
+                   "RADIO_TTY_SET": "DEVICE", "RADIO_LINK": "LINK",
+                   "RADIO_DATA_LINK": "LINK", "RADIO_SYSTEM": "NODE",
+                   "RADIO_TTY_SYSTEM": "NODE"}
+
+
+def fix_fault_cases(src, dst):
+    """修正列错位并规范 object_type，输出符合数据字典的故障案例表。"""
+    with open(src, encoding="utf-8-sig", newline="") as f:
+        rows = list(csv.reader(f))
+    header = [h for h in rows[0] if h.strip()]
+    out = []
+    for r in rows[1:]:
+        if len(r) < 20:
+            continue
+        rec = dict.fromkeys(header, "")
+        for i, name in enumerate(header):
+            if i < 14:
+                rec[name] = r[i].strip()
+        for idx, name in FAULT_COL_REMAP.items():
+            rec[name] = r[idx].strip()
+        rec["object_type"] = OBJECT_TYPE_MAP.get(rec["object_type"], rec["object_type"])
+        rec["repair_time_min"] = ""          # 原列被内容占用，实际无耗时数据
+        out.append(rec)
+    os.makedirs(os.path.dirname(dst), exist_ok=True)
+    with open(dst, "w", encoding="utf-8", newline="") as f:
+        w = csv.DictWriter(f, fieldnames=header)
+        w.writeheader()
+        w.writerows(out)
+    return len(out)
+
+
+def copy_small_csv():
+    print("[4/4] 小体量 CSV")
+    fsrc = os.path.join(LEGACY_SRC, "fault", "fault_case.csv")
+    fdst = os.path.join(OUT, "maintenance_docs", "fault_case_imported.csv")
+    if os.path.exists(fsrc):
+        n = fix_fault_cases(fsrc, fdst)
+        print("      %-28s %s（已修正列错位）" % (os.path.basename(fdst), human(os.path.getsize(fdst))))
+    jobs = [(os.path.join(LEGACY_SRC, "docs", "index.csv"),
+             os.path.join(OUT, "maintenance_docs", "docs_index.csv"))]
+    total = 0
+    for s, d in jobs:
+        if not os.path.exists(s):
+            print("      跳过（缺失）: %s" % os.path.basename(s)); continue
+        os.makedirs(os.path.dirname(d), exist_ok=True)
+        # 去掉 BOM，统一 UTF-8 无 BOM
+        with open(s, "rb") as f:
+            raw = f.read()
+        if raw.startswith(b"\xef\xbb\xbf"):
+            raw = raw[3:]
+        with open(d, "wb") as f:
+            f.write(raw)
+        total += len(raw)
+        print("      %-28s %s" % (os.path.basename(d), human(len(raw))))
+    return total
+
+
+def main():
+    if not os.path.isdir(SRC):
+        print("找不到导入批次目录：%s" % SRC)
+        print("请先把 %s 解压到该目录（去掉压缩包内的顶层文件夹），见同级 README.md" % BATCH)
+        return 1
+    print("地理数据预处理  %s\n" % STAMP)
+    total = convert_dem() + convert_landcover() + convert_roads() + copy_small_csv()
+    print("\n进入仓库的总体积：%s" % human(total))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

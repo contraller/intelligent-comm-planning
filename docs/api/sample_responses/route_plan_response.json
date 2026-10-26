@@ -1,0 +1,23 @@
+{
+  "code": 0,
+  "message": "success",
+  "request_id": "req-20260911-route-0001",
+  "data": {
+    "task_id": "TS-0001",
+    "routes": [
+      {
+        "route_id": "CD-0009-PRIMARY",
+        "demand_id": "CD-0009",
+        "route_type": "PRIMARY",
+        "node_path": ["ND-0071", "ND-0087", "ND-0014", "ND-0018", "ND-0143"],
+        "link_path": ["LK-0070", "LK-0128", "LK-0068", "LK-0159"],
+        "hop_count": 4,
+        "total_distance_m": 35103.3,
+        "bottleneck_margin_db": 41.49,
+        "estimated_reliability": 0.9801,
+        "is_feasible": true
+      }
+    ],
+    "unreachable_demand_ids": []
+  }
+}

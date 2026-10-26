@@ -1,0 +1,93 @@
+import { describe, expect, it } from 'vitest';
+import { createAuthHttp } from '../src/services/auth-http';
+import { createTaskHttp } from '../src/services/task-http';
+import { createPlanningHttp } from '../src/services/planning-http';
+import { createResourceReadHttp } from '../src/services/resource-read-http';
+import { createDiagnosisHttp } from '../src/services/diagnosis-http';
+import { createKnowledgeHttp } from '../src/services/knowledge-http';
+import { loadTerrainBasemap } from '../src/services/terrain-basemap';
+import { projectGisDiagnosisReport } from '../src/services/gis-diagnosis-display';
+
+const live=process.env.SR56_DELIVERY_URL;
+// 只允许显式指定的本机隔离服务；本组会保存真实算法输出和知识变更，不使用请求桩。
+describe.skipIf(!live)('SR4 → SR5 → SR6 真实 HTTP 闭环',()=>{
+  it('生成确认方案、两段分析、知识反馈、独立审核发布和历史保护',async()=>{
+    const base=new URL(live!);if(!['127.0.0.1','localhost'].includes(base.hostname)||process.env.SR56_DELIVERY_ISOLATED!=='1')throw new Error('请显式指定本机隔离数据库服务');
+    let cookie='';
+    const fetcher:typeof fetch=async(input,init)=>{
+      const headers=new Headers(init?.headers);if(cookie)headers.set('Cookie',cookie);
+      const response=await fetch(new URL(input instanceof Request?input.url:String(input),base),{...init,headers});
+      const setCookie=response.headers.get('set-cookie');if(setCookie)cookie=setCookie.split(';')[0];return response;
+    };
+    const auth=createAuthHttp({baseUrl:()=>'/api/v1',origin:()=>base.origin,fetcher,timeoutMs:60000});
+    const tasks=createTaskHttp(auth.authenticatedRequest),planning=createPlanningHttp(auth.authenticatedRequest,()=>'/api/v1');
+    const diagnosis=createDiagnosisHttp(auth.authenticatedRequest),knowledge=createKnowledgeHttp(auth.authenticatedRequest);
+    const resources=createResourceReadHttp({baseUrl:()=>'/api/v1',origin:()=>base.origin,fetcher,timeoutMs:60000});
+    expect((await auth.getSession())?.id).toBe('integration-planner');
+    const ctx=await resources.loadResourceReadContext({context:'planning'}),catalog=await planning.loadPlanningCatalog({context:'planning'});
+    const input=structuredClone(catalog.presets[0].defaults);input.name='SR5-SR6联调-'+crypto.randomUUID().slice(0,8);input.description='构造联调，非生产、非实测';
+    const task=await tasks.saveTaskInput({context:'planning',taskId:'sr56-'+crypto.randomUUID(),revision:null,resourceRevision:ctx.revision,input,requestId:crypto.randomUUID()});
+    let job=await planning.submitPlanningTask({context:'planning',taskId:task.taskId,revision:task.revision,inputVersion:task.inputVersion,conditionVersion:task.conditionVersion,resourceRevision:ctx.revision,parentPlanId:null,requestId:crypto.randomUUID()});
+    const start=Date.now();while(['PENDING','RUNNING'].includes(job.state)&&Date.now()-start<300000){await new Promise(r=>setTimeout(r,1000));job=await planning.getPlanningTask({context:'planning',taskId:task.taskId,jobId:job.id});}
+    expect(job.state,job.error??'规划未成功').toBe('SUCCESS');expect(job.outcome?.code).toBe(0);
+    const plan=await planning.savePlanningPlan({context:'planning',taskId:task.taskId,revision:task.revision,jobId:job.id,name:input.name,note:input.description,requestId:crypto.randomUUID()});
+    await planning.confirmPlanningPlan({context:'planning',taskId:task.taskId,planId:plan.id,revision:plan.revision,requestId:crypto.randomUUID()});
+    await auth.switchIntegrationIdentity('integration-editor');
+    let dc=await diagnosis.loadDiagnosisContext();
+    expect(dc.capabilities).toMatchObject({demoControls:false,twoStep:true});expect(dc.sources.plans.find(p=>p.id===plan.id)?.canCreate).toBe(true);
+    const source=await diagnosis.getDiagnosisSource({planId:plan.id});expect(source.snapshotId).toBe(plan.result.snapshotId);
+    expect(source.terrain).not.toBeNull();
+    const terrain=await loadTerrainBasemap(source.terrain,fetcher,'/');expect(terrain.extent).toEqual(source.terrain!.bounds);terrain.dispose();
+    for(const format of ['csv','xlsx'] as const)expect((await diagnosis.getDiagnosisTemplate(format,plan.id)).bytes.length).toBeGreaterThan(100);
+    const draft={name:'真实接口构造故障',description:'非实测',planId:plan.id,faults:[{objectType:'DEVICE' as const,objectId:source.inputSnapshot.devices[0].id,faultType:'HW_FAILURE' as const,symptomIds:[dc.symptoms[0].id],occurTime:null,interferenceId:null}]};
+    const saveRequest={scenarioId:null,draft,baseRevision:dc.revision!,requestId:crypto.randomUUID()};
+    const saved=await diagnosis.saveDiagnosisReceipt(saveRequest);expect(await diagnosis.saveDiagnosisReceipt(saveRequest)).toEqual(saved);
+    await expect(diagnosis.saveDiagnosisReceipt({...saveRequest,requestId:crypto.randomUUID()})).rejects.toMatchObject({status:409,code:1203});
+    const version=await diagnosis.getDiagnosisVersion({scenarioId:saved.entityIds[0],versionId:saved.entityIds[1]});expect(version.network.id).toBe(plan.id);
+    const submitted=await diagnosis.submitDiagnosisReceipt({scenarioVersionId:version.id,baseRevision:saved.revision,requestId:crypto.randomUUID()});
+    const runId=submitted.objectId;
+    async function wait(complete:boolean){let p=await diagnosis.getDiagnosisProgress({id:runId});const began=Date.now();while(!(complete?p.state==='SUCCESS':p.diagnosisReady)&&!['FAILED','CANCELLED'].includes(p.state)&&Date.now()-began<60000){await new Promise(r=>setTimeout(r,200));p=await diagnosis.getDiagnosisProgress({id:runId});}expect(p.state,p.error??'SR5 未完成').not.toBe('FAILED');expect(complete?p.impactReady:p.diagnosisReady).toBe(true);return p;}
+    await wait(false);expect((await diagnosis.getDiagnosisDetail({id:runId})).run.impactTaskId).toBeNull();
+    dc=await diagnosis.loadDiagnosisContext();await diagnosis.submitDiagnosisImpactReceipt({runId,baseRevision:dc.revision!,requestId:crypto.randomUUID()});
+    const finished=await wait(true);const stage=await diagnosis.getDiagnosisStage({id:runId,stage:'impact',resultVersion:finished.resultVersion});expect(stage.summary).not.toBeNull();
+    const original=await diagnosis.getDiagnosisReport(runId);expect(original.faults).toEqual(draft.faults);expect(original.network.id).toBe(plan.id);
+    expect(projectGisDiagnosisReport(original,runId).stations.length).toBe(source.stationIds.length);
+    expect((await diagnosis.exportDiagnosisReport(runId,'json')).bytes.length).toBeGreaterThan(100);
+    for(const format of ['docx','pdf'] as const)expect((await diagnosis.exportDiagnosisReport(runId,format)).bytes.length).toBeGreaterThan(100);
+    expect((await diagnosis.exportDiagnosisImpact(runId,'xlsx','全部')).bytes.length).toBeGreaterThan(100);
+    expect((await diagnosis.exportDiagnosisImpact(runId,'png','全部')).bytes.length).toBeGreaterThan(100);
+    const km=await knowledge.loadKnowledgeMetadata(),before=km.workspace!.currentVersionId;
+    const marker='构造反馈根因-'+crypto.randomUUID().slice(0,8);
+    dc=await diagnosis.loadDiagnosisContext();const feedback=await diagnosis.submitDiagnosisFeedback({runId,baseRevision:dc.revision!,requestId:crypto.randomUUID(),feedback:{result_index:0,confirmed_fault_type:'HW_FAILURE',root_cause:marker,fault_component:'构造部件',solution:'构造维修方案',diagnosis_steps:['人工核对构造现象']}});
+    const change=await knowledge.getKnowledgeChange({id:feedback.entityIds[1]});expect(change.state).toBe('DRAFT');expect(change.content.entities.length).toBeGreaterThan(0);
+    expect((await knowledge.searchKnowledgeSummaries({versionId:before,categories:['故障运维知识'],search:marker,pageNum:1,pageSize:20})).total).toBe(0);
+    const editor=(await auth.getSession())!;let meta=(await knowledge.loadKnowledgeMetadata()).workspace!;
+    const submittedChange=await knowledge.submitKnowledgeReceipt({actorId:editor.id,baseRevision:meta.revision,requestId:crypto.randomUUID(),changeId:change.id,revision:change.revision});
+    await expect(knowledge.reviewKnowledgeReceipt({actorId:editor.id,baseRevision:submittedChange.revision,requestId:crypto.randomUUID(),changeId:change.id,revision:change.revision,submission:1,approved:true,opinion:''})).rejects.toMatchObject({status:403});
+    await auth.switchIntegrationIdentity('integration-reviewer');const reviewer=(await auth.getSession())!;meta=(await knowledge.loadKnowledgeMetadata()).workspace!;
+    const reviewed=await knowledge.reviewKnowledgeReceipt({actorId:reviewer.id,baseRevision:meta.revision,requestId:crypto.randomUUID(),changeId:change.id,revision:change.revision,submission:1,approved:true,opinion:'构造联调审核，不代表实测验证'});
+    expect(reviewed.currentVersionId).toBe(before);
+    const published=await knowledge.publishKnowledgeReceipt({actorId:reviewer.id,baseRevision:reviewed.revision,requestId:crypto.randomUUID(),changeId:change.id,revision:change.revision});
+    expect(published.currentVersionId).not.toBe(before);expect((await knowledge.searchKnowledgeSummaries({versionId:published.currentVersionId,categories:['故障运维知识'],search:marker,pageNum:1,pageSize:20})).total).toBeGreaterThan(0);
+    expect(await diagnosis.getDiagnosisReport(runId)).toEqual(original);
+    const rolled=await knowledge.rollbackKnowledgeReceipt({actorId:reviewer.id,baseRevision:published.revision,requestId:crypto.randomUUID(),versionId:before,reason:'构造联调回滚验证，保留历史'});
+    expect(rolled.currentVersionId).not.toBe(before);expect(rolled.currentVersionId).not.toBe(published.currentVersionId);
+    expect((await knowledge.getKnowledgeVersion({id:published.currentVersionId})).entities.some(e=>e.name===marker)).toBe(true);
+    expect(await diagnosis.getDiagnosisReport(runId)).toEqual(original);
+    console.info('SR56_RESULT',JSON.stringify({taskId:task.taskId,planId:plan.id,runId,diagnoseTaskId:original.diagnoseTaskId,impactTaskId:original.impactTaskId,changeId:change.id,published:published.currentVersionId,rollback:rolled.currentVersionId,nodes:source.stationIds.length,links:source.links.length}));
+  },480000);
+  it.skipIf(!process.env.SR56_REOPEN_RUN_ID)('重启回读已持久化诊断与知识版本',async()=>{
+    const base=new URL(live!),runId=process.env.SR56_REOPEN_RUN_ID!,versionId=process.env.SR56_REOPEN_VERSION_ID!;
+    if(!['127.0.0.1','localhost'].includes(base.hostname)||process.env.SR56_DELIVERY_ISOLATED!=='1'||!versionId)throw new Error('需要明确指定本机隔离库及历史版本');
+    let cookie='';
+    const fetcher:typeof fetch=async(input,init)=>{const headers=new Headers(init?.headers);if(cookie)headers.set('Cookie',cookie);const response=await fetch(new URL(String(input),base),{...init,headers});const value=response.headers.get('set-cookie');if(value)cookie=value.split(';')[0];return response;};
+    const auth=createAuthHttp({baseUrl:()=>'/api/v1',origin:()=>base.origin,fetcher});
+    await auth.switchIntegrationIdentity('integration-reviewer');
+    const diagnosis=createDiagnosisHttp(auth.authenticatedRequest),knowledge=createKnowledgeHttp(auth.authenticatedRequest);
+    const record=await diagnosis.getDiagnosisReport(runId);expect(record.id).toBe(runId);expect(record.network.terrain).not.toBeNull();
+    expect(projectGisDiagnosisReport(record,runId).stations.length).toBeGreaterThan(100);
+    expect((await knowledge.getKnowledgeVersion({id:versionId})).id).toBe(versionId);
+    expect((await diagnosis.exportDiagnosisReport(runId,'json')).bytes.length).toBeGreaterThan(100);
+    console.info('SR56_REOPEN',JSON.stringify({runId,versionId,nodes:record.network.stationIds.length}));
+  });
+});

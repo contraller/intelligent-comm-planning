@@ -1,0 +1,133 @@
+import { describe, expect, it, vi } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { createResourceExportHttp } from '../src/services/resource-export-http';
+import { ApiError } from '../src/services/types';
+import type { ResourceExportRequest } from '../src/types/resource-edit';
+
+const revision = 'resource-0123456789abcdef';
+const input = (): ResourceExportRequest => ({ context: 'ledger', format: 'csv', kinds: ['devices'], ledger: { revision, range: 'all' } });
+const preview = () => ({ revision, data_origin: 'SYNTHETIC_INTEGRATION', source: '构造联调，非实测', tables: [{ kind: 'devices', count: 414 }], added: 0 });
+function fixture(value: unknown = preview()) {
+  const request = vi.fn().mockResolvedValue(value);
+  return { request, api: createResourceExportHttp(request) };
+}
+
+describe('台账导出 HTTP 适配', () => {
+  it.each([false, true])('预检只按发起值核对，不随调用方突变接受错误类型 %s', async wrong => {
+    let resolve!: (value: unknown) => void;
+    const request = vi.fn().mockImplementation(() => new Promise(done => { resolve = done; }));
+    const q = input(), api = createResourceExportHttp(request);
+    const pending = api.previewResourceExport(q);
+    q.kinds[0] = 'nodes'; q.ledger!.range = 'filtered';
+    resolve({ ...preview(), tables: [{ kind: wrong ? 'nodes' : 'devices', count: 414 }] });
+    if (wrong) await expect(pending).rejects.toMatchObject({ code: 'INVALID_RESOURCE_EXPORT_RESPONSE' });
+    else expect((await pending).tables[0]!.kind).toBe('devices');
+    expect(JSON.parse(request.mock.calls[0]![1].body).kinds).toEqual(['devices']);
+  });
+  it.each([false, true])('文件类型与名称使用发起时格式，拒绝跟随突变的文件 %s', async wrong => {
+    let resolve!: (value: unknown) => void;
+    const request = vi.fn().mockImplementation(() => new Promise(done => { resolve = done; }));
+    const q = input(), api = createResourceExportHttp(request);
+    const pending = api.exportResources(q);
+    q.format = 'xlsx'; q.kinds[0] = 'nodes';
+    resolve(wrong ? new Blob([new Uint8Array([80, 75, 3, 4])], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })
+      : new Blob(['device_id,node_id\r\nDV1,N1\r\n'], { type: 'text/csv' }));
+    if (wrong) await expect(pending).rejects.toMatchObject({ code: 'INVALID_RESOURCE_EXPORT_RESPONSE' });
+    else expect((await pending).name).toBe(`synthetic-resources-${revision}.csv`);
+  });
+  it('全部范围为服务端全库预检，不收集分页 ID', async () => {
+    const f = fixture();
+    expect(await f.api.previewResourceExport(input())).toEqual({ tables: [{ kind: 'devices', count: 414 }], added: 0 });
+    const [path, init, type] = f.request.mock.calls[0]!;
+    expect(path).toBe('/resource/export/preview'); expect(type).toBe('json'); expect(init.method).toBe('POST');
+    expect(JSON.parse(init.body)).toEqual({ context: 'ledger', revision, format: 'csv', kinds: ['devices'], range: 'all' });
+  });
+  it('筛选条件逐字段映射，显式保留 false 和 0', async () => {
+    const f = fixture();
+    await f.api.previewResourceExport({ ...input(), ledger: { revision, range: 'filtered', filter: { deviceClass: 'HF', relayCapable: false,
+      status: 'UNKNOWN', alert: 'UNKNOWN', mobility: 'FIXED', nodeRole: 'RELAY', frequency: { mode: 'MODEL', presence: 'ALL', minKhz: 0, maxKhz: 3000 } } } });
+    expect(JSON.parse(f.request.mock.calls[0]![1].body).filter).toEqual({ device_class: 'HF', relay_capable: false, status: 'UNKNOWN', alert: 'UNKNOWN', mobility: 'FIXED', node_role: 'RELAY',
+      frequency: { mode: 'MODEL', presence: 'ALL', min_khz: 0, max_khz: 3000 } });
+  });
+  it('选中范围只发送所选设备并校验补齐节点数量', async () => {
+    const f = fixture({ ...preview(), tables: [{ kind: 'devices', count: 1 }, { kind: 'nodes', count: 2 }], added: 2 });
+    const q: ResourceExportRequest = { context: 'ledger', format: 'xlsx', kinds: ['devices', 'nodes'], ledger: { revision, range: 'selected', selectedIds: ['DV-1'] } };
+    expect((await f.api.previewResourceExport(q)).added).toBe(2);
+    expect(JSON.parse(f.request.mock.calls[0]![1].body).selected_ids).toEqual(['DV-1']);
+  });
+  it.each([
+    { kinds: [] }, { kinds: ['devices', 'devices'] }, { kinds: ['devices', 'nodes'] }, { kinds: ['topology_links'] }, { actor: 'admin' }, { ids: {} },
+    { ledger: { revision, range: 'all', filter: {} } }, { ledger: { revision, range: 'selected', selectedIds: [] } },
+    { ledger: { revision, range: 'selected', selectedIds: ['D1', 'D1'] } }, { ledger: { revision, range: 'selected', selectedIds: Array(51).fill('D') } },
+    { ledger: { revision, range: 'filtered', filter: { relayCapable: 'false' } } },
+    { ledger: { revision, range: 'filtered', filter: { frequency: { mode: 'ALL', presence: 'ALL', minKhz: 1, maxKhz: null } } } },
+    { ledger: { revision, range: 'filtered', filter: { frequency: { mode: 'MODEL', presence: 'ALL', minKhz: NaN, maxKhz: null } } } },
+  ])('非法输入发送前拒绝 %j', async patch => {
+    const f = fixture();
+    await expect(f.api.previewResourceExport({ ...input(), ...patch } as ResourceExportRequest)).rejects.toMatchObject({ code: 'VALIDATION_ERROR' });
+    expect(f.request).not.toHaveBeenCalled();
+  });
+  it.each([
+    { revision: 'other' }, { data_origin: 'MEASURED' }, { source: '' }, { tables: [] }, { tables: [{ kind: 'nodes', count: 414 }] },
+    { tables: [{ kind: 'devices', count: -1 }] }, { tables: [{ kind: 'devices', count: 1.5 }] }, { added: 1 }, { devices: [] },
+  ])('非法预检响应不能显示为成功 %j', async patch => {
+    await expect(fixture({ ...preview(), ...patch }).api.previewResourceExport(input())).rejects.toMatchObject({ code: 'INVALID_RESOURCE_EXPORT_RESPONSE' });
+  });
+  it('GIS 缺失专用版本上下文时拒绝，不静默按台账导出', async () => {
+    const f = fixture();
+    await expect(f.api.previewResourceExport({ ...input(), context: 'gis' })).rejects.toMatchObject({ code: 'VALIDATION_ERROR' });
+    expect(f.request).not.toHaveBeenCalled();
+  });
+  it('观测预检绑定明确快照，来源字段只映射请求根级', async () => {
+    const observation = { snapshot_id: 'OBS1', snapshot_revision: 'device-status-' + 'a'.repeat(64),
+      resource_revision: revision, data_origin: 'SYNTHETIC_INTEGRATION', source_label: '已选择的构造来源' };
+    const f = fixture({ ...preview(), status_mode: 'observed', observation, node_status_mode: 'baseline' });
+    const q: ResourceExportRequest = { ...input(), ledger: { revision, range: 'filtered',
+      filter: { statusMode: 'observed', observationSnapshotId: 'OBS1', status: 'UNKNOWN', alert: 'UNKNOWN' } } };
+    expect(await f.api.previewResourceExport(q)).toMatchObject({ statusMode: 'observed', nodeStatusMode: 'baseline',
+      observation: { snapshotId: 'OBS1', snapshotRevision: observation.snapshot_revision, resourceRevision: revision, sourceLabel: observation.source_label } });
+    expect(JSON.parse(f.request.mock.calls[0]![1].body)).toEqual({ context: 'ledger', revision, format: 'csv', kinds: ['devices'],
+      range: 'filtered', status_mode: 'observed', observation_snapshot_id: 'OBS1', filter: { status: 'UNKNOWN', alert: 'UNKNOWN' } });
+  });
+  it('观测下载预检失败时不请求文件，也不退回基线', async () => {
+    const f = fixture();
+    const q: ResourceExportRequest = { ...input(), ledger: { revision, range: 'all',
+      filter: { statusMode: 'observed', observationSnapshotId: 'OBS1' } } };
+    await expect(f.api.exportResources(q)).rejects.toMatchObject({ code: 'INVALID_RESOURCE_EXPORT_RESPONSE' });
+    expect(f.request).toHaveBeenCalledOnce();
+    expect(f.request.mock.calls[0]![0]).toBe('/resource/export/preview');
+    expect(JSON.parse(f.request.mock.calls[0]![1].body)).toMatchObject({ status_mode: 'observed', observation_snapshot_id: 'OBS1' });
+    f.request.mockRejectedValueOnce(new ApiError('快照资源版本已变化', 1205, null, 'observed-trace', 409));
+    await expect(f.api.exportResources(q)).rejects.toMatchObject({ code: 'RESOURCE_VERSION_CHANGED', requestId: 'observed-trace' });
+    expect(f.request.mock.calls.every(call => call[0] === '/resource/export/preview')).toBe(true);
+  });
+  it('CSV 文件由后端返回，保留 UTF-8 字节', async () => {
+    const data = 'device_id,node_id\r\nDV1,N1\r\n';
+    const f = fixture(new Blob([data], { type: 'text/csv; charset=utf-8' }));
+    const file = await f.api.exportResources(input());
+    expect(new TextDecoder().decode(file.bytes)).toBe(data);
+    expect(file.name).toBe(`synthetic-resources-${revision}.csv`);
+    expect(f.request.mock.calls[0]![2]).toBe('blob');
+  });
+  it('XLSX 保留服务端 ZIP 文件，不在前端构造资源', async () => {
+    const mime = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+    const f = fixture(new Blob([new Uint8Array([80, 75, 3, 4, 1])], { type: mime }));
+    expect((await f.api.exportResources({ ...input(), format: 'xlsx' })).mime).toBe(mime);
+  });
+  it.each([new Blob([], { type: 'text/csv' }), new Blob(['{}'], { type: 'application/json' }),
+    new Blob(['wrong header'], { type: 'text/csv' }), new Blob([new Uint8Array([255, 255])], { type: 'text/csv' }),
+    new Blob([new Uint8Array(20 * 1024 * 1024 + 1)], { type: 'text/csv' })])('拒绝空文件、错格式或超大内容', async blob => {
+    await expect(fixture(blob).api.exportResources(input())).rejects.toMatchObject({ code: 'INVALID_RESOURCE_EXPORT_RESPONSE' });
+  });
+  it.each([[1205, 'RESOURCE_VERSION_CHANGED'], [1002, 'RESOURCE_NOT_FOUND'], [1001, 'VALIDATION_ERROR']])('下载失败仍保留错误 %s', async (code, expected) => {
+    const f = fixture(); f.request.mockRejectedValue(new ApiError('失败', code as number, null, 'trace', 409));
+    await expect(f.api.exportResources(input())).rejects.toMatchObject({ code: expected, requestId: 'trace' });
+    expect(f.request).toHaveBeenCalledOnce();
+  });
+  it('共享入口确实装配新方法并移除相应占位', () => {
+    const source = readFileSync(new URL('../src/services/http.ts', import.meta.url), 'utf8');
+    expect(source).toContain('...createResourceExportHttp(authentication.authenticatedRequest)');
+    expect(source).not.toContain('async previewResourceExport()');
+    expect(source).not.toContain('async exportResources()');
+  });
+});

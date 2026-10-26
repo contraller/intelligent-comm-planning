@@ -1,0 +1,2 @@
+antenna_id,antenna_name,device_class,gain_dbi,pattern_type,hbeamwidth_deg,vbeamwidth_deg,height_range_m,antenna_length_m,polarization
+AM-0019,NAR6594,VUHF,0,OMNI,360,,,0.200,V

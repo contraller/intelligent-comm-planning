@@ -1,0 +1,11 @@
+{
+  "route_task_id": "tsk-20260911-route-0001",
+  "freq_pool_filter": {
+    "device_class": "VUHF",
+    "freq_range_khz": [30000, 88000],
+    "exclude_freq_ids": []
+  },
+  "reuse_min_distance_m": 30000,
+  "adjacent_guard_khz": 25,
+  "manual_assignments": []
+}
