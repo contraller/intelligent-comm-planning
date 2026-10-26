@@ -4,6 +4,9 @@ import json
 from pathlib import Path
 import socket
 import threading
+import os
+import shutil
+import subprocess
 
 import pytest
 
@@ -110,3 +113,14 @@ def test_running_algorithm_thread_is_not_treated_as_stopped(module):
         released.set()
         thread.join(2)
     assert thread not in entry.active_algorithm_threads()
+
+
+@pytest.mark.parametrize("name", ("启动系统.cmd", "停止系统.cmd"))
+@pytest.mark.skipif(os.name != "nt", reason="Windows 桌面入口")
+def test_batch_preserves_failure_code_without_runtime(tmp_path, name):
+    entry = tmp_path / name
+    shutil.copy2(HERE / name, entry)
+    result = subprocess.run([os.environ["COMSPEC"], "/d", "/c", str(entry)], cwd=tmp_path,
+        stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=15,
+        creationflags=subprocess.CREATE_NO_WINDOW)
+    assert result.returncode != 0
