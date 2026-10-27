@@ -55,6 +55,29 @@ describe('同源 Cookie 认证契约', () => {
     await expect(auth.login({ username: 'beta', password: 'x' })).rejects.toMatchObject({ code: 'AUTH_ALREADY_SIGNED_IN' });
     expect(state.identity?.account_id).toBe('alpha'); expect(fetcher).toHaveBeenCalledTimes(1);
   });
+  it('本人改密使旧会话失效后，主动重新登录接受新会话而无需刷新页面', async () => {
+    const { auth, fetcher, state } = fixture();
+    await auth.login({ username: 'alpha', password: 'initial-password' });
+    // 后端改密撤销 Cookie；读取未登录状态不能误释放其他业务页面的绑定。
+    state.identity = null;
+    expect(await auth.getSession()).toBeNull();
+    const next = { ...dto('alpha'), session_id: 'session-alpha-after-password', session_generation: 'generation-2' };
+    fetcher.mockResolvedValueOnce(response({ csrf_token: 'fresh-nonce', session_id: null }))
+      .mockImplementationOnce(async () => { state.identity = next; return response(next); });
+    await expect(auth.login({ username: 'alpha', password: 'new-password' }))
+      .resolves.toMatchObject({ id: 'alpha', sessionId: next.session_id });
+    expect((await auth.getSession())?.sessionId).toBe(next.session_id);
+  });
+  it('重新登录失败时不释放旧绑定，随后出现其他账号仍触发冻结', async () => {
+    const { auth, fetcher, state } = fixture(dto('alpha'));
+    await auth.getSession(); state.identity = null;
+    expect(await auth.getSession()).toBeNull();
+    fetcher.mockResolvedValueOnce(response({ csrf_token: 'fresh-nonce', session_id: null }))
+      .mockResolvedValueOnce(response(null, 1101, 401));
+    await expect(auth.login({ username: 'alpha', password: 'wrong' })).rejects.toMatchObject({ code: 'AUTH_CREDENTIALS' });
+    state.identity = dto('beta');
+    await expect(auth.getSession()).rejects.toMatchObject({ code: 'SESSION_REPLACED' });
+  });
   it.each([1101, 1102, 1103, 1104, 1105, 1106, 1107])('认证错误码 %s 保留原始错误、有效 data 和请求编号', async code => {
     const { auth, fetcher } = fixture();
     fetcher.mockResolvedValueOnce(response({ csrf_token: 'nonce', session_id: null })).mockResolvedValueOnce(response({ field: 'username' }, code, code === 1106 ? 409 : 403));

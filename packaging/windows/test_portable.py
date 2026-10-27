@@ -96,6 +96,34 @@ def test_missing_initialized_database_cannot_create_new_database(tmp_path, monke
     assert not (tmp_path / "r2.sqlite").exists()
 
 
+@pytest.mark.parametrize("folder", ("任意目录", "中文 空格(一)", "路径%27 & 括号(二)"))
+def test_migration_directory_is_independent_of_folder_name(tmp_path, monkeypatch, folder):
+    from alembic.script import ScriptDirectory
+    entry = load("launcher")
+    app = tmp_path / folder / "app"
+    versions = app / "algorithm-service/migrations/versions"
+    versions.mkdir(parents=True)
+    (versions / "0001.py").write_text("revision='portable_head'\ndown_revision=None\n", encoding="utf-8")
+    monkeypatch.setattr(entry, "APP", app)
+    config = entry.migration_config()
+    assert config.config_file_name is None
+    assert ScriptDirectory.from_config(config).get_current_head() == "portable_head"
+
+
+@pytest.mark.parametrize("folder", ("任意目录", "中文 空格(一)", "路径%27 & 括号(二)"))
+def test_sqlite_url_round_trips_literal_directory(tmp_path, monkeypatch, folder):
+    from sqlalchemy.engine import make_url
+    entry = load("launcher")
+    data = tmp_path / folder / "app/data/runtime"
+    monkeypatch.setattr(entry, "DATA", data)
+    original = list(entry.sys.path)
+    try:
+        entry.configure(18481, "test-key")
+        assert Path(make_url(entry.os.environ["DATABASE_URL"]).database) == data / "r2.sqlite"
+    finally:
+        entry.sys.path[:] = original
+
+
 @pytest.mark.parametrize("module", ("app.planning_w3", "app.coverage", "app.deployment"))
 def test_running_algorithm_thread_is_not_treated_as_stopped(module):
     entry = load("launcher")

@@ -16,6 +16,7 @@ import threading
 import time
 import urllib.error
 import urllib.request
+from urllib.parse import quote
 
 ROOT = Path(__file__).resolve().parent
 APP = ROOT / "app"
@@ -39,7 +40,7 @@ def secure_data_directory():
     import re
     system = Path(os.environ.get("SystemRoot", "C:/Windows")) / "System32"
     identity = subprocess.check_output([str(system / "whoami.exe"), "/user", "/fo", "csv", "/nh"], creationflags=subprocess.CREATE_NO_WINDOW)
-    sid = re.search(rb"S-1-5-[0-9-]+", identity)
+    sid = re.search(rb"S-\d+(?:-\d+)+", identity)
     if sid is None:
         raise RuntimeError("不能确定本地用户 SID，未写入凭据")
     subprocess.run([str(system / "icacls.exe"), str(DATA), "/inheritance:r", "/grant:r",
@@ -106,7 +107,8 @@ def configure(port, key):
     for folder in folders.values():
         folder.mkdir(parents=True, exist_ok=True)
     os.environ.update({
-        "DATABASE_URL": "sqlite:///" + (DATA / "r2.sqlite").as_posix(),
+        # SQLite URL 也会解码百分号；先编码字面路径，避免 %27 等目录被读成其他字符。
+        "DATABASE_URL": "sqlite:///" + quote((DATA / "r2.sqlite").as_posix(), safe="/:"),
         "RESOURCE_DATASET_MODE": "database", "AUTH_MODE": "LOCAL_PASSWORD",
         "LOCAL_IDENTITY_REQUEST_KEY": key,
         "LOCAL_IDENTITY_ALLOW_INSECURE_LOOPBACK": "1",
@@ -147,6 +149,14 @@ def settings():
     return value
 
 
+def migration_config():
+    """迁移目录直接来自本包位置，避开 INI 的 here 对路径中百分号的二次解释。"""
+    from alembic.config import Config
+    config = Config()
+    config.set_main_option("script_location", str(APP / "algorithm-service/migrations").replace("%", "%%"))
+    return config
+
+
 def initialize(config):
     """仅首次初始化本包新库；故障保留现场，重启不覆盖资源和账号。"""
     database = DATA / "r2.sqlite"
@@ -156,23 +166,21 @@ def initialize(config):
     if database.exists():
         if not marker.is_file():
             raise RuntimeError("上次初始化未完成；请查看日志并保留运行目录，不自动重建")
-        from alembic.config import Config
         from alembic.script import ScriptDirectory
         import sqlite3
-        expected = ScriptDirectory.from_config(Config(str(APP / "algorithm-service/alembic.ini"))).get_current_head()
+        expected = ScriptDirectory.from_config(migration_config()).get_current_head()
         with sqlite3.connect(database.as_uri() + "?mode=ro", uri=True) as connection:
             actual = connection.execute("SELECT version_num FROM alembic_version").fetchone()
         if actual != (expected,):
             raise RuntimeError("数据库版本与本包不一致；请单独升级，不自动迁移已有数据")
         return
     from alembic import command
-    from alembic.config import Config
     from sqlalchemy import create_engine
     from sqlalchemy.orm import sessionmaker
     from app.permission_registry import SERVER_PERMISSION_REGISTRY
     from app.system_management_schemas import ADMIN_PERMISSIONS, SystemActor
     from app.system_management_service import SystemManagementService
-    command.upgrade(Config(str(APP / "algorithm-service/alembic.ini")), "head")
+    command.upgrade(migration_config(), "head")
     from app.resource_dataset_service import initialize as seed_resources
     seed_resources()
     engine = create_engine(os.environ["DATABASE_URL"])

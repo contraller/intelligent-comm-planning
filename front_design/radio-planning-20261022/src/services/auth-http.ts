@@ -177,7 +177,10 @@ export function createAuthHttp(options: AuthHttpOptions) {
           body: JSON.stringify({ username: input.username.trim(), password: input.password }),
         });
         binding.assertGeneration(generation);
-        return binding.accept(identityFromDto(value))!;
+        const identity = identityFromDto(value);
+        // 仅在用户主动登录且服务端返回有效新身份后结束旧绑定；失败及跨页换号仍保留保护。
+        binding.release();
+        return binding.accept(identity)!;
       });
     },
     logout(): Promise<void> {
