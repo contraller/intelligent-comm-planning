@@ -263,7 +263,7 @@
           </section>
           <PlanningApiProgressPanel
             v-if="
-              (planning.step === 2 || workspaceMode !== 'manage') && (
+              (planning.step === 2 || workspaceMode !== 'manage' || planning.feedback || planning.queryFeedback || planning.pending) && (
                 planning.running || !planning.selectedPlan || planning.feedback || planning.queryFeedback || planning.pending
               )
             "

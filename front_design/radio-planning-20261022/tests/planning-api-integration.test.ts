@@ -20,6 +20,9 @@ import TaskForm from '../src/components/TaskApiForm.vue';
 import TaskLibrary from '../src/components/TaskApiLibraryDrawer.vue';
 import TaskImport from '../src/components/TaskApiImportDrawer.vue';
 import DemandEditor from '../src/components/TaskDemandEditor.vue';
+import FrozenCoveragePanel from '../src/components/FrozenCoveragePanel.vue';
+import FrozenCoverageBandwidthEditor from '../src/components/FrozenCoverageBandwidthEditor.vue';
+import { coverageV5Case } from './helpers/frozen-coverage';
 import ProgressPanel from '../src/components/PlanningApiProgressPanel.vue';
 import FeedbackPanel from '../src/components/PlanningApiFeedback.vue';
 import ResultPanel from '../src/components/PlanningApiResultPanel.vue';
@@ -39,8 +42,8 @@ vi.mock('primevue/dialog',async()=>{const {h}=await import('vue');return{default
 vi.mock('primevue/drawer',async()=>{const {h}=await import('vue');return{default:{props:['visible'],setup:(p:any,{slots}:any)=>()=>p.visible?h('aside',{},[slots.default?.(),slots.footer?.()]):null}};});
 vi.mock('primevue/column',()=>({default:{render:()=>null}}));
 vi.mock('primevue/datatable',async()=>{const {h}=await import('vue');return{default:{inheritAttrs:false,props:['value','selection'],emits:['update:selection'],setup:(p:any,{emit}:any)=>()=>h('table-stub',{rows:p.value,selection:p.selection,select:(row:unknown)=>emit('update:selection',row)})}};});
-vi.mock('../src/components/MapCanvas.vue',async()=>{const {h}=await import('vue');return{default:{props:['planningOverlay','showCoverage','coverageDisplay','selectedId','selectedLinkId','highlightStationIds','highlightLinkIds'],emits:['viewport','selectCluster','selectResource','select'],setup:(p:any,{emit,expose}:any)=>{expose({locate:()=>{},locateResource:()=>{},expandResource:()=>{}});return()=>h('map-stub',{overlay:p.planningOverlay,showCoverage:p.showCoverage,coverageDisplay:p.coverageDisplay,selectedId:p.selectedId,selectedLinkId:p.selectedLinkId,highlightStationIds:p.highlightStationIds,highlightLinkIds:p.highlightLinkIds,onTestSelect:(id:string)=>emit('select',id),onTestViewport:(bbox:any,zoom:number)=>emit('viewport',bbox,zoom)});}}};});
-const components = [[AppShell,'layouts/AppShell'],[PlanningPage,'views/PlanningApiView'],[GisPage,'views/SituationView'],[TaskPanel,'components/TaskApiPanel'],[TaskForm,'components/TaskApiForm'],[TaskLibrary,'components/TaskApiLibraryDrawer'],[TaskImport,'components/TaskApiImportDrawer'],[DemandEditor,'components/TaskDemandEditor'],[ProgressPanel,'components/PlanningApiProgressPanel'],[FeedbackPanel,'components/PlanningApiFeedback'],[ResultPanel,'components/PlanningApiResultPanel'],[VersionsPanel,'components/PlanningApiVersionsPanel'],[PlanExport,'components/PlanExportDrawer'],[AppTable,'components/AppTable'],[AppDrawer,'components/AppDrawer'],[DecisionDialog,'components/DecisionDialog'],[ReadStatus,'components/ResourceReadStatus'],[ReadTree,'components/GisResourceTree']] as const;
+vi.mock('../src/components/MapCanvas.vue',async()=>{const {h}=await import('vue');return{default:{props:['frozenCoverage','planningOverlay','showCoverage','coverageDisplay','selectedId','selectedLinkId','highlightStationIds','highlightLinkIds'],emits:['viewport','selectCluster','selectResource','select'],setup:(p:any,{emit,expose}:any)=>{expose({locate:()=>{},locateResource:()=>{},expandResource:()=>{}});return()=>h('map-stub',{overlay:p.planningOverlay,frozenCoverage:p.frozenCoverage,showCoverage:p.showCoverage,coverageDisplay:p.coverageDisplay,selectedId:p.selectedId,selectedLinkId:p.selectedLinkId,highlightStationIds:p.highlightStationIds,highlightLinkIds:p.highlightLinkIds,onTestSelect:(id:string)=>emit('select',id),onTestViewport:(bbox:any,zoom:number)=>emit('viewport',bbox,zoom)});}}};});
+const components = [[FrozenCoveragePanel,'components/FrozenCoveragePanel'],[FrozenCoverageBandwidthEditor,'components/FrozenCoverageBandwidthEditor'],[AppShell,'layouts/AppShell'],[PlanningPage,'views/PlanningApiView'],[GisPage,'views/SituationView'],[TaskPanel,'components/TaskApiPanel'],[TaskForm,'components/TaskApiForm'],[TaskLibrary,'components/TaskApiLibraryDrawer'],[TaskImport,'components/TaskApiImportDrawer'],[DemandEditor,'components/TaskDemandEditor'],[ProgressPanel,'components/PlanningApiProgressPanel'],[FeedbackPanel,'components/PlanningApiFeedback'],[ResultPanel,'components/PlanningApiResultPanel'],[VersionsPanel,'components/PlanningApiVersionsPanel'],[PlanExport,'components/PlanExportDrawer'],[AppTable,'components/AppTable'],[AppDrawer,'components/AppDrawer'],[DecisionDialog,'components/DecisionDialog'],[ReadStatus,'components/ResourceReadStatus'],[ReadTree,'components/GisResourceTree']] as const;
 for(const [component,file] of components){
   const filename=`src/${file}.vue`;
   await clientTemplate(component,filename,'planning-template.ts',{hoistStatic:false});
@@ -58,7 +61,7 @@ function all(root:Host,predicate:(n:Host)=>boolean):Host[]{return [...(predicate
 const feedbackPanels=(root:Host)=>all(root,n=>n.props['data-feedback-operation']!==undefined&&visible(n));
 const button=(root:Host,label:string)=>find(root,n=>n.tag==='button'&&text(n).trim()===label)!;
 const nodeDto=(id:string)=>({node_id:id,node_name:'节点'+id,lon:id==='N1'?114:115,lat:id==='N1'?37:38,parent_node_id:'',echelon:'营',mobility:'固定',device_class:'HF',status:'NORMAL',relay_capable:true,is_key:false,child_count:0,device_count:1});
-let pinia:ReturnType<typeof createPinia>,apps:App[],fetcher:ReturnType<typeof vi.fn<typeof fetch>>,serverTask:ReturnType<typeof taskDto>,serverJob:ReturnType<typeof jobDto>,serverPlans:ReturnType<typeof planDto>[],permissions:string[];
+let pinia:ReturnType<typeof createPinia>,apps:App[],fetcher:ReturnType<typeof vi.fn<typeof fetch>>,serverTask:ReturnType<typeof taskDto>,serverJob:Omit<ReturnType<typeof jobDto>,'error'> & { error: string | null },serverPlans:ReturnType<typeof planDto>[],permissions:string[];
 beforeEach(()=>{
   releasePageSessionBinding();pinia=createPinia();apps=[];serverTask=taskDto();serverJob={...jobDto(),status:'RUNNING',progress:0.1,result:null as any,outcome:null as any};serverPlans=[];permissions=['situation.view','planning.view','planning.execute','planning.save','planning.confirm'];
   // 当前 GIS 页面统一注册可见性监听，宿主提供真实的事件目标生命周期。
@@ -78,7 +81,7 @@ beforeEach(()=>{
     if(path.endsWith('/task-inputs/validate'))return response({valid:true,issues:[],task:body.task_id==='T1'?serverTask:null});
     if(path.endsWith('/task-inputs/T1')){if(init.method==='PUT')serverTask={...serverTask,input:body.input,revision:'t2',input_version:'i2'};return response(serverTask);}
     if(path.endsWith('/plan/sr4-flow')){serverJob={...serverJob,input:serverTask.input,input_version:body.input_version,condition_version:body.condition_version,resource_revision:body.resource_revision};serverTask.active_job_id='J1';return response(serverJob);}
-    if(path.endsWith('/plan/tasks/J1'))return response(serverJob);
+    if(path.endsWith('/plan/tasks/J1'))return response(serverJob, serverJob.status === 'FAILED' ? serverJob.outcome?.code ?? 0 : 0);
     if(path.endsWith('/plans')&&init.method==='POST'){const plan={...planDto(),name:body.name,note:body.note,input:serverJob.input,input_version:serverJob.input_version};serverPlans.push(plan);return response(plan);}
     if(path.endsWith('/plans'))return response({items:serverPlans,page:Number(p.get('page')),page_size:Number(p.get('page_size')),total:serverPlans.length});
     if(path.endsWith('/plans/P-1/confirm')){serverPlans[0]={...serverPlans[0],revision:'p2',state:'CONFIRMED',current:true,confirmed_at:'2026-10-05T01:00:00Z'};return response(serverPlans[0]);}
@@ -270,40 +273,86 @@ describe('网络规划与 GIS HTTP 页面组合',()=>{
     for(const label of ['连通率','抗毁性']){expect(card(label).props.class).toBe('unknown');expect(text(card(label))).toContain('未提供校验结论');}
     expect(text(find(card('连通率'),n=>n.tag==='strong')!)).toBe('未提供');expect(text(find(card('总辐射功率'),n=>n.tag==='strong')!)).toBe('未提供');expect(card('总辐射功率').props.class).toBe('objective');
   });
+  // 覆盖来源由独立冻结缓存提供；规划结果中的旧 contour/PNG 不作为新覆盖。
+  function frozenCoverageFixture() {
+    const data=coverageV5Case(),plan=planDto();
+    plan.result.snapshot_id=data.query.snapshotId;
+    Object.assign(data.anchor,{plan_id:plan.plan_id,task_id:plan.task_id,resource_revision:plan.resource_revision});
+    serverPlans=[plan];
+    const handler=fetcher.getMockImplementation()!;
+    fetcher.mockImplementation((url,init)=>{
+      const u=new URL(String(url),'http://local');
+      if(u.pathname.includes('/planning-coverages/P-1/')){
+        expect(u.searchParams.get('task_id')).toBe('T1');
+        expect(u.searchParams.get('snapshot_id')).toBe(data.query.snapshotId);
+        if(u.pathname.endsWith('/bandwidth-options'))return Promise.resolve(response(data.options));
+        if(u.pathname.endsWith('/latest-cache'))return Promise.resolve(response(data.cache));
+      }
+      return handler(url,init);
+    });
+    return data;
+  }
   it('覆盖控件接线到地图，切页签和结果保持偏好，重新进入恢复自动',async()=>{
-    serverTask.active_job_id='J1';serverJob=jobDto();
-    const {root,planning,router}=await mount();await vi.waitFor(()=>expect(planning.result?.snapshotId).toBe('S1'));
-    await button(root,'覆盖与场强').props.onClick();await nextTick();
+    const data=frozenCoverageFixture();
+    const {root,planning,router}=await mount('/planning?taskId=T1&planId=P-1');
+    await vi.waitFor(()=>expect(planning.selectedPlan?.id).toBe('P-1'));
     const map=()=>find(root,n=>n.tag==='map-stub')!;
-    const control=()=>find(root,n=>n.tag==='select'&&n.props['aria-label']==='覆盖显示方式')!;
-    expect(map().props).toMatchObject({coverageDisplay:'auto',showCoverage:true});
+    const control=()=>find(root,n=>n.tag==='select'&&n.props['aria-label']==='预测覆盖显示方式')!;
+    expect(map().props.frozenCoverage).toBeNull();
+    await button(root,'读取覆盖缓存').props.onClick();await nextTick();
+    expect(map().props.frozenCoverage).toMatchObject({anchor:{plan_id:'P-1',task_id:'T1',snapshot_id:data.query.snapshotId,resource_revision:'r1'},display:'strength',deviceId:'D1'});
     const calls=fetcher.mock.calls.length;
-    control().props.onChange({target:{value:'contour'}});await nextTick();
-    expect(map().props.coverageDisplay).toBe('contour');
-    await button(root,'路由路径').props.onClick();await nextTick();expect(map().props.showCoverage).toBe(false);
-    await button(root,'覆盖与场强').props.onClick();await nextTick();expect(control().props.value).toBe('contour');
-    control().props.onChange({target:{value:'raster'}});await nextTick();expect(map().props.coverageDisplay).toBe('raster');
-    expect(fetcher.mock.calls).toHaveLength(calls); // 纯显示选择不提交计算、保存或读取新业务数据。
-    serverJob.result.snapshot_id='S2';await planning.refreshJob();await nextTick();
-    expect(map().props.overlay.snapshotId).toBe('S2');expect(control().props.value).toBe('raster');
-    await router.push('/situation');await nextTick();await router.push('/planning?taskId=T1');
-    await vi.waitFor(()=>expect(find(root,n=>n.tag==='map-stub')?.props.coverageDisplay).toBe('auto'));
+    control().props['onUpdate:modelValue']('boundary');await nextTick();
+    expect(map().props.frozenCoverage.display).toBe('boundary');
+    await button(root,'路由路径').props.onClick();await nextTick();
+    await button(root,'部署点位').props.onClick();await nextTick();
+    expect(map().props.frozenCoverage.display).toBe('boundary');
+    control().props['onUpdate:modelValue']('field');await nextTick();
+    expect(map().props.frozenCoverage.display).toBe('field');
+    expect(fetcher.mock.calls).toHaveLength(calls);
+    await button(root,'3 · 方案调整与对比').props.onClick();await nextTick();
+    expect(map().props.frozenCoverage?.anchor.snapshot_id).toBe(data.query.snapshotId);
+    await button(root,'查看方案').props.onClick();await nextTick();
+    expect(map().props.frozenCoverage?.display).toBe('field');
+    await router.push('/situation');await nextTick();await router.push('/planning?taskId=T1&planId=P-1');
+    await vi.waitFor(()=>{expect(planning.selectedPlan?.id).toBe('P-1');expect(planning.step).toBe(2);expect(button(root,'读取覆盖缓存').props.disabled).toBe(false);});await nextTick();
+    expect(map().props.frozenCoverage).toBeNull();
+    await button(root,'读取覆盖缓存').props.onClick();await nextTick();
+    expect(map().props.frozenCoverage.display).toBe('strength');
   });
   it('选择缺失的轮廓不改成场强图，空覆盖与缺PNG均有具体提示',async()=>{
-    serverTask.active_job_id='J1';serverJob=jobDto();
-    const {root,planning}=await mount();await vi.waitFor(()=>expect(planning.result?.snapshotId).toBe('S1'));
-    await button(root,'覆盖与场强').props.onClick();await nextTick();
-    const control=()=>find(root,n=>n.tag==='select'&&n.props['aria-label']==='覆盖显示方式')!;
-    planning.result!.coverage.contour=null;control().props.onChange({target:{value:'contour'}});await nextTick();
-    expect(text(root)).toContain('此结果未提供覆盖轮廓');expect(find(root,n=>n.tag==='map-stub')!.props.coverageDisplay).toBe('contour');
-    planning.result!.coverage.rasterPng=null;control().props.onChange({target:{value:'auto'}});await nextTick();expect(text(root)).toContain('此结果未提供覆盖数据');
-    planning.result!.coverage.contour={type:'FeatureCollection',features:[]};await nextTick();expect(text(root)).toContain('此结果未提供覆盖数据');
-    await planning.refreshJob();planning.result!.coverage.rasterPng=null;control().props.onChange({target:{value:'raster'}});await nextTick();
-    expect(text(root)).toContain('此结果未提供场强热力图，显示已有覆盖轮廓');
+    const data=frozenCoverageFixture();
+    serverPlans[0]!.result.coverage.contour=null as any;
+    serverPlans[0]!.result.coverage.raster_png=null as any;
+    const {root,planning}=await mount('/planning?taskId=T1&planId=P-1');
+    await vi.waitFor(()=>expect(planning.selectedPlan?.id).toBe('P-1'));
+    const map=()=>find(root,n=>n.tag==='map-stub')!;
+    expect(map().props.frozenCoverage).toBeNull();
+    expect(text(root)).toContain('当前方案尚无已读取且匹配的覆盖结果');
+    expect(find(root,n=>n.props['aria-label']==='覆盖显示方式')).toBeUndefined();
+    // 合法 MISS 不从规划旧字段补图，也不显示成功覆盖。
+    data.cache.state='MISS';data.cache.result=null as any;data.cache.reason='当前冻结版本尚无覆盖缓存';
+    await button(root,'读取覆盖缓存').props.onClick();await nextTick();
+    expect(text(root)).toContain('当前冻结版本尚无覆盖缓存');expect(map().props.frozenCoverage).toBeNull();
+    // 独立新版覆盖无需旧轮廓与PNG，明确显示传播预测来源。
+    data.cache.state='HIT';data.cache.result=data.result;
+    await button(root,'读取覆盖缓存').props.onClick();await nextTick();
+    expect(map().props.frozenCoverage?.anchor.snapshot_id).toBe(data.query.snapshotId);
+    expect(text(root)).toContain('预测值，非实测');expect(text(root)).toContain('资源版本');
+    expect(planning.result!.coverage).toMatchObject({contour:null,rasterPng:null});
+    const control=find(root,n=>n.props['aria-label']==='预测覆盖显示方式')!;
+    control.props['onUpdate:modelValue']('boundary');await nextTick();
+    expect(map().props.frozenCoverage.display).toBe('boundary');
+    expect(text(root)).toContain('仅显示已计算格面与环带的边界');
+    // 换快照必须撤去旧覆盖，不能将旧图挂到新方案。
+    planning.selectedPlan!.result.snapshotId='SNP-NEW';await nextTick();
+    expect(map().props.frozenCoverage).toBeNull();
+    expect(text(root)).toContain('当前方案尚无已读取且匹配的覆盖结果');
   });
   it('从保存方案调整后同步 URL 不重新打开旧作业',async()=>{
     serverPlans=[planDto()];serverTask.active_job_id='J1';serverJob=jobDto();
     const {planning,router,task}=await mount('/planning?taskId=T1&planId=P-1');await vi.waitFor(()=>expect(planning.selectedPlan?.id).toBe('P-1'));
+    await vi.waitFor(()=>expect(planning.plans?.items[0]?.id).toBe('P-1'));await nextTick();
     await planning.adjust();await vi.waitFor(()=>expect(router.currentRoute.value.query).toEqual({taskId:'T1'}));
     expect(planning.step).toBe(1);expect(planning.parentPlanId).toBe('P-1');expect(planning.job).toBeNull();expect(task.draft).not.toBeNull();
   });
@@ -313,6 +362,7 @@ describe('网络规划与 GIS HTTP 页面组合',()=>{
     // 模拟浏览器的异步导航守卫，让保存后的状态刷新与 URL 同步发生重叠。
     let release!:()=>void;const gate=new Promise<void>(resolve=>release=resolve);let navigations=0;
     const unregister=router.beforeEach(async to=>{if(to.query.planId==='P-1'){navigations++;await gate;}return true;});
+    await button(root,'保存方案').props.onClick();await nextTick();
     try{await button(root,'保存为方案').props.onClick();await nextTick();}finally{release();}
     await vi.waitFor(()=>expect(router.currentRoute.value.query.planId).toBe('P-1'));await nextTick();unregister();
     expect(navigations).toBe(1);expect(planning.step).toBe(3);expect(visible(button(root,'转正并设为当前方案'))).toBe(true);
@@ -346,6 +396,19 @@ describe('网络规划与 GIS HTTP 页面组合',()=>{
     const confirm=button(root,'转正并设为当前方案').props.onClick();await nextTick();task.answer('save');await confirm;expect(planning.selectedPlan!.current).toBe(true);expect(planning.step).toBe(3);
     const writes=fetcher.mock.calls.filter(([,init])=>['POST','PUT','DELETE'].includes(init?.method??''));expect(writes.length).toBeGreaterThanOrEqual(4);expect(writes.every(([,init])=>new Headers(init!.headers).get('X-CSRF-Token')==='csrf')).toBe(true);
   });
+  it('提交后返回输入页仍禁止重复计算，轮询无结果终态后显示原因并可再提交',async()=>{
+    const {root,task,planning}=await mount(); await task.save();
+    await button(root,'提交规划').props.onClick(); await vi.waitFor(()=>expect(planning.running).toBe(true));
+    expect(text(root)).toContain('规划进行中');
+    await button(root,'返回任务输入').props.onClick(); await nextTick();
+    expect(planning.step).toBe(1); expect(button(root,'提交规划').props.disabled).toBe(true); expect(text(root)).toContain('规划正在计算，尚无最终结论');
+    const count=()=>fetcher.mock.calls.filter(([url,init])=>String(url).endsWith('/plan/sr4-flow')&&init?.method==='POST').length;
+    const submitted=count(); await button(root,'提交规划').props.onClick(); expect(count()).toBe(submitted);
+    serverJob={...serverJob,status:'FAILED',progress:1,result:null as any,outcome:{code:3001,message:'计算预算内未找到可行方案，尚未证明无解',gap:[],suggestions:['检查频点排除条件']},error:'已达到本次计算预算'};
+    await planning.refreshJob(); planning.step=2; await nextTick();
+    expect(planning.running).toBe(false); expect(planning.canSubmit).toBe(true); expect(text(root)).toContain('未生成可用规划方案'); expect(text(root)).toContain('尚未证明无解'); expect(text(root)).toContain('检查频点排除条件');
+    expect(text(root)).not.toContain('提交规划并取得结果后，在此查看各分项');
+  });
   it('前往 GIS 先处理任务草稿，取消保留现场，保存成功才离开；视野变化不提交规划',async()=>{
     const {root,task,router}=await mount();task.draft!.description='规划未保存的草稿';
     let leaving=router.push('/situation');await vi.waitFor(()=>expect(task.decision).not.toBeNull());task.answer('cancel');await leaving;
@@ -359,7 +422,8 @@ describe('网络规划与 GIS HTTP 页面组合',()=>{
     serverTask.active_job_id='J1';serverJob=jobDto();serverPlans=[planDto()];
     const {planning,router,task}=await mount('/planning?taskId=T1&editTask=1');
     expect(planning.step).toBe(1);expect(router.currentRoute.value.query).toEqual({taskId:'T1',editTask:'1'});expect(task.taskId).toBe('T1');
-    await router.push('/planning?taskId=T1&jobId=J1');await vi.waitFor(()=>expect(planning.job?.id).toBe('J1'));expect(planning.step).toBe(2);
+    // 输入页可能已核实同一作业，导航仍须等结果步骤实际恢复。
+    await router.push('/planning?taskId=T1&jobId=J1');await vi.waitFor(()=>{expect(planning.job?.id).toBe('J1');expect(planning.step).toBe(2);});
     await router.push('/planning?taskId=T1&planId=P-1');await vi.waitFor(()=>expect(planning.selectedPlan?.id).toBe('P-1'));expect(planning.step).toBe(2);
   });
   it('无效编辑定位或目标任务读取失败不冒充切换成功，也不覆盖草稿',async()=>{

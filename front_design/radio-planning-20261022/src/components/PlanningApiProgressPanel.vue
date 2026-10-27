@@ -6,13 +6,13 @@
     ><div
       v-if="showJob"
       class="panel-head"
-      ><h3>{{ planning.job?.stopping ? '正在停止后台计算' : planning.job ? labels[planning.job.state] : '尚未提交规划' }}</h3></div
+      ><h3>{{ planning.job?.cancelRequested ? '正在取消' : planning.job?.stopping ? '正在停止后台计算' : planning.job ? labels[planning.job.state] : '尚未提交规划' }}</h3></div
     ><div class="panel-body">
       <template v-if="showJob && planning.job"
         ><p v-if="!compact || planning.running"
-          >{{ planning.job.input.name }}<template v-if="!planning.job.stopping"> · {{ planning.job.progress.toFixed(0) }}%</template></p
+          >{{ planning.job.input.name }}<template v-if="!planning.job.stopping && !planning.job.cancelRequested"> · {{ planning.job.progress.toFixed(0) }}%</template></p
         ><progress
-          v-if="!planning.job.stopping && (planning.running || !compact)"
+          v-if="!planning.job.stopping && !planning.job.cancelRequested && (planning.running || !compact)"
           :value="planning.job.progress"
           max="100"
           aria-label="规划任务进度"
@@ -51,6 +51,9 @@
           class="notice warn"
           >{{ planning.job.error }}</p
         >
+        <p v-if="planning.job.cancelRequested" class="notice warn" role="status">取消请求已受理，正在等待计算停止；确认停止前不能重新提交。</p>
+        <p v-if="planning.job.state === 'FAILED' && !planning.running && !planning.result" class="notice warn" role="status">本次规划已结束，未生成可用规划方案。请按失败原因检查约束后重新提交。</p>
+        <p v-if="planning.job.state === 'CANCELLED' && !planning.running" class="notice" role="status">本次规划已取消，可以修改任务后重新提交。</p>
         <div
           v-if="planning.currentOutcome && (!compact || planning.currentOutcome.code !== 0)"
           class="notice"
@@ -72,9 +75,9 @@
           ><button
             v-if="planning.running && !planning.job.stopping"
             class="btn"
-            :disabled="!auth.can('planning.execute') || planning.busy || !!planning.pending"
+            :disabled="!auth.can('planning.execute') || planning.busy || !!planning.pending || planning.job.cancelRequested === true"
             @click="planning.cancel"
-            >取消规划</button
+            >{{ planning.job.cancelRequested ? '正在取消' : '取消规划' }}</button
           ><button
             class="btn"
             :disabled="planning.busy || !!planning.pending"

@@ -32,7 +32,8 @@
           inputmode="decimal"
           :value="numberText(key, modelValue[key])"
           v-on="{ input: inputAction(controls.scalar, key) }"
-        /><small
+        /><small class="muted">{{ scalarHints[key] }}</small
+        ><small
           v-if="inlineIssues && fieldIssueMessage(issues, 'deploymentConstraints.' + key)"
           class="field-error"
           role="alert"
@@ -43,6 +44,8 @@
         data-validation-field="deploymentConstraints.elevationRangeM"
         tabindex="-1"
         ><legend>海拔范围 / m</legend
+        ><p class="muted"
+          >可填有限数值，无固定上下限；上下界须同时填写，且下界≤上界；均留空表示未指定。</p
         ><label
           v-for="(label, index) in ['下界', '上界']"
           :key="label"
@@ -115,6 +118,9 @@
         data-validation-field="deploymentConstraints.forcedInclude"
         tabindex="-1"
         ><legend>强制部署点 / WGS84</legend>
+        <p class="muted"
+          >0–{{ deploymentLimits.points }} 个点；经度 -180°～180°，纬度 -90°～90°（含边界），均须填有限数值。</p
+        >
         <div
           v-for="(point, index) in modelValue.forcedInclude"
           :key="index"
@@ -154,6 +160,12 @@
         data-validation-field="deploymentConstraints.forcedExcludePolygons"
         tabindex="-1"
         ><legend>禁部署区 / WGS84</legend>
+        <p class="muted"
+          >0–{{ deploymentLimits.polygons }} 个禁区；经度 -180°～180°，纬度 -90°～90°（含边界），均须填有限数值。所有禁区合计最多 {{ deploymentLimits.coordinates }} 个坐标（含闭合点）。</p
+        >
+        <p class="muted"
+          >每个禁区至少一个环；每环至少三个不同顶点、四个坐标，首尾坐标相同。环不得自交或相交；内环须位于外环内部且不得嵌套。</p
+        >
         <fieldset
           v-for="(polygon, p) in modelValue.forcedExcludePolygons"
           :key="p"
@@ -220,7 +232,7 @@
           >增加禁区</button
         >
         <p class="muted"
-          >环需至少三个不同顶点并闭合。最多100个强制点、20个禁区、2000个环坐标。超出任务区域的坐标仍原样保留，由服务判断。</p
+          >超出任务区域的坐标仍原样保留，由服务判断。</p
         >
         <small
           v-if="
@@ -321,6 +333,13 @@ onBeforeUnmount(() => {
   emit('pending', false);
 });
 const scalarKeys = ['maxSlopeDeg', 'roadMaxDistanceM', 'minSiteSpacingM', 'gridStepM'] as const;
+// 只说明现有校验边界，不额外限制填写范围。
+const scalarHints = {
+  maxSlopeDeg: '可填 0–90°（含边界）。',
+  roadMaxDistanceM: '可填 ≥0 m 的有限数值，无固定上限。',
+  minSiteSpacingM: '可填 ≥0 m 的有限数值，无固定上限。',
+  gridStepM: '可填 >0 m 的有限数值，无固定上限；单次网格扫描最多 100000 点。',
+};
 const numberText = (key: string, value: number | null | undefined) =>
   raw.value[key] ?? (value == null || !Number.isFinite(value) ? '' : String(value));
 const text = (event: Event) => (event.target as HTMLInputElement).value;

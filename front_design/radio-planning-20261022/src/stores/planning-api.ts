@@ -79,7 +79,7 @@ export const usePlanningApiStore = defineStore('planning-api', () => {
   let historySequence = 0;
   let feedbackEpoch = 0, feedbackSequence = 0;
   const controllers = new Map<string, AbortController>();
-  const running = computed(() => !!job.value && (['PENDING','RUNNING'].includes(job.value.state) || job.value.stopping === true));
+  const running = computed(() => !!job.value && (['PENDING','RUNNING'].includes(job.value.state) || job.value.stopping === true || job.value.cancelRequested === true));
   // 恢复任务时先核实服务端已有作业；查询失败不能等同于没有运行中的作业。
   const unverifiedActiveJobId = computed(() => {
     if (conflictingJobId.value) return conflictingJobId.value;
@@ -88,10 +88,11 @@ export const usePlanningApiStore = defineStore('planning-api', () => {
       && !verifiedTerminalJobs.value.includes(saved.activeJobId) ? saved.activeJobId : null;
   });
   watch(job, value => {
-    if (value && !value.stopping && ['SUCCESS', 'FAILED', 'CANCELLED'].includes(value.state)
+    if (value && !value.stopping && !value.cancelRequested && ['SUCCESS', 'FAILED', 'CANCELLED'].includes(value.state)
       && !verifiedTerminalJobs.value.includes(value.id)) verifiedTerminalJobs.value.push(value.id);
   }, { flush: 'sync' });
   const jobStatus = computed(() => {
+    if (job.value?.cancelRequested) return { warning: true, message: '取消请求已受理，正在等待计算停止；确认停止前不能重新提交。' + (queryError.value ? '状态读取中断，请恢复查询。' : '') };
     if (job.value?.stopping) return { warning: true,
       message: `${job.value.error ? job.value.error + '。' : ''}正在停止后台计算；停止完成前不能重复提交。${queryError.value ? '状态读取中断，请恢复查询。' : ''}` };
     if (unverifiedActiveJobId.value) return { warning: !!queryError.value,
@@ -322,7 +323,7 @@ export const usePlanningApiStore = defineStore('planning-api', () => {
     }
   }
   async function cancel() {
-    const current = job.value; if (!current || !running.value || current.stopping || !auth.can('planning.execute')) return;
+    const current = job.value; if (!current || !running.value || current.stopping || current.cancelRequested || !auth.can('planning.execute')) return;
     const owner=current.adjustment?{generation,session:auth.generation,taskId:task.taskId}:null;
     const expected=current.adjustment?{adjustment:copy(current.adjustment),parentPlanId:current.parentPlanId}:undefined;
     if (await task.ask({ title: '取消规划任务', message: '向服务端请求取消当前作业；最终状态以服务端响应为准。', saveLabel: '请求取消' }) !== 'save') return;

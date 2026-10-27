@@ -198,6 +198,8 @@ def _dto(job: PlanningJob, revision: PlanningTaskRevision) -> dict[str, Any]:
         "phases": _phases(progress),
         "result": None,
         "outcome": None,
+        "cancel_requested": (job.status not in _FINAL_STATES
+            and planning_w3.cancellation_requested(job.job_id)),
         "error": job.error,
         "expired": False,
         "source_changed": revision.resource_revision != frontend_integration.resource_revision(),
@@ -361,10 +363,13 @@ def _apply_runtime_state(job: PlanningJob, state: dict[str, Any]) -> None:
     """只让未完成作业接受运行时回调，终态不可被晚到消息改写。"""
     if job.status in _FINAL_STATES:
         return
+    if job.status == "RUNNING" and state.get("status") == "PENDING":
+        return
     job.status = str(state.get("status", job.status))
     job.progress = float(state.get("progress", job.progress))
-    job.stage = str(state.get("stage", job.stage))
-    job.error = state.get("error")
+    job.stage = str(state.get("stage", job.stage))[:200]
+    error = state.get("error")
+    job.error = None if error is None else str(error)[:1000]
     job.updated_at = datetime.now(timezone.utc)
 
 
@@ -394,9 +399,16 @@ def _reserve(factory: sessionmaker[Session], payload: PlanningJobSubmitRequest,
         if replay is not None:
             _require_owner(audit_context, session, "planning.submit", payload.request_id, replay[0].job_id)
             return replay[0], replay[1], False, None
-        task = session.get(PlanningTask, payload.task_id)
+        # 锁稳定存在的任务行；仅锁当前作业查询无法锁住“尚无作业”的空集合。
+        # SQLite由BEGIN IMMEDIATE串行化，支持行锁的数据库按同一任务串行化。
+        task = session.scalar(select(PlanningTask).where(
+            PlanningTask.task_id == payload.task_id).with_for_update())
         if task is None:
             raise PlanningJobError(1002, "规划任务不存在，请先保存任务", 404)
+        replay = _existing_by_request(session, payload.request_id, digest)
+        if replay is not None:
+            _require_owner(audit_context, session, "planning.submit", payload.request_id, replay[0].job_id)
+            return replay[0], replay[1], False, None
         if task.current_revision_id != payload.expected_revision:
             raise PlanningJobError(1203, "任务版本已变化，请重新打开后提交", 409, {
                 "expected": payload.expected_revision,
@@ -421,21 +433,18 @@ def _reserve(factory: sessionmaker[Session], payload: PlanningJobSubmitRequest,
             })
         if (payload.parent_plan_id is None) != (payload.adjustment is None):
             raise PlanningJobError(1001, "父方案编号与人工调整必须同时提供", 422)
-        # 超时和取消先反馈终态，协作退出中的线程仍占用同一任务的计算槽。
-        # 在资源快照准备前检查，重复点击不能反复触发昂贵的输入准备。
         active = session.scalar(select(PlanningJob).where(
             PlanningJob.task_id == payload.task_id,
             or_(PlanningJob.status.in_(("PENDING", "RUNNING")),
                 PlanningJob.job_id.in_(planning_w3.active_worker_ids())),
         ))
         if active is not None:
-            stopping = active.status in _FINAL_STATES
-            raise PlanningJobError(2002, "上一规划计算正在停止，请稍后重试" if stopping else "该任务已有计算作业", 409, {
-                "job_id": active.job_id,
-                "status": active.status,
-                "progress": active.progress,
-                "stage": "后台计算正在停止" if stopping else active.stage,
-                "stopping": stopping,
+            raise PlanningJobError(2002, "该任务已有计算作业", 409, {
+                "job_id": active.job_id, "status": active.status,
+                "task_id": active.task_id, "revision": active.revision_id,
+                "progress": active.progress, "stage": active.stage,
+                "stopping": active.status in _FINAL_STATES,
+                "input_version": active.revision_id,
             })
         algorithm_payload = _algorithm_payload(payload, revision)
         if payload.parent_plan_id is not None and payload.adjustment is not None:
@@ -629,10 +638,17 @@ def submit_interference_replan(request: dict[str, Any], factory=None, *, runtime
             algorithm_payload.update(parent_snapshot=snapshot, manual_device_refs=refs,
                 adjustment=adjustment.model_dump(mode="json", exclude_unset=True),
                 interference_rows=deepcopy(adjustment.interference.sources))
-            active = session.scalar(select(PlanningJob.job_id).where(PlanningJob.task_id == adoption.task_id,
-                PlanningJob.status.in_(("PENDING", "RUNNING"))))
+            active = session.scalar(select(PlanningJob).where(PlanningJob.task_id == adoption.task_id,
+                or_(PlanningJob.status.in_(("PENDING", "RUNNING")),
+                    PlanningJob.job_id.in_(planning_w3.active_worker_ids()))))
             if active is not None:
-                raise PlanningJobError(2002, "该任务已有其他活动规划作业", 409)
+                raise PlanningJobError(2002, "该任务已有其他活动规划作业", 409, {
+                    "job_id": active.job_id, "task_id": active.task_id,
+                    "status": active.status, "revision": active.revision_id,
+                    "input_version": active.revision_id,
+                    "progress": active.progress, "stage": active.stage,
+                "stopping": active.status in _FINAL_STATES,
+                })
             stamp = datetime.now(timezone.utc)
             job = PlanningJob(job_id="tsk-" + uuid.uuid4().hex[:12], request_id=adoption.planning_request_id,
                 request_digest=job_digest, task_id=adoption.task_id, revision_id=revision.revision_id,
@@ -803,27 +819,23 @@ def cancel_planning_job(job_id: str, payload: PlanningJobCancelRequest,
                     })
                 if job.status not in _FINAL_STATES:
                     runtime = planning_w3.get_task_record(job_id)
-                    if context is None:
-                        if runtime.get("status") not in _FINAL_STATES:
-                            runtime = planning_w3.cancel_task(job_id)
-                        _apply_runtime_state(job, runtime)
-                    elif (runtime or {}).get("status") in ("SUCCESS", "FAILED"):
+                    if (runtime or {}).get("status") in _FINAL_STATES:
                         _apply_runtime_state(job, runtime)
                     else:
-                        job.stage = "取消已受理，等待算法检查点"
+                        job.stage = "取消已受理，等待计算退出"
                 receipt = PlanningJobCancellation(
                     request_id=payload.request_id,
                     request_digest=digest,
                     job_id=job_id,
                     task_id=job.task_id,
                     revision_id=job.revision_id,
-                    outcome_status="CANCEL_REQUESTED" if context is not None and job.status not in _FINAL_STATES else job.status,
+                    outcome_status="CANCEL_REQUESTED" if job.status not in _FINAL_STATES else job.status,
                     created_at=datetime.now(timezone.utc),
                 )
                 session.add(receipt)
                 session.flush()
                 _append_owner(context, session, prepared, "planning.cancel", payload.request_id, job)
-        cancel_after_commit = context is not None and receipt.outcome_status == "CANCEL_REQUESTED"
+        cancel_after_commit = receipt.outcome_status == "CANCEL_REQUESTED"
     if cancel_after_commit:
         try:
             planning_w3.cancel_task(job_id)
@@ -856,20 +868,24 @@ def query_planning_job(job_id: str, task_id: str | None,
 
         runtime = planning_w3.get_task_record(job_id)
         if runtime:
-            waiting_checkpoint = session.scalar(
-                select(PlanningJobCancellation.request_id).where(PlanningJobCancellation.job_id == job_id,
-                    PlanningJobCancellation.outcome_status == "CANCEL_REQUESTED")) is not None
-            if not (waiting_checkpoint and runtime.get("status") == "CANCELLED"):
+            # 新运行时的取消终态只在执行者退出后生成；兼容旧标记的回执等待逻辑。
+            waiting_checkpoint = session.scalar(select(PlanningJobCancellation.request_id).where(
+                PlanningJobCancellation.job_id == job_id,
+                PlanningJobCancellation.outcome_status == "CANCEL_REQUESTED")) is not None
+            if not (waiting_checkpoint and runtime.get("status") == "CANCELLED"
+                    and not runtime.get("execution_stopped")):
                 _apply_runtime_state(job, runtime)
         elif job.status in {"PENDING", "RUNNING"}:
-            # 线程任务不能跨服务进程恢复，避免重启后永久显示“计算中”。
-            job.status = "FAILED"
-            job.progress = 1.0
-            job.stage = "运行任务已丢失"
-            job.error = "服务重启后运行中的 SR4 作业无法恢复，请重新提交"
-            job.updated_at = datetime.now(timezone.utc)
+            # 派发前窗口、其他服务进程及旧记录均可能暂时没有本地运行记录。
+            # 未证实执行停止时不能释放活动作业锁，避免查询触发重复CPU计算。
+            job.stage = "等待运行记录，尚未确认执行停止"
         _finish_cancellations(session, job)
         data = _dto(job, revision)
+        data["cancel_requested"] = session.scalar(select(PlanningJobCancellation.request_id).where(
+            PlanningJobCancellation.job_id == job_id,
+            PlanningJobCancellation.outcome_status == "CANCEL_REQUESTED")) is not None
+        if job.status == "FAILED" and runtime:
+            data["outcome"] = runtime.get("outcome")
         data["saved_plan_id"] = session.scalar(select(PlanningPlan.plan_id).where(
             PlanningPlan.job_id == job_id
         ))
@@ -928,8 +944,9 @@ def query_planning_job(job_id: str, task_id: str | None,
             "request_id": request_id,
         }
     return {
-        "code": 0,
-        "message": "计算已取消" if status == "CANCELLED" else "计算失败",
+        "code": (data.get("outcome") or {}).get("code", 0),
+        "message": ((data.get("outcome") or {}).get("message")
+                    or ("计算已取消" if status == "CANCELLED" else "计算失败")),
         "data": data,
         "request_id": request_id,
     }

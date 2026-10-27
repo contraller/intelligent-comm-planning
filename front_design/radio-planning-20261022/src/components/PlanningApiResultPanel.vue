@@ -326,7 +326,7 @@
     ><p
       v-else
       class="panel-body muted"
-      >提交规划并取得结果后，在此查看各分项。</p
+      >{{ planning.running ? '规划正在计算，结果生成后将在此显示。' : planning.job ? '本次规划已结束，未生成可用结果。请查看上方作业结论。' : '提交规划并取得结果后，在此查看各分项。' }}</p
     >
     <AppDrawer
       v-if="result"
@@ -400,6 +400,7 @@
 <script setup lang="ts">
 // 所有结果页签读取同一冻结快照，选择结果仅联动地图高亮。
 import { computed, ref, watch } from 'vue';
+import { usePlanningApiStore } from '../stores/planning-api';
 import AppTable from './AppTable.vue';
 import AppDrawer from './AppDrawer.vue';
 import PlanningCandidatePanel from './PlanningCandidatePanel.vue';
@@ -425,6 +426,7 @@ import {
   resolveFrequencyFocus,
 } from '../services/planning-result-details-display';
 import type { FrequencySelection } from '../services/planning-result-details-display';
+const planning = usePlanningApiStore();
 const props = withDefaults(
   defineProps<{
     result: ApiPlanningResult | null;

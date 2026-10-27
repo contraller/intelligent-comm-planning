@@ -332,6 +332,24 @@ def _do_sr4(payload, tick):
                          interference_rows=payload.get("interference_rows"),
                          demand_rows=payload.get("demand_rows"), progress=tick,
                          resource_rows=payload.get("resource_rows"))
+    # 完整但未达标的候选仍允许作为参考查看；只有没有候选结果才进入失败终态。
+    if not o["optimization"].get("best"):
+        from .planning_w3 import PlanningSearchFailed
+        optimization = o["optimization"]
+        exhausted = (optimization.get("actual_search") or {}).get("budget_exhausted", False)
+        labels = {"mandatory_e2e_connectivity": "必要通联连通率", "survivability": "抗毁性",
+            "max_relay_hops": "最大中继跳数", "plan_check": "方案校验",
+            "device_binding": "物理设备绑定", "deployment_input": "部署输入约束"}
+        raise PlanningSearchFailed(dict(code=CODE_NO_SOLUTION,
+            kind="BUDGET_EXHAUSTED" if exhausted else "SEARCH_NOT_FOUND",
+            proven_infeasible=False,
+            message="计算预算内未找到可行方案，尚未证明无解",
+            reasons=[dict(code=str(key), message="候选方案未满足" + labels.get(str(key), "硬约束"))
+                     for key in (optimization.get("infeasible") or {}).get("conflicting_constraints", [])],
+            gap=[dict(objectId=payload.get("task_id") or "task", field="constraints",
+                      message="候选方案未满足" + labels.get(str(key), "硬约束"))
+                 for key in (optimization.get("infeasible") or {}).get("conflicting_constraints", [])],
+            suggestions=(optimization.get("infeasible") or {}).get("suggestions", [])))
     b = o["optimization"]["best"]
     summary = dict(task_id=o["task_id"], total_s=round(o["total_s"], 2),
                    within_limit=o["within_limit"], objectives=b["objectives"],
@@ -373,7 +391,7 @@ def submit_sr4(payload: dict[str, Any], *, job_id: str | None = None,
         return {"code": CODE_BAD_ENUM, "message": "strategy 只能是 %s" % "/".join(routing.STRATEGIES),
                 "data": None}
     return _spawn("SR4_FLOW", payload, _do_sr4,
-                  task_id=job_id, on_update=on_update, timeout_s=TIME_LIMIT_S)
+                  task_id=job_id, on_update=on_update, isolated_budget_s=TIME_LIMIT_S)
 
 
 # ─────────────────────────── 方案管理（接口文档 2.8）───────────────────────────

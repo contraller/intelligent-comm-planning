@@ -34,7 +34,7 @@ export async function planningProgress(value:ApiPlanningJob){
   // 调整内容用摘要核对，轮询无需重复运输整份人工参数与路由。
   const adjustmentKey=value.adjustment?Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(JSON.stringify([value.parentPlanId,value.adjustment]))))).map(n=>n.toString(16).padStart(2,'0')).join(''):null;
   const resultKey=Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(JSON.stringify([value.result,value.solutions]))))).map(n=>n.toString(16).padStart(2,'0')).join('');
-  return {id,taskId,revision,state,progress,phases,error,expired,sourceChanged,savedPlanId,stopping:value.stopping??false,adjustmentKey,resultKey};
+  return {id,taskId,revision,state,progress,phases,error,expired,sourceChanged,savedPlanId,stopping:value.stopping??false,cancelRequested:value.cancelRequested??false,adjustmentKey,resultKey};
 }
 
 const ids = (v: unknown, field: string) => uniqueIds(apiList(v, field, x => apiId(x)), x => x, field);
@@ -170,6 +170,8 @@ export function readPlanningJob(value: unknown, expected: { taskId: string; jobI
   const v = apiRecord(value), id = apiId(v.job_id), taskId = apiId(v.task_id), input = readResponseTaskInput(v.input);
   if (taskId !== expected.taskId || expected.jobId && id !== expected.jobId) invalidApi('job owner');
   const state = apiChoice(v.status, ['PENDING', 'RUNNING', 'SUCCESS', 'FAILED', 'CANCELLED'], 'status'), progress = apiNumber(v.progress, 'progress', 0, 1);
+  const cancelRequested = v.cancel_requested === undefined ? undefined : apiBool(v.cancel_requested, 'cancel_requested');
+  if (cancelRequested && !['PENDING', 'RUNNING'].includes(state)) invalidApi('cancel request state');
   let solutions: ApiPlanningSolution[] | undefined, defaultSolutionId: string | null | undefined;
   if (Object.hasOwn(v, 'solutions')) {
     solutions = uniqueIds(apiList(v.solutions, 'solutions', raw => {
@@ -199,6 +201,7 @@ export function readPlanningJob(value: unknown, expected: { taskId: string; jobI
     ...(adjustment === undefined ? {} : { adjustment }),
     ...(solutions === undefined ? {} : { solutions, defaultSolutionId }),
     phases: apiList(v.phases, 'phases', raw => { const p = apiRecord(raw); return { name: apiText(p.name, 'phase'), state: apiChoice(p.state, ['waiting', 'running', 'done'], 'phase state') }; }), result, outcome, error: v.error === null ? null : apiText(v.error, 'error'), expired: apiBool(v.expired, 'expired'), sourceChanged: apiBool(v.source_changed, 'source_changed'), savedPlanId,
+    ...(cancelRequested === undefined ? {} : { cancelRequested }),
     ...(v.stopping === undefined ? {} : { stopping: apiBool(v.stopping, 'stopping') }),
   };
 }
