@@ -58,7 +58,7 @@ function all(root:Host,predicate:(n:Host)=>boolean):Host[]{return [...(predicate
 const feedbackPanels=(root:Host)=>all(root,n=>n.props['data-feedback-operation']!==undefined&&visible(n));
 const button=(root:Host,label:string)=>find(root,n=>n.tag==='button'&&text(n).trim()===label)!;
 const nodeDto=(id:string)=>({node_id:id,node_name:'节点'+id,lon:id==='N1'?114:115,lat:id==='N1'?37:38,parent_node_id:'',echelon:'营',mobility:'固定',device_class:'HF',status:'NORMAL',relay_capable:true,is_key:false,child_count:0,device_count:1});
-let pinia:ReturnType<typeof createPinia>,apps:App[],fetcher:ReturnType<typeof vi.fn<typeof fetch>>,serverTask:ReturnType<typeof taskDto>,serverJob:ReturnType<typeof jobDto>,serverPlans:ReturnType<typeof planDto>[],permissions:string[];
+let pinia:ReturnType<typeof createPinia>,apps:App[],fetcher:ReturnType<typeof vi.fn<typeof fetch>>,serverTask:ReturnType<typeof taskDto>,serverJob:Omit<ReturnType<typeof jobDto>,'error'> & { error: string | null },serverPlans:ReturnType<typeof planDto>[],permissions:string[];
 beforeEach(()=>{
   releasePageSessionBinding();pinia=createPinia();apps=[];serverTask=taskDto();serverJob={...jobDto(),status:'RUNNING',progress:0.1,result:null as any,outcome:null as any};serverPlans=[];permissions=['situation.view','planning.view','planning.execute','planning.save','planning.confirm'];
   // 当前 GIS 页面统一注册可见性监听，宿主提供真实的事件目标生命周期。
@@ -78,7 +78,7 @@ beforeEach(()=>{
     if(path.endsWith('/task-inputs/validate'))return response({valid:true,issues:[],task:body.task_id==='T1'?serverTask:null});
     if(path.endsWith('/task-inputs/T1')){if(init.method==='PUT')serverTask={...serverTask,input:body.input,revision:'t2',input_version:'i2'};return response(serverTask);}
     if(path.endsWith('/plan/sr4-flow')){serverJob={...serverJob,input:serverTask.input,input_version:body.input_version,condition_version:body.condition_version,resource_revision:body.resource_revision};serverTask.active_job_id='J1';return response(serverJob);}
-    if(path.endsWith('/plan/tasks/J1'))return response(serverJob);
+    if(path.endsWith('/plan/tasks/J1'))return response(serverJob, serverJob.status === 'FAILED' ? serverJob.outcome?.code ?? 0 : 0);
     if(path.endsWith('/plans')&&init.method==='POST'){const plan={...planDto(),name:body.name,note:body.note,input:serverJob.input,input_version:serverJob.input_version};serverPlans.push(plan);return response(plan);}
     if(path.endsWith('/plans'))return response({items:serverPlans,page:Number(p.get('page')),page_size:Number(p.get('page_size')),total:serverPlans.length});
     if(path.endsWith('/plans/P-1/confirm')){serverPlans[0]={...serverPlans[0],revision:'p2',state:'CONFIRMED',current:true,confirmed_at:'2026-10-05T01:00:00Z'};return response(serverPlans[0]);}
@@ -346,6 +346,19 @@ describe('网络规划与 GIS HTTP 页面组合',()=>{
     const confirm=button(root,'转正并设为当前方案').props.onClick();await nextTick();task.answer('save');await confirm;expect(planning.selectedPlan!.current).toBe(true);expect(planning.step).toBe(3);
     const writes=fetcher.mock.calls.filter(([,init])=>['POST','PUT','DELETE'].includes(init?.method??''));expect(writes.length).toBeGreaterThanOrEqual(4);expect(writes.every(([,init])=>new Headers(init!.headers).get('X-CSRF-Token')==='csrf')).toBe(true);
   });
+  it('提交后返回输入页仍禁止重复计算，轮询无结果终态后显示原因并可再提交',async()=>{
+    const {root,task,planning}=await mount(); await task.save();
+    await button(root,'提交规划').props.onClick(); await vi.waitFor(()=>expect(planning.running).toBe(true));
+    expect(text(root)).toContain('规划进行中');
+    await button(root,'返回任务输入').props.onClick(); await nextTick();
+    expect(planning.step).toBe(1); expect(button(root,'提交规划').props.disabled).toBe(true); expect(text(root)).toContain('当前规划尚未结束');
+    const count=()=>fetcher.mock.calls.filter(([url,init])=>String(url).endsWith('/plan/sr4-flow')&&init?.method==='POST').length;
+    const submitted=count(); await button(root,'提交规划').props.onClick(); expect(count()).toBe(submitted);
+    serverJob={...serverJob,status:'FAILED',progress:1,result:null as any,outcome:{code:3001,message:'计算预算内未找到可行方案，尚未证明无解',gap:[],suggestions:['检查频点排除条件']},error:'已达到本次计算预算'};
+    await planning.refreshJob(); planning.step=2; await nextTick();
+    expect(planning.running).toBe(false); expect(planning.canSubmit).toBe(true); expect(text(root)).toContain('未生成可用规划方案'); expect(text(root)).toContain('尚未证明无解'); expect(text(root)).toContain('检查频点排除条件');
+    expect(text(root)).not.toContain('提交规划并取得结果后，在此查看各分项');
+  });
   it('前往 GIS 先处理任务草稿，取消保留现场，保存成功才离开；视野变化不提交规划',async()=>{
     const {root,task,router}=await mount();task.draft!.description='规划未保存的草稿';
     let leaving=router.push('/situation');await vi.waitFor(()=>expect(task.decision).not.toBeNull());task.answer('cancel');await leaving;
@@ -359,7 +372,8 @@ describe('网络规划与 GIS HTTP 页面组合',()=>{
     serverTask.active_job_id='J1';serverJob=jobDto();serverPlans=[planDto()];
     const {planning,router,task}=await mount('/planning?taskId=T1&editTask=1');
     expect(planning.step).toBe(1);expect(router.currentRoute.value.query).toEqual({taskId:'T1',editTask:'1'});expect(task.taskId).toBe('T1');
-    await router.push('/planning?taskId=T1&jobId=J1');await vi.waitFor(()=>expect(planning.job?.id).toBe('J1'));expect(planning.step).toBe(2);
+    // 输入页可能已核实同一作业，导航仍须等结果步骤实际恢复。
+    await router.push('/planning?taskId=T1&jobId=J1');await vi.waitFor(()=>{expect(planning.job?.id).toBe('J1');expect(planning.step).toBe(2);});
     await router.push('/planning?taskId=T1&planId=P-1');await vi.waitFor(()=>expect(planning.selectedPlan?.id).toBe('P-1'));expect(planning.step).toBe(2);
   });
   it('无效编辑定位或目标任务读取失败不冒充切换成功，也不覆盖草稿',async()=>{

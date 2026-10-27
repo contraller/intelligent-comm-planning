@@ -31,6 +31,8 @@ export function createPlanningHttp(request: AuthenticatedRequest, baseUrl: () =>
           const value=readPlanningJob(error.data,expected);
           if (error.code===2002 && ['PENDING','RUNNING'].includes(value.state)) return value;
           if(value.state==='SUCCESS'&&(value.result||value.solutions?.some(s=>s.result))&&value.outcome?.code===error.code)return value;
+          // 已校验的无结果终态也要接纳，否则页面会一直保留上次的RUNNING状态。
+          if(value.state==='FAILED'&&!value.result&&!value.solutions?.length&&value.outcome?.code===error.code)return value;
         } catch { /* 无法校验的业务数据随原错误保留。 */ }
       }
       throw error;

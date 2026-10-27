@@ -42,6 +42,17 @@ def api(monkeypatch, tmp_path):
     monkeypatch.setattr(planning_job_service, "get_session_factory", lambda: factory)
     monkeypatch.setattr(planning_plan_service, "get_session_factory", lambda: factory)
     monkeypatch.setattr(planning_job_service.planning_w3, "TASK_DIR", tmp_path)
+    real_cancel = planning_job_service.planning_w3.cancel_task
+
+    def cancel_stub_or_worker(job_id):
+        runtime = planning_job_service.planning_w3
+        if not runtime.get_task_record(job_id):
+            # fake_submit没有启动执行者，显式桩确认退出；不能当作真实取消证据。
+            return runtime._set(job_id, task_id=job_id, status="CANCELLED",
+                progress=0, stage="测试桩已停止", execution_stopped=True)
+        return real_cancel(job_id)
+
+    monkeypatch.setattr(planning_job_service.planning_w3, "cancel_task", cancel_stub_or_worker)
     calls = []
 
     def fake_submit(payload, *, job_id, on_update):
@@ -243,6 +254,9 @@ def test_submit_is_idempotent_and_blocks_second_active_job(api):
     assert another.status_code == 409
     assert another.json()["code"] == 2002
     assert another.json()["data"]["job_id"] == first.json()["data"]["job_id"]
+    assert another.json()["data"]["task_id"] == saved["task_id"]
+    assert another.json()["data"]["revision"] == saved["revision"]
+    assert another.json()["data"]["status"] == "PENDING"
 
 
 def test_submit_rejects_stale_task_and_resource_versions(api, monkeypatch):
@@ -393,7 +407,7 @@ def test_query_rejects_malformed_algorithm_result(api, monkeypatch):
     assert response.json()["message"] == "SR4 方案结果不符合前端数据契约"
 
 
-def test_query_marks_unrecoverable_job_failed_after_restart(api):
+def test_missing_runtime_record_does_not_release_active_job_before_dispatch(api):
     client, _, _ = api
     saved = _save_task(client)
     job = client.post("/api/v1/plan/sr4-flow", json=_submit(saved)).json()["data"]
@@ -401,9 +415,10 @@ def test_query_marks_unrecoverable_job_failed_after_restart(api):
         "context": "planning", "task_id": saved["task_id"],
     })
     body = response.json()
-    assert body["code"] == 0
-    assert body["data"]["status"] == "FAILED"
-    assert "无法恢复" in body["data"]["error"]
+    assert body["code"] == 2002
+    assert body["data"]["status"] == "PENDING"
+    blocked = client.post("/api/v1/plan/sr4-flow", json=_submit(saved, "during-dispatch"))
+    assert blocked.status_code == 409 and blocked.json()["code"] == 2002
 
 
 def test_query_without_task_id_keeps_legacy_task_endpoint(api, monkeypatch):
@@ -1068,6 +1083,7 @@ def test_cancel_stops_worker_at_checkpoint_and_rejects_late_callback(api, monkey
     started = threading.Event()
     release = threading.Event()
     finished = threading.Event()
+    terminal = threading.Event()
 
     def controlled(_payload, tick):
         try:
@@ -1078,11 +1094,14 @@ def test_cancel_stops_worker_at_checkpoint_and_rejects_late_callback(api, monkey
         finally:
             finished.set()
 
-    monkeypatch.setattr(planning_job_service.planning_w4, "submit_sr4",
-                        lambda payload, *, job_id, on_update:
-                        planning_job_service.planning_w3._spawn(
-                            "SR4_FLOW", payload, controlled, task_id=job_id,
-                            on_update=on_update))
+    def submit_controlled(payload, *, job_id, on_update):
+        def update(state):
+            on_update(state)
+            if state.get("status") in {"SUCCESS", "FAILED", "CANCELLED"}:
+                terminal.set()
+        return planning_job_service.planning_w3._spawn(
+            "SR4_FLOW", payload, controlled, task_id=job_id, on_update=update)
+    monkeypatch.setattr(planning_job_service.planning_w4, "submit_sr4", submit_controlled)
     saved = _save_task(client)
     job = client.post("/api/v1/plan/sr4-flow", json=_submit(saved)).json()["data"]
     try:
@@ -1090,10 +1109,14 @@ def test_cancel_stops_worker_at_checkpoint_and_rejects_late_callback(api, monkey
         response = client.request("DELETE", f"/api/v1/tasks/{job['job_id']}",
                                   json=_cancel(saved))
         assert response.status_code == 200
-        assert response.json()["data"]["status"] == "CANCELLED"
+        assert response.json()["data"]["status"] == "RUNNING"
+        assert response.json()["data"]["cancel_requested"] is True
+        blocked = client.post("/api/v1/plan/sr4-flow", json=_submit(saved, "during-cancel"))
+        assert blocked.status_code == 409 and blocked.json()["code"] == 2002
     finally:
         release.set()
         assert finished.wait(5)
+        assert terminal.wait(5)
     planning_job_service._update_job(factory, job["job_id"], {
         "status": "SUCCESS", "progress": 1.0, "stage": "晚到回调", "error": None,
     })
@@ -1131,6 +1154,31 @@ def test_sr4_checks_cancellation_before_saving_plan(monkeypatch):
     with pytest.raises(planning_w3.PlanningTaskCancelled):
         planning_w4._do_sr4({"task_id": "T1"}, checkpoint)
     assert stages[-1] == (0.99, "正在保存方案")
+
+
+@pytest.mark.parametrize("kind,proven", [("PROVEN_INFEASIBLE", True),
+    ("BUDGET_EXHAUSTED", False), ("SEARCH_NOT_FOUND", False)])
+def test_failed_job_exposes_structured_reason_and_replays_same_job(api, kind, proven):
+    client, factory, calls = api
+    saved = _save_task(client)
+    job = client.post("/api/v1/plan/sr4-flow", json=_submit(saved)).json()["data"]
+    message = "冻结输入已证明无法满足必要通联门槛" if proven else "计算预算内未找到可行方案，尚未证明无解"
+    outcome = {"code": 3001, "kind": kind, "proven_infeasible": proven,
+        "message": message, "reasons": [{"code": "UNIT", "message": "中文原因"}],
+        "suggestions": ["核对冻结输入"]}
+    state = planning_job_service.planning_w3._set(job["job_id"], task_id=job["job_id"],
+        status="FAILED", progress=1, stage="计算失败", error=message, outcome=outcome)
+    planning_job_service._update_job(factory, job["job_id"], state)
+    polled = client.get(f"/api/v1/plan/tasks/{job['job_id']}", params={
+        "context": "planning", "task_id": saved["task_id"]}).json()
+    assert polled["code"] == 3001
+    assert polled["data"]["status"] == "FAILED"
+    assert polled["data"]["outcome"] == outcome
+    assert polled["data"]["result"] is None
+    assert polled["data"]["cancel_requested"] is False
+    replay = client.post("/api/v1/plan/sr4-flow", json=_submit(saved)).json()["data"]
+    assert replay["job_id"] == job["job_id"] and replay["status"] == "FAILED"
+    assert len(calls) == 1
 
 
 class _LocalJobIdentity(SimpleNamespace):

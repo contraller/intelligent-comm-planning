@@ -4,7 +4,7 @@
 `docs/design/03_接口文档.md` 2.3 / 2.4 / 2.5。
 
 与部署规划一样走 SR-4.2 g) 要求的**异步任务模式**：提交立即返回 task_id，
-另行查询进度与结果。纯标准库 threading，不引入任务队列。
+另行查询进度与结果。SR4使用标准库子进程隔离，其他入口使用线程。
 
 算法核心全在 `scripts/planning/`（routing / frequency / radio_params /
 plan_check），本层只做参数校验、任务编排与结果序列化。
@@ -12,6 +12,7 @@ plan_check），本层只做参数校验、任务编排与结果序列化。
 from __future__ import annotations
 
 import csv
+import multiprocessing
 import os
 import sys
 import threading
@@ -36,6 +37,88 @@ _FINAL_STATES = {"SUCCESS", "FAILED", "CANCELLED"}
 
 class PlanningTaskCancelled(Exception):
     """算法在进度检查点收到取消请求。"""
+
+
+class PlanningSearchFailed(Exception):
+    def __init__(self, outcome):
+        super().__init__(outcome["message"])
+        self.outcome = outcome
+
+
+def _budget_outcome(seconds):
+    return dict(code=3001, kind="BUDGET_EXHAUSTED", proven_infeasible=False,
+                message="计算预算内未找到可行方案，尚未证明无解",
+                budget_seconds=seconds,
+                reasons=[dict(code="TIME_BUDGET", message="已停止本次规划计算")],
+                gap=[dict(objectId="task", field="budget", message="计算预算内未找到可行方案，尚未证明无解")],
+                suggestions=["检查任务约束与频率资源后重新提交"])
+
+
+def _isolated_worker(connection, fn, payload, plan_dir):
+    """子进程仅接收冻结输入，不能接收数据库连接或业务回调。"""
+    from . import planning_w4
+    planning_w4.PLAN_DIR = Path(plan_dir)
+    try:
+        result = fn(payload, lambda progress, stage: connection.send(
+            ("progress", (progress, stage))))
+        connection.send(("result", result))
+    except Exception as exc:
+        outcome = getattr(exc, "outcome", None)
+        if isinstance(exc, TimeoutError):
+            from sr4_flow import TIME_LIMIT_S
+            outcome = _budget_outcome(TIME_LIMIT_S)
+        connection.send(("error", {"error": str(exc), "outcome": outcome}))
+    finally:
+        connection.close()
+
+
+def _run_isolated(tid, fn, payload, checkpoint, seconds):
+    """真正停止CPU进程并join后才允许父线程发布终态。"""
+    from . import planning_w4
+    ctx = multiprocessing.get_context("spawn")
+    receiver, sender = ctx.Pipe(duplex=False)
+    process = ctx.Process(target=_isolated_worker,
+        args=(sender, fn, payload, str(planning_w4.PLAN_DIR)), daemon=True)
+    deadline = time.monotonic() + seconds
+    try:
+        process.start()
+        _set(tid, execution_pid=process.pid)
+        sender.close()
+        result, received = None, False
+        while True:
+            checkpoint(None, None)
+            if time.monotonic() >= deadline:
+                raise PlanningSearchFailed(_budget_outcome(seconds))
+            try:
+                ready = receiver.poll(.05)
+            except (EOFError, OSError):
+                break
+            if ready:
+                try:
+                    kind, data = receiver.recv()
+                except (EOFError, OSError):
+                    break
+                if kind == "progress":
+                    checkpoint(*data)
+                elif kind == "result":
+                    result, received = data, True
+                elif kind == "error":
+                    if data.get("outcome"):
+                        raise PlanningSearchFailed(data["outcome"])
+                    raise RuntimeError(data["error"])
+            elif not process.is_alive():
+                break
+        if not received or process.exitcode not in (None, 0):
+            raise RuntimeError("规划子进程退出，未返回完整结果")
+        return result
+    finally:
+        if process.pid is not None:
+            if process.is_alive():
+                process.terminate()
+            process.join()
+            process.close()
+        receiver.close()
+        sender.close()
 
 # 业务错误码，与接口文档 1.3 一致
 CODE_OK = 0
@@ -92,25 +175,64 @@ def _set(tid: str, **kw) -> dict[str, Any]:
         if _TASKS.get(tid, {}).get("status") in _FINAL_STATES:
             return dict(_TASKS[tid])
         _TASKS.setdefault(tid, {}).update(kw)
-        if _TASKS[tid].get("status") in _FINAL_STATES:
-            write_json(TASK_DIR / (tid + ".json"), _TASKS[tid])
+        write_json(TASK_DIR / (tid + ".json"), _TASKS[tid])
         return dict(_TASKS[tid])
+
+
+def _process_alive(pid):
+    if os.name == "nt":
+        import ctypes
+        kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+        kernel.OpenProcess.restype = ctypes.c_void_p
+        handle = kernel.OpenProcess(0x1000, False, pid)
+        if not handle:
+            # 无权限不能当作已停止，只有无效PID可确认不存在。
+            return ctypes.get_last_error() != 87
+        try:
+            code = ctypes.c_ulong()
+            if not kernel.GetExitCodeProcess(ctypes.c_void_p(handle), ctypes.byref(code)):
+                return True
+            return code.value == 259
+        finally:
+            kernel.CloseHandle(ctypes.c_void_p(handle))
+    try:
+        os.kill(pid, 0)
+        return True
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
 
 
 def get_task_record(task_id: str) -> dict[str, Any]:
     with _LOCK:
         task = _TASKS.get(task_id)
-        if task is None and task_id.startswith("tsk-") and len(task_id) == 16 and all(
+        if (task is None or (task.get("status") not in _FINAL_STATES
+                and task.get("owner_pid") != os.getpid())) and task_id.startswith("tsk-") and len(task_id) == 16 and all(
                 char in "0123456789abcdef" for char in task_id[4:]):
             path = TASK_DIR / (task_id + ".json")
             if path.exists():
                 task = read_json(path)
                 _TASKS[task_id] = task
+        if (task and task.get("status") not in _FINAL_STATES and task.get("owner_pid")
+                and not _process_alive(task["owner_pid"])):
+            if not task.get("execution_pid") or _process_alive(task["execution_pid"]):
+                # 不能因监督者丢失就释放活动作业锁；遗留进程仍可能占用CPU。
+                task["stage"] = "监督进程已退出，计算进程尚未确认停止"
+            else:
+                task.update(status="FAILED", progress=1.0, stage="运行进程已退出",
+                    error="服务中断，运行进程已退出且没有完整结果", execution_stopped=True,
+                    finished_at=time.time())
+                write_json(TASK_DIR / (task_id + ".json"), task)
         return dict(task or {})
 
 
+def cancellation_requested(task_id: str) -> bool:
+    return (TASK_DIR / (task_id + ".cancel.json")).exists()
+
+
 def cancel_task(task_id: str) -> dict[str, Any]:
-    """原子标记运行时终态；线程会在下一进度检查点退出。"""
+    """只记录取消意图；执行者退出后才能发布CANCELLED。"""
     with _LOCK:
         task = _TASKS.get(task_id)
         if task is None:
@@ -118,14 +240,15 @@ def cancel_task(task_id: str) -> dict[str, Any]:
             task = read_json(path) if path.exists() else {"task_id": task_id}
             _TASKS[task_id] = task
         if task.get("status") not in _FINAL_STATES:
-            task.update(status="CANCELLED", stage="已取消", error=None,
-                        finished_at=time.time())
-            write_json(TASK_DIR / (task_id + ".json"), task)
+            write_json(TASK_DIR / (task_id + ".cancel.json"), {"cancel_requested": True})
+            # 没有运行记录的待派发作业也保留意图，不能伪称执行已停止。
+            task.setdefault("status", "PENDING")
+            task.update(cancel_requested=True, stage="取消已受理，等待计算退出")
         return dict(task)
 
 
 def _spawn(kind: str, payload: dict[str, Any], fn, *, task_id: str | None = None,
-           on_update=None) -> dict[str, Any]:
+           on_update=None, isolated_budget_s: float | None = None) -> dict[str, Any]:
     if payload.get("callback_url") not in (None, ""):
         return {"code": CODE_BAD_PARAM, "message": "callback_url 尚未支持，请使用任务查询接口轮询",
                 "data": None}
@@ -138,28 +261,38 @@ def _spawn(kind: str, payload: dict[str, Any], fn, *, task_id: str | None = None
         return state
 
     initial = publish(task_id=tid, kind=kind, status="PENDING", progress=0.0,
-                      stage="排队中", submitted_at=time.time(), result=None, error=None)
+                      stage="排队中", submitted_at=time.time(), result=None, error=None,
+                      owner_pid=os.getpid())
 
-    def checkpoint(progress: float, stage: str) -> None:
-        if publish(progress=progress, stage=stage)["status"] == "CANCELLED":
+    def checkpoint(progress, stage) -> None:
+        if cancellation_requested(tid):
             raise PlanningTaskCancelled()
+        if progress is not None:
+            if publish(progress=progress, stage=stage)["status"] == "CANCELLED":
+                raise PlanningTaskCancelled()
 
     def _worker():
         try:
+            checkpoint(None, None)
             if publish(status="RUNNING", progress=0.05, stage="加载数据")["status"] == "CANCELLED":
                 return
-            data = fn(payload, checkpoint)
+            data = (fn(payload, checkpoint) if isolated_budget_s is None else
+                    _run_isolated(tid, fn, payload, checkpoint, isolated_budget_s))
+            checkpoint(None, None)
             publish(status="SUCCESS", progress=1.0, stage="完成",
                     result=data, finished_at=time.time())
         except PlanningTaskCancelled:
             publish(status="CANCELLED", stage="已取消", error=None,
-                    finished_at=time.time())
+                    execution_stopped=True, finished_at=time.time())
+        except PlanningSearchFailed as exc:
+            publish(status="FAILED", progress=1.0, stage=exc.outcome["message"],
+                    error=str(exc), outcome=exc.outcome, finished_at=time.time())
         except Exception as exc:                     # noqa: BLE001
             publish(status="FAILED", progress=1.0, stage="失败",
                     error="%s: %s" % (type(exc).__name__, exc),
                     finished_at=time.time())
 
-    if initial["status"] != "CANCELLED":
+    if initial["status"] not in _FINAL_STATES:
         threading.Thread(target=_worker, daemon=True).start()
     return {"code": CODE_OK, "message": "success",
             "data": {"task_id": tid, "estimated_sec": 5}}
@@ -171,8 +304,15 @@ def query_task(task_id: str) -> dict[str, Any]:
     if not t:
         return {"code": CODE_TASK_NOT_FOUND, "message": "任务不存在或已过期", "data": None}
     if t["status"] == "FAILED":
-        return {"code": CODE_TASK_FAILED, "message": "计算失败",
-                "data": {"task_id": task_id, "error_detail": t.get("error")}}
+        outcome = t.get("outcome") or {}
+        return {"code": outcome.get("code", CODE_TASK_FAILED),
+                "message": outcome.get("message", "计算失败"),
+                "data": {"task_id": task_id, "status": "FAILED",
+                         "outcome": outcome or None, "error_detail": t.get("error")}}
+    if t["status"] == "CANCELLED":
+        return {"code": CODE_OK, "message": "计算已取消",
+                "data": {"task_id": task_id, "status": "CANCELLED",
+                         "progress": t.get("progress", 0), "stage": "已取消"}}
     if t["status"] != "SUCCESS":
         return {"code": CODE_TASK_RUNNING, "message": "计算中",
                 "data": {"task_id": task_id, "status": t["status"],

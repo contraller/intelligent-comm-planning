@@ -46,20 +46,26 @@
           >{{ planning.currentExpired ? '未保存结果已过期。' : ''
           }}{{ planning.job.sourceChanged ? '来源已变化，结果仅供历史参考。' : '' }}</p
         ><p
-          v-if="planning.job.error"
+          v-if="planning.job.error && planning.job.error !== planning.currentOutcome?.message"
           class="notice warn"
+          role="alert"
           >{{ planning.job.error }}</p
         >
+        <p v-if="planning.job.state === 'FAILED' && !planning.result" class="notice warn" role="status">
+          本次规划已结束，未生成可用规划方案。请按失败原因检查约束后重新提交。
+        </p>
+        <p v-if="planning.job.state === 'CANCELLED'" class="notice" role="status">本次规划已取消，可以修改任务后重新提交。</p>
+        <p v-if="planning.job.cancelRequested" class="notice warn" role="status">取消请求已受理，正在等待计算停止；确认停止前不能重新提交。</p>
         <div
           v-if="planning.currentOutcome && (!compact || planning.currentOutcome.code !== 0)"
           class="notice"
           :class="{ warn: planning.currentOutcome.code !== 0 }"
           ><strong>{{ planning.currentOutcome.message }}</strong
-          ><p
+          ><details v-if="planning.currentOutcome.gap.length"><summary>查看约束问题（{{ planning.currentOutcome.gap.length }} 项）</summary><p
             v-for="(gap, i) in planning.currentOutcome.gap"
             :key="i"
             >{{ gap.objectId }} / {{ gap.field }}：{{ gap.message }}</p
-          ><p
+          ></details><p
             v-for="s in planning.currentOutcome.suggestions"
             :key="s"
             >{{ s }}</p
@@ -71,9 +77,9 @@
           ><button
             v-if="planning.running"
             class="btn"
-            :disabled="!auth.can('planning.execute') || planning.busy || !!planning.pending"
+            :disabled="!auth.can('planning.execute') || planning.busy || !!planning.pending || planning.job.cancelRequested"
             @click="planning.cancel"
-            >取消规划</button
+            >{{ planning.job.cancelRequested ? '正在取消' : '取消规划' }}</button
           ><button
             class="btn"
             :disabled="planning.busy || !!planning.pending"
@@ -162,6 +168,7 @@ progress {
   gap: 8px;
 }
 .notice {
+  display: block;
   margin: 12px 0;
 }
 pre {

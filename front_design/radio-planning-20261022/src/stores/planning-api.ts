@@ -6,6 +6,7 @@ import { previewService } from '../services';
 import { ApiError } from '../services/types';
 import { planPasses } from '../services/planning-api-validation';
 import { sameValue } from '../services/planning-validation';
+import { apiId, apiRecord } from '../services/task-api-validation';
 import type { PlanningApiFeedbackState, PlanningFeedbackOperation } from '../services/planning-api-feedback';
 import type { ApiPlan, ApiPlanningJob, PlanningPlanSummary, PlanningMutationReceipt } from '../types/planning-api';
 import { planningProgress } from '../services/planning-api-validation';
@@ -77,6 +78,14 @@ export const usePlanningApiStore = defineStore('planning-api', () => {
   let feedbackEpoch = 0, feedbackSequence = 0;
   const controllers = new Map<string, AbortController>();
   const running = computed(() => !!job.value && ['PENDING','RUNNING'].includes(job.value.state));
+  // 历史作业未核实前也占用当前任务，不能因页面尚无进度对象而放开提交。
+  const checkedJobs = ref<Record<string, { taskId: string; state: ApiPlanningJob['state'] }>>({});
+  const acceptedJobId = ref<string | null>(null);
+  watch(job, value => { if (value) checkedJobs.value[value.id] = { taskId: value.taskId, state: value.state }; }, { flush: 'sync' });
+  const savedJobId = computed(() => task.saved?.taskId === task.taskId ? acceptedJobId.value ?? task.saved.activeJobId : null);
+  const savedJobState = computed(() => job.value && savedJobId.value === job.value.id ? job.value.state : savedJobId.value && checkedJobs.value[savedJobId.value]?.taskId === task.taskId ? checkedJobs.value[savedJobId.value]?.state : undefined);
+  const unverifiedJobId = computed(() => savedJobId.value && !savedJobState.value ? savedJobId.value : null);
+  const executionBlocked = computed(() => running.value || !!unverifiedJobId.value || ['PENDING', 'RUNNING'].includes(savedJobState.value ?? ''));
   // 只有预览提交期间允许继续编辑，保存、确认等写入仍冻结调整输入。
   const adjustmentLocked = computed(() => !!pending.value || !!task.pendingSave || busy.value && !(automaticPreview.value && activeWriteKind.value === 'submit'));
   const result = computed(() => selectedPlan.value?.result ?? currentResult.value);
@@ -84,11 +93,11 @@ export const usePlanningApiStore = defineStore('planning-api', () => {
     const snapshot=selectedPlan.value??job.value;
     return !!snapshot && (snapshot.sourceChanged || task.saved?.taskId===snapshot.taskId && task.saved.conditionVersion!==snapshot.conditionVersion);
   });
-  const canSubmit = computed(() => auth.can('planning.execute') && !adjustmentOpen.value && !adjustmentDirty.value && !!task.saved && !task.dirty && !task.pendingSave && !running.value && !busy.value && !pending.value);
+  const canSubmit = computed(() => auth.can('planning.execute') && !adjustmentOpen.value && !adjustmentDirty.value && !!task.saved && !task.dirty && !task.pendingSave && !task.loading && !task.busy && !executionBlocked.value && !busy.value && !pending.value);
   const canSave = computed(() => auth.can('planning.save') && !adjustmentDirty.value && (!adjustmentParent.value || !job.value?.adjustment || !!adjustmentResult.value) && !busy.value && !pending.value && !queryError.value && refreshRequiredJobId.value !== job.value?.id && !selectedPlan.value && job.value?.state === 'SUCCESS' && !!currentResult.value && !currentExpired.value && !currentSavedPlanId.value);
   const canConfirm = computed(() => auth.can('planning.confirm') && !busy.value && !pending.value && !!selectedPlan.value && selectedPlan.value.state === 'SAVED' && !sourceChanged.value && planPasses(selectedPlan.value.result) && selectedPlan.value.outcome.code === 0);
   const options = (signal?: AbortSignal) => ({ context: task.context, signal });
-  watch(() => [running.value, busy.value, pending.value,adjustmentOpen.value] as const, () => { task.running = running.value || busy.value || !!pending.value || adjustmentOpen.value; }, { flush: 'sync' });
+  watch(() => [executionBlocked.value, busy.value, pending.value,adjustmentOpen.value] as const, () => { task.running = executionBlocked.value || busy.value || !!pending.value || adjustmentOpen.value; }, { flush: 'sync' });
   watch(adjustmentDirty,value=>{task.auxiliary.planningAdjustment=value;},{flush:'sync'});
   function clearFeedback(operation?: PlanningFeedbackOperation) {
     if (!operation || feedback.value?.operation === operation) feedback.value = null;
@@ -171,7 +180,11 @@ export const usePlanningApiStore = defineStore('planning-api', () => {
     }
     schedule();
   }
-  function start() { polling = true; if (job.value) void refreshJob(undefined,false); }
+  function start() { polling = true; if (job.value || savedJobId.value) void refreshJob(job.value?.id ?? savedJobId.value!,false); }
+  async function refreshBlockingJob() {
+    await refreshJob(unverifiedJobId.value ?? savedJobId.value ?? job.value?.id);
+    polling = true; schedule();
+  }
   async function loadPlans(nextPage = page.value) {
     const taskId = selectedPlan.value?.taskId ?? job.value?.taskId ?? task.taskId;
     if (!taskId) return; page.value = nextPage; loading.value = true;
@@ -257,9 +270,20 @@ export const usePlanningApiStore = defineStore('planning-api', () => {
         return false;
       }
       if (epoch === feedbackEpoch) clearFeedback(kind);
+      if (kind === 'submit' && task.saved?.taskId === value.taskId) acceptedJobId.value = value.id;
       apply(value); void legacy.refreshReadContext(); return true;
     } catch (e) {
       if (owner === lifetime) {
+        // 另一标签页或电脑已启动时，冲突回执提供的真实活跃作业也必须占用任务。
+        if (kind === 'submit' && e instanceof ApiError && e.code === 2002 && e.status === 409 && task.saved?.taskId === ownerTaskId) {
+          try {
+            const active = apiRecord(e.data), id = apiId(active.job_id);
+            if (active.task_id === ownerTaskId && (active.status === 'PENDING' || active.status === 'RUNNING')) {
+              checkedJobs.value[id] = { taskId: ownerTaskId, state: active.status };
+              acceptedJobId.value = id;
+            }
+          } catch { /* 损坏的冲突数据只展示原错误，不能成为新的任务身份。 */ }
+        }
         const uncertain = committed || uncertainWrite(e); if (uncertain) pending.value = operation;
         // 写入的不确定回执继续保留；过期上下文不带回旧会话的错误详情。
         if (token === generation && session === auth.generation && draftTaskId === task.taskId && task.readable && epoch === feedbackEpoch) {
@@ -277,7 +301,7 @@ export const usePlanningApiStore = defineStore('planning-api', () => {
     if (await write<ApiPlanningJob>('submit', requestId => previewService.submitPlanningReceipt({ ...options(), taskId: saved.taskId, requestId, revision: saved.revision, inputVersion: saved.inputVersion, conditionVersion: saved.conditionVersion, resourceRevision: task.resourceRevision, parentPlanId: parentPlanId.value }), value => { job.value = value; selectedPlan.value = null; queryFeedback.value = null; step.value = 2; })) { polling = true; schedule(); }
   }
   async function cancel() {
-    const current = job.value; if (!current || !running.value || !auth.can('planning.execute')) return;
+    const current = job.value; if (!current || !running.value || current.cancelRequested || !auth.can('planning.execute')) return;
     const owner=current.adjustment?{generation,session:auth.generation,taskId:task.taskId}:null;
     const expected=current.adjustment?{adjustment:copy(current.adjustment),parentPlanId:current.parentPlanId}:undefined;
     if (await task.ask({ title: '取消规划任务', message: '向服务端请求取消当前作业；最终状态以服务端响应为准。', saveLabel: '请求取消' }) !== 'save') return;
@@ -319,6 +343,7 @@ export const usePlanningApiStore = defineStore('planning-api', () => {
     const value = await read('compare', signal => previewService.comparePlanningPlans({ ...options(signal), taskId, planIds })); if (value) comparison.value = value;
   }
   async function adjust() {
+    if (unverifiedJobId.value) await refreshBlockingJob();
     const plan = selectedPlan.value; if (!plan || !task.editable || adjustmentParent.value&&!(await allowAdjustmentLeave()) || !(await task.copyPlanInput(plan))) return;
     feedbackEpoch++; clearFeedback();
     parentPlanId.value = plan.id; selectedPlan.value = null; job.value = null; step.value = 1;
@@ -386,6 +411,7 @@ export const usePlanningApiStore = defineStore('planning-api', () => {
           return next;
         });
         if (!value) return; job.value = value; selectedPlan.value = null;
+        if (current.kind === 'submit' && task.saved?.taskId === value.taskId) acceptedJobId.value = value.id;
         if(value.adjustment&&adjustmentDraft.value&&JSON.stringify(value.adjustment)===JSON.stringify(adjustmentDraft.value)){adjustmentBaseline.value=JSON.stringify(value.adjustment);step.value=3;}else step.value=2;
       } else {
         const value = await read('receipt-plan', async signal => {
@@ -407,17 +433,17 @@ export const usePlanningApiStore = defineStore('planning-api', () => {
     } else if (receipt.state === 'FAILED' || receipt.state === 'NOT_FOUND') { pending.value = null; localError(receipt.message || '已核实原请求未成功，可重新操作。', 'receipt'); }
     else notice.value = '原请求仍在处理中，请稍后核实。';
   }
-  function clearForTask() { clearAdjustment();stop(); feedbackEpoch++; clearFeedback(); refreshRequiredJobId.value = null; job.value = null; selectedPlan.value = null; plans.value = null; comparison.value = []; parentPlanId.value = null; step.value = 1; page.value = 1; notice.value = ''; task.running = false; }
+  function clearForTask() { clearAdjustment();stop(); feedbackEpoch++; clearFeedback(); refreshRequiredJobId.value = null; job.value = null; checkedJobs.value = {}; acceptedJobId.value = null; selectedPlan.value = null; plans.value = null; comparison.value = []; parentPlanId.value = null; step.value = 1; page.value = 1; notice.value = ''; task.running = executionBlocked.value || busy.value || !!pending.value; }
   watch(() => task.taskId, () => {
     if (!busy.value && !pending.value) clearForTask();
     else { feedbackEpoch++; clearFeedback(); } // 保留待核对写入，但详情不能串到另一个任务。
   });
   function clearForSession() { lifetime++; pending.value = null; busy.value = false; activeWriteKind.value = null; clearForTask(); }
-  return { job, selectedPlan, plans, comparison, page, step, error, queryError, notice, businessDetails, feedback, queryFeedback, busy, loading, pending, parentPlanId, running, result, sourceChanged, canSubmit, canSave, canConfirm,
+  return { job, selectedPlan, plans, comparison, page, step, error, queryError, notice, businessDetails, feedback, queryFeedback, busy, loading, pending, parentPlanId, running, executionBlocked, unverifiedJobId, result, sourceChanged, canSubmit, canSave, canConfirm,
     selectedSolutionId,currentSolution,currentResult,currentOutcome,currentExpired,currentSavedPlanId,selectSolution,
     adjustmentParent,adjustmentDraft,adjustmentContext,adjustmentOpen,adjustmentDirty,adjustmentIssues,adjustmentResult,adjustmentStatus,
     automaticPreview,previewQueued,adjustmentLocked,setAutomaticPreview,pauseAutomaticPreview,resumeAutomaticPreview,
     adjustmentUnavailable,openPlanAdjustment,updateAdjustment,closeAdjustment,allowAdjustmentLeave,submitAdjustment,
     discardAdjustment: clearAdjustment,
-    refreshJob, start, stop, loadPlans, selectPlan, openHistoricalJob, openHistoricalPlan, reset, submit, cancel, savePlan, confirm, compare, adjust, reconcile, clearForSession, localError };
+    refreshJob, refreshBlockingJob, start, stop, loadPlans, selectPlan, openHistoricalJob, openHistoricalPlan, reset, submit, cancel, savePlan, confirm, compare, adjust, reconcile, clearForSession, localError };
 });

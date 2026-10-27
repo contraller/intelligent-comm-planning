@@ -358,7 +358,7 @@
     ><p
       v-else
       class="panel-body muted"
-      >提交规划并取得结果后，在此查看各分项。</p
+      >{{ emptyMessage }}</p
     >
     <AppDrawer
       v-if="result"
@@ -467,8 +467,9 @@ const props = withDefaults(
     ownerKey?: string;
     active?: boolean;
     candidates?: PlanningCandidatesView;
+    emptyMessage?: string;
   }>(),
-  { coverageDisplay: 'auto', ownerKey: '', active: true, radioCount: null },
+  { coverageDisplay: 'auto', ownerKey: '', active: true, radioCount: null, emptyMessage: '提交规划并取得结果后，在此查看各分项。' },
 );
 // 偏好由页面持有，查看另一结果或切回此页签不恢复默认值。
 const emit = defineEmits<{

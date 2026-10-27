@@ -15,6 +15,17 @@ const detailsDto = (): PlanningResultDetails => ({ schemaVersion: 1, assetVersio
 });
 const options={context:'planning' as const,taskId:'T1'};
 describe('网络规划 HTTP 契约',()=>{
+  it('轮询接纳3001无结果终态和取消受理，拒绝损坏的终态取消标记', async () => {
+    let raw = { ...jobDto(), status: 'FAILED', result: null as any, cancel_requested: false, outcome: { code: 3001, message: '计算预算内未找到可行方案，尚未证明无解', gap: [], suggestions: ['检查冻结约束'] }, error: '本次计算已停止' };
+    const fixture = httpFixture(() => response(raw, raw.status === 'FAILED' ? 3001 : 2002));
+    const http = createPlanningHttp(fixture.request, () => '/api/v1');
+    const failed = await http.getPlanningTask({ ...options, jobId: 'J1' });
+    expect(failed.state).toBe('FAILED'); expect(failed.result).toBeNull(); expect(failed.outcome?.message).toContain('尚未证明无解');
+    raw = { ...raw, status: 'RUNNING', cancel_requested: true };
+    expect((await http.getPlanningTaskProgress({ ...options, jobId: 'J1' })).cancelRequested).toBe(true);
+    expect(() => readPlanningJob({ ...raw, status: 'CANCELLED' }, options)).toThrow('cancel request state');
+    expect(() => readPlanningJob({ ...raw, cancel_requested: 'true' }, options)).toThrow('cancel_requested');
+  });
   it('作业和保存方案回读同一部署摘要，旧快照缺省不补算', async () => {
     const details = detailsDto();
     details.deploymentSummary = { mode: 'FIXED_COUNT', requestedCount: 5, actualCount: 0,

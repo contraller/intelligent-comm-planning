@@ -10,6 +10,18 @@ import { apiJob } from './fixtures/planning-api';
 const display = (data: unknown, code = 3001) => planningFeedbackDisplay({ operation: 'submit', taskId: 'T1', requestToken: 1, message: '业务拒绝', code, requestId: 'server-response', data });
 
 describe('规划失败载荷展示', () => {
+  it('无结果失败和取消等待在折叠详情之外显示明确结论', async () => {
+    const pinia=createPinia();setActivePinia(pinia);
+    try {
+      const planning=usePlanningApiStore();
+      planning.job={...apiJob(),state:'FAILED',result:null,error:'计算预算内未找到可行方案，尚未证明无解',outcome:{code:3001,message:'计算预算内未找到可行方案，尚未证明无解',gap:[],suggestions:['检查频率资源']}};
+      let html=await renderToString(createSSRApp({render:()=>h(PlanningApiProgressPanel,{compact:true})}).use(pinia));
+      expect(html).toContain('本次规划已结束，未生成可用规划方案'); expect(html).toContain('尚未证明无解'); expect(html).toContain('检查频率资源');
+      planning.job={...apiJob(),state:'RUNNING',result:null,cancelRequested:true};
+      html=await renderToString(createSSRApp({render:()=>h(PlanningApiProgressPanel,{compact:true})}).use(pinia));
+      expect(html).toContain('正在等待计算停止'); expect(html).toContain('正在取消'); expect(html).not.toContain('本次规划已取消');
+    } finally {disposePinia(pinia);}
+  });
   // 本次故障来自顶层数组，不能只证明 gap 分支可展示。
   it('反馈详情默认收起，保留未知字段且不修改载荷', async () => {
     const data=[{objectId:'TASK',field:'demands',message:'通联需求与所选输入不匹配'},{objectId:'TASK',field:'futureField',message:'待核对'}];

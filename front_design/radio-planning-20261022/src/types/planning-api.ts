@@ -33,6 +33,8 @@ export interface ApiPlanningJob {
   phases: { name: string; state: 'waiting' | 'running' | 'done' }[];
   result: ApiPlanningResult | null; outcome: { code: number; message: string; suggestions: string[]; gap: PlanningIssue[] } | null;
   error: string | null; expired: boolean; sourceChanged: boolean; savedPlanId: string | null;
+  // 取消受理与执行停止分开；旧响应可不提供此扩展。
+  cancelRequested?: boolean;
   // 独立方案调整不改写任务条件；档位身份仅供 Mock 使用。
   adjustment?: PlanningAdjustment; resultPresetId?: string;
 }
@@ -102,7 +104,7 @@ export type PlanningPlanSummary = Pick<ApiPlan,'id'|'taskId'|'name'|'version'|'s
 // 全局历史只读摘要，任务内完整方案接口仍保持原契约。
 export type SavedPlanningPlansQuery = ApiPageQuery & { state?: ApiPlan['state'] };
 export type PlanningReferenceSummary = Pick<PlanVersion,'id'|'taskId'|'name'|'version'|'state'|'sourceChanged'> & { originLabel: string };
-export type PlanningProgress = Pick<ApiPlanningJob,'id'|'taskId'|'revision'|'state'|'progress'|'phases'|'error'|'expired'|'sourceChanged'|'savedPlanId'> & { resultKey: string; adjustmentKey: string | null };
+export type PlanningProgress = Pick<ApiPlanningJob,'id'|'taskId'|'revision'|'state'|'progress'|'phases'|'error'|'expired'|'sourceChanged'|'savedPlanId'|'cancelRequested'> & { resultKey: string; adjustmentKey: string | null };
 export interface PlanningMutationReceipt {
   objectId: string; taskId: string; revision: string; changed: boolean;
   // 非成功业务码携带的有效参考结果必须保留，不能因拆回执丢失建议与缺口。

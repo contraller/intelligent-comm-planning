@@ -67,6 +67,10 @@
       "
     />
     <p v-if="terrainMessage" class="notice warn" role="status">{{ terrainMessage }} 站点和链路仍可浏览。</p>
+    <div v-if="planning.step === 1 && (planning.executionBlocked || planning.queryError)" class="notice warn" role="status" aria-label="当前规划作业状态">
+      <p>{{ planning.unverifiedJobId ? '当前任务有尚未核实的规划作业，核实状态前暂停提交。' : planning.queryError ? '作业状态查询中断，请恢复查询；当前作业及输入仍保留。' : '当前规划尚未结束，请等待完成或取消后再提交。' }}</p>
+      <button class="btn small" :disabled="planning.busy || !!planning.pending || !task.readable" @click="showCurrentPlanningJob">查看当前作业状态</button>
+    </div>
     <details
       v-if="planning.step !== 1 && planning.job?.solutions"
       class="solution-choices"
@@ -245,6 +249,7 @@
             :candidates="candidates.view.value"
             @candidate-active="candidateTab = $event"
             :result="planning.result"
+            :empty-message="emptyResultMessage"
             :outcome="planning.selectedPlan?.outcome"
             :radio-count="resultRadioCount"
             :confirmed-configuration="planning.selectedPlan?.confirmedConfiguration"
@@ -360,6 +365,7 @@
           <button
             v-if="planning.step === 2"
             class="btn primary small"
+            :disabled="!planning.result || planning.running || planning.busy || !!planning.pending"
             @click="changePlanningStep(3)"
             >下一步：保存或调整方案</button
           >
@@ -476,6 +482,10 @@ async function changePlanningStep(step:number){
   changingStep=true;const session=auth.generation,current=planning.step;
   try{if((!coveragePanel.value||await coveragePanel.value.requestLeave())&&session===auth.generation&&!auth.blocked&&planning.step===current)planning.step=step;}
   finally{changingStep=false;}
+}
+async function showCurrentPlanningJob() {
+  await planning.refreshBlockingJob();
+  if (planning.job) await changePlanningStep(2);
 }
 const frozenCoverageQuery=computed<FrozenCoverageQuery|null>(()=>{
   const plan=planning.selectedPlan;
@@ -659,6 +669,8 @@ const workflowHint = computed(() =>
   planning.step === 2
     ? planning.result
       ? '先查看约束结论和三项指标，再按需查看分项；满意后进入下一步保存或调整。'
+      : planning.job?.state === 'FAILED' || planning.job?.state === 'CANCELLED'
+        ? emptyResultMessage.value
       : '等待规划结果；可查看阶段进度，异常时按提示恢复。'
     : editingAdjustment.value
       ? planning.adjustmentStatus
@@ -672,6 +684,12 @@ const workflowHint = computed(() =>
               ? '已保存版本。可直接设为当前方案，或先调整参数；历史与对比按需查看。'
               : '先把所选结果保存为方案。保存后可直接选用，也可继续调整。',
 );
+// 终态不再沿用等待结果的占位文案，具体原因仍取服务端结论。
+const emptyResultMessage = computed(() => planning.job?.state === 'FAILED'
+  ? '本次规划已结束，未生成可用规划方案。请查看上方原因和建议。'
+  : planning.job?.state === 'CANCELLED' ? '本次规划已取消，未生成新的规划结果。'
+  : planning.running ? '规划仍在运行，结果尚未生成。'
+  : '提交规划并取得结果后，在此查看各分项。');
 watch(
   () => [adjustmentSaved.value, planning.busy, planning.pending, planning.adjustmentOpen] as const,
   ([saved, busy, pending, open]) => {
@@ -684,7 +702,9 @@ const submitHint = computed(() =>
     ? '当前账号没有规划执行权限'
     : task.pendingSave || planning.pending
       ? '请先核实待确认的操作结果'
-      : planning.busy || planning.running
+      : planning.unverifiedJobId
+        ? '请先核实当前任务已有的规划作业状态'
+      : planning.busy || planning.executionBlocked
         ? '请等待当前作业或操作完成'
         : planning.adjustmentOpen || planning.adjustmentDirty
           ? '请先处理方案调整输入'
@@ -1188,6 +1208,12 @@ onBeforeUnmount(() => {
 .result-column > .notice {
   margin: 0;
   font-size: 12px;
+}
+/* 进度和失败原因不能被下方结果面板挤出可视区域。 */
+.result-content > :deep(.compact-progress) {
+  flex: 0 0 auto;
+  max-height: min(360px, 50vh);
+  overflow: auto;
 }
 .result-content > :deep(.result-panel) {
   flex: 1 1 300px;

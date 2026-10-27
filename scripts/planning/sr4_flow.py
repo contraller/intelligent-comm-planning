@@ -38,6 +38,69 @@ from plan_pipeline import (topology_from_deployment, alternative_parent_solution
 TIME_LIMIT_S = 300.0
 SURVIVABILITY_SCOPES = ("NETWORK", "TASK")
 
+
+class ProvenInfeasible(ValueError):
+    """只用于必要条件反证，近似传播和启发式搜索不能使用此结论。"""
+    def __init__(self, reasons, required, upper_bound):
+        # 摘要保持简短，逐对象原因放入完整详情，避免全网错误超出接口文本上限。
+        count = len({row["demand_id"] for row in reasons})
+        message = (f"冻结输入已证明无法满足必要通联门槛：{count}条必要需求受端点设备或频点限制，"
+                   f"连通率理论上限{upper_bound:.1%}，要求{required:.1%}。")
+        super().__init__(message)
+        self.outcome = dict(code=3001, kind="PROVEN_INFEASIBLE", message=message,
+            proven_infeasible=True, reasons=reasons,
+            gap=[dict(objectId=row.get("device_id") or row["node_id"], field="frequency",
+                      message=row["message"]) for row in reasons],
+            mandatory_connectivity_upper_bound=upper_bound,
+            required_mandatory_connectivity=required,
+            suggestions=["核对端点在架设备、指定设备与冻结频率筛选条件"])
+
+
+def preflight_frequency(demands, devices, models, pool_rows, constraints):
+    """端点必须至少有一台设备能使用冻结池中的频点；中继无法弥补端点缺口。
+
+    不要求两端同频，不推断传播、带宽、端口竞争或拓扑搜索已经无解。
+    只有可证明不可能的必要需求占比使连通率上界低于门槛时才拒绝。
+    """
+    mandatory = [row for row in demands if str(row.get("is_mandatory", "false")).lower() == "true"]
+    if not mandatory:
+        return
+    by_model = {row["model_id"]: row for row in models}
+    pool = FQ.FreqPool(pool_rows)
+    reasons, impossible = [], 0
+    for demand in mandatory:
+        failures = []
+        for endpoint, specified in (("src_node_id", "source_device_id"),
+                                    ("dst_node_id", "target_device_id")):
+            node_id, device_id = demand[endpoint], demand.get(specified)
+            options = [row for row in devices if row["node_id"] == node_id
+                       and row.get("availability", "ACTIVE") == "ACTIVE"
+                       and (not device_id or row["device_id"] == device_id)]
+            if not options:
+                failures.append(dict(code="ENDPOINT_DEVICE_UNAVAILABLE", node_id=node_id,
+                    device_id=device_id, message=f"必要需求{demand['demand_id']}的端点{node_id}无可用指定设备"))
+                continue
+            usable = False
+            for device in options:
+                model = by_model.get(device["model_id"])
+                if model is None:
+                    raise ValueError("冻结设备型号缺失：" + device["model_id"])
+                low, high = float(model["freq_min_khz"]), float(model["freq_max_khz"])
+                if any(low <= channel["freq_khz"] <= high
+                       for channel in pool.of_band(model["device_class"])):
+                    usable = True
+                    break
+            if not usable:
+                failures.append(dict(code="ENDPOINT_FREQUENCY_EMPTY", node_id=node_id,
+                    device_id=device_id, message=f"必要需求{demand['demand_id']}的端点{node_id}在冻结频率池及筛选条件下无可用频点"))
+        if failures:
+            impossible += 1
+            reasons.extend(dict(row, demand_id=demand["demand_id"]) for row in failures)
+    upper = (len(mandatory) - impossible) / len(mandatory)
+    required = constraints.get("mandatory_e2e_connectivity", MO.DEFAULT_CONSTRAINTS["mandatory_e2e_connectivity"])
+    if upper + 1e-9 < required:
+        raise ProvenInfeasible(reasons, required, upper)
+
 # 历史临时扩容已进入带来源标记的构造资源池；保留显式传参的假设试验入口。
 WHATIF_EXTRA_CHANNELS = ()
 
@@ -722,7 +785,6 @@ def run(task_id=None, preset="TERRAIN", strategy="MAX_RELIABILITY",
 
     # ── 1 任务条件输入 ──
     t0 = time.time()
-    terrain = default_terrain(verbose=False)
     nodes, devices = read("node.csv"), read("device.csv")
     # 冻结表保留完整审计输入；实际装配、绑定与代表型号选择均只用在架设备。
     devices = [row for row in devices if row.get("availability", "ACTIVE") == "ACTIVE"]
@@ -738,6 +800,14 @@ def run(task_id=None, preset="TERRAIN", strategy="MAX_RELIABILITY",
     demands = [d for d in demands_all if task_id is None or d["task_id"] == task_id]
     if not demands:
         raise ValueError("任务 %s 没有通联需求" % task_id)
+    pool_rows, jam_rows = read("frequency_resource.csv"), read("interference_source.csv")
+    if interference_rows is not None:
+        jam_rows = [dict(row) for row in interference_rows]
+    pool_rows = pool_rows + extra_freq_rows
+    frequency_constraints = (resource_rows or {}).get("frequency_constraints")
+    pool_rows = constrained_frequency_rows(pool_rows, frequency_constraints)
+    preflight_demands = demands if (task_id is None or survivability_scope == "TASK") else demands_all
+    preflight_frequency(preflight_demands, devices, models, pool_rows, constraints or {})
     active_ids = {row["device_id"] for row in devices}
     active_nodes = {row["node_id"] for row in devices}
     for demand in demands:
@@ -745,12 +815,7 @@ def run(task_id=None, preset="TERRAIN", strategy="MAX_RELIABILITY",
             raise ValueError("通联端点没有在架设备，不能自动虚构替代设备")
         if any(demand.get(key) and demand[key] not in active_ids for key in ("source_device_id", "target_device_id")):
             raise ValueError("指定通联设备不存在或已下架")
-    pool_rows, jam_rows = read("frequency_resource.csv"), read("interference_source.csv")
-    if interference_rows is not None:
-        jam_rows = [dict(row) for row in interference_rows]
-    pool_rows = pool_rows + extra_freq_rows
-    frequency_constraints = (resource_rows or {}).get("frequency_constraints")
-    pool_rows = constrained_frequency_rows(pool_rows, frequency_constraints)
+    terrain = default_terrain(verbose=False)
     metrics_rows, cand_rows = read("link_metric.csv"), read("candidate_site.csv")
     stations = stations_from_nodes(nodes, devices, models, antennas)
     planning_input = copy.deepcopy((resource_rows or {}).get("planning_input"))
