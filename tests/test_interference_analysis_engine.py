@@ -199,6 +199,8 @@ def _f12_payload(frozen_sample, constraints):
     _, source, _ = frozen_sample
     rows = deepcopy(source["resource"]["tables"])
     input_data = {"frequencyConstraints": constraints, "presetId": "balanced", "demands": [],
+        "bbox": [113.995, 37.995, 114.02, 38.01],
+        "stationIds": [row["node_id"] for row in source["scene"]["plan_snapshot"]["raw_snapshot"]["detail"]["nodes"]],
         "constraints": {"connectivityPercent": 100, "survivabilityPercent": 90, "maxRelayHops": 2}}
     payload = _algorithm_payload(SimpleNamespace(task_id="UNIT-TASK"),
         SimpleNamespace(input_snapshot=input_data, resource_revision="UNIT-RESOURCE"), frozen_rows=rows)

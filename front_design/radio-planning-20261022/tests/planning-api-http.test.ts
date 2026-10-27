@@ -15,6 +15,15 @@ const detailsDto = (): PlanningResultDetails => ({ schemaVersion: 1, assetVersio
 });
 const options={context:'planning' as const,taskId:'T1'};
 describe('网络规划 HTTP 契约',()=>{
+  it('停止标记可省略，提供时只接受布尔值并透传进度读取', async () => {
+    expect(readPlanningJob(jobDto(), options)).not.toHaveProperty('stopping');
+    const dto = { ...jobDto(), status: 'FAILED', result: null, outcome: null, stopping: true, error: '计算超时' };
+    const service = createPlanningHttp(httpFixture(() => response(dto)).request, () => '/api/v1');
+    expect((await service.getPlanningTaskProgress({ ...options, jobId: 'J1' })).stopping).toBe(true);
+    dto.stopping = false;
+    expect((await service.getPlanningTaskProgress({ ...options, jobId: 'J1' })).stopping).toBe(false);
+    expect(() => readPlanningJob({ ...dto, stopping: 'false' }, options)).toThrow('stopping');
+  });
   it('作业和保存方案回读同一部署摘要，旧快照缺省不补算', async () => {
     const details = detailsDto();
     details.deploymentSummary = { mode: 'FIXED_COUNT', requestedCount: 5, actualCount: 0,

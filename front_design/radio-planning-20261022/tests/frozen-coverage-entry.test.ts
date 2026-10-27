@@ -24,13 +24,13 @@ beforeEach(()=>{
 });
 afterEach(()=>{app?.unmount();app=undefined;disposePinia(pinia);vi.restoreAllMocks();vi.unstubAllGlobals();});
 async function settle(){for(let count=0;count<8;count++){await Promise.resolve();await nextTick();}}
-async function fixture(context:'planning'|'gis'='planning',selected=false,v4?:ReturnType<typeof coverageV4Case>){
+async function fixture(context:'planning'|'gis'='planning',selected=false,v4?:ReturnType<typeof coverageV4Case>,readonly=false){
   const data=v4??(selected?bandwidthCase():coverageCase());data.query.context=context;
   // 实际组件默认采样参数与响应保持一致，不借测试桩抹掉参数差异。
   Object.assign(data.parameters,{hour:12,cell_m:5000,az_step_deg:10});
   const extra=v4??bandwidthCase(selected),query={...data.query};delete query.bandwidthSelection;
-  const client={getBandwidthOptions:vi.fn<FrozenCoverageClient['getBandwidthOptions']>().mockResolvedValue(extra.options),saveBandwidthSelection:vi.fn<FrozenCoverageClient['saveBandwidthSelection']>().mockResolvedValue(extra.selection),getBandwidthSelection:vi.fn<FrozenCoverageClient['getBandwidthSelection']>().mockResolvedValue(extra.selection),getCache:vi.fn<FrozenCoverageClient['getCache']>().mockResolvedValue(data.cache),compute:vi.fn<FrozenCoverageClient['compute']>().mockResolvedValue(data.job),getJob:vi.fn<FrozenCoverageClient['getJob']>().mockResolvedValue(data.job),cancel:vi.fn<FrozenCoverageClient['cancel']>().mockResolvedValue(data.job)};
-  const root=node('root'),overlay=vi.fn();app=renderer.createApp({render:()=>h(FrozenCoveragePanel,{query,services:client,onOverlay:overlay})});app.use(pinia);app.provide(ssrContextKey,{});app.mount(root);await settle();return {data,client,root,overlay,extra};
+  const client={getLatestCache:vi.fn<NonNullable<FrozenCoverageClient['getLatestCache']>>().mockResolvedValue(data.cache),getBandwidthOptions:vi.fn<FrozenCoverageClient['getBandwidthOptions']>().mockResolvedValue(extra.options),saveBandwidthSelection:vi.fn<FrozenCoverageClient['saveBandwidthSelection']>().mockResolvedValue(extra.selection),getBandwidthSelection:vi.fn<FrozenCoverageClient['getBandwidthSelection']>().mockResolvedValue(extra.selection),getCache:vi.fn<FrozenCoverageClient['getCache']>().mockResolvedValue(data.cache),compute:vi.fn<FrozenCoverageClient['compute']>().mockResolvedValue(data.job),getJob:vi.fn<FrozenCoverageClient['getJob']>().mockResolvedValue(data.job),cancel:vi.fn<FrozenCoverageClient['cancel']>().mockResolvedValue(data.job)};
+  const root=node('root'),overlay=vi.fn();app=renderer.createApp({render:()=>h(FrozenCoveragePanel,{query,services:client,readonly,onOverlay:overlay})});app.use(pinia);app.provide(ssrContextKey,{});app.mount(root);await settle();return {data,client,root,overlay,extra};
 }
 async function click(root:HostNode,label:string){const button=all(root,row=>row.tag==='button'&&textOf(row)===label)[0];expect(button).toBeDefined();await (button.props.onClick as ()=>Promise<void>)();await settle();}
 function field(root:HostNode,label:string){const control=all(root,row=>row.props['aria-label']===label)[0];expect(control).toBeDefined();return control;}
@@ -101,7 +101,7 @@ describe('冻结覆盖正式入口',()=>{
     expect(planning).toContain(':services="collaborationHttp.frozenCoverage"');expect(gis).toContain(':coverage-services="collaborationHttp.frozenCoverage"');
     expect(frozen).toContain('FrozenCoveragePanel');expect(frozen).toMatch(/context:\s*'gis'/);expect(map).toContain('frozenCoverageLayer(');
     expect(map).toContain('props.frozenNetwork?.identity.plan_id');expect(map).toContain('watch(()=>props.frozenCoverage,paint)');
-    expect(map).toContain('if(frozenLayer) layers.push(frozenLayer)');
+    expect(map.replace(/\s/g,'')).toContain('if(frozenLayer&&frozenCoverageRender)layers.push(frozenLayer,frozenCoverageRender.deviceLayer)');
     expect(planning).not.toContain('createFrozenCoverageHttp(');expect(gis).not.toContain('createFrozenCoverageHttp(');
   });
   it.each([{complete:226,unavailable:26,skipped:208},{complete:2,unavailable:1,skipped:3}])('V4按summary区分活动缺带宽与本次无活动链路，不硬编码数量 %j',async counts=>{
@@ -147,5 +147,19 @@ describe('冻结覆盖正式入口',()=>{
     await click(f.root,'应用到勾选项（1）');await click(f.root,'预览选择');expect(f.client.saveBandwidthSelection).not.toHaveBeenCalled();
     await click(f.root,'确认并提交选择');expect(f.client.saveBandwidthSelection.mock.calls[0]![1]).toEqual(saved.choices);
     expect(f.client.compute).not.toHaveBeenCalled();
+  });
+});
+
+
+describe('只读覆盖历史参数恢复',()=>{
+  it('读取已有计算恢复真实采样参数和覆盖，完全不提交计算或带宽选择',async()=>{
+    const f=await fixture('planning',false,coverageV5Case(),true);
+    f.data.cache.parameters.cell_m=2500;
+    await click(f.root,'读取覆盖缓存');
+    expect(f.client.getLatestCache).toHaveBeenCalledOnce();
+    expect(f.client.compute).not.toHaveBeenCalled();expect(f.client.saveBandwidthSelection).not.toHaveBeenCalled();
+    expect(f.overlay.mock.lastCall![0]?.deviceId).toBe('D1');
+    expect(textOf(f.root)).toContain('2500 m');
+    expect(textOf(f.root)).not.toContain('计算冻结覆盖');
   });
 });

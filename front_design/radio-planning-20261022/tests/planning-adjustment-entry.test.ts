@@ -26,6 +26,7 @@ import { clientTemplate } from './helpers/vue-client';
 vi.mock('../src/components/MapCanvas.vue',async()=>{const {defineComponent,h}=await import('vue');return{default:defineComponent({inheritAttrs:false,props:['stations','links','mockCoverage','planningOverlay'],setup:props=>()=>h('map-probe',{...props})})};});
 vi.mock('../src/components/AppDrawer.vue',async()=>{const {defineComponent,h}=await import('vue');return{default:defineComponent({inheritAttrs:false,props:['visible','title'],render(){return this.visible?h('drawer-probe',{title:this.title},[this.$slots.default?.(),this.$slots.footer?.()]):null;}})};});
 vi.mock('../src/components/AppTable.vue',()=>({default:{inheritAttrs:false,render:()=>null}}));
+vi.mock('../src/components/FrozenCoveragePanel.vue',()=>({default:Vue.defineComponent({inheritAttrs:false,setup(_p,{expose}){expose({requestLeave:async()=>true,hasProtectedSelection:()=>false,readCache:async()=>{}});return()=>null;}})}));
 vi.mock('../src/components/TaskApiPanel.vue',()=>({default:{inheritAttrs:false,render:()=>null}}));
 vi.mock('../src/components/ResourceReadStatus.vue',()=>({default:{inheritAttrs:false,render:()=>null}}));
 vi.mock('../src/components/PlanningApiProgressPanel.vue',()=>({default:{inheritAttrs:false,render:()=>null}}));
@@ -52,12 +53,12 @@ async function click(root:Host,label:string){const entry=button(root,label);expe
 async function input(root:Host,label:string,value:string){const entry=control(root,label);expect(entry).toBeDefined();entry.props.onInput({target:{value}});await flush();}
 let app:App<Host>|undefined,pinia:ReturnType<typeof createPinia>|undefined;
 afterEach(()=>{app?.unmount();app=undefined;if(pinia)disposePinia(pinia);pinia=undefined;vi.restoreAllMocks();vi.unstubAllGlobals();vi.useRealTimers();});
-async function mount(component:typeof PlanningApiView){
+async function mount(component:typeof PlanningApiView,path='/planning'){
   vi.stubGlobal('Document',class {});vi.stubGlobal('ShadowRoot',class {});
   vi.stubGlobal('window',new EventTarget());vi.stubGlobal('document',new EventTarget());
   const router=createRouter({history:createMemoryHistory(),routes:[{path:'/planning',component},{path:'/situation',component:{render:()=>null}}]});
   app=renderer.createApp({render:()=>h(RouterView)});app.use(pinia!);app.use(router);app.provide(ssrContextKey,{});
-  await router.push('/planning');await router.isReady();const root=node('root');app.mount(root);await flush();return{root,router};
+  await router.push(path);await router.isReady();const root=node('root');app.mount(root);await flush();return{root,router};
 }
 async function mockEntry(){
   vi.useFakeTimers();vi.setSystemTime(new Date('2026-10-15T12:00:00Z'));pinia=createPinia();setActivePinia(pinia);
@@ -72,13 +73,23 @@ async function mockEntry(){
   const task=useTaskInputStore();await task.initialize('planning');await task.open(saved.plan.taskId,false);
   vi.spyOn(useResourceReadStore(),'activate').mockResolvedValue(true);vi.spyOn(task,'initialize').mockResolvedValue();
   const planning=usePlanningApiStore();vi.spyOn(planning,'start').mockImplementation(()=>{});await nextTick();
-  const parent=await raw.getPlanningPlan({context:'planning',taskId:saved.plan.taskId,planId:saved.plan.id});planning.selectedPlan=parent;planning.step=3;
-  return{...await mount(PlanningApiView),planning,task,storage,raw,auth,parent};
+  // 正常页面start会核实父作业；此fixture屏蔽轮询后需显式核实其成功终态。
+  await planning.refreshJob(submitted.view.job.id);expect(planning.running).toBe(false);expect(planning.unverifiedActiveJobId).toBeNull();
+  const parent=await raw.getPlanningPlan({context:'planning',taskId:saved.plan.taskId,planId:saved.plan.id});
+  const path=`/planning?taskId=${encodeURIComponent(saved.plan.taskId)}&planId=${encodeURIComponent(saved.plan.id)}`;
+  const page=await mount(PlanningApiView,path);
+  // 等真实路由恢复完成，再通过可见步骤按钮进入方案管理，避免onMounted覆盖fixture状态。
+  await vi.waitFor(()=>{expect(planning.selectedPlan?.id).toBe(parent.id);expect(planning.step).toBe(2);expect(planning.loading).toBe(false);});
+  await click(page.root,'3 · 方案调整与对比');
+  await vi.waitFor(()=>expect(planning.step).toBe(3));
+  await click(page.root,'保存方案');
+  return{...page,planning,task,storage,raw,auth,parent};
 }
 async function apiEntry(){
   const fixture=await storeFixture();pinia=fixture.pinia;vi.spyOn(useResourceReadStore(),'activate').mockResolvedValue(true);vi.spyOn(fixture.task,'initialize').mockResolvedValue();
   const planning=usePlanningApiStore();await nextTick();planning.selectedPlan=apiPlan();planning.step=3;
-  return{...fixture,planning,...await mount(PlanningApiView)};
+  const page=await mount(PlanningApiView);await click(page.root,'保存方案');
+  return{...fixture,planning,...page};
 }
 
 describe('具体方案调整真实页面入口',()=>{
@@ -127,7 +138,7 @@ describe('具体方案调整真实页面入口',()=>{
     await key('ArrowLeft');expect(devices.props['aria-selected']).toBe(true);expect(focus).toHaveBeenCalledTimes(4);expect(preventDefault).toHaveBeenCalledTimes(4);
     await click(tabs,'主路由');await click(tabs,'设备参数');
     expect(control(s.root,'E1 发射功率').value).toBe('invalid');expect(panels[0].style.display).not.toBe('none');
-    expect(all(s.root,row=>row.tag==='h3').map(textOf)).toEqual(expect.arrayContaining(['修改参数','本次调整变化','保存为新版本']));
+    expect(all(s.root,row=>row.tag==='h3').map(textOf)).toEqual(expect.arrayContaining(['修改参数','本次调整变化','保存调整为新版本']));
   });
   it('无修改退出调整回到保存版本，不保留空预览或继续编辑入口',async()=>{
     const s=await apiEntry(),coverage=s.planning.selectedPlan!.result.coverage;await click(s.root,'调整此方案');await click(s.root,'收起调整');
@@ -136,7 +147,7 @@ describe('具体方案调整真实页面入口',()=>{
   });
   it('调整预览另存后收起编辑并只针对新版本提供确认',async()=>{
     const s=await mockEntry();await click(s.root,'调整此方案');await click(s.root,s.task.adjustmentExamples.find(row=>row.id==='economical')!.label);await click(s.root,'重试预览');
-    vi.setSystemTime(Date.now()+20000);await s.planning.refreshJob();await flush();await click(s.root,'保存调整为新版本');
+    vi.setSystemTime(Date.now()+20000);await s.planning.refreshJob();await flush();await click(s.root,'对比与保存调整结果');await click(s.root,'保存调整为新版本');
     expect(s.planning.selectedPlan!.id).not.toBe(s.parent.id);expect(s.planning.selectedPlan!.parentPlanId).toBe(s.parent.id);expect(s.planning.adjustmentOpen).toBe(false);
     expect(button(s.root,'转正并设为当前方案').props.disabled).toBe(false);const selected=s.planning.selectedPlan!.id;
     const pending=button(s.root,'转正并设为当前方案').props.onClick();await flush();s.task.answer('save');await pending;await flush();
@@ -171,9 +182,9 @@ describe('具体方案调整真实页面入口',()=>{
   it('无匹配结果保留输入与父预览，关闭和离开 GIS 路由都有草稿保护',async()=>{
     const s=await mockEntry();await click(s.root,'调整此方案');await input(s.root,'DV-0001 发射功率','33');await click(s.root,'重试预览');
     expect(s.planning.error).toContain('暂无');expect(s.planning.adjustmentDraft!.manualOverrides[0].txPowerDbm).toBe(33);expect(s.planning.adjustmentResult).toBeNull();
-    const close=button(s.root,'收起调整').props.onClick();s.task.answer('cancel');await close;expect(s.planning.adjustmentOpen).toBe(true);
+    await click(s.root,'收起调整');expect(s.planning.adjustmentOpen).toBe(false);expect(s.planning.adjustmentDirty).toBe(true);expect(s.planning.adjustmentDraft!.manualOverrides[0].txPowerDbm).toBe(33);
     const leave=s.router.push('/situation');await flush();expect(s.task.decision).not.toBeNull();s.task.answer('cancel');await leave;expect(s.router.currentRoute.value.path).toBe('/planning');
-    const discard=s.planning.closeAdjustment();s.task.answer('discard');await discard;expect(s.planning.adjustmentDraft).toBeNull();expect(s.planning.adjustmentDirty).toBe(false);
+    const discard=button(s.root,'放弃本次调整').props.onClick();await flush();expect(s.task.decision?.title).toBe('放弃方案调整');s.task.answer('discard');await discard;expect(s.planning.adjustmentDraft).toBeNull();expect(s.planning.adjustmentDirty).toBe(false);expect(s.planning.selectedPlan?.id).toBe(s.parent.id);
   });
   it('Mock 写入回包不确定时先读原请求记录，禁止改输入或重复作业',async()=>{
     const s=await mockEntry();await click(s.root,'调整此方案');await click(s.root,s.task.adjustmentExamples[1].label);
@@ -235,5 +246,19 @@ describe('具体方案调整真实页面入口',()=>{
     expect(textOf(s.root)).toContain('原路径：未提供');expect(s.planning.adjustmentDraft!.manualPaths).toEqual([]);
     await click(s.root,'设置两端主路径');expect(s.planning.adjustmentDraft!.manualPaths).toEqual([{demandId:'D1',nodePath:['N1','N2']}]);
     await click(s.root,'恢复原路径');expect(s.planning.adjustmentDraft!.manualPaths).toEqual([]);expect(textOf(s.root)).toContain('原路径：未提供');
+  });
+});
+
+describe('父方案转正旧回调保护',()=>{
+  it('正在编辑或隐藏保留的dirty草稿均拒绝旧父方案确认，不发业务写',async()=>{
+    const s=await apiEntry();expect(s.planning.canConfirm).toBe(true);
+    const parentId=s.planning.selectedPlan!.id, stale=button(s.root,'转正并设为当前方案').props.onClick;
+    await click(s.root,'调整此方案');expect(s.planning.canConfirm).toBe(false);
+    let action=Promise.resolve(stale());await flush();expect(s.task.decision).toBeNull();await action;
+    expect(previewService.confirmPlanningReceipt).not.toHaveBeenCalled();
+    await input(s.root,'E1 发射功率','22');await click(s.root,'收起调整');
+    expect(s.planning.adjustmentOpen).toBe(false);expect(s.planning.adjustmentDirty).toBe(true);expect(s.planning.canConfirm).toBe(false);
+    action=Promise.resolve(stale());await flush();expect(s.task.decision).toBeNull();await action;
+    expect(previewService.confirmPlanningReceipt).not.toHaveBeenCalled();expect(s.planning.selectedPlan?.id).toBe(parentId);expect(s.planning.selectedPlan?.current).toBe(false);
   });
 });

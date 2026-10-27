@@ -26,6 +26,7 @@ export const useTaskInputStore = defineStore('task-input', () => {
   const library = ref<ApiPage<ApiTaskSummary> | null>(null), libraryQuery = ref({ pageNum: 1, pageSize: 10, search: '' });
   const nodes = ref<ReadNode[]>([]), losNodes = ref<ReadNode[]>([]), devices = ref<ReadDevice[]>([]), issues = ref<PlanningIssue[]>([]);
   const importPreview = ref<ApiTaskImportPreview | null>(null), importFiles = ref<TaskFileInput[]>([]), importVisible = ref(false), importBusy = ref(false), importBaseline = ref('');
+  const referencesRefreshing = ref(false);
   const pendingSave = ref<TaskApiSave | null>(null), auxiliary = ref<Record<string, boolean>>({}), decision = ref<DecisionRequest | null>(null);
   const validationInput = ref<PlanningInput | null>(null), validationTaskId = ref(''), validationExtras = ref<PlanningIssue[]>([]);
   watch(taskId, () => { validationInput.value=null;validationExtras.value=[]; }, {flush:'sync'});
@@ -48,11 +49,12 @@ export const useTaskInputStore = defineStore('task-input', () => {
   let resolveDecision: ((value: Decision) => void) | undefined, generation = 0, lifetime = 0;
   const controllers = new Map<string, AbortController>();
   const readable = computed(() => auth.can('planning.view') && (context.value !== 'gis' || auth.can('situation.view')));
-  const editable = computed(() => readable.value && auth.can('planning.execute') && !busy.value && !running.value && !pendingSave.value);
+  const editable = computed(() => readable.value && auth.can('planning.execute') && !busy.value && !running.value && !pendingSave.value && !referencesRefreshing.value);
+  const resourceStale = computed(() => !!draft.value && !!resources.workspace && resourceRevision.value !== resources.workspace.revision);
   const changed = computed(() => !!draft.value && (JSON.stringify(draft.value) !== baseline.value || !!saved.value && resourceRevision.value !== saved.value.resourceRevision));
   const dirty = computed(() => changed.value || !!importFiles.value.length || Object.values(auxiliary.value).some(Boolean));
   const options = (signal?: AbortSignal): TaskApiOptions => ({ context: context.value, signal });
-  function stop() { generation++; controllers.forEach(c => c.abort()); controllers.clear(); loading.value = false; importBusy.value = false; answer('cancel'); }
+  function stop() { generation++; controllers.forEach(c => c.abort()); controllers.clear(); loading.value = false; referencesRefreshing.value = false; importBusy.value = false; answer('cancel'); }
   async function read<T>(key: string, action: (signal: AbortSignal) => Promise<T>): Promise<T | undefined> {
     if (!readable.value) return;
     controllers.get(key)?.abort(); const controller = new AbortController(), token = generation, session = auth.generation; controllers.set(key, controller);
@@ -77,7 +79,7 @@ export const useTaskInputStore = defineStore('task-input', () => {
     loading.value = false;
   }
   async function refreshReferences(adoptCurrent = true) {
-    if (!draft.value || !resources.workspace || !readable.value) return;
+    if (!draft.value || !resources.workspace || !readable.value) return false;
     const revision = adoptCurrent ? resources.workspace.revision : resourceRevision.value || resources.workspace.revision;
     const input = copy(draft.value), selectedTask = taskId.value;
     const workspaceRevision = resources.workspace.revision;
@@ -100,6 +102,33 @@ export const useTaskInputStore = defineStore('task-input', () => {
       nodes.value = values.selectedNodes.filter(node => input.stationIds.includes(node.id));
       losNodes.value = values.selectedNodes.filter(node => losIds.includes(node.id));
       devices.value = values.selectedDevices; resourceRevision.value = revision;
+      return true;
+    }
+    return false;
+  }
+  // 两个刷新入口必须同时采纳当前资源与同版引用；历史任务直到保存成功仍保持原快照。
+  async function refreshResources() {
+    if (!readable.value || !draft.value || busy.value || running.value || pendingSave.value || referencesRefreshing.value) return false;
+    const token = generation, session = auth.generation, selectedTask = taskId.value;
+    referencesRefreshing.value = true; error.value = '';
+    try {
+      if (!(await resources.refresh())) {
+        if (token === generation && session === auth.generation) error.value = resources.errors.workspace || '资源刷新失败，任务草稿已保留，请重试。';
+        return false;
+      }
+      if (token !== generation || session !== auth.generation || selectedTask !== taskId.value || !readable.value) return false;
+      const previous = resourceRevision.value;
+      if (!(await refreshReferences())) return false;
+      if (token !== generation || session !== auth.generation || selectedTask !== taskId.value || !readable.value) return false;
+      validationInput.value = null; validationExtras.value = [];
+      issues.value = draft.value ? taskInputIssues(draft.value) : [];
+      error.value = '';
+      notice.value = previous !== resourceRevision.value
+        ? '已刷新当前资源及任务引用，草稿已保留；请保存任务以生成绑定新资源的输入版本，再提交规划。'
+        : '已刷新当前资源及任务引用，任务草稿已保留。';
+      return true;
+    } finally {
+      if (token === generation && session === auth.generation) referencesRefreshing.value = false;
     }
   }
   async function queryLibrary(page = libraryQuery.value.pageNum) {
@@ -188,6 +217,7 @@ export const useTaskInputStore = defineStore('task-input', () => {
       validationInput.value=copy(draft.value);validationTaskId.value=taskId.value;validationExtras.value=[];
     }
     if (!editable.value || !draft.value || importFiles.value.length || Object.values(auxiliary.value).some(Boolean)) { error.value = '请先完成或放弃当前抽屉输入，再保存任务'; return false; }
+    if (resourceStale.value) { error.value = '任务引用的资源版本已过期，请点击“刷新资源”后保存；当前任务草稿已保留。'; return false; }
     // 输入框清空表示未设置；保留所有非空原值交给既有校验，重试也沿用规范化请求。
     if(draft.value.startTime==='')draft.value.startTime=null;
     issues.value = taskInputIssues(draft.value); if (issues.value.length) return false;
@@ -254,7 +284,7 @@ export const useTaskInputStore = defineStore('task-input', () => {
     if (choice === 'discard') { if (!deferDiscard) discardDraft(); return true; }
     return false;
   }
-  function clearForSession() { initialInput.value=null;adjustmentExamples.value=[];lifetime++; stop(); catalog.value = null; draft.value = null; saved.value = null; taskId.value = ''; baseline.value = ''; resourceRevision.value = ''; nodes.value = []; losNodes.value = []; devices.value = []; library.value = null; issues.value = []; pendingSave.value = null; busy.value = false; running.value = false; clearImport(); auxiliary.value = {}; error.value = ''; notice.value = ''; }
-  return { context, catalog, draft, saved, taskId, resourceRevision, nodes, losNodes, devices, library, libraryQuery, error, notice, issues, displayIssues, busy, loading, running, pendingSave, importPreview, importFiles, importVisible, importBusy, auxiliary, decision, readable, editable, dirty, changed, adjustmentExamples, loadAdjustmentExamples,
-    initialize, refreshReferences, queryLibrary, open, newTask, loadPreset, resetDraft, copyPlanInput, openPlanTask, updateInput, applyPreset, save, reconcileSave, previewImport, applyImport, clearImport, allowLeave, discardDraft, ask, answer, stop, clearForSession };
+  function clearForSession() { referencesRefreshing.value=false;initialInput.value=null;adjustmentExamples.value=[];lifetime++; stop(); catalog.value = null; draft.value = null; saved.value = null; taskId.value = ''; baseline.value = ''; resourceRevision.value = ''; nodes.value = []; losNodes.value = []; devices.value = []; library.value = null; issues.value = []; pendingSave.value = null; busy.value = false; running.value = false; clearImport(); auxiliary.value = {}; error.value = ''; notice.value = ''; }
+  return { context, catalog, draft, saved, taskId, resourceRevision, nodes, losNodes, devices, library, libraryQuery, error, notice, issues, displayIssues, busy, loading, running, pendingSave, importPreview, importFiles, importVisible, importBusy, auxiliary, decision, readable, editable, dirty, changed, resourceStale, referencesRefreshing, adjustmentExamples, loadAdjustmentExamples,
+    initialize, refreshReferences, refreshResources, queryLibrary, open, newTask, loadPreset, resetDraft, copyPlanInput, openPlanTask, updateInput, applyPreset, save, reconcileSave, previewImport, applyImport, clearImport, allowLeave, discardDraft, ask, answer, stop, clearForSession };
 });

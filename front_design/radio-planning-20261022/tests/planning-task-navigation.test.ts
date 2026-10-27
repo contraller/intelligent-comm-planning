@@ -12,6 +12,8 @@ import { createMockService } from '../src/services/mock';
 import { planningPresets } from '../src/mocks/planning-presets';
 import { authorizeStore } from './helpers/auth';
 import { TestStorage } from './helpers/storage';
+import { apiJob } from './fixtures/planning-api';
+import { planningProgress } from '../src/services/planning-api-validation';
 
 // 这里运行真实页面 setup、路由和离开守卫；可视模板由入口测试覆盖。
 Object.assign(PlanningApiView, { render: () => h('planning-view') });
@@ -38,6 +40,17 @@ async function setup(path = '/planning?taskId=T1') {
 }
 
 describe('Mock 保存任务跨页定位与草稿保护', () => {
+  it('GIS任务编辑入口保持输入步骤，并核实已有作业后继续锁定提交', async () => {
+    const s = await setup();
+    const running = { ...apiJob(), state: 'RUNNING' as const, result: null, outcome: null };
+    s.task.saved!.activeJobId = running.id;
+    vi.spyOn(previewService, 'getPlanningTaskProgress').mockResolvedValue(await planningProgress(running));
+    const query = vi.spyOn(previewService, 'getPlanningTask').mockResolvedValue(running);
+    await s.router.push('/planning?taskId=T1&editTask=1');
+    await vi.waitFor(() => expect(s.planning.job?.id).toBe(running.id));
+    expect(query).toHaveBeenCalled(); expect(s.planning.step).toBe(1);
+    expect(s.planning.canSubmit).toBe(false); expect(s.task.editable).toBe(false);
+  });
   it('显式任务编辑定位进入第一步，同任务重新定位不覆盖草稿', async () => {
   const s = await setup('/planning?taskId=T2&editTask=1'); await vi.waitFor(()=>expect(s.task.taskId).toBe('T2')); expect(s.planning.step).toBe(1);
     s.task.updateInput({ ...structuredClone(toRaw(s.task.saved!.input)), name: '未保存编辑' }); s.planning.step = 2;

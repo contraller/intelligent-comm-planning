@@ -118,6 +118,8 @@ def _source_loader(factory, plan_id, task_id, snapshot_id, *, audit_context=None
                 from .planning_operation_service import _business_context, _require_owner
                 context = _business_context(audit_context)
                 context._authenticate(session, "planning.execute" if context._writing else "planning.view")
+            if plan_id.startswith("PREVIEW-"):
+                return _preview_source(session, plan_id, task_id, snapshot_id, context)
             plan = session.get(PlanningPlan, plan_id)
             if plan is None or plan.task_id != task_id:
                 raise CoverageServiceError("冻结规划方案不存在", 2001, 404)
@@ -137,6 +139,58 @@ def _source_loader(factory, plan_id, task_id, snapshot_id, *, audit_context=None
         raise CoverageServiceError("覆盖数据库未配置", 5001, 503) from exc
     except (datasets.ResourceDatasetError, SQLAlchemyError) as exc:
         raise CoverageServiceError("冻结资源版本不可用，禁止读取current CSV", 5002, 503) from exc
+
+
+def _preview_source(session, plan_id, task_id, snapshot_id, context):
+    """覆盖候选作业的实际冻结结果，不创建或修改任何方案版本。"""
+    from .planning_job_models import PlanningJob
+    from .task_input_models import PlanningTaskRevision
+    from .resource_dataset_models import ResourceDatasetVersion
+    from . import planning_w3, planning_adjustment_service
+    from . import resource_dataset_service as datasets
+
+    job = session.get(PlanningJob, plan_id[len("PREVIEW-"):])
+    if job is None or job.task_id != task_id:
+        raise CoverageServiceError("候选规划作业不存在或归属不符", 2001, 404)
+    if job.status != "SUCCESS":
+        raise CoverageServiceError("候选规划尚未完成，请先计算当前调整", 2002, 409)
+    if context is not None and context._writing:
+        from .planning_operation_service import _require_owner
+        _require_owner(session, context, operation="planning.submit", request_id=job.request_id,
+                       object_id=job.job_id, page_context=job.context, task_id=job.task_id, revision_id=job.revision_id)
+    from sqlalchemy import select
+    from .planning_plan_models import PlanningPlan
+    # 保存后仍保留原候选来源；运行记录清理或服务重启不能切到其他方案。
+    saved = session.scalar(select(PlanningPlan).where(PlanningPlan.job_id == job.job_id))
+    if saved is not None:
+        if (saved.task_id != task_id or saved.revision_id != job.revision_id
+                or saved.condition_version != job.condition_version or saved.resource_revision != job.resource_revision
+                or saved.result_snapshot.get("snapshot_id") != snapshot_id):
+            raise CoverageServiceError("已保存版本与候选作业快照不一致", 1205, 409)
+        raw = deepcopy(saved.raw_snapshot)
+    else:
+        runtime = planning_w3.get_task_record(job.job_id)
+        solution_id = ((runtime or {}).get("result") or {}).get("solution_id")
+        if not solution_id or snapshot_id != "SNP-" + str(solution_id):
+            raise CoverageServiceError("候选快照不属于指定作业的实际结果", 1205, 409)
+        raw = planning_adjustment_service.capture_raw_snapshot({"snapshot_id": snapshot_id})
+    revision = session.get(PlanningTaskRevision, job.revision_id)
+    if revision is None or revision.task_id != task_id or revision.resource_revision != job.resource_revision:
+        raise CoverageServiceError("候选作业冻结输入不完整", 1205, 409)
+    if not planning_adjustment_service.complete_topology(raw):
+        raise CoverageServiceError("候选结果缺少完整冻结拓扑", 1205, 409)
+    if job.adjustment is not None and job.parent_plan_id:
+        from .planning_plan_models import PlanningPlan
+        parent = session.get(PlanningPlan, job.parent_plan_id)
+        if parent is None or parent.task_id != task_id or not isinstance(parent.raw_snapshot, dict):
+            raise CoverageServiceError("调整候选的基准地形来源缺失", 1205, 409)
+        raw["terrain_fingerprint"] = parent.raw_snapshot.get("terrain_fingerprint")
+    frozen = datasets._decode(session.get(ResourceDatasetVersion, job.resource_revision))
+    return {"plan_id": plan_id, "task_id": task_id, "snapshot_id": snapshot_id,
+            "input_version": job.revision_id, "condition_version": job.condition_version,
+            "resource_revision": job.resource_revision, "resource_content_hash": frozen["content_hash"],
+            "input_snapshot": deepcopy(revision.input_snapshot), "raw_snapshot": deepcopy(raw),
+            "tables": deepcopy(frozen["tables"])}
 
 
 def _default_fingerprint():
@@ -497,6 +551,25 @@ class FrozenCoverageService:
                     anchor=anchor, parameters=options, result=None if stale else result,
                     bandwidth_selection_id=bandwidth_selection_id, bandwidth_selection_hash=selection_hash,
                     reason="冻结DEM已变化，原缓存不可用于当前展示" if stale else "" if result is not None else "尚无已发布的冻结覆盖缓存")
+
+    def latest_cache(self, plan_id, task_id, snapshot_id, *, engine_version=None, audit_context=None):
+        """只读恢复同一冻结来源的最近成功计算及其真实参数/带宽选择。"""
+        version = ENGINE_VERSION if engine_version is None else engine_version
+        if version not in ENGINE_VERSIONS:
+            raise CoverageServiceError("覆盖缓存引擎版本无效")
+        _, anchor = self._source(plan_id, task_id, snapshot_id, audit_context=audit_context)
+        anchor["engine_version"] = version
+        with self._lock:
+            if self._storage_fault:
+                raise self._storage_fault
+            if self._thread is None:
+                self._scan()
+            matches = [job for jid in set(self._requests.values())
+                       if (job := self._job(jid))["state"] == "SUCCESS" and job["anchor"] == anchor]
+            latest = max(matches, key=lambda job: (job["updated_at"], job["job_id"]), default=None)
+        return self.cache(plan_id, task_id, snapshot_id, latest["parameters"] if latest else {},
+                          bandwidth_selection_id=latest.get("bandwidth_selection_id") if latest else None,
+                          engine_version=version, audit_context=audit_context)
 
     def get_job(self, job_id, *, plan_id, task_id, snapshot_id, actor_id, audit_context=None):
         with self._lock:

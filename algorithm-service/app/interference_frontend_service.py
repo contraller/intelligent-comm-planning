@@ -16,6 +16,7 @@ from .fault_plan_source import FaultPlanSourceError, _snapshot as validate_plan_
 from .interference_frontend_models import InterferenceScene, InterferenceSceneReceipt, InterferenceSceneVersion
 from .interference_frontend_schemas import FrozenPlan, SceneReceipt, SceneSummary, SceneVersion
 from .planning_plan_models import PlanningCurrentPlan, PlanningPlan
+from .task_input_models import PlanningTask
 from .resource_dataset_models import ResourceDatasetCurrent, ResourceDatasetVersion
 from . import resource_dataset_service as datasets
 
@@ -141,11 +142,13 @@ def _source_content(session, payload):
     pointer = session.scalar(select(PlanningCurrentPlan).where(
         PlanningCurrentPlan.task_id == payload.task_id).with_for_update())
     plan = session.get(PlanningPlan, payload.plan_id)
-    if plan is None or plan.task_id != payload.task_id or pointer is None:
-        fail("任务没有可用的当前确认方案", 2001, 404)
-    if (pointer.plan_id != plan.plan_id or plan.state != "CONFIRMED" or plan.source != "SR4"
-            or payload.plan_version != f"V{plan.version_no}"):
-        fail("方案不是指定版本的当前确认 SR4 方案", 1203, 409)
+    if plan is None or plan.task_id != payload.task_id:
+        fail("所选分析方案不存在或归属不符", 2001, 404)
+    # 分析输入可为已保存的参考/候选方案；不写正式方案指针。
+    if (plan.state not in {"SAVED", "REFERENCE", "CONFIRMED"} or plan.source != "SR4"
+            or payload.plan_version != f"V{plan.version_no}"
+            or plan.state == "CONFIRMED" and (pointer is None or pointer.plan_id != plan.plan_id)):
+        fail("所选分析方案的状态或版本已变化", 1203, 409)
     resource_pointer = session.scalar(select(ResourceDatasetCurrent).where(
         ResourceDatasetCurrent.scope == datasets.SCOPE).with_for_update())
     if resource_pointer is None:
@@ -303,15 +306,28 @@ def scene_detail(scene_id, query):
             fail("场景最新指针归属损坏", 5002, 503)
         current_plan = session.get(PlanningCurrentPlan, query.task_id)
         current_resource = session.get(ResourceDatasetCurrent, datasets.SCOPE)
-        plan_row = session.get(PlanningPlan, current_plan.plan_id) if current_plan else None
+        plan_row = session.get(PlanningPlan, dto["plan_id"])
         resource_row = session.get(ResourceDatasetVersion, current_resource.revision) if current_resource else None
-        missing = (plan_row is None or resource_row is None
-                   or plan_row.state != "CONFIRMED" or plan_row.source != "SR4")
+        task_row = session.get(PlanningTask, query.task_id)
+        frozen_plan = dto["plan_snapshot"]
+        missing = (plan_row is None or resource_row is None or task_row is None
+                   or plan_row.state not in {"SAVED", "REFERENCE", "CONFIRMED"} or plan_row.source != "SR4")
         reasons = []
-        if current_plan is not None and current_plan.plan_id != dto["plan_id"]:
+        if plan_row is not None and plan_row.state == "CONFIRMED" and (current_plan is None or current_plan.plan_id != dto["plan_id"]):
             reasons.append("当前确认方案已切换")
         if current_resource is not None and current_resource.revision != dto["resource_revision"]:
             reasons.append("当前资源版本已变化")
+        if task_row is not None and task_row.current_revision_id != frozen_plan["input_version"]:
+            reasons.append("当前任务输入已更新")
+        if plan_row is not None:
+            if (plan_row.task_id != query.task_id or f"V{plan_row.version_no}" != dto["plan_version"]
+                    or plan_row.revision_id != frozen_plan["input_version"]
+                    or plan_row.condition_version != frozen_plan["condition_version"]
+                    or plan_row.resource_revision != frozen_plan["resource_revision"]):
+                reasons.append("所选方案版本或来源已变化")
+            if (plan_row.raw_snapshot != frozen_plan["raw_snapshot"]
+                    or plan_row.input_snapshot != frozen_plan["input_snapshot"]):
+                reasons.append("原方案冻结内容发生变化或缺失")
         if missing:
             reasons.append("当前来源指针缺失，保留冻结数据")
         state = "HISTORICAL" if reasons and not missing else "UNKNOWN" if missing else "CURRENT"

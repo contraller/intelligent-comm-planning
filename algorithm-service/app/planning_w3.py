@@ -28,6 +28,7 @@ for _p in (REPO_ROOT / "scripts", REPO_ROOT / "scripts" / "planning"):
         sys.path.insert(0, str(_p))
 
 _TASKS: dict[str, dict[str, Any]] = {}
+_WORKERS: set[str] = set()
 _LOCK = threading.Lock()
 _CACHE: dict[str, Any] = {}
 TASK_DIR = Path(os.environ.get("ALGORITHM_TASK_DIR", REPO_ROOT / "data" / "runtime" / "tasks"))
@@ -36,6 +37,16 @@ _FINAL_STATES = {"SUCCESS", "FAILED", "CANCELLED"}
 
 class PlanningTaskCancelled(Exception):
     """算法在进度检查点收到取消请求。"""
+
+
+class PlanningTaskTimedOut(TimeoutError):
+    """作业达到运行时限，晚到检查点不得继续保存结果。"""
+
+
+def _timeout_message(timeout_s: float) -> str:
+    return (f"计算超时：已达到本次规划时限（{timeout_s:g} 秒），"
+            "未能在时限内获得规划结论。请调整任务与约束后重试；"
+            "超时不代表约束已被证明无解。")
 
 # 业务错误码，与接口文档 1.3 一致
 CODE_OK = 0
@@ -109,6 +120,17 @@ def get_task_record(task_id: str) -> dict[str, Any]:
         return dict(task or {})
 
 
+def active_worker_ids() -> tuple[str, ...]:
+    """终态反馈与线程退出独立，退出前仍保留作业的计算占用。"""
+    with _LOCK:
+        return tuple(_WORKERS)
+
+
+def task_worker_active(task_id: str) -> bool:
+    with _LOCK:
+        return task_id in _WORKERS
+
+
 def cancel_task(task_id: str) -> dict[str, Any]:
     """原子标记运行时终态；线程会在下一进度检查点退出。"""
     with _LOCK:
@@ -125,7 +147,7 @@ def cancel_task(task_id: str) -> dict[str, Any]:
 
 
 def _spawn(kind: str, payload: dict[str, Any], fn, *, task_id: str | None = None,
-           on_update=None) -> dict[str, Any]:
+           on_update=None, timeout_s: float | None = None) -> dict[str, Any]:
     if payload.get("callback_url") not in (None, ""):
         return {"code": CODE_BAD_PARAM, "message": "callback_url 尚未支持，请使用任务查询接口轮询",
                 "data": None}
@@ -139,28 +161,63 @@ def _spawn(kind: str, payload: dict[str, Any], fn, *, task_id: str | None = None
 
     initial = publish(task_id=tid, kind=kind, status="PENDING", progress=0.0,
                       stage="排队中", submitted_at=time.time(), result=None, error=None)
+    deadline = time.monotonic() + timeout_s if timeout_s is not None else None
+    watchdog = None
+
+    def timed_out():
+        publish(status="FAILED", stage="计算超时",
+                error=_timeout_message(timeout_s), finished_at=time.time())
 
     def checkpoint(progress: float, stage: str) -> None:
-        if publish(progress=progress, stage=stage)["status"] == "CANCELLED":
+        if deadline is not None and time.monotonic() >= deadline:
+            timed_out()
+        state = publish(progress=progress, stage=stage)
+        if state["status"] == "CANCELLED":
             raise PlanningTaskCancelled()
+        if state["status"] == "FAILED":
+            raise PlanningTaskTimedOut(state.get("error") or "规划计算已终止")
 
     def _worker():
         try:
-            if publish(status="RUNNING", progress=0.05, stage="加载数据")["status"] == "CANCELLED":
+            if publish(status="RUNNING", progress=0.05, stage="加载数据")["status"] in _FINAL_STATES:
                 return
             data = fn(payload, checkpoint)
+            # 没有细粒度回调的阶段也必须在返回时核对期限与终态。
+            checkpoint(0.99, "汇总结果")
             publish(status="SUCCESS", progress=1.0, stage="完成",
                     result=data, finished_at=time.time())
         except PlanningTaskCancelled:
             publish(status="CANCELLED", stage="已取消", error=None,
                     finished_at=time.time())
+        except TimeoutError as exc:
+            publish(status="FAILED", stage="计算超时",
+                    error=_timeout_message(timeout_s) if timeout_s is not None else str(exc),
+                    finished_at=time.time())
         except Exception as exc:                     # noqa: BLE001
             publish(status="FAILED", progress=1.0, stage="失败",
                     error="%s: %s" % (type(exc).__name__, exc),
                     finished_at=time.time())
+        finally:
+            if watchdog is not None:
+                watchdog.cancel()
+            with _LOCK:
+                _WORKERS.discard(tid)
 
-    if initial["status"] != "CANCELLED":
-        threading.Thread(target=_worker, daemon=True).start()
+    if initial["status"] not in _FINAL_STATES:
+        with _LOCK:
+            _WORKERS.add(tid)
+        if timeout_s is not None:
+            watchdog = threading.Timer(timeout_s, timed_out)
+            watchdog.daemon = True
+            watchdog.start()
+        try:
+            threading.Thread(target=_worker, daemon=True).start()
+        except Exception:
+            if watchdog is not None:
+                watchdog.cancel()
+            with _LOCK:
+                _WORKERS.discard(tid)
+            raise
     return {"code": CODE_OK, "message": "success",
             "data": {"task_id": tid, "estimated_sec": 5}}
 

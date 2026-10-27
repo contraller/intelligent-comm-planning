@@ -1,17 +1,18 @@
 <template>
   <section
-    class="panel"
+    class="panel planning-progress-panel"
     :class="{ 'compact-progress': compact }"
+    aria-label="规划进度与阶段"
     ><div
       v-if="showJob"
       class="panel-head"
-      ><h3>{{ planning.job ? labels[planning.job.state] : '尚未提交规划' }}</h3></div
+      ><h3>{{ planning.job?.stopping ? '正在停止后台计算' : planning.job ? labels[planning.job.state] : '尚未提交规划' }}</h3></div
     ><div class="panel-body">
       <template v-if="showJob && planning.job"
         ><p v-if="!compact || planning.running"
-          >{{ planning.job.input.name }} · {{ planning.job.progress.toFixed(0) }}%</p
+          >{{ planning.job.input.name }}<template v-if="!planning.job.stopping"> · {{ planning.job.progress.toFixed(0) }}%</template></p
         ><progress
-          v-if="planning.running || !compact"
+          v-if="!planning.job.stopping && (planning.running || !compact)"
           :value="planning.job.progress"
           max="100"
           aria-label="规划任务进度"
@@ -69,7 +70,7 @@
           v-if="planning.running || planning.queryError || !compact"
           class="toolbar"
           ><button
-            v-if="planning.running"
+            v-if="planning.running && !planning.job.stopping"
             class="btn"
             :disabled="!auth.can('planning.execute') || planning.busy || !!planning.pending"
             @click="planning.cancel"
@@ -113,6 +114,13 @@ const labels = {
 };
 </script>
 <style scoped>
+/* 进度独立占位，不被结果表格挤压成零高度；阶段过多时由本区域滚动。 */
+.planning-progress-panel {
+  flex: 0 0 auto;
+  min-width: 0;
+  max-height: min(360px, 50vh);
+  overflow: auto;
+}
 .compact-progress .panel-head {
   padding: 8px 12px;
 }
@@ -162,6 +170,7 @@ progress {
   gap: 8px;
 }
 .notice {
+  display: block;
   margin: 12px 0;
 }
 pre {

@@ -358,6 +358,7 @@ def submit_sr4(payload: dict[str, Any], *, job_id: str | None = None,
                on_update=None) -> dict[str, Any]:
     import radio_params as RP
     import routing
+    from sr4_flow import TIME_LIMIT_S
     payload = payload or {}
     scope = payload.get("survivability_scope", "NETWORK")
     if scope not in ("NETWORK", "TASK"):
@@ -372,7 +373,7 @@ def submit_sr4(payload: dict[str, Any], *, job_id: str | None = None,
         return {"code": CODE_BAD_ENUM, "message": "strategy 只能是 %s" % "/".join(routing.STRATEGIES),
                 "data": None}
     return _spawn("SR4_FLOW", payload, _do_sr4,
-                  task_id=job_id, on_update=on_update)
+                  task_id=job_id, on_update=on_update, timeout_s=TIME_LIMIT_S)
 
 
 # ─────────────────────────── 方案管理（接口文档 2.8）───────────────────────────

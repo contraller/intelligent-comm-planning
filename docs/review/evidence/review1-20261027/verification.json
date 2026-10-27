@@ -1,0 +1,12 @@
+{
+  "frontend_test_files": 20,
+  "frontend_passed": 493,
+  "backend_passed": 298,
+  "total_passed": 791,
+  "failed": 0,
+  "aggregation": "同一测试文件/测试标识采用最后一次执行结果；重跑用例去重。不是整个仓库全量测试。",
+  "typecheck": "passed",
+  "vue_lint": "passed",
+  "integration_build": "passed",
+  "browser_visual_verification": "控制连接反复超时，未完成本聊天浏览器截图验收。"
+}

@@ -96,3 +96,14 @@
 - 接口代码完成后、提交代码前，必须登记状态、测试证据、真实联调结果、相关提交和下一接口。
 - 仅存在路由或旧算法实现但尚未满足当前前端严格契约时，不得标记为“已完成（前端契约）”。
 - 未执行的测试不得登记为通过；测试桩验证与真实端到端验证必须分别记录。
+
+
+<!-- subagent-cleanup:start -->
+## 子 Agent 临时空间回收
+
+- 每次委派子 agent 前，主 agent 必须读取并应用 `C:\Users\y\.codex\skills\subagent-cleanup\SKILL.md`。默认共用现有 checkout，按文件分工；子 agent 不得自行 clone 或递归复制完整项目。确需隔离时，主 agent 在创建时登记 owner、agent ID、资源类型和绝对路径。
+- 普通临时副本统一用该技能的 `scripts/agent_scratch.ps1` 分配，根目录为 `F:\work\codex\agent-scratch\shortwave-planning`；不把 scratch 放进源项目再复制，也不重复复制数据集、依赖环境或交付包。Codex 托管 worktree 和普通 Git worktree 按技能对应流程登记与回收。
+- 每个子 agent 完成、失败或取消后，主 agent 负责确认所有写入者退出，先合入并验证成果、保存临时目录外的必要产物，再清理本任务已登记且不再使用的资源；共享目录等最后一个使用者结束。嵌套委派同样收尾。
+- 清理必须使用精确路径和对应工具：托管 worktree 用 `archive_worktree`，普通 worktree 用无 `--force` 的 `git worktree remove`，普通副本用技能助手。保留主项目、运行服务、交付 checkout、其他会话目录以及尚未回收的独有成果。历史未登记目录先盘点，不凭名称、年龄或大小删除。
+- 主任务结束前核验实际删除结果，简述估算回收空间和保留项；没有副本则注明无需清理。会话意外中断时，下次恢复先核实本 owner 的遗留记录和活动状态，再继续回收。此规则是 agent 工作流程要求，不是系统级结束钩子。
+<!-- subagent-cleanup:end -->

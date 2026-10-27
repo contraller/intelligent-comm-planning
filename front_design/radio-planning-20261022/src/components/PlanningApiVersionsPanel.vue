@@ -2,7 +2,7 @@
   <section class="panel"
     ><div class="panel-head"
       ><h3>{{
-        adjusting ? '保存为新版本' : planning.selectedPlan ? '保存与选用' : '保存为方案'
+        adjusting ? '保存调整为新版本' : planning.selectedPlan ? '方案版本与对比' : '保存方案'
       }}</h3></div
     ><div class="panel-body">
       <div
@@ -25,7 +25,7 @@
           @click="save"
           >{{ adjusting || planning.job?.adjustment ? '保存调整为新版本' : '保存为方案' }}</button
         ><p class="muted">{{ saveHint }}</p
-        ><p class="muted">保存后可核对配置并确认转正；未达标结果仅保存为参考。</p></div
+        ><p class="muted">调整结果保存为新版本，原方案继续保留。覆盖计算不会自动保存方案；未达标结果保留为参考。</p></div
       >
       <div
         v-if="planning.selectedPlan && !adjusting"

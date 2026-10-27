@@ -3,7 +3,9 @@
     class="frozen-coverage"
     aria-label="冻结规划覆盖缓存"
   >
-    <h3>冻结规划覆盖</h3>
+    <h3>{{ readonly ? "覆盖结果查看" : "冻结规划覆盖" }}</h3>
+    <p v-if="readonly" role="status">只读查看当前方案的已有覆盖；需要生成或调整覆盖时，请进入“调整方案”工作区。</p>
+    <p v-if="query.planId.startsWith('PREVIEW-')" role="status">当前覆盖绑定候选作业快照 {{ query.planId.slice(8) }} · {{ query.snapshotId }}；方案保存状态以当前版本信息为准，不会修改基准方案。</p>
     <p class="muted">接收带宽仅用于本次覆盖预测，不改变设备参数或父方案路由指标。</p>
     <label>结果版本<select v-model="coverageVersion" aria-label="覆盖结果版本" :disabled="state.running.value || hasProtectedSelection()">
       <option value="V01-5">预测场强与地形覆盖面</option><option value="V01-4">历史余量采样与环带（只读）</option>
@@ -11,11 +13,12 @@
     <p v-if="query.context==='gis'" class="muted">GIS只读。尚无新版缓存时，请在网络规划中打开同一方案生成新版覆盖结果。</p>
     <p v-if="coverageVersion==='V01-4'" class="muted">历史版本仅回读，不修改带宽或重新计算；切换到“预测场强与地形覆盖面”后可在规划页发起新版计算。</p>
     <p v-if="!active || !currentBinding" role="status">来源或身份已变化，原输入只读保留，请先处理原选择。</p>
-    <div class="toolbar">
+    <div v-if="!readonly" class="toolbar">
       <button class="btn small" :disabled="!readable || (!!retainedSelection && !selectionConfirmed) || (bandwidthDirty && !state.bandwidthReceipt.value) || state.bandwidthLoading.value || state.bandwidthSaving.value || !!state.bandwidthPending.value" @click="state.loadBandwidthOptions">刷新带宽选项与选择</button>
       <button v-if="(state.bandwidthPending.value || retainedSelection) && !selectionConfirmed && canWrite" class="btn small" :disabled="state.bandwidthSaving.value || state.bandwidthLoading.value || state.busy.value" @click="retrySelection">核实带宽选择原请求</button>
       <button v-if="retainedSelection && !unverifiedSelection" class="btn small" @click="requestLeave()">放弃失败选择</button>
     </div>
+    <p v-if="state.invalidationReason.value" role="status">{{ state.invalidationReason.value }}</p>
     <p v-if="state.bandwidthError.value" role="alert">{{ state.bandwidthError.value }}</p>
     <p v-if="state.bandwidthPending.value" role="status">带宽选择提交未核实，原号 {{ state.bandwidthPending.value.requestId }} 已保留</p>
     <p v-else-if="retainedSelection && !selectionConfirmed && !state.bandwidthSaving.value" role="status">带宽选择保存失败，原号 {{ retainedSelection.requestId }} 及输入已保留</p>
@@ -24,12 +27,13 @@
     <p v-if="state.bandwidthReceipt.value" role="status">带宽选择版本已保存：{{ state.bandwidthReceipt.value.selection_id }}{{ state.bandwidthReady.value ? '' : '；当前选择尚未回读' }}</p>
     <p v-if="state.bandwidthOptions.value?.current_selection" role="status">已回读服务端选择 v{{ state.bandwidthOptions.value.current_selection.version_no }} · {{ state.bandwidthOptions.value.current_selection.selection_id }}</p>
     <FrozenCoverageBandwidthEditor
+      v-if="!readonly"
       ref="bandwidthEditor"
       :rows="bandwidthRows" :source-key="bandwidthSource" :writable="canWrite && !state.running.value && !state.pending.value && !retainedSelection && !state.bandwidthPending.value && state.bandwidthReady.value"
       :loading="state.bandwidthLoading.value" :busy="state.busy.value || state.bandwidthSaving.value || !!state.bandwidthPending.value" :error="bandwidthLocalError"
       @dirty-change="bandwidthDirty=$event" @confirm="confirmBandwidth" @discard="discardSelection"
     />
-    <div class="toolbar parameters">
+    <div v-if="!readonly" class="toolbar parameters">
       <label
         >超短波半径（km）<input
           v-model.number="radiusKm"
@@ -70,13 +74,13 @@
           :disabled="inputLocked"
       /></label>
     </div>
-    <label>短波最远预测（km）<input v-model.number="hfMaxKm" type="number" min="1" max="900" step="1" :disabled="inputLocked" /></label>
+    <label v-if="!readonly">短波最远预测（km）<input v-model.number="hfMaxKm" type="number" min="1" max="900" step="1" :disabled="inputLocked" /></label>
     <p class="muted">超短波按网格计算地形遮蔽；短波使用独立距离范围。方位步长仅用于匹配历史缓存，新版逐格计算不按射线连成圆。覆盖结果为传播模型预测。</p>
     <div class="toolbar">
       <button
         class="btn small"
         :disabled="!readable || state.busy.value || locked || bandwidthDirty || !state.bandwidthReady.value"
-        @click="state.read"
+        @click="readCache"
         >读取覆盖缓存</button
       >
       <button
@@ -134,6 +138,7 @@
       role="status"
       >{{ cacheLabels[state.cache.value.state] }} · {{ state.cache.value.reason }}</p
     >
+    <p v-if="state.cache.value?.state === 'HIT'" class="muted">当前显示覆盖的带宽版本：{{ state.cache.value.bandwidth_selection_id || '冻结型号带宽（未使用人工选择）' }}。上方回读的当前选择仅用于下一次计算。</p>
     <template v-if="state.cache.value?.state === 'HIT' && state.cache.value.result">
       <p
         v-if="state.cache.value.result.schema_version === 2 && state.cache.value.result.summary"
@@ -231,7 +236,7 @@ import type {
   FrozenCoverageQuery,
 } from '../types/frozen-coverage';
 import { ref } from 'vue';
-const props = withDefaults(defineProps<{ query: FrozenCoverageQuery; services?: FrozenCoverageClient; active?: boolean }>(),{active:true});
+const props = withDefaults(defineProps<{ query: FrozenCoverageQuery; services?: FrozenCoverageClient; active?: boolean; readonly?: boolean }>(),{active:true,readonly:false});
 const emit = defineEmits<{ overlay: [value: FrozenCoverageOverlay | null] }>();
 const auth = useAuthStore(),
   radiusKm = ref(60),
@@ -240,7 +245,7 @@ const auth = useAuthStore(),
   hour = ref(12);
 const hfMaxKm=ref(900);
 const coverageVersion=ref<'V01-4'|'V01-5'>('V01-5');
-const bandwidthDirty=ref(false),bandwidthLocalError=ref('');
+const bandwidthDirty=ref(false),bandwidthLocalError=ref(''),latestReading=ref(false);
 const bandwidthEditor=ref<InstanceType<typeof FrozenCoverageBandwidthEditor>>();
 const actor=()=>JSON.stringify([auth.identity?.id,auth.identity?.sessionId,auth.generation]);
 const cloneQuery=(query:FrozenCoverageQuery):FrozenCoverageQuery=>({...query,...query.bandwidthSelection?{bandwidthSelection:{...query.bandwidthSelection}}:{}});
@@ -256,7 +261,7 @@ const readable = computed(
     (props.query.context !== 'gis' || auth.can('situation.view')),
 );
 const canWrite = computed(
-  () => readable.value && props.query.context === 'planning' && auth.can('planning.execute') && coverageVersion.value==='V01-5',
+  () => readable.value && !props.readonly && props.query.context === 'planning' && auth.can('planning.execute') && coverageVersion.value==='V01-5',
 );
 const guardedClient=computed<FrozenCoverageClient|undefined>(()=>{
   const client=props.services;if(!client)return undefined;
@@ -266,6 +271,7 @@ const guardedClient=computed<FrozenCoverageClient|undefined>(()=>{
     saveBandwidthSelection:(...args)=>current().saveBandwidthSelection(...args),
     getBandwidthSelection:(...args)=>current().getBandwidthSelection(...args),
     getCache:(...args)=>current().getCache(...args),
+    ...(client.getLatestCache?{getLatestCache:(query:FrozenCoverageQuery,signal?:AbortSignal)=>current().getLatestCache!(query,signal)}:{}),
     compute:(...args)=>current().compute(...args),
     getJob:(...args)=>current().getJob(...args),
     cancel:(...args)=>current().cancel(...args),
@@ -365,7 +371,27 @@ onBeforeUnmount(()=>{
     &&navigationDiscard.request===retainedSelection.value&&!unverifiedSelection.value)storeSelection(null);
   releaseNavigation?.();releaseLeave();releaseCleaner();answerLeave('cancel');window.removeEventListener('beforeunload',beforeUnload);
 });
-defineExpose({ requestLeave,hasProtectedSelection });
+async function readCache() {
+  if(!readable.value||locked.value||bandwidthDirty.value)return;
+  if(props.readonly&&guardedClient.value?.getLatestCache){
+    const source={...binding.value.query,engineVersion:coverageVersion.value},captured=JSON.stringify([owner(),source]);
+    latestReading.value=true;state.error.value='';
+    try{
+      const value=await guardedClient.value.getLatestCache(source);
+      if(captured!==JSON.stringify([owner(),{...binding.value.query,engineVersion:coverageVersion.value}])||!readable.value||!props.readonly)return;
+      radiusKm.value=value.parameters.radius_m/1000;cellM.value=value.parameters.cell_m;
+      azStep.value=value.parameters.az_step_deg;hour.value=value.parameters.hour;hfMaxKm.value=value.parameters.hf_max_km;
+      state.cache.value=value;state.invalidationReason.value='';
+      state.selectedDeviceId.value=value.result?.devices.find(row=>row.status==='COMPLETE')?.device_id??value.result?.devices[0]?.device_id??'';
+    }catch(error){if(captured===JSON.stringify([owner(),source]))state.error.value=error instanceof Error?error.message:'已有覆盖读取失败';}
+    finally{latestReading.value=false;}
+    return;
+  }
+  await state.loadBandwidthOptions();
+  if(readable.value&&state.bandwidthReady.value&&!bandwidthDirty.value&&!locked.value)await state.read();
+}
+watch(()=>props.readonly,()=>{state.cache.value=null;state.selectedDeviceId.value='';});
+defineExpose({requestLeave,hasProtectedSelection,readCache});
 const bandwidthSource=computed(()=>JSON.stringify([owner(),state.bandwidthOptions.value?.anchor,state.bandwidthOptions.value?.current_selection?.selection_id,state.bandwidthOptions.value?.current_selection?.selection_hash]));
 const assumptionLabel=(source:FrozenCoverageBandwidthProvenance)=>`构造接收假设，非厂家实参 · ${source.source_id} · ${source.source_note}`;
 const bandwidthRows=computed<CoverageBandwidthRow[]>(()=>{
@@ -392,7 +418,7 @@ async function confirmBandwidth(value:{sourceKey:string;changes:CoverageBandwidt
   }
   await state.saveBandwidthSelection([...choices].map(([device_id,rx_bandwidth_khz])=>({device_id,rx_bandwidth_khz})));
 }
-const locked = computed(() => state.busy.value || !!state.pending.value || state.bandwidthSaving.value || state.bandwidthLoading.value || !!state.bandwidthPending.value);
+const locked = computed(() => latestReading.value || state.busy.value || !!state.pending.value || state.bandwidthSaving.value || state.bandwidthLoading.value || !!state.bandwidthPending.value);
 const inputLocked = computed(() => locked.value || state.running.value);
 const selected = computed(() =>
   state.devices.value.find((row) => row.device_id === state.selectedDeviceId.value),

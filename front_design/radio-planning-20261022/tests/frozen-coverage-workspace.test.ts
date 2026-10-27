@@ -20,7 +20,7 @@ describe('冻结覆盖来源与请求状态',()=>{
   it('显式读取不发起计算，显示仅绑定所选设备；来源变化清空旧图',async()=>{
     const f=await fixture();expect(f.client.getCache).not.toHaveBeenCalled();await f.state.read();expect(f.client.compute).not.toHaveBeenCalled();
     expect(f.state.overlay.value?.deviceId).toBe('D1');f.state.visible.value=false;expect(f.state.overlay.value).toBeNull();f.state.visible.value=true;
-    f.query.value={...f.data.query,planId:'PLAN-2'};expect(f.state.cache.value).toBeNull();expect(f.state.overlay.value).toBeNull();
+    f.query.value={...f.data.query,planId:'PLAN-2'};expect(f.state.cache.value).toBeNull();expect(f.state.overlay.value).toBeNull();expect(f.state.invalidationReason.value).toContain('重新计算');
   });
   it.each(['source','identity','dispose'] as const)('%s变化拒绝迟到缓存并取消旧读取',async kind=>{
     const f=await fixture();let finish!:(value:typeof f.data.cache)=>void;

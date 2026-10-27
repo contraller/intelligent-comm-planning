@@ -28,7 +28,8 @@ export function planningApiLayer(overlay: PlanningMapOverlay, selectedId = '', s
   }
   for (const node of overlay.nodes) {
     const feature = new Feature({ geometry: new Point(projectCoordinate(node.coordinate)), kind: 'api-planning-node', objectId: node.id });
-    const color = node.id === selectedId || highlights.includes(node.id) ? '#ffe08a' : node.status === 'FAULT' ? '#ef788b' : node.alert === true ? '#efa84c' : node.alert === null ? '#a9b8ca' : '#60ccbb';
+    feature.set('isNewDeployment', node.isNewDeployment === true);
+    const color = node.id === selectedId || highlights.includes(node.id) ? '#ffe08a' : node.isNewDeployment ? '#ff9f43' : node.status === 'FAULT' ? '#ef788b' : node.alert === true ? '#efa84c' : node.alert === null ? '#a9b8ca' : '#60ccbb';
     feature.setStyle(new Style({ image: new Circle({ radius: node.id === selectedId ? 8 : 6, declutterMode: 'none', fill: new Fill({ color }), stroke: new Stroke({ color: '#14273e', width: 2 }) }), text: new Text({ text: node.name, declutterMode: 'declutter', offsetY: -15, fill: new Fill({ color: '#d9e8f6' }), stroke: new Stroke({ color: '#112033', width: 3 }) }) })); features.push(feature);
   }
   // 仅避让站名和需求文字；站点符号与链路仍完整绘制、保留点选身份。

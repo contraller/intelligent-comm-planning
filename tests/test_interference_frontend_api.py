@@ -332,7 +332,7 @@ def test_source_validation_is_atomic(api, mutation, expected):
     with api[1].begin() as session:
         plan = session.get(PlanningPlan, "P1")
         if mutation == "state":
-            plan.state = "SAVED"
+            plan.state = "ARCHIVED"
         elif mutation == "version":
             payload["plan_version"] = "V2"
         elif mutation == "raw":

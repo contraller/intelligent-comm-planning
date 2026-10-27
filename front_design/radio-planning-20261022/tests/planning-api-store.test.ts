@@ -9,6 +9,73 @@ const sessions:Awaited<ReturnType<typeof storeFixture>>[]=[];
 async function setup(){const f=await storeFixture();sessions.push(f);const planning=usePlanningApiStore();await nextTick();return {...f,planning};}
 afterEach(()=>{for(const f of sessions.splice(0)){usePlanningApiStore().clearForSession();f.task.clearForSession();disposePinia(f.pinia);}vi.useRealTimers();vi.restoreAllMocks();});
 describe('规划作业与方案状态',()=>{
+  it('超时终态仍在停止后台计算时持续轮询并锁定，停止完成后才允许重试', async () => {
+    const { planning, task } = await setup(); vi.useFakeTimers();
+    const stopping = { ...apiJob(), state: 'FAILED' as const, result: null, outcome: null, stopping: true, progress: 100, error: '计算超时，超时不代表已证明无解' };
+    planning.job = stopping; task.saved!.activeJobId = stopping.id;
+    const query = vi.spyOn(previewService, 'getPlanningTask').mockResolvedValueOnce({ ...stopping, revision: 'read-1' }).mockResolvedValue({ ...stopping, stopping: false });
+    const cancel = vi.spyOn(previewService, 'cancelPlanningReceipt');
+    await planning.cancel(); expect(cancel).not.toHaveBeenCalled();
+    planning.start(); await vi.waitFor(() => expect(planning.job?.revision).toBe('read-1'), { interval: 0 });
+    expect(planning.running).toBe(true); expect(planning.canSubmit).toBe(false); expect(task.editable).toBe(false);
+    expect(planning.jobStatus?.message).toContain('超时不代表已证明无解'); expect(planning.jobStatus?.message).toContain('正在停止后台计算');
+    await vi.advanceTimersByTimeAsync(2000);
+    await vi.waitFor(() => expect(planning.job?.stopping).toBe(false), { interval: 0 });
+    expect(planning.running).toBe(false); expect(planning.canSubmit).toBe(true); expect(task.editable).toBe(true);
+    await vi.advanceTimersByTimeAsync(6000); expect(query).toHaveBeenCalledTimes(2);
+  });
+  it('已核实的终态作业不会在查看其他历史作业时重新锁定输入', async () => {
+    const { planning, task } = await setup(); task.saved!.activeJobId = 'J1';
+    planning.job = { ...apiJob(), state: 'FAILED', result: null, outcome: null, stopping: false };
+    expect(planning.unverifiedActiveJobId).toBeNull();
+    planning.job = { ...apiJob(), id: 'HISTORICAL' };
+    expect(planning.unverifiedActiveJobId).toBeNull(); expect(planning.canSubmit).toBe(true); expect(task.editable).toBe(true);
+  });
+  it('恢复已有作业前锁定提交和输入，查询失败保留锁，读取失败终态后才允许修改重试', async () => {
+    const { planning, task } = await setup();
+    task.saved!.activeJobId = 'J1';
+    expect(planning.canSubmit).toBe(false); expect(task.editable).toBe(false);
+    const submit = vi.spyOn(previewService, 'submitPlanningReceipt');
+    vi.spyOn(previewService, 'getPlanningTaskProgress').mockRejectedValueOnce(new ApiError('离线', 'NETWORK_ERROR'));
+    await planning.refreshJob(); await planning.submit();
+    expect(submit).not.toHaveBeenCalled(); expect(planning.unverifiedActiveJobId).toBe('J1');
+    expect(planning.jobStatus?.message).toContain('运行状态待核实'); expect(task.editable).toBe(false);
+    const failed = { ...apiJob(), state: 'FAILED' as const, result: null, outcome: null, progress: 100, error: '计算超时，未能在时限内获得规划结论；超时不代表已证明无解' };
+    vi.spyOn(previewService, 'getPlanningTask').mockResolvedValue(failed);
+    const { planningProgress } = await import('../src/services/planning-api-validation');
+    vi.mocked(previewService.getPlanningTaskProgress).mockResolvedValue(await planningProgress(failed));
+    await planning.refreshJob();
+    expect(planning.job?.state).toBe('FAILED'); expect(planning.unverifiedActiveJobId).toBeNull();
+    expect(planning.canSubmit).toBe(true); expect(task.editable).toBe(true);
+    planning.step = 1; expect(planning.jobStatus?.message).toContain('超时不代表已证明无解');
+  });
+  it('409已有作业冲突绑定服务端编号并继续查询，不重发提交', async () => {
+    const { planning, task } = await setup();
+    const submit = vi.spyOn(previewService, 'submitPlanningReceipt').mockRejectedValue(new ApiError('已有作业运行中', 2002, { job_id: 'J1', status: 'RUNNING' }, undefined, 409));
+    vi.spyOn(previewService, 'getPlanningTask').mockResolvedValue({ ...apiJob(), state: 'RUNNING', result: null, outcome: null });
+    await planning.submit();
+    expect(submit).toHaveBeenCalledOnce(); expect(task.saved!.activeJobId).toBe('J1');
+    expect(planning.job?.state).toBe('RUNNING'); expect(planning.step).toBe(2);
+    expect(planning.canSubmit).toBe(false); expect(task.editable).toBe(false); expect(planning.pending).toBeNull();
+    await planning.submit(); expect(submit).toHaveBeenCalledOnce();
+  });
+  it('已有作业冲突后读取失败仍禁止重复提交，并保留恢复查询入口状态', async () => {
+    const { planning, task } = await setup();
+    const submit = vi.spyOn(previewService, 'submitPlanningReceipt').mockRejectedValue(new ApiError('已有作业运行中', 2002, { job_id: 'J1' }, undefined, 409));
+    vi.spyOn(previewService, 'getPlanningTaskProgress').mockRejectedValue(new ApiError('离线', 'NETWORK_ERROR'));
+    await planning.submit(); await planning.submit();
+    expect(submit).toHaveBeenCalledOnce(); expect(planning.job).toBeNull();
+    expect(planning.unverifiedActiveJobId).toBe('J1'); expect(planning.jobStatus?.message).toContain('恢复查询');
+    expect(task.editable).toBe(false); expect(planning.canSubmit).toBe(false);
+  });
+  it('服务端冲突覆盖已知终态，核实读取失败时不能沿用旧终态再次提交', async () => {
+    const { planning } = await setup();
+    planning.job = { ...apiJob(), state: 'FAILED', result: null, outcome: null };
+    const submit = vi.spyOn(previewService, 'submitPlanningReceipt').mockRejectedValue(new ApiError('后台计算尚未停止', 2002, { job_id: 'J1' }, undefined, 409));
+    vi.spyOn(previewService, 'getPlanningTaskProgress').mockRejectedValue(new ApiError('离线', 'NETWORK_ERROR'));
+    await planning.submit(); await planning.submit();
+    expect(submit).toHaveBeenCalledOnce(); expect(planning.unverifiedActiveJobId).toBe('J1'); expect(planning.canSubmit).toBe(false);
+  });
   it('转正弹窗期间切换普通方案，不能提交旧版本', async () => {
     const { planning, task } = await setup();planning.selectedPlan = apiPlan('P-1');
     const request = vi.spyOn(previewService, 'confirmPlanningReceipt');

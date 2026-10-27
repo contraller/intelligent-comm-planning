@@ -98,3 +98,17 @@ describe('持久化干扰工作流store', () => {
     await old; expect(store.preview).toBeNull(); expect(store.queryError).toBe(''); expect(store.previewLoading).toBe(false);
   });
 });
+
+
+describe('分页之外显式选择的分析方案',()=>{
+  it('回填精确选择的来源后保留其身份，不改用首页当前方案',async()=>{
+    const {store,workbench}=setup(), source={...context().source_options[0],current:false};
+    vi.mocked(workbench.getContext).mockResolvedValue({...context(),source_options:[]});
+    vi.mocked(workbench.listSources).mockImplementation(async input=>({items:input.search==='P1'?[source]:[],total:input.search==='P1'?1:0,page:1,page_size:input.page_size??20}));
+    expect(await store.enterPlan(target)).toBe(true);
+    expect(store.selectedSource?.plan_id).toBe('P1');expect(store.selectedSource?.current).toBe(false);
+    await store.selectScene({sceneId:'SC1',versionId:'SV1'});expect(store.canAnalyze).toBe(true);
+    expect(workbench.listSources).toHaveBeenCalledWith({task_id:'T1',page:1,page_size:100,search:'P1'},expect.any(AbortSignal));
+    expect(workbench.submitRun).not.toHaveBeenCalled();
+  });
+});

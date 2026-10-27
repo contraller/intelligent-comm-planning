@@ -1,7 +1,10 @@
 import GeoJSON from 'ol/format/GeoJSON';
 import VectorSource from 'ol/source/Vector';
 import VectorLayer from 'ol/layer/Vector';
-import { Circle,Fill,Stroke,Style } from 'ol/style';
+import { Circle,Fill,Stroke,Style,Text } from 'ol/style';
+import Feature from 'ol/Feature';
+import Point from 'ol/geom/Point';
+import { projectCoordinate } from './layers';
 import type { FrozenCoverageOverlay,FrozenCoverageFeature } from '../types/frozen-coverage';
 
 // 消去相邻格/色带的共享边，保留盲区内孔；不使用凸包或圆形补面。
@@ -26,16 +29,32 @@ export function coverageOutline(features:readonly FrozenCoverageFeature[]){
 }
 
 // 原生采样点不是等值面；HF静区和不可显示几何均不当成覆盖填色。
-export function frozenCoverageLayer(overlay:FrozenCoverageOverlay,snapshotId:string,planId?:string) {
+function selectedCoverageDevice(overlay:FrozenCoverageOverlay,snapshotId:string,planId?:string) {
   const provenance=overlay.result.provenance,selection=overlay.bandwidthSelection;
-  const modern=overlay.anchor.engine_version==='V01-5';
   const selectionMatches=['V01-3','V01-4','V01-5'].includes(overlay.anchor.engine_version)
     ?provenance.bandwidth_selection_id===(selection?.selectionId??null)&&provenance.bandwidth_selection_hash===(selection?.selectionHash??null)
     :!selection;
-  const features=overlay.anchor.snapshot_id===snapshotId&&(!planId||overlay.anchor.plan_id===planId)
+  return overlay.anchor.snapshot_id===snapshotId&&(!planId||overlay.anchor.plan_id===planId)
     &&overlay.result.solution_id===snapshotId.slice(4)&&provenance.engine_version===overlay.anchor.engine_version
     &&overlay.result.schema_version===(['V01-4','V01-5'].includes(overlay.anchor.engine_version)?2:1)&&selectionMatches
-    ?overlay.result.devices.find(row=>row.device_id===overlay.deviceId&&row.status==='COMPLETE')?.computations.flatMap(part=>part.geojson.features.filter(feature=>feature.geometry&&feature.properties.is_coverage))??[]:[];
+    ?overlay.result.devices.find(row=>row.device_id===overlay.deviceId&&row.status==='COMPLETE'):undefined;
+}
+
+export function frozenCoverageDeviceLayer(overlay:FrozenCoverageOverlay,snapshotId:string,planId?:string) {
+  const device=selectedCoverageDevice(overlay,snapshotId,planId);
+  const features:Feature[]=[];
+  if(device&&Number.isFinite(device.lon)&&Number.isFinite(device.lat)) {
+    const marker=new Feature({geometry:new Point(projectCoordinate([device.lon,device.lat])),kind:'frozen-coverage-device',objectId:device.node_id,deviceId:device.device_id});
+    marker.setStyle(new Style({image:new Circle({radius:13,fill:new Fill({color:'#ff69db44'}),stroke:new Stroke({color:'#ff69db',width:4})}),
+      text:new Text({text:`覆盖设备 ${device.device_id} · ${device.node_id}`,offsetY:24,font:'bold 13px Microsoft YaHei',fill:new Fill({color:'#ffb6ee'}),stroke:new Stroke({color:'#102132',width:4})})}));
+    features.push(marker);
+  }
+  return new VectorLayer({source:new VectorSource({features}),zIndex:75});
+}
+
+export function frozenCoverageLayer(overlay:FrozenCoverageOverlay,snapshotId:string,planId?:string) {
+  const modern=overlay.anchor.engine_version==='V01-5';
+  const features=selectedCoverageDevice(overlay,snapshotId,planId)?.computations.flatMap(part=>part.geojson.features.filter(feature=>feature.geometry&&feature.properties.is_coverage))??[];
   const drawable=modern&&overlay.display==='boundary'?coverageOutline(features):features;
   const source=new VectorSource({features:new GeoJSON().readFeatures({type:'FeatureCollection',features:drawable},{dataProjection:'EPSG:4326',featureProjection:'EPSG:3857'})});
   let fieldMin=Infinity,fieldMax=-Infinity;

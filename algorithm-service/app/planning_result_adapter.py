@@ -282,10 +282,13 @@ def adapt_planning_result(plan: dict[str, Any], input_data: dict[str, Any], *, r
     for device_id, values in device_frequencies.items():
         device_meta[device_id]["workFreqKhz"] = values[0]
 
+    added_node_ids = set(detail.get("deployment", {}).get("added") or [])
     nodes = [{
         "id": str(row.get("node_id") or ""),
         "name": str(row.get("node_name") or row.get("node_id") or "未命名节点"),
         "coordinate": _coordinate(row),
+        "isNewDeployment": (_bool(row.get("_added_relay", False))
+                            or str(row.get("node_id") or "") in added_node_ids),
         "status": (str(row.get("status") or "").upper()
                    if str(row.get("status") or "").upper() in {"NORMAL", "FAULT", "OFFLINE"}
                    else None),
@@ -329,6 +332,7 @@ def adapt_planning_result(plan: dict[str, Any], input_data: dict[str, Any], *, r
                 "stationId": node_id,
                 "deviceIds": sorted(devices_by_node.get(node_id, [])),
                 "role": str(meta.get("node_role") or meta.get("echelon") or "未提供角色"),
+                "plannedCoordinate": _coordinate(meta),
             } for node_id, meta in node_meta.items()],
             "devices": configured_devices,
             "routes": route_rows,
@@ -348,3 +352,51 @@ def adapt_planning_result(plan: dict[str, Any], input_data: dict[str, Any], *, r
     }
     result["result_details"] = project_result_details(plan, input_data, result)
     return result, _outcome(plan, checks)
+
+
+def project_saved_deployment_display(result: dict[str, Any], raw_snapshot: Any) -> dict[str, Any]:
+    """只读补充旧保存结果的部署展示，不迁移或修改数据库中的冻结方案。"""
+    projected = deepcopy(result)
+    if (not isinstance(raw_snapshot, dict)
+            or not isinstance(raw_snapshot.get("solution_id"), str)
+            or result.get("snapshot_id") != "SNP-" + raw_snapshot["solution_id"]):
+        return projected
+    detail = raw_snapshot.get("detail")
+    if not isinstance(detail, dict) or not isinstance(detail.get("nodes"), list):
+        return projected
+    raw_nodes, duplicates = {}, set()
+    for row in detail["nodes"]:
+        if not isinstance(row, dict) or not isinstance(row.get("node_id"), str):
+            continue
+        node_id = row["node_id"]
+        if node_id in raw_nodes:
+            duplicates.add(node_id)
+        raw_nodes[node_id] = row
+    for node_id in duplicates:
+        raw_nodes.pop(node_id, None)
+    deployment = detail.get("deployment")
+    added = deployment.get("added") if isinstance(deployment, dict) else None
+    added_ids = set(added) if isinstance(added, list) and all(isinstance(value, str) for value in added) else None
+    for node in projected.get("nodes") or []:
+        if not isinstance(node, dict) or "isNewDeployment" in node:
+            continue
+        raw = raw_nodes.get(node.get("id"))
+        if raw is None:
+            continue
+        flag = raw.get("_added_relay")
+        if isinstance(flag, bool) or str(flag).strip().lower() in {"0", "1", "true", "false", "yes", "no"}:
+            node["isNewDeployment"] = _bool(flag)
+        elif added_ids is not None:
+            node["isNewDeployment"] = node["id"] in added_ids
+    configuration = projected.get("configuration")
+    if isinstance(configuration, dict):
+        for row in configuration.get("deployment") or []:
+            if not isinstance(row, dict) or row.get("plannedCoordinate") is not None:
+                continue
+            raw = raw_nodes.get(row.get("stationId"))
+            if raw is not None:
+                try:
+                    row["plannedCoordinate"] = _coordinate(raw)
+                except ValueError:
+                    pass  # 不补造坏坐标，也不阻断旧方案的其他只读内容。
+    return projected

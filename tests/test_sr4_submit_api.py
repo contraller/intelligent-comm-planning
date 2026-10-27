@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import sys
 import threading
+import time
 from copy import deepcopy
 from io import BytesIO
 from pathlib import Path
@@ -23,7 +24,7 @@ if str(SERVICE_ROOT) not in sys.path:
     sys.path.insert(0, str(SERVICE_ROOT))
 
 from app import frontend_integration, planning_job_models  # noqa: E402
-from app import planning_job_service, planning_plan_service, task_input_service  # noqa: E402
+from app import planning_job_service, planning_plan_service, resource_dataset_service, task_input_service  # noqa: E402
 from app.database import Base  # noqa: E402
 from app.main import app  # noqa: E402
 
@@ -38,6 +39,8 @@ def api(monkeypatch, tmp_path):
     )
     Base.metadata.create_all(engine)
     factory = sessionmaker(bind=engine, expire_on_commit=False)
+    # 结果回读已要求数据库中的冻结资源；旧夹具只有任务表，无法验证成功/未达标分支。
+    resource_dataset_service.initialize(factory)
     monkeypatch.setattr(task_input_service, "get_session_factory", lambda: factory)
     monkeypatch.setattr(planning_job_service, "get_session_factory", lambda: factory)
     monkeypatch.setattr(planning_plan_service, "get_session_factory", lambda: factory)
@@ -134,6 +137,8 @@ def _raw_plan(saved: dict, *, conflict: bool = False) -> dict:
     station_ids = saved["input"]["stationIds"]
     source, target = station_ids[:2]
     demand_id = saved["input"]["demands"][0]["id"]
+    devices = [row for row in planning_job_service.planning_w4._load("device.csv")
+               if row["node_id"] in station_ids]
     constraints = {
         "mandatory_e2e_connectivity": {"value": 1.0, "required": 1.0, "pass": True},
         "survivability": {"value": 0.92, "required": 0.9, "pass": True},
@@ -148,6 +153,7 @@ def _raw_plan(saved: dict, *, conflict: bool = False) -> dict:
                                       "total_radiated_power_w": 20.0,
                                       "survivability": 0.92}},
         "detail": {
+            "devices": devices,
             "nodes": [
                 {"node_id": node_id, "node_name": f"参与节点{index + 1}",
                  "lon": 114.0 + index * 0.1, "lat": 37.0 + index * 0.1,
@@ -1131,6 +1137,140 @@ def test_sr4_checks_cancellation_before_saving_plan(monkeypatch):
     with pytest.raises(planning_w3.PlanningTaskCancelled):
         planning_w4._do_sr4({"task_id": "T1"}, checkpoint)
     assert stages[-1] == (0.99, "正在保存方案")
+
+
+def test_deadline_publishes_failure_while_worker_is_busy_and_blocks_late_result(api, monkeypatch):
+    """真实线程与数据库回调：无需等慢阶段返回即可轮询到超时终态。"""
+    client, factory, _ = api
+    entered = threading.Event()
+    release = threading.Event()
+    timeout_persisted = threading.Event()
+    worker_finished = threading.Event()
+    late_failure_persisted = threading.Event()
+    saved_results = []
+    normal_submit = planning_job_service.planning_w4.submit_sr4
+
+    def controlled(_payload, tick):
+        try:
+            entered.set()
+            assert release.wait(5)
+            tick(0.8, "慢阶段后的检查点")
+            saved_results.append("不应保存")
+            return {"solution_id": "LATE-RESULT"}
+        finally:
+            worker_finished.set()
+
+    def submit(payload, *, job_id, on_update):
+        def updated(state):
+            on_update(state)
+            if state["status"] == "FAILED":
+                timeout_persisted.set()
+                if worker_finished.is_set():
+                    late_failure_persisted.set()
+        return planning_job_service.planning_w3._spawn(
+            "SR4_FLOW", payload, controlled, task_id=job_id,
+            on_update=updated, timeout_s=0.05)
+
+    monkeypatch.setattr(planning_job_service.planning_w4, "submit_sr4", submit)
+    saved = _save_task(client)
+    job = client.post("/api/v1/plan/sr4-flow", json=_submit(saved)).json()["data"]
+    try:
+        assert entered.wait(5)
+        assert timeout_persisted.wait(5)
+        assert not worker_finished.is_set()
+        response = client.get(f"/api/v1/plan/tasks/{job['job_id']}", params={
+            "context": "planning", "task_id": saved["task_id"],
+        })
+        assert response.status_code == 200
+        result = response.json()["data"]
+        assert result["status"] == "FAILED"
+        assert result["stopping"] is True
+        assert result["result"] is None and result["outcome"] is None
+        assert "计算超时" in result["error"]
+        assert "超时不代表约束已被证明无解" in result["error"]
+        with factory() as session:
+            assert session.get(planning_job_models.PlanningJob, job["job_id"]).status == "FAILED"
+        duplicate = client.post("/api/v1/plan/sr4-flow", json=_submit(saved, "while-stopping"))
+        assert duplicate.status_code == 409
+        assert duplicate.json()["code"] == 2002
+        assert duplicate.json()["data"]["job_id"] == job["job_id"]
+        assert duplicate.json()["data"]["stopping"] is True
+        with factory() as session:
+            assert session.scalar(select(func.count()).select_from(planning_job_models.PlanningJob)) == 1
+    finally:
+        release.set()
+        assert late_failure_persisted.wait(5)
+    assert saved_results == []
+    runtime = planning_job_service.planning_w3.get_task_record(job["job_id"])
+    assert runtime["status"] == "FAILED" and runtime["result"] is None
+    deadline = time.monotonic() + 5
+    while planning_job_service.planning_w3.task_worker_active(job["job_id"]) and time.monotonic() < deadline:
+        time.sleep(0.005)
+    assert not planning_job_service.planning_w3.task_worker_active(job["job_id"])
+    ended = client.get(f"/api/v1/plan/tasks/{job['job_id']}", params={
+        "context": "planning", "task_id": saved["task_id"],
+    }).json()["data"]
+    assert ended["status"] == "FAILED" and ended["stopping"] is False
+    monkeypatch.setattr(planning_job_service.planning_w4, "submit_sr4", normal_submit)
+    retried = client.post("/api/v1/plan/sr4-flow", json=_submit(saved, "after-stopping"))
+    assert retried.status_code == 202
+    assert retried.json()["data"]["job_id"] != job["job_id"]
+
+
+def test_sr4_runtime_uses_existing_global_time_budget(monkeypatch):
+    import sr4_flow
+    from app import planning_w4
+    observed = {}
+
+    def spawn(kind, payload, fn, **kwargs):
+        observed.update(kwargs)
+        return {"code": 0}
+
+    monkeypatch.setattr(planning_w4, "_spawn", spawn)
+    planning_w4.submit_sr4({}, job_id="deadline-test")
+    assert observed["timeout_s"] == sr4_flow.TIME_LIMIT_S == 300
+
+
+@pytest.mark.parametrize("terminal", ["SUCCESS", "CANCELLED"])
+def test_deadline_cannot_replace_completed_or_cancelled_runtime(monkeypatch, tmp_path, terminal):
+    from app import planning_w3
+    timer_callbacks = []
+    timer_cancelled = threading.Event()
+    terminal_published = threading.Event()
+
+    class Timer:
+        def __init__(self, interval, function):
+            timer_callbacks.append(function)
+
+        def start(self):
+            pass
+
+        def cancel(self):
+            timer_cancelled.set()
+
+    tid = "tsk-" + ("a" if terminal == "SUCCESS" else "b") * 12
+    monkeypatch.setattr(planning_w3, "TASK_DIR", tmp_path)
+    monkeypatch.setattr(planning_w3.threading, "Timer", Timer)
+    # 真实线程自然完成，或在算法内模拟同时到达的取消请求。
+    def solve(_payload, _tick):
+        if terminal == "CANCELLED":
+            planning_w3.cancel_task(tid)
+        return {"solution_id": "FINISHED"}
+
+    def updated(state):
+        if state["status"] == terminal:
+            terminal_published.set()
+
+    planning_w3._spawn("SR4_FLOW", {}, solve, task_id=tid,
+                       on_update=updated, timeout_s=300)
+    assert terminal_published.wait(5)
+    assert timer_cancelled.wait(5)
+    timer_callbacks[0]()
+    state = planning_w3.get_task_record(tid)
+    assert state["status"] == terminal
+    assert state["error"] is None
+    if terminal == "SUCCESS":
+        assert state["result"] == {"solution_id": "FINISHED"}
 
 
 class _LocalJobIdentity(SimpleNamespace):

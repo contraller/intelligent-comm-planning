@@ -1,0 +1,2570 @@
+{
+  "aggregation": "同一测试文件/测试标识采用最后一次执行结果；重跑用例去重。不是整个仓库全量测试。",
+  "files": [
+    {
+      "file": "F:/work/project2026-1/front_design/radio-planning-20261022/tests/frozen-coverage-entry.test.ts",
+      "tests": [
+        {
+          "name": "冻结覆盖正式入口 新版展示场强与独立距离参数，历史模式撤去写入口且读取指定V4缓存",
+          "status": "passed",
+          "duration_ms": 35.343500000000176
+        },
+        {
+          "name": "冻结覆盖正式入口 GIS只读缓存且输出真实设备图层，不出现计算命令",
+          "status": "passed",
+          "duration_ms": 7.137300000000096
+        },
+        {
+          "name": "冻结覆盖正式入口 规划明确提交、成功后读取缓存；撤销专项写权限不再展示计算按钮",
+          "status": "passed",
+          "duration_ms": 13.285000000000082
+        },
+        {
+          "name": "冻结覆盖正式入口 坏成功与未知提交显示错误和原号，不给出假覆盖",
+          "status": "passed",
+          "duration_ms": 3.4726000000000568
+        },
+        {
+          "name": "冻结覆盖正式入口 服务端回读已保存选择；编辑和预览均不改旧图、不发写请求",
+          "status": "passed",
+          "duration_ms": 5.8573999999998705
+        },
+        {
+          "name": "冻结覆盖正式入口 人工确认后保存独立版本并回读，新图必须再次显式计算",
+          "status": "passed",
+          "duration_ms": 5.974899999999934
+        },
+        {
+          "name": "冻结覆盖正式入口 仅改单台时保留当前版本内其他已冻结设备选择，不发局部patch",
+          "status": "passed",
+          "duration_ms": 5.049800000000005
+        },
+        {
+          "name": "冻结覆盖正式入口 GIS恢复选择只读，不出现确认写入且直接旧回调也不能POST",
+          "status": "passed",
+          "duration_ms": 4.120800000000145
+        },
+        {
+          "name": "冻结覆盖正式入口 两个正式宿主接同一共享客户端，地图仅绘制显式冻结覆盖",
+          "status": "passed",
+          "duration_ms": 99.08570000000009
+        },
+        {
+          "name": "冻结覆盖正式入口 V4按summary区分活动缺带宽与本次无活动链路，不硬编码数量 {\"complete\":226,\"unavailable\":26,\"skipped\":208}",
+          "status": "passed",
+          "duration_ms": 17.575800000000072
+        },
+        {
+          "name": "冻结覆盖正式入口 V4按summary区分活动缺带宽与本次无活动链路，不硬编码数量 {\"complete\":2,\"unavailable\":1,\"skipped\":3}",
+          "status": "passed",
+          "duration_ms": 4.1702000000000226
+        },
+        {
+          "name": "冻结覆盖正式入口 零活动设备显示不适用，旧缓存保留历史分类",
+          "status": "passed",
+          "duration_ms": 4.754100000000108
+        },
+        {
+          "name": "冻结覆盖正式入口 实际缺带宽和已有选项尚未选择分别计数",
+          "status": "passed",
+          "duration_ms": 4.288900000000012
+        },
+        {
+          "name": "冻结覆盖正式入口 构造来源与原始资料均展示，不默认勾选、提交或计算",
+          "status": "passed",
+          "duration_ms": 4.776699999999892
+        },
+        {
+          "name": "冻结覆盖正式入口 批量仅包含活动设备，保存时保留旧选择中未参与设备的原值",
+          "status": "passed",
+          "duration_ms": 5.251500000000078
+        },
+        {
+          "name": "只读覆盖历史参数恢复 读取已有计算恢复真实采样参数和覆盖，完全不提交计算或带宽选择",
+          "status": "passed",
+          "duration_ms": 1.729799999999841
+        }
+      ]
+    },
+    {
+      "file": "F:/work/project2026-1/front_design/radio-planning-20261022/tests/frozen-coverage-http.test.ts",
+      "tests": [
+        {
+          "name": "冻结覆盖HTTP契约 GET只读绑定明确参数与来源，不调用旧CSV覆盖接口",
+          "status": "passed",
+          "duration_ms": 4.962499999999977
+        },
+        {
+          "name": "冻结覆盖HTTP契约 计算/原号重放/作业/取消分别保留真实请求号和锚点",
+          "status": "passed",
+          "duration_ms": 0.8872000000000071
+        },
+        {
+          "name": "冻结覆盖HTTP契约 GIS拒绝compute且不发送请求",
+          "status": "passed",
+          "duration_ms": 1.3897000000000048
+        },
+        {
+          "name": "冻结覆盖HTTP契约 GIS拒绝cancel且不发送请求",
+          "status": "passed",
+          "duration_ms": 0.29239999999998645
+        },
+        {
+          "name": "冻结覆盖HTTP契约 拒绝坏成功响应plan，不伪造空覆盖",
+          "status": "passed",
+          "duration_ms": 0.43439999999998236
+        },
+        {
+          "name": "冻结覆盖HTTP契约 拒绝坏成功响应task，不伪造空覆盖",
+          "status": "passed",
+          "duration_ms": 0.25849999999996953
+        },
+        {
+          "name": "冻结覆盖HTTP契约 拒绝坏成功响应snapshot，不伪造空覆盖",
+          "status": "passed",
+          "duration_ms": 0.27190000000001646
+        },
+        {
+          "name": "冻结覆盖HTTP契约 拒绝坏成功响应resource，不伪造空覆盖",
+          "status": "passed",
+          "duration_ms": 0.23140000000000782
+        },
+        {
+          "name": "冻结覆盖HTTP契约 拒绝坏成功响应fingerprint，不伪造空覆盖",
+          "status": "passed",
+          "duration_ms": 0.25579999999996517
+        },
+        {
+          "name": "冻结覆盖HTTP契约 拒绝坏成功响应parameters，不伪造空覆盖",
+          "status": "passed",
+          "duration_ms": 0.2770999999999617
+        },
+        {
+          "name": "冻结覆盖HTTP契约 拒绝坏成功响应unit，不伪造空覆盖",
+          "status": "passed",
+          "duration_ms": 0.2390999999999508
+        },
+        {
+          "name": "冻结覆盖HTTP契约 拒绝坏成功响应geometry，不伪造空覆盖",
+          "status": "passed",
+          "duration_ms": 0.262299999999982
+        },
+        {
+          "name": "冻结覆盖HTTP契约 拒绝坏成功响应status，不伪造空覆盖",
+          "status": "passed",
+          "duration_ms": 0.24020000000001573
+        },
+        {
+          "name": "冻结覆盖HTTP契约 拒绝坏成功响应duplicate，不伪造空覆盖",
+          "status": "passed",
+          "duration_ms": 0.3562999999999761
+        },
+        {
+          "name": "冻结覆盖HTTP契约 MISS/STALE保持null，未知设备不补频率或补零",
+          "status": "passed",
+          "duration_ms": 0.5060000000000286
+        },
+        {
+          "name": "冻结覆盖HTTP契约 拒绝anchor含V01-1的旧或混合缓存，不兼容降级",
+          "status": "passed",
+          "duration_ms": 0.26300000000003365
+        },
+        {
+          "name": "冻结覆盖HTTP契约 拒绝provenance含V01-1的旧或混合缓存，不兼容降级",
+          "status": "passed",
+          "duration_ms": 0.18590000000000373
+        },
+        {
+          "name": "冻结覆盖HTTP契约 拒绝both含V01-1的旧或混合缓存，不兼容降级",
+          "status": "passed",
+          "duration_ms": 0.14220000000000255
+        },
+        {
+          "name": "冻结覆盖HTTP契约 新夹具只提供V01-2，旧版本作业也不能混入本轮响应",
+          "status": "passed",
+          "duration_ms": 0.2658000000000129
+        },
+        {
+          "name": "冻结覆盖HTTP契约 拒绝非法参数{\"az_step_deg\":7}",
+          "status": "passed",
+          "duration_ms": 0.6616999999999962
+        },
+        {
+          "name": "冻结覆盖HTTP契约 拒绝非法参数{\"cell_m\":null}",
+          "status": "passed",
+          "duration_ms": 0.15980000000001837
+        },
+        {
+          "name": "冻结覆盖HTTP契约 拒绝非法参数{\"cell_m\":6000}",
+          "status": "passed",
+          "duration_ms": 0.10290000000003374
+        },
+        {
+          "name": "冻结覆盖HTTP契约 拒绝非法参数{\"hour\":24}",
+          "status": "passed",
+          "duration_ms": 0.09319999999996753
+        },
+        {
+          "name": "冻结覆盖HTTP契约 拒绝非法参数{\"radius_m\":250,\"cell_m\":500}",
+          "status": "passed",
+          "duration_ms": 0.08910000000003038
+        },
+        {
+          "name": "冻结覆盖HTTP契约 拒绝非法参数{\"ring_vertices\":25}",
+          "status": "passed",
+          "duration_ms": 0.10009999999999764
+        },
+        {
+          "name": "冻结覆盖HTTP契约 拒绝非法参数{\"hf_max_km\":1.5}",
+          "status": "passed",
+          "duration_ms": 0.08499999999997954
+        },
+        {
+          "name": "冻结覆盖HTTP契约 拒绝非法参数{\"extra\":1}",
+          "status": "passed",
+          "duration_ms": 0.0835999999999899
+        },
+        {
+          "name": "V3接收带宽选择HTTP契约 选项目录/精确版本只读，选择提交仅带独立choices，不塞计算参数",
+          "status": "passed",
+          "duration_ms": 1.2302999999999997
+        },
+        {
+          "name": "V3接收带宽选择HTTP契约 V3计算/cache只发送选择ID，响应id/hash及每设备选值全部匹配",
+          "status": "passed",
+          "duration_ms": 1.1998000000000388
+        },
+        {
+          "name": "V3接收带宽选择HTTP契约 空选择是合法独立版本，GIS拒绝任何选择写入",
+          "status": "passed",
+          "duration_ms": 0.3856000000000108
+        },
+        {
+          "name": "V3接收带宽选择HTTP契约 选项目录拒绝坏成功id",
+          "status": "passed",
+          "duration_ms": 0.259900000000016
+        },
+        {
+          "name": "V3接收带宽选择HTTP契约 选项目录拒绝坏成功hash",
+          "status": "passed",
+          "duration_ms": 0.17730000000000246
+        },
+        {
+          "name": "V3接收带宽选择HTTP契约 选项目录拒绝坏成功source",
+          "status": "passed",
+          "duration_ms": 0.15899999999999181
+        },
+        {
+          "name": "V3接收带宽选择HTTP契约 选项目录拒绝坏成功version",
+          "status": "passed",
+          "duration_ms": 0.17020000000002256
+        },
+        {
+          "name": "V3接收带宽选择HTTP契约 选项目录拒绝坏成功options",
+          "status": "passed",
+          "duration_ms": 0.14610000000004675
+        },
+        {
+          "name": "V3接收带宽选择HTTP契约 选项目录拒绝坏成功state",
+          "status": "passed",
+          "duration_ms": 0.15330000000000155
+        },
+        {
+          "name": "V3接收带宽选择HTTP契约 选项目录拒绝坏成功duplicate",
+          "status": "passed",
+          "duration_ms": 0.17140000000000555
+        },
+        {
+          "name": "V3接收带宽选择HTTP契约 选项目录拒绝坏成功selected-value",
+          "status": "passed",
+          "duration_ms": 0.1612999999999829
+        },
+        {
+          "name": "V3接收带宽选择HTTP契约 选项目录拒绝坏成功raw",
+          "status": "passed",
+          "duration_ms": 0.16670000000004848
+        },
+        {
+          "name": "V3接收带宽选择HTTP契约 选项目录拒绝坏成功extra",
+          "status": "passed",
+          "duration_ms": 0.16079999999999472
+        },
+        {
+          "name": "V3接收带宽选择HTTP契约 含选择的响应拒绝错配cache-id",
+          "status": "passed",
+          "duration_ms": 0.26089999999999236
+        },
+        {
+          "name": "V3接收带宽选择HTTP契约 含选择的响应拒绝错配cache-hash",
+          "status": "passed",
+          "duration_ms": 0.15559999999999263
+        },
+        {
+          "name": "V3接收带宽选择HTTP契约 含选择的响应拒绝错配job-id",
+          "status": "passed",
+          "duration_ms": 0.148900000000026
+        },
+        {
+          "name": "V3接收带宽选择HTTP契约 含选择的响应拒绝错配provenance-hash",
+          "status": "passed",
+          "duration_ms": 0.17570000000000618
+        },
+        {
+          "name": "V3接收带宽选择HTTP契约 含选择的响应拒绝错配choices",
+          "status": "passed",
+          "duration_ms": 0.19089999999999918
+        },
+        {
+          "name": "V3接收带宽选择HTTP契约 含选择的响应拒绝错配rx-value",
+          "status": "passed",
+          "duration_ms": 0.19170000000002574
+        },
+        {
+          "name": "V3接收带宽选择HTTP契约 含选择的响应拒绝错配rx-source",
+          "status": "passed",
+          "duration_ms": 0.19880000000000564
+        },
+        {
+          "name": "V3接收带宽选择HTTP契约 含选择的响应拒绝错配missing-v3",
+          "status": "passed",
+          "duration_ms": 0.15140000000002374
+        },
+        {
+          "name": "V3接收带宽选择HTTP契约 含选择的响应拒绝错配v2",
+          "status": "passed",
+          "duration_ms": 0.14049999999997453
+        },
+        {
+          "name": "V3接收带宽选择HTTP契约 V3无选择保持null及结构化未知，旧V2历史仍独立可读",
+          "status": "passed",
+          "duration_ms": 0.35789999999997235
+        },
+        {
+          "name": "V3接收带宽选择HTTP契约 非法或重复choices不发请求",
+          "status": "passed",
+          "duration_ms": 0.3309000000000424
+        },
+        {
+          "name": "V3接收带宽选择HTTP契约 非法或重复choices不发请求",
+          "status": "passed",
+          "duration_ms": 0.16380000000003747
+        },
+        {
+          "name": "V3接收带宽选择HTTP契约 非法或重复choices不发请求",
+          "status": "passed",
+          "duration_ms": 0.1373999999999569
+        },
+        {
+          "name": "V3接收带宽选择HTTP契约 精确版本GET及选择提交不能接受另一个id/另一个请求值",
+          "status": "passed",
+          "duration_ms": 0.32509999999996353
+        },
+        {
+          "name": "V4活动分类与冻结构造来源 只按活动设备判定状态并核对summary {\"complete\":226,\"unavailable\":26,\"skipped\":208}",
+          "status": "passed",
+          "duration_ms": 4.79789999999997
+        },
+        {
+          "name": "V4活动分类与冻结构造来源 只按活动设备判定状态并核对summary {\"complete\":1,\"unavailable\":0,\"skipped\":2}",
+          "status": "passed",
+          "duration_ms": 0.3140000000000214
+        },
+        {
+          "name": "V4活动分类与冻结构造来源 只按活动设备判定状态并核对summary {\"complete\":0,\"unavailable\":1,\"skipped\":1}",
+          "status": "passed",
+          "duration_ms": 0.21699999999998454
+        },
+        {
+          "name": "V4活动分类与冻结构造来源 只按活动设备判定状态并核对summary {\"complete\":0,\"unavailable\":0,\"skipped\":2}",
+          "status": "passed",
+          "duration_ms": 0.217899999999986
+        },
+        {
+          "name": "V4活动分类与冻结构造来源 只按活动设备判定状态并核对summary {\"complete\":0,\"unavailable\":0,\"skipped\":0}",
+          "status": "passed",
+          "duration_ms": 0.15170000000000528
+        },
+        {
+          "name": "V4活动分类与冻结构造来源 新冻结型号构造来源逐字段保留，旧选择六字段可绑定同来源V4",
+          "status": "passed",
+          "duration_ms": 3.551599999999951
+        },
+        {
+          "name": "V4活动分类与冻结构造来源 拒绝损坏或混合的构造来源missing",
+          "status": "passed",
+          "duration_ms": 0.5114000000000374
+        },
+        {
+          "name": "V4活动分类与冻结构造来源 拒绝损坏或混合的构造来源origin",
+          "status": "passed",
+          "duration_ms": 0.21829999999999927
+        },
+        {
+          "name": "V4活动分类与冻结构造来源 拒绝损坏或混合的构造来源id",
+          "status": "passed",
+          "duration_ms": 0.1775000000000091
+        },
+        {
+          "name": "V4活动分类与冻结构造来源 拒绝损坏或混合的构造来源hash",
+          "status": "passed",
+          "duration_ms": 0.17179999999996198
+        },
+        {
+          "name": "V4活动分类与冻结构造来源 拒绝损坏或混合的构造来源note",
+          "status": "passed",
+          "duration_ms": 0.16290000000003602
+        },
+        {
+          "name": "V4活动分类与冻结构造来源 拒绝损坏或混合的构造来源original",
+          "status": "passed",
+          "duration_ms": 0.16179999999997108
+        },
+        {
+          "name": "V4活动分类与冻结构造来源 拒绝损坏或混合的构造来源source-doc",
+          "status": "passed",
+          "duration_ms": 0.15900000000004866
+        },
+        {
+          "name": "V4活动分类与冻结构造来源 拒绝损坏或混合的构造来源mixed",
+          "status": "passed",
+          "duration_ms": 0.16259999999999764
+        },
+        {
+          "name": "V4活动分类与冻结构造来源 拒绝损坏或混合的构造来源raw-source",
+          "status": "passed",
+          "duration_ms": 0.17060000000003583
+        },
+        {
+          "name": "V4活动分类与冻结构造来源 拒绝损坏或混合的构造来源raw-bandwidth",
+          "status": "passed",
+          "duration_ms": 0.1712999999999738
+        },
+        {
+          "name": "V4活动分类与冻结构造来源 V4选项目录严格检查每设备来源missing",
+          "status": "passed",
+          "duration_ms": 0.2429000000000201
+        },
+        {
+          "name": "V4活动分类与冻结构造来源 V4选项目录严格检查每设备来源extra",
+          "status": "passed",
+          "duration_ms": 0.15809999999999036
+        },
+        {
+          "name": "V4活动分类与冻结构造来源 V4选项目录严格检查每设备来源origin",
+          "status": "passed",
+          "duration_ms": 0.14359999999999218
+        },
+        {
+          "name": "V4活动分类与冻结构造来源 V4选项目录严格检查每设备来源original",
+          "status": "passed",
+          "duration_ms": 0.13350000000002638
+        },
+        {
+          "name": "V4活动分类与冻结构造来源 V4选项目录严格检查每设备来源band",
+          "status": "passed",
+          "duration_ms": 0.13360000000000127
+        },
+        {
+          "name": "V4活动分类与冻结构造来源 V4选项目录严格检查每设备来源bandwidth",
+          "status": "passed",
+          "duration_ms": 0.13709999999997535
+        },
+        {
+          "name": "V4活动分类与冻结构造来源 SKIPPED不能放过结构损坏model",
+          "status": "passed",
+          "duration_ms": 0.26600000000001955
+        },
+        {
+          "name": "V4活动分类与冻结构造来源 SKIPPED不能放过结构损坏band",
+          "status": "passed",
+          "duration_ms": 0.1604000000000383
+        },
+        {
+          "name": "V4活动分类与冻结构造来源 SKIPPED不能放过结构损坏antenna",
+          "status": "passed",
+          "duration_ms": 0.15819999999996526
+        },
+        {
+          "name": "V4活动分类与冻结构造来源 SKIPPED不能放过结构损坏pattern",
+          "status": "passed",
+          "duration_ms": 0.1594000000000051
+        },
+        {
+          "name": "V4活动分类与冻结构造来源 SKIPPED不能放过结构损坏plan",
+          "status": "passed",
+          "duration_ms": 0.1554999999999609
+        },
+        {
+          "name": "V4活动分类与冻结构造来源 SKIPPED不能放过结构损坏plan-node",
+          "status": "passed",
+          "duration_ms": 0.1634000000000242
+        },
+        {
+          "name": "V4活动分类与冻结构造来源 SKIPPED不能放过结构损坏number",
+          "status": "passed",
+          "duration_ms": 0.26490000000001146
+        },
+        {
+          "name": "V4活动分类与冻结构造来源 SKIPPED不能放过结构损坏duplicate",
+          "status": "passed",
+          "duration_ms": 0.23219999999997754
+        },
+        {
+          "name": "V4活动分类与冻结构造来源 SKIPPED不能放过结构损坏radio",
+          "status": "passed",
+          "duration_ms": 0.19190000000003238
+        },
+        {
+          "name": "V4活动分类与冻结构造来源 SKIPPED不能放过结构损坏computations",
+          "status": "passed",
+          "duration_ms": 0.18240000000002965
+        },
+        {
+          "name": "V4活动分类与冻结构造来源 SKIPPED不能放过结构损坏reason",
+          "status": "passed",
+          "duration_ms": 0.17540000000002465
+        },
+        {
+          "name": "V4活动分类与冻结构造来源 SKIPPED不能放过结构损坏summary",
+          "status": "passed",
+          "duration_ms": 0.19659999999998945
+        },
+        {
+          "name": "V4活动分类与冻结构造来源 SKIPPED不能放过结构损坏fraction",
+          "status": "passed",
+          "duration_ms": 0.23129999999997608
+        },
+        {
+          "name": "V4活动分类与冻结构造来源 SKIPPED不能放过结构损坏extra-summary",
+          "status": "passed",
+          "duration_ms": 0.19830000000001746
+        },
+        {
+          "name": "V4活动分类与冻结构造来源 SKIPPED不能放过结构损坏schema",
+          "status": "passed",
+          "duration_ms": 0.15219999999999345
+        },
+        {
+          "name": "V4活动分类与冻结构造来源 SKIPPED不能放过结构损坏missing-bandwidth",
+          "status": "passed",
+          "duration_ms": 0.17169999999998709
+        },
+        {
+          "name": "V4活动分类与冻结构造来源 SKIPPED不能放过结构损坏extra-bandwidth",
+          "status": "passed",
+          "duration_ms": 0.1782000000000039
+        },
+        {
+          "name": "V4活动分类与冻结构造来源 SKIPPED不能放过结构损坏missing-source",
+          "status": "passed",
+          "duration_ms": 0.18619999999998527
+        },
+        {
+          "name": "V4活动分类与冻结构造来源 SKIPPED不能放过结构损坏partial-raw-source",
+          "status": "passed",
+          "duration_ms": 0.18329999999997426
+        },
+        {
+          "name": "V4活动分类与冻结构造来源 缺失射频资料的合法SKIPPED及有带宽的参数缺失分别保留原状态",
+          "status": "passed",
+          "duration_ms": 0.29649999999998045
+        },
+        {
+          "name": "V4活动分类与冻结构造来源 旧V3响应不得混入未核验的V4字段summary",
+          "status": "passed",
+          "duration_ms": 0.21620000000001482
+        },
+        {
+          "name": "V4活动分类与冻结构造来源 旧V3响应不得混入未核验的V4字段reason",
+          "status": "passed",
+          "duration_ms": 0.17760000000004084
+        },
+        {
+          "name": "V4活动分类与冻结构造来源 旧V3响应不得混入未核验的V4字段source",
+          "status": "passed",
+          "duration_ms": 0.17390000000000327
+        },
+        {
+          "name": "V4活动分类与冻结构造来源 V4完成结果拒绝损坏状态或射频参数missing-summary",
+          "status": "passed",
+          "duration_ms": 0.2499000000000251
+        },
+        {
+          "name": "V4活动分类与冻结构造来源 V4完成结果拒绝损坏状态或射频参数overall",
+          "status": "passed",
+          "duration_ms": 0.19420000000002346
+        },
+        {
+          "name": "V4活动分类与冻结构造来源 V4完成结果拒绝损坏状态或射频参数radio",
+          "status": "passed",
+          "duration_ms": 0.18019999999995662
+        },
+        {
+          "name": "V4活动分类与冻结构造来源 V4完成结果拒绝损坏状态或射频参数raw-radio",
+          "status": "passed",
+          "duration_ms": 0.17629999999996926
+        },
+        {
+          "name": "V4活动分类与冻结构造来源 V4完成结果拒绝损坏状态或射频参数reason",
+          "status": "passed",
+          "duration_ms": 0.18799999999998818
+        },
+        {
+          "name": "V4活动分类与冻结构造来源 V4完成结果拒绝损坏状态或射频参数null-computation",
+          "status": "passed",
+          "duration_ms": 0.21870000000001255
+        },
+        {
+          "name": "V4活动分类与冻结构造来源 V4普通型号原始带宽联核拒绝single-mismatch，跳过也不例外",
+          "status": "passed",
+          "duration_ms": 0.24660000000000082
+        },
+        {
+          "name": "V4活动分类与冻结构造来源 V4普通型号原始带宽联核拒绝empty-token，跳过也不例外",
+          "status": "passed",
+          "duration_ms": 0.18430000000000746
+        },
+        {
+          "name": "V4活动分类与冻结构造来源 V4普通型号原始带宽联核拒绝negative，跳过也不例外",
+          "status": "passed",
+          "duration_ms": 0.19120000000003756
+        },
+        {
+          "name": "V4活动分类与冻结构造来源 V4普通型号原始带宽联核拒绝zero，跳过也不例外",
+          "status": "passed",
+          "duration_ms": 0.17689999999998918
+        },
+        {
+          "name": "V4活动分类与冻结构造来源 V4普通型号原始带宽联核拒绝nonfinite，跳过也不例外",
+          "status": "passed",
+          "duration_ms": 0.17109999999996717
+        },
+        {
+          "name": "V4活动分类与冻结构造来源 V4普通型号原始带宽联核拒绝unselected-scalar，跳过也不例外",
+          "status": "passed",
+          "duration_ms": 0.1804000000000201
+        },
+        {
+          "name": "V4活动分类与冻结构造来源 V4普通型号原始带宽联核拒绝unknown-known，跳过也不例外",
+          "status": "passed",
+          "duration_ms": 0.16879999999997608
+        },
+        {
+          "name": "V4活动分类与冻结构造来源 V4普通型号原始带宽联核拒绝explicit-outside，跳过也不例外",
+          "status": "passed",
+          "duration_ms": 0.183400000000006
+        },
+        {
+          "name": "V4活动分类与冻结构造来源 V4合法选项去重不替用户选值，同来源显式选值仍须属于原集合",
+          "status": "passed",
+          "duration_ms": 0.2715000000000032
+        },
+        {
+          "name": "V4活动分类与冻结构造来源 SKIPPED不能将JS扩展数值0x1e当作合法冻结参数",
+          "status": "passed",
+          "duration_ms": 0.2798999999999978
+        },
+        {
+          "name": "V4活动分类与冻结构造来源 SKIPPED不能将JS扩展数值0b11110当作合法冻结参数",
+          "status": "passed",
+          "duration_ms": 0.17189999999999372
+        },
+        {
+          "name": "V4活动分类与冻结构造来源 SKIPPED不能将JS扩展数值0o36当作合法冻结参数",
+          "status": "passed",
+          "duration_ms": 0.16300000000001091
+        },
+        {
+          "name": "V4活动分类与冻结构造来源 SKIPPED仍接受范围内十进制/指数和空白 +3e1 ",
+          "status": "passed",
+          "duration_ms": 0.1886000000000081
+        },
+        {
+          "name": "V4活动分类与冻结构造来源 SKIPPED仍接受范围内十进制/指数和空白 -3.0e1 ",
+          "status": "passed",
+          "duration_ms": 0.12279999999998381
+        },
+        {
+          "name": "V4活动分类与冻结构造来源 SKIPPED仍接受范围内十进制/指数和空白 .5 ",
+          "status": "passed",
+          "duration_ms": 0.1180999999999699
+        },
+        {
+          "name": "V4活动分类与冻结构造来源 SKIPPED仍接受范围内十进制/指数和空白 30. ",
+          "status": "passed",
+          "duration_ms": 0.1178000000000452
+        },
+        {
+          "name": "V4活动分类与冻结构造来源 engineVersion仅发送到cache历史GET，其他请求沿原契约且不将V3补成V4",
+          "status": "passed",
+          "duration_ms": 0.6733999999999583
+        },
+        {
+          "name": "同来源已有覆盖读取 读取真实参数且严格核对任务/快照，纯GET不回退其他来源",
+          "status": "passed",
+          "duration_ms": 0.439899999999966
+        }
+      ]
+    },
+    {
+      "file": "F:/work/project2026-1/front_design/radio-planning-20261022/tests/frozen-coverage-workspace.test.ts",
+      "tests": [
+        {
+          "name": "冻结覆盖来源与请求状态 显式读取不发起计算，显示仅绑定所选设备；来源变化清空旧图",
+          "status": "passed",
+          "duration_ms": 8.49720000000002
+        },
+        {
+          "name": "冻结覆盖来源与请求状态 source变化拒绝迟到缓存并取消旧读取",
+          "status": "passed",
+          "duration_ms": 1.171100000000024
+        },
+        {
+          "name": "冻结覆盖来源与请求状态 identity变化拒绝迟到缓存并取消旧读取",
+          "status": "passed",
+          "duration_ms": 0.6983000000000175
+        },
+        {
+          "name": "冻结覆盖来源与请求状态 dispose变化拒绝迟到缓存并取消旧读取",
+          "status": "passed",
+          "duration_ms": 0.5686999999999784
+        },
+        {
+          "name": "冻结覆盖来源与请求状态 未知提交保留原号，重试不造新请求；成功后只读缓存",
+          "status": "passed",
+          "duration_ms": 2.0901000000000067
+        },
+        {
+          "name": "冻结覆盖来源与请求状态 同标签重新挂载恢复原号，但不自动写；不同身份不回放前人请求",
+          "status": "passed",
+          "duration_ms": 1.3404999999999632
+        },
+        {
+          "name": "冻结覆盖来源与请求状态 确定拒绝与GIS只读均不保留假在途请求",
+          "status": "passed",
+          "duration_ms": 0.7164999999999964
+        },
+        {
+          "name": "冻结覆盖来源与请求状态 作业单次轮询后终态读取缓存，取消明确走独立原号",
+          "status": "passed",
+          "duration_ms": 3.279200000000003
+        },
+        {
+          "name": "冻结覆盖来源与请求状态 非法采样不生成待核实请求，轮询失败仍能手动刷新",
+          "status": "passed",
+          "duration_ms": 0.752900000000011
+        },
+        {
+          "name": "冻结覆盖来源与请求状态 同身份同来源重新挂载可回读已确认作业，换身份不显示前人作业号",
+          "status": "passed",
+          "duration_ms": 1.1132000000000062
+        },
+        {
+          "name": "带宽版本回读与写入边界 保存独立选择后回读最新版本，不自动计算；新计算绑定回读id/hash",
+          "status": "passed",
+          "duration_ms": 1.9156000000000404
+        },
+        {
+          "name": "带宽版本回读与写入边界 保存成功但network回读失败不伪报提交失败或自动重写",
+          "status": "passed",
+          "duration_ms": 0.9047999999999661
+        },
+        {
+          "name": "带宽版本回读与写入边界 保存成功但older-current回读失败不伪报提交失败或自动重写",
+          "status": "passed",
+          "duration_ms": 0.7384999999999877
+        },
+        {
+          "name": "带宽版本回读与写入边界 保存成功但same-version-conflict回读失败不伪报提交失败或自动重写",
+          "status": "passed",
+          "duration_ms": 0.6628000000000043
+        },
+        {
+          "name": "带宽版本回读与写入边界 原号重放回执早于全局当前选择时，以GET最新版本为准",
+          "status": "passed",
+          "duration_ms": 0.6664000000000101
+        },
+        {
+          "name": "带宽版本回读与写入边界 未知选择提交保留深拷贝的原号正文，重挂载不自动写，不同身份不接管",
+          "status": "passed",
+          "duration_ms": 1.0860000000000127
+        },
+        {
+          "name": "带宽版本回读与写入边界 source变化拒绝迟到选项目录并取消请求",
+          "status": "passed",
+          "duration_ms": 0.4843000000000188
+        },
+        {
+          "name": "带宽版本回读与写入边界 identity变化拒绝迟到选项目录并取消请求",
+          "status": "passed",
+          "duration_ms": 0.44069999999999254
+        },
+        {
+          "name": "带宽版本回读与写入边界 dispose变化拒绝迟到选项目录并取消请求",
+          "status": "passed",
+          "duration_ms": 0.3534999999999968
+        },
+        {
+          "name": "带宽版本回读与写入边界 换来源中的迟到保存不回填新来源，原请求仅原身份来源可核实",
+          "status": "passed",
+          "duration_ms": 0.6741999999999848
+        },
+        {
+          "name": "带宽版本回读与写入边界 非法值/无资料/GIS/失权均不提交，确定403不保留假未知",
+          "status": "passed",
+          "duration_ms": 0.7436999999999898
+        },
+        {
+          "name": "带宽版本回读与写入边界 新挂载从服务端恢复已保存选择，浏览器存储为空仍相同",
+          "status": "passed",
+          "duration_ms": 0.5752000000000521
+        }
+      ]
+    },
+    {
+      "file": "F:/work/project2026-1/front_design/radio-planning-20261022/tests/interference-workbench-store.test.ts",
+      "tests": [
+        {
+          "name": "持久化干扰工作流store 未注入时不使用Mock，不默认挑选网络或IF-0008",
+          "status": "passed",
+          "duration_ms": 11.311000000000035
+        },
+        {
+          "name": "持久化干扰工作流store 保存场景和提交分析分开，空源场景允许真实提交",
+          "status": "passed",
+          "duration_ms": 5.308499999999981
+        },
+        {
+          "name": "持久化干扰工作流store 取消受理不等于算法停止",
+          "status": "passed",
+          "duration_ms": 2.0044000000000324
+        },
+        {
+          "name": "持久化干扰工作流store 草稿离开保护和重置不清数据库历史",
+          "status": "passed",
+          "duration_ms": 1.8899000000000115
+        },
+        {
+          "name": "持久化干扰工作流store 保存等待时改写数组不影响发起快照",
+          "status": "passed",
+          "duration_ms": 1.9540999999999258
+        },
+        {
+          "name": "持久化干扰工作流store 传输超时保留原请求，先核实回执，不自动换ID重发",
+          "status": "passed",
+          "duration_ms": 2.5172000000000025
+        },
+        {
+          "name": "持久化干扰工作流store 会话失效后晚到响应不能恢复旧状态",
+          "status": "passed",
+          "duration_ms": 1.5737000000000307
+        },
+        {
+          "name": "持久化干扰工作流store 服务DTO整体替换且根对象浅冻结，不代理递归JSON或共享调用者对象",
+          "status": "passed",
+          "duration_ms": 1.4717000000000553
+        },
+        {
+          "name": "持久化干扰工作流store A→B→A隔离旧入口完成值和乱序上下文",
+          "status": "passed",
+          "duration_ms": 1.7440000000000282
+        },
+        {
+          "name": "持久化干扰工作流store null全网指标不阻止真实影响预览，也不伪造PlanningResult",
+          "status": "passed",
+          "duration_ms": 2.62620000000004
+        },
+        {
+          "name": "分页之外显式选择的分析方案 回填精确选择的来源后保留其身份，不改用首页当前方案",
+          "status": "passed",
+          "duration_ms": 2.0838999999999714
+        }
+      ]
+    },
+    {
+      "file": "F:/work/project2026-1/front_design/radio-planning-20261022/tests/map-link-display.test.ts",
+      "tests": [
+        {
+          "name": "冻结覆盖全域定位 全域适配所选覆盖面而非仅适配站点，关闭后不借用旧覆盖范围",
+          "status": "passed",
+          "duration_ms": 37.700299999999515
+        },
+        {
+          "name": "地图道路后台生命周期 道路准备不阻塞业务图层，显隐及离页取消瓦片清单并隔离迟到响应",
+          "status": "passed",
+          "duration_ms": 14.180100000000493
+        },
+        {
+          "name": "态势页可折叠图例 默认只显示入口，展开和收起保留地图图层、视角与选择",
+          "status": "passed",
+          "duration_ms": 7.332699999999932
+        },
+        {
+          "name": "态势页可折叠图例 GIS 图例用样本和短标签替代说明，折叠不重绘、定位或提交业务",
+          "status": "passed",
+          "duration_ms": 20.266599999999926
+        },
+        {
+          "name": "态势页可折叠图例 GIS 数量、状态与人工图例跟随可见站点及设备，关闭其他图层移除对应项",
+          "status": "passed",
+          "duration_ms": 34.87029999999959
+        },
+        {
+          "name": "态势页可折叠图例 GIS 精简不改变 resourceRead=false 的其他地图／HTTP 原分支",
+          "status": "passed",
+          "duration_ms": 13.730399999999463
+        },
+        {
+          "name": "态势页可折叠图例 GIS 精简不改变 resourceRead=true 的其他地图／HTTP 原分支",
+          "status": "passed",
+          "duration_ms": 13.316800000000512
+        },
+        {
+          "name": "态势页可折叠图例 未接入折叠的 resourceRead=false 地图保留常驻图例",
+          "status": "passed",
+          "duration_ms": 3.7359999999998763
+        },
+        {
+          "name": "态势页可折叠图例 未接入折叠的 resourceRead=true 地图保留常驻图例",
+          "status": "passed",
+          "duration_ms": 3.297099999999773
+        },
+        {
+          "name": "地图覆盖显示与图片生命周期 当前覆盖图例读取自己的冻结色表（独立色表=false），显示切换不换图或触发请求",
+          "status": "passed",
+          "duration_ms": 8.101800000000367
+        },
+        {
+          "name": "地图覆盖显示与图片生命周期 当前覆盖图例读取自己的冻结色表（独立色表=true），显示切换不换图或触发请求",
+          "status": "passed",
+          "duration_ms": 7.712399999999434
+        },
+        {
+          "name": "地图覆盖显示与图片生命周期 HTTP 图例保持后端非教学阈值与 RGBA，不套用强中弱名称或重绘图片",
+          "status": "passed",
+          "duration_ms": 62.77109999999993
+        },
+        {
+          "name": "地图覆盖显示与图片生命周期 Mock实际显示切换与缩放复用图层，自动叠边线不填充PNG颜色",
+          "status": "passed",
+          "duration_ms": 7.918099999999868
+        },
+        {
+          "name": "地图覆盖显示与图片生命周期 HTTP加载成功和失败只切换原图层，手动偏好不触发业务请求，重试读取图片",
+          "status": "passed",
+          "duration_ms": 68.00810000000001
+        },
+        {
+          "name": "地图链路动态展示接入 规划线点选受开关控制，候选线不触发详情，选中后沿用两端定位",
+          "status": "passed",
+          "duration_ms": 6.478799999999865
+        },
+        {
+          "name": "地图链路动态展示接入 选中故障链路保留故障质量颜色与粗线，未改写链路状态",
+          "status": "passed",
+          "duration_ms": 5.350099999999657
+        },
+        {
+          "name": "地图链路动态展示接入 实际缩放事件简化并恢复同一要素和图片源，图例只说明已简化",
+          "status": "passed",
+          "duration_ms": 5.220400000000154
+        },
+        {
+          "name": "地图链路动态展示接入 选中或高亮普通链路时保留，取消关注后重新简化",
+          "status": "passed",
+          "duration_ms": 7.22019999999975
+        },
+        {
+          "name": "地图链路动态展示接入 暗相仍有故障样式和原点选事件；关闭图层、移除故障与离页均停止动画",
+          "status": "passed",
+          "duration_ms": 7.659700000000157
+        },
+        {
+          "name": "地图链路动态展示接入 缺失端点不恢复故障，不显示无实际隐藏链路的简化提示",
+          "status": "passed",
+          "duration_ms": 4.279900000000453
+        },
+        {
+          "name": "地图链路动态展示接入 减少动态效果和后台事件作用于实际地图，离页解绑且不再重绘",
+          "status": "passed",
+          "duration_ms": 3.846099999999751
+        },
+        {
+          "name": "地图链路动态展示接入 HTTP 模式不启用 Mock 简化和闪烁，来回切换只管理当前图层",
+          "status": "passed",
+          "duration_ms": 6.097099999999955
+        },
+        {
+          "name": "地图链路动态展示接入 旧快照缺少标记时不简化，状态变化仅影响动画和当前绘制",
+          "status": "passed",
+          "duration_ms": 6.492400000000089
+        },
+        {
+          "name": "GIS 设备层在实际地图组件中的可选接入 公共点位与富图层组合，切入冻结网络后移除公共底层",
+          "status": "passed",
+          "duration_ms": 17.80670000000009
+        },
+        {
+          "name": "GIS 设备层在实际地图组件中的可选接入 单设备点返回精确设备身份与显示版本，关闭站点参考点不关闭设备层",
+          "status": "passed",
+          "duration_ms": 15.969699999999648
+        },
+        {
+          "name": "GIS 设备层在实际地图组件中的可选接入 聚合点击只发送成员清单，不自动缩放；旧聚合要素失效后不能再次选中",
+          "status": "passed",
+          "duration_ms": 20.604699999999866
+        },
+        {
+          "name": "GIS 设备层在实际地图组件中的可选接入 透明度、状态与选中更新不触发请求或定位，保留覆盖图片源与设备几何缓存",
+          "status": "passed",
+          "duration_ms": 17.162599999999657
+        },
+        {
+          "name": "GIS 设备层在实际地图组件中的可选接入 未接入及 HTTP 模式沿用原站点图层，旧设备图层点击被拒绝",
+          "status": "passed",
+          "duration_ms": 14.313500000000204
+        },
+        {
+          "name": "GIS 结果分组在实际地图组件中渲染 三组分别显隐与调透明度，关闭干扰区域仍保留受扰对象和源点及图例",
+          "status": "passed",
+          "duration_ms": 1185.1039
+        },
+        {
+          "name": "GIS 结果分组在实际地图组件中渲染 显示调整保留场强图片源，不触发业务请求或定位；加载/失败提示随覆盖组开关",
+          "status": "passed",
+          "duration_ms": 7.452299999999923
+        },
+        {
+          "name": "GIS 结果分组在实际地图组件中渲染 设备透明度相乘、盲区同行控制，切换组不清除逐台设置或重建图片",
+          "status": "passed",
+          "duration_ms": 11.065899999999601
+        },
+        {
+          "name": "GIS 结果分组在实际地图组件中渲染 设备空选择与空结果不显示覆盖图例或恢复整网，但保留现有示意",
+          "status": "passed",
+          "duration_ms": 3.935599999999795
+        },
+        {
+          "name": "GIS 结果分组在实际地图组件中渲染 未传配置保留规划/诊断共用开关语义和原图例",
+          "status": "passed",
+          "duration_ms": 1092.4697000000006
+        },
+        {
+          "name": "GIS 结果分组在实际地图组件中渲染 HTTP 地图忽略 GIS 配置且沿用原图层和图例",
+          "status": "passed",
+          "duration_ms": 2.6945999999989
+        },
+        {
+          "name": "GIS 结果分组在实际地图组件中渲染 诊断区域独立显隐与透明度，隐藏不清除场景注入、对象高亮或冻结状态",
+          "status": "passed",
+          "duration_ms": 8.09809999999925
+        },
+        {
+          "name": "GIS 结果分组在实际地图组件中渲染 诊断筛选使用传入区域更新实际图例，空区域不留下旧等级",
+          "status": "passed",
+          "duration_ms": 5.920899999999165
+        },
+        {
+          "name": "GIS 结果分组在实际地图组件中渲染 未传 GIS 配置的诊断页保留原总透明度和独立区域显隐语义",
+          "status": "passed",
+          "duration_ms": 4.15099999999984
+        },
+        {
+          "name": "独立候选维护地图图层 使用完整候选端点绘制筛选集合，所有参考质量均是中性虚线且 ID 与正式线分离",
+          "status": "passed",
+          "duration_ms": 4.34190000000126
+        },
+        {
+          "name": "独立候选维护地图图层 隐藏候选选择仍定位，正式透明度变化不改变候选显隐或再次定位",
+          "status": "passed",
+          "duration_ms": 5.265999999999622
+        },
+        {
+          "name": "独立候选维护地图图层 切换集合或模式后拒绝旧候选要素，空或缺失集合不回填",
+          "status": "passed",
+          "duration_ms": 5.924399999999878
+        },
+        {
+          "name": "独立候选维护地图图层 缺失、非法或同一端点均不猜测几何，输入保真且无距离回填",
+          "status": "passed",
+          "duration_ms": 0.5370999999995547
+        },
+        {
+          "name": "GIS 正式拓扑独立透明度 拆分保持受扰对象身份、坐标和原选中样式；默认调用仍返回混合层",
+          "status": "passed",
+          "duration_ms": 1.253499999998894
+        },
+        {
+          "name": "GIS 正式拓扑独立透明度 0／中间值／1 同步正式及受扰线，不重建其他图层、图片或改变视角和业务数据",
+          "status": "passed",
+          "duration_ms": 10.059499999999389
+        },
+        {
+          "name": "GIS 正式拓扑独立透明度 隐藏或零值拒绝旧正式／受扰线命中，保留 LINK 注入图标；恢复后仍可点选",
+          "status": "passed",
+          "duration_ms": 9.605199999999968
+        },
+        {
+          "name": "GIS 正式拓扑独立透明度 隐藏期间清单传入选择仍定位且保留 ID，恢复透明度不再次定位",
+          "status": "passed",
+          "duration_ms": 4.114600000000792
+        },
+        {
+          "name": "GIS 正式拓扑独立透明度 仅受扰连线在零值时不留对象图例，有可绘制节点时保留，质量与备用图例随正式线隐藏",
+          "status": "passed",
+          "duration_ms": 5.998100000000704
+        },
+        {
+          "name": "GIS 正式拓扑独立透明度 业务重绘立即应用当前偏好，旧正式及受扰图层不再接受透明度更新",
+          "status": "passed",
+          "duration_ms": 5.480199999999968
+        },
+        {
+          "name": "GIS 正式拓扑独立透明度 未传属性维持旧受扰混合层与命中语义；显式接入及撤回切换可恢复原行为",
+          "status": "passed",
+          "duration_ms": 6.208099999999831
+        },
+        {
+          "name": "GIS 正式拓扑独立透明度 切 HTTP 后不再修改旧 Mock 图层；HTTP 忽略拓扑属性并保持 API 线选择",
+          "status": "passed",
+          "duration_ms": 6.585500000001048
+        }
+      ]
+    },
+    {
+      "file": "F:/work/project2026-1/front_design/radio-planning-20261022/tests/planning-adjustment-entry.test.ts",
+      "tests": [
+        {
+          "name": "具体方案调整真实页面入口 转正配置入口只打开服务已返回的产物，旧响应不拿规划配置替代",
+          "status": "passed",
+          "duration_ms": 47.42610000000059
+        },
+        {
+          "name": "具体方案调整真实页面入口 第三步查看保存配置只转交当前对象，不保存、不确认，调整期间隐藏父方案查看入口",
+          "status": "passed",
+          "duration_ms": 21.42150000000038
+        },
+        {
+          "name": "具体方案调整真实页面入口 按对象编辑保留非法原文，调整期间不提供父方案确认入口",
+          "status": "passed",
+          "duration_ms": 21.004100000000108
+        },
+        {
+          "name": "具体方案调整真实页面入口 调整页签支持键盘与点击切换，保留输入并正确关联面板",
+          "status": "passed",
+          "duration_ms": 17.60410000000047
+        },
+        {
+          "name": "具体方案调整真实页面入口 无修改退出调整回到保存版本，不保留空预览或继续编辑入口",
+          "status": "passed",
+          "duration_ms": 13.108899999999267
+        },
+        {
+          "name": "具体方案调整真实页面入口 调整预览另存后收起编辑并只针对新版本提供确认",
+          "status": "passed",
+          "duration_ms": 11297.4787
+        },
+        {
+          "name": "具体方案调整真实页面入口 Mock 从保存父方案打开逐设备输入，示例只填草稿，成功后覆盖与三指标来自新结果",
+          "status": "passed",
+          "duration_ms": 6954.488999999998
+        },
+        {
+          "name": "具体方案调整真实页面入口 0 与空白不同，非法数值阻止提交，路径可增删排序且备份路径不被改写",
+          "status": "passed",
+          "duration_ms": 4056.0274999999965
+        },
+        {
+          "name": "具体方案调整真实页面入口 无匹配结果保留输入与父预览，关闭和离开 GIS 路由都有草稿保护",
+          "status": "passed",
+          "duration_ms": 5389.093700000005
+        },
+        {
+          "name": "具体方案调整真实页面入口 Mock 写入回包不确定时先读原请求记录，禁止改输入或重复作业",
+          "status": "passed",
+          "duration_ms": 6613.156800000004
+        },
+        {
+          "name": "具体方案调整真实页面入口 HTTP 页面同样打开具体调整且没有目录示例时不渲染演示按钮",
+          "status": "passed",
+          "duration_ms": 19.316800000000512
+        },
+        {
+          "name": "具体方案调整真实页面入口 HTTP 前后预览保留未提供的指标，不补 0；来源失效时入口说明原因",
+          "status": "passed",
+          "duration_ms": 15.129000000000815
+        },
+        {
+          "name": "具体方案调整真实页面入口 HTTP 独立调整跨 GIS 页面仍询问，失权保留原输入但拒绝迟到编辑",
+          "status": "passed",
+          "duration_ms": 20.09769999999844
+        },
+        {
+          "name": "具体方案调整真实页面入口 Mock 会话清理后迟到提交不恢复旧父方案或调整草稿",
+          "status": "passed",
+          "duration_ms": 4543.842100000002
+        },
+        {
+          "name": "具体方案调整真实页面入口 Mock 调整版本 save 晚响应不回填已清理账号现场",
+          "status": "passed",
+          "duration_ms": 6073.5
+        },
+        {
+          "name": "具体方案调整真实页面入口 Mock 调整版本 confirm 晚响应不回填已清理账号现场",
+          "status": "passed",
+          "duration_ms": 8536.055200000003
+        },
+        {
+          "name": "具体方案调整真实页面入口 主路径的多个中间节点保持有序，不能在首尾之外交换需求端点",
+          "status": "passed",
+          "duration_ms": 13.271399999997811
+        },
+        {
+          "name": "具体方案调整真实页面入口 HTTP 原结果未提供主路由时可显式填写，需求两端不冒充已有结果",
+          "status": "passed",
+          "duration_ms": 11.695200000001932
+        },
+        {
+          "name": "父方案转正旧回调保护 正在编辑或隐藏保留的dirty草稿均拒绝旧父方案确认，不发业务写",
+          "status": "passed",
+          "duration_ms": 11.027099999999336
+        }
+      ]
+    },
+    {
+      "file": "F:/work/project2026-1/front_design/radio-planning-20261022/tests/planning-adjustment-integration.test.ts",
+      "tests": [
+        {
+          "name": "独立方案调整与现有业务关联 多代调整、保存、比较、导出和确认不改任务、资源或父快照",
+          "status": "passed",
+          "duration_ms": 13279.7743
+        },
+        {
+          "name": "独立方案调整与现有业务关联 监控和诊断使用调整后的节能结果，旧诊断保留并可脱离规划记录恢复",
+          "status": "passed",
+          "duration_ms": 5288.1967
+        },
+        {
+          "name": "独立方案调整与现有业务关联 调整后网络可分析、预览、采纳，再进入对应变体监控和诊断",
+          "status": "passed",
+          "duration_ms": 2258.719799999999
+        },
+        {
+          "name": "独立方案调整与现有业务关联 下游完整匹配仍拒绝篡改频率、配置和错误结果身份",
+          "status": "passed",
+          "duration_ms": 2160.753499999999
+        }
+      ]
+    },
+    {
+      "file": "F:/work/project2026-1/front_design/radio-planning-20261022/tests/planning-api-feedback.test.ts",
+      "tests": [
+        {
+          "name": "规划失败载荷展示 停止中的失败作业保留超时结论，不显示完成百分比或再次取消入口",
+          "status": "passed",
+          "duration_ms": 18.05359999999996
+        },
+        {
+          "name": "规划失败载荷展示 反馈详情默认收起，保留未知字段且不修改载荷",
+          "status": "passed",
+          "duration_ms": 1.7098999999999478
+        },
+        {
+          "name": "规划失败载荷展示 紧凑反馈收起技术编号但保留异常、零缺口及核实入口",
+          "status": "passed",
+          "duration_ms": 0.8678999999999633
+        },
+        {
+          "name": "规划失败载荷展示 完成阶段收起后，过期、来源变化、业务结论与待核实操作仍在外层",
+          "status": "passed",
+          "duration_ms": 3.466299999999933
+        },
+        {
+          "name": "规划失败载荷展示 3001 提取文本原因和建议，混合值及额外字段仍保留，输入不被修改",
+          "status": "passed",
+          "duration_ms": 0.7693000000000438
+        },
+        {
+          "name": "规划失败载荷展示 3002 数量缺口原值展示，不相减推导短缺且不补零",
+          "status": "passed",
+          "duration_ms": 0.2807999999999993
+        },
+        {
+          "name": "规划失败载荷展示 字段问题数组不与数量缺口混淆，部分字段和未知项仍可追溯",
+          "status": "passed",
+          "duration_ms": 0.2400000000000091
+        },
+        {
+          "name": "规划失败载荷展示 2003 错误详情保留原类型内容 0",
+          "status": "passed",
+          "duration_ms": 0.1551000000000613
+        },
+        {
+          "name": "规划失败载荷展示 2003 错误详情保留原类型内容 1",
+          "status": "passed",
+          "duration_ms": 0.1208000000000311
+        },
+        {
+          "name": "规划失败载荷展示 2003 错误详情保留原类型内容 2",
+          "status": "passed",
+          "duration_ms": 0.10810000000003583
+        },
+        {
+          "name": "规划失败载荷展示 2003 错误详情保留原类型内容 3",
+          "status": "passed",
+          "duration_ms": 0.06330000000002656
+        },
+        {
+          "name": "规划失败载荷展示 2003 错误详情保留原类型内容 4",
+          "status": "passed",
+          "duration_ms": 0.057900000000017826
+        },
+        {
+          "name": "规划失败载荷展示 2003 错误详情保留原类型内容 5",
+          "status": "passed",
+          "duration_ms": 0.05010000000004311
+        },
+        {
+          "name": "规划失败载荷展示 有效假值及未知载荷不被丢弃 0",
+          "status": "passed",
+          "duration_ms": 0.1408999999999878
+        },
+        {
+          "name": "规划失败载荷展示 有效假值及未知载荷不被丢弃 1",
+          "status": "passed",
+          "duration_ms": 0.10550000000000637
+        },
+        {
+          "name": "规划失败载荷展示 有效假值及未知载荷不被丢弃 2",
+          "status": "passed",
+          "duration_ms": 0.08240000000000691
+        },
+        {
+          "name": "规划失败载荷展示 有效假值及未知载荷不被丢弃 3",
+          "status": "passed",
+          "duration_ms": 0.08010000000001583
+        },
+        {
+          "name": "规划失败载荷展示 有效假值及未知载荷不被丢弃 4",
+          "status": "passed",
+          "duration_ms": 0.07429999999999382
+        },
+        {
+          "name": "规划失败载荷展示 有效假值及未知载荷不被丢弃 5",
+          "status": "passed",
+          "duration_ms": 0.07740000000001146
+        },
+        {
+          "name": "规划失败载荷展示 本地错误不制造服务码、请求 ID 或详情",
+          "status": "passed",
+          "duration_ms": 0.15689999999995052
+        }
+      ]
+    },
+    {
+      "file": "F:/work/project2026-1/front_design/radio-planning-20261022/tests/planning-api-http.test.ts",
+      "tests": [
+        {
+          "name": "网络规划 HTTP 契约 停止标记可省略，提供时只接受布尔值并透传进度读取",
+          "status": "passed",
+          "duration_ms": 29.64799999999991
+        },
+        {
+          "name": "网络规划 HTTP 契约 作业和保存方案回读同一部署摘要，旧快照缺省不补算",
+          "status": "passed",
+          "duration_ms": 5.811500000000024
+        },
+        {
+          "name": "网络规划 HTTP 契约 HTTP候选来源和限制沿用原文、保留副本并拒绝损坏类型",
+          "status": "passed",
+          "duration_ms": 1.0545000000000755
+        },
+        {
+          "name": "网络规划 HTTP 契约 转正配置读取独立返回值，兼容旧响应并拒绝串用其他版本",
+          "status": "passed",
+          "duration_ms": 2.1161999999999352
+        },
+        {
+          "name": "网络规划 HTTP 契约 候选扩展保留服务统计/评分/空值，损坏整批拒绝且不发新增请求",
+          "status": "passed",
+          "duration_ms": 2.219000000000051
+        },
+        {
+          "name": "网络规划 HTTP 契约 补充明细可省略或为 null，提供时保留服务版本和原始值且与 DTO 分离",
+          "status": "passed",
+          "duration_ms": 0.9044999999999845
+        },
+        {
+          "name": "网络规划 HTTP 契约 不可达需求只关联完整冻结输入，不按缺少路由或数组位置推断",
+          "status": "passed",
+          "duration_ms": 0.5223000000000866
+        },
+        {
+          "name": "网络规划 HTTP 契约 独立结果读取允许同一需求包含主备路由，不把路由行数当需求身份数",
+          "status": "passed",
+          "duration_ms": 0.23910000000000764
+        },
+        {
+          "name": "网络规划 HTTP 契约 已有明细损坏时拒绝完整方案：schema",
+          "status": "passed",
+          "duration_ms": 0.35779999999999745
+        },
+        {
+          "name": "网络规划 HTTP 契约 已有明细损坏时拒绝完整方案：missing",
+          "status": "passed",
+          "duration_ms": 0.2541999999999689
+        },
+        {
+          "name": "网络规划 HTTP 契约 已有明细损坏时拒绝完整方案：device",
+          "status": "passed",
+          "duration_ms": 0.23230000000000928
+        },
+        {
+          "name": "网络规划 HTTP 契约 已有明细损坏时拒绝完整方案：route",
+          "status": "passed",
+          "duration_ms": 0.22050000000001546
+        },
+        {
+          "name": "网络规划 HTTP 契约 已有明细损坏时拒绝完整方案：bottleneck",
+          "status": "passed",
+          "duration_ms": 0.19670000000007803
+        },
+        {
+          "name": "网络规划 HTTP 契约 已有明细损坏时拒绝完整方案：link",
+          "status": "passed",
+          "duration_ms": 0.2016000000000986
+        },
+        {
+          "name": "网络规划 HTTP 契约 已有明细损坏时拒绝完整方案：frequency",
+          "status": "passed",
+          "duration_ms": 0.183400000000006
+        },
+        {
+          "name": "网络规划 HTTP 契约 已有明细损坏时拒绝完整方案：group",
+          "status": "passed",
+          "duration_ms": 0.19209999999998217
+        },
+        {
+          "name": "网络规划 HTTP 契约 已有明细损坏时拒绝完整方案：duplicate",
+          "status": "passed",
+          "duration_ms": 0.17270000000007713
+        },
+        {
+          "name": "网络规划 HTTP 契约 已有明细损坏时拒绝完整方案：bandwidth",
+          "status": "passed",
+          "duration_ms": 0.18209999999999127
+        },
+        {
+          "name": "网络规划 HTTP 契约 已有明细损坏时拒绝完整方案：reuse",
+          "status": "passed",
+          "duration_ms": 0.181699999999978
+        },
+        {
+          "name": "网络规划 HTTP 契约 已有明细损坏时拒绝完整方案：reliability",
+          "status": "passed",
+          "duration_ms": 0.17259999999998854
+        },
+        {
+          "name": "网络规划 HTTP 契约 已有明细损坏时拒绝完整方案：gap",
+          "status": "passed",
+          "duration_ms": 0.181699999999978
+        },
+        {
+          "name": "网络规划 HTTP 契约 无效明细不能被查询或导出静默降为无明细成功，也不接受算法局部响应",
+          "status": "passed",
+          "duration_ms": 1.1712999999999738
+        },
+        {
+          "name": "网络规划 HTTP 契约 方案 saved_at 拒绝无效日历和非项目时间格式",
+          "status": "passed",
+          "duration_ms": 0.5476999999999634
+        },
+        {
+          "name": "网络规划 HTTP 契约 方案 confirmed_at 拒绝无效日历和非项目时间格式",
+          "status": "passed",
+          "duration_ms": 0.4493999999999687
+        },
+        {
+          "name": "网络规划 HTTP 契约 方案时间保留原时区与小数秒，未确认时间仍可为 null",
+          "status": "passed",
+          "duration_ms": 0.3412999999999329
+        },
+        {
+          "name": "网络规划 HTTP 契约 作业、方案和预设默认输入一致拒绝无效开始时间 2026-02-30T09:00:00+08:00",
+          "status": "passed",
+          "duration_ms": 0.5892000000000053
+        },
+        {
+          "name": "网络规划 HTTP 契约 作业、方案和预设默认输入一致拒绝无效开始时间 2026/10/15 09:00:00+08:00",
+          "status": "passed",
+          "duration_ms": 0.25670000000002346
+        },
+        {
+          "name": "网络规划 HTTP 契约 作业、方案和预设默认输入一致保留开始时间 null",
+          "status": "passed",
+          "duration_ms": 0.35930000000007567
+        },
+        {
+          "name": "网络规划 HTTP 契约 作业、方案和预设默认输入一致保留开始时间 2024-02-29T23:59:59.125+08:00",
+          "status": "passed",
+          "duration_ms": 0.2879999999998972
+        },
+        {
+          "name": "网络规划 HTTP 契约 2002 携带完整进行中作业时继续轮询，不接受未知状态",
+          "status": "passed",
+          "duration_ms": 0.9938000000000784
+        },
+        {
+          "name": "网络规划 HTTP 契约 复用频率池与参数预设，版本不一致拒绝混合目录",
+          "status": "passed",
+          "duration_ms": 1.0919000000000096
+        },
+        {
+          "name": "网络规划 HTTP 契约 全流程提交引用保存输入，进度由 0–1 转为展示百分比",
+          "status": "passed",
+          "duration_ms": 0.7717000000000098
+        },
+        {
+          "name": "网络规划 HTTP 契约 复用作业查询及通用取消端点，取消竞态以返回状态为准",
+          "status": "passed",
+          "duration_ms": 1.1843999999999824
+        },
+        {
+          "name": "网络规划 HTTP 契约 结果保留未知值、多面与孔洞，并拒绝断开的路由与设备归属",
+          "status": "passed",
+          "duration_ms": 0.6088999999999487
+        },
+        {
+          "name": "网络规划 HTTP 契约 完整未达标可为参考方案，伪造达标状态不能通过校验",
+          "status": "passed",
+          "duration_ms": 0.8584000000000742
+        },
+        {
+          "name": "网络规划 HTTP 契约 保存、确认使用版本和幂等标识；对比保持所选顺序与同任务归属",
+          "status": "passed",
+          "duration_ms": 1.9891999999999825
+        },
+        {
+          "name": "网络规划 HTTP 契约 业务失败的缺口与建议随错误保留，HTTP 不回退 Mock",
+          "status": "passed",
+          "duration_ms": 0.6379000000000588
+        },
+        {
+          "name": "网络规划 HTTP 契约 外层 3001 携带完整未达标结果时保留可保存的参考结果",
+          "status": "passed",
+          "duration_ms": 0.6446999999999434
+        },
+        {
+          "name": "网络规划 HTTP 契约 导出先取冻结 JSON，XLSX 不调用资料中未实现的服务端格式",
+          "status": "passed",
+          "duration_ms": 1.3807999999999083
+        }
+      ]
+    },
+    {
+      "file": "F:/work/project2026-1/front_design/radio-planning-20261022/tests/planning-api-store.test.ts",
+      "tests": [
+        {
+          "name": "规划作业与方案状态 超时终态仍在停止后台计算时持续轮询并锁定，停止完成后才允许重试",
+          "status": "passed",
+          "duration_ms": 47.71060000000034
+        },
+        {
+          "name": "规划作业与方案状态 已核实的终态作业不会在查看其他历史作业时重新锁定输入",
+          "status": "passed",
+          "duration_ms": 7.018900000000031
+        },
+        {
+          "name": "规划作业与方案状态 恢复已有作业前锁定提交和输入，查询失败保留锁，读取失败终态后才允许修改重试",
+          "status": "passed",
+          "duration_ms": 4.958099999999831
+        },
+        {
+          "name": "规划作业与方案状态 409已有作业冲突绑定服务端编号并继续查询，不重发提交",
+          "status": "passed",
+          "duration_ms": 7.149900000000343
+        },
+        {
+          "name": "规划作业与方案状态 已有作业冲突后读取失败仍禁止重复提交，并保留恢复查询入口状态",
+          "status": "passed",
+          "duration_ms": 4.896299999999428
+        },
+        {
+          "name": "规划作业与方案状态 服务端冲突覆盖已知终态，核实读取失败时不能沿用旧终态再次提交",
+          "status": "passed",
+          "duration_ms": 4.743199999999888
+        },
+        {
+          "name": "规划作业与方案状态 转正弹窗期间切换普通方案，不能提交旧版本",
+          "status": "passed",
+          "duration_ms": 5.2442999999993845
+        },
+        {
+          "name": "规划作业与方案状态 转正回执返回另一方案时保留原请求待核实",
+          "status": "passed",
+          "duration_ms": 5.650300000000243
+        },
+        {
+          "name": "规划作业与方案状态 跨任务方案确认超时按方案所属任务核实，不绑定当前编辑草稿",
+          "status": "passed",
+          "duration_ms": 7.888600000000224
+        },
+        {
+          "name": "规划作业与方案状态 旧会话写入返回不能解除新会话写入锁",
+          "status": "passed",
+          "duration_ms": 6.3653000000003885
+        },
+        {
+          "name": "规划作业与方案状态 损坏记录经明确确认可重置；普通目录错误不绕过版本读取",
+          "status": "passed",
+          "duration_ms": 66.1266999999998
+        },
+        {
+          "name": "规划作业与方案状态 取消重置不发起写入，并保留未保存草稿和已选结果",
+          "status": "passed",
+          "duration_ms": 62.3771999999999
+        },
+        {
+          "name": "规划作业与方案状态 重置写入失败保留草稿和已选结果，并反馈错误",
+          "status": "passed",
+          "duration_ms": 59.98980000000029
+        },
+        {
+          "name": "规划作业与方案状态 重置成功清理规划现场并恢复默认草稿，独立任务列表保留",
+          "status": "passed",
+          "duration_ms": 120.89760000000024
+        },
+        {
+          "name": "规划作业与方案状态 取消成功后迟到的运行中查询不能恢复作业",
+          "status": "passed",
+          "duration_ms": 4.254699999999502
+        },
+        {
+          "name": "规划作业与方案状态 资源引用更新后必须重存任务，已知条件版本变化阻止确认旧方案",
+          "status": "passed",
+          "duration_ms": 3.0424999999995634
+        },
+        {
+          "name": "规划作业与方案状态 提交返回期间失权保留原请求，恢复查看权限后仍需核实",
+          "status": "passed",
+          "duration_ms": 2.7646999999997206
+        },
+        {
+          "name": "规划作业与方案状态 未保存修改阻止提交，已保存输入携带版本并锁定运行中的草稿",
+          "status": "passed",
+          "duration_ms": 3.0380000000004657
+        },
+        {
+          "name": "规划作业与方案状态 已保存任务真正提交失败后保留输入和服务错误",
+          "status": "passed",
+          "duration_ms": 3.2595000000001164
+        },
+        {
+          "name": "规划作业与方案状态 同一已保存任务并发点击只发出一次提交",
+          "status": "passed",
+          "duration_ms": 4.491099999999278
+        },
+        {
+          "name": "规划作业与方案状态 停止后不再查询，重新启动读取同一作业终态且不继续轮询",
+          "status": "passed",
+          "duration_ms": 23.31930000000102
+        },
+        {
+          "name": "规划作业与方案状态 轮询为两秒，查询失败保留进度并停止自动重试，手动恢复可接纳终态",
+          "status": "passed",
+          "duration_ms": 16.52809999999954
+        },
+        {
+          "name": "规划作业与方案状态 取消返回成功终态时保留服务端结果，不强行改成已取消",
+          "status": "passed",
+          "duration_ms": 3.3724999999994907
+        },
+        {
+          "name": "规划作业与方案状态 参考版本可保存但不可确认，成功保存后刷新失败仍保留保存事实",
+          "status": "passed",
+          "duration_ms": 10.235999999998967
+        },
+        {
+          "name": "规划作业与方案状态 保存请求超时按回执恢复，禁止重复新建版本",
+          "status": "passed",
+          "duration_ms": 4.607500000000073
+        },
+        {
+          "name": "规划作业与方案状态 旧请求或换号迟到结果不覆盖当前现场",
+          "status": "passed",
+          "duration_ms": 7.6974000000009255
+        },
+        {
+          "name": "规划作业与方案状态 调整复制输入并记录父版本，不改变保存快照",
+          "status": "passed",
+          "duration_ms": 4.430099999999584
+        },
+        {
+          "name": "规划作业与方案状态 来源变化或校验未知时禁止确认",
+          "status": "passed",
+          "duration_ms": 2.936700000000201
+        },
+        {
+          "name": "具体方案调整现场 HTTP 任意有限功率独立提交，不依赖本地档位且不保存任务",
+          "status": "passed",
+          "duration_ms": 5.233799999999974
+        },
+        {
+          "name": "具体方案调整现场 失败保留父方案及输入，关闭或切换必须处理草稿",
+          "status": "passed",
+          "duration_ms": 4.451000000000931
+        },
+        {
+          "name": "具体方案调整现场 未知写入冻结输入并核实原请求，再从回执显示调整结果",
+          "status": "passed",
+          "duration_ms": 4.587499999999636
+        },
+        {
+          "name": "具体方案调整现场 权限收回时保留草稿，清理会话后迟到提交不能恢复父方案",
+          "status": "passed",
+          "duration_ms": 4.051499999999578
+        },
+        {
+          "name": "具体方案调整现场 查询恢复调整父快照，父版本读取失败时不借当前方案冒充",
+          "status": "passed",
+          "duration_ms": 4.502599999999802
+        },
+        {
+          "name": "具体方案调整现场 保存回执 missing 时不接受丢失或错配的调整输入",
+          "status": "passed",
+          "duration_ms": 5.978499999999258
+        },
+        {
+          "name": "具体方案调整现场 保存回执 other-input 时不接受丢失或错配的调整输入",
+          "status": "passed",
+          "duration_ms": 3.9092000000000553
+        },
+        {
+          "name": "具体方案调整现场 保存回执 other-parent 时不接受丢失或错配的调整输入",
+          "status": "passed",
+          "duration_ms": 3.536099999999351
+        },
+        {
+          "name": "具体方案调整现场 版本查询发出后新填的调整输入不会被迟到版本替换",
+          "status": "passed",
+          "duration_ms": 3.017100000000937
+        },
+        {
+          "name": "具体方案调整现场 已知调整作业轮询 missing 回显时保留原作业并阻止保存",
+          "status": "passed",
+          "duration_ms": 5.2083999999995285
+        },
+        {
+          "name": "具体方案调整现场 已知调整作业轮询 different 回显时保留原作业并阻止保存",
+          "status": "passed",
+          "duration_ms": 4.2203000000008615
+        },
+        {
+          "name": "具体方案调整现场 待核实调整提交 missing 回显继续保留原请求",
+          "status": "passed",
+          "duration_ms": 3.484599999999773
+        },
+        {
+          "name": "具体方案调整现场 待核实调整提交 different 回显继续保留原请求",
+          "status": "passed",
+          "duration_ms": 3.5753999999997177
+        },
+        {
+          "name": "具体方案调整现场 确认调整版本的弹窗等待期间失权，不能继续提交确认请求",
+          "status": "passed",
+          "duration_ms": 3.744300000000294
+        },
+        {
+          "name": "具体方案调整现场 调整 cancel 回包及核实回执必须保留冻结来源",
+          "status": "passed",
+          "duration_ms": 4.428599999999278
+        },
+        {
+          "name": "具体方案调整现场 调整 confirm 回包及核实回执必须保留冻结来源",
+          "status": "passed",
+          "duration_ms": 3.746100000000297
+        },
+        {
+          "name": "具体方案调整现场 调整取消弹窗等待期间 task 变化不提交旧操作",
+          "status": "passed",
+          "duration_ms": 3.0476999999991676
+        },
+        {
+          "name": "具体方案调整现场 调整取消弹窗等待期间 permission 变化不提交旧操作",
+          "status": "passed",
+          "duration_ms": 4.29490000000078
+        },
+        {
+          "name": "自动调整预览队列 第三步版本查看保留步骤，外部定位仍默认进入结果步骤",
+          "status": "passed",
+          "duration_ms": 3.5398999999997613
+        },
+        {
+          "name": "自动调整预览队列 停顿合并有效输入、相同结果去重且不自动保存方案",
+          "status": "passed",
+          "duration_ms": 5.644500000000335
+        },
+        {
+          "name": "自动调整预览队列 非法输入及恢复原值不创建作业，原始草稿仍用于校验",
+          "status": "passed",
+          "duration_ms": 3.7911999999996624
+        },
+        {
+          "name": "自动调整预览队列 写入期间继续编辑，迟到结果不允许保存，只接续最新一份输入",
+          "status": "passed",
+          "duration_ms": 5.7391999999999825
+        },
+        {
+          "name": "自动调整预览队列 已有运行作业时只排最新输入，终态后再提交",
+          "status": "passed",
+          "duration_ms": 6.209600000000137
+        },
+        {
+          "name": "自动调整预览队列 无预生成结果不循环重试；待核实写入冻结输入并阻止新作业",
+          "status": "passed",
+          "duration_ms": 10.142499999999927
+        },
+        {
+          "name": "自动调整预览队列 查询中断暂停队列，恢复查询后才接续最新输入",
+          "status": "passed",
+          "duration_ms": 5.843199999999342
+        },
+        {
+          "name": "自动调整预览队列 保存方案期间仍冻结调整输入，不能因自动预览放宽写入保护",
+          "status": "passed",
+          "duration_ms": 4.655099999999948
+        },
+        {
+          "name": "自动调整预览队列 导航询问暂停，取消后恢复，失权及换任务清理等待请求",
+          "status": "passed",
+          "duration_ms": 4.785300000001371
+        },
+        {
+          "name": "规划反馈归属与生命周期 同操作重试立即清理旧反馈，无关查询成功保留当前失败",
+          "status": "passed",
+          "duration_ms": 3.7523999999993976
+        },
+        {
+          "name": "规划反馈归属与生命周期 作业查询重试清除其详情，其他操作错误不与查询反馈拼接",
+          "status": "passed",
+          "duration_ms": 3.6850000000013097
+        },
+        {
+          "name": "规划反馈归属与生命周期 新写入使更早读取失败失效，不覆盖写入摘要及载荷",
+          "status": "passed",
+          "duration_ms": 2.5203999999994267
+        },
+        {
+          "name": "规划反馈归属与生命周期 取消明确失败不解除原查询中断，也不恢复自动轮询",
+          "status": "passed",
+          "duration_ms": 3.0336999999999534
+        },
+        {
+          "name": "规划反馈归属与生命周期 后来发生的查询失败不会让兼容详情拼到较早的通用错误摘要",
+          "status": "passed",
+          "duration_ms": 2.8721000000005006
+        },
+        {
+          "name": "规划反馈归属与生命周期 被同操作替代的读取和取消后的读取均不能写回失败",
+          "status": "passed",
+          "duration_ms": 3.2083000000002357
+        },
+        {
+          "name": "规划反馈归属与生命周期 task 改变后迟到失败不进入当前反馈",
+          "status": "passed",
+          "duration_ms": 2.4043000000001484
+        },
+        {
+          "name": "规划反馈归属与生命周期 session 改变后迟到失败不进入当前反馈",
+          "status": "passed",
+          "duration_ms": 3.035600000001068
+        },
+        {
+          "name": "规划反馈归属与生命周期 permission 改变后迟到失败不进入当前反馈",
+          "status": "passed",
+          "duration_ms": 2.4719999999997526
+        },
+        {
+          "name": "规划反馈归属与生命周期 任务与会话重置清理已知详情，换任务不会保留错误摘要",
+          "status": "passed",
+          "duration_ms": 2.6520000000000437
+        },
+        {
+          "name": "规划反馈归属与生命周期 本地前置条件及路由提示均解除旧服务错误载荷",
+          "status": "passed",
+          "duration_ms": 3.967899999999645
+        },
+        {
+          "name": "规划反馈归属与生命周期 本地提示不解除尚未恢复的作业查询中断及保存限制",
+          "status": "passed",
+          "duration_ms": 4.030700000001161
+        },
+        {
+          "name": "规划反馈归属与生命周期 成功调整条件后清理详情，未获离开许可时保留原反馈",
+          "status": "passed",
+          "duration_ms": 3.0012000000006083
+        },
+        {
+          "name": "规划反馈归属与生命周期 原请求核实为 SUCCEEDED 时移除不确定写入的旧详情",
+          "status": "passed",
+          "duration_ms": 3.080899999999019
+        },
+        {
+          "name": "规划反馈归属与生命周期 原请求核实为 FAILED 时移除不确定写入的旧详情",
+          "status": "passed",
+          "duration_ms": 2.794400000000678
+        },
+        {
+          "name": "规划反馈归属与生命周期 原请求核实为 NOT_FOUND 时移除不确定写入的旧详情",
+          "status": "passed",
+          "duration_ms": 2.9210999999995693
+        },
+        {
+          "name": "规划反馈归属与生命周期 写入期间失权的待核对提示在恢复权限并核实成功后清除",
+          "status": "passed",
+          "duration_ms": 4.20719999999892
+        },
+        {
+          "name": "规划反馈归属与生命周期 退出后迟到的写入失败不恢复反馈或旧会话待核对请求",
+          "status": "passed",
+          "duration_ms": 2.577900000000227
+        }
+      ]
+    },
+    {
+      "file": "F:/work/project2026-1/front_design/radio-planning-20261022/tests/planning-coverage-query.test.ts",
+      "tests": [
+        {
+          "name": "方案覆盖身份与调整快照 未保存候选绑定成功作业和实际快照，不保存或改写父方案",
+          "status": "passed",
+          "duration_ms": 6.507600000000025
+        },
+        {
+          "name": "方案覆盖身份与调整快照 dirty时不回退到原方案旧覆盖",
+          "status": "passed",
+          "duration_ms": 0.7010999999999967
+        },
+        {
+          "name": "方案覆盖身份与调整快照 running时不回退到原方案旧覆盖",
+          "status": "passed",
+          "duration_ms": 0.5240000000000009
+        },
+        {
+          "name": "方案覆盖身份与调整快照 pending时不回退到原方案旧覆盖",
+          "status": "passed",
+          "duration_ms": 0.3725000000000591
+        },
+        {
+          "name": "方案覆盖身份与调整快照 调整前地图只展示父方案覆盖，调整后才显示候选覆盖",
+          "status": "passed",
+          "duration_ms": 0.6542000000000598
+        },
+        {
+          "name": "方案覆盖身份与调整快照 拒绝task不一致的候选快照",
+          "status": "passed",
+          "duration_ms": 0.4393999999999778
+        },
+        {
+          "name": "方案覆盖身份与调整快照 拒绝parent不一致的候选快照",
+          "status": "passed",
+          "duration_ms": 0.28149999999993724
+        },
+        {
+          "name": "方案覆盖身份与调整快照 拒绝snapshot不一致的候选快照",
+          "status": "passed",
+          "duration_ms": 0.26350000000002183
+        },
+        {
+          "name": "方案覆盖身份与调整快照 拒绝failed不一致的候选快照",
+          "status": "passed",
+          "duration_ms": 0.2981999999999516
+        },
+        {
+          "name": "方案覆盖身份与调整快照 只读查看已保存版本不会取调整候选的覆盖",
+          "status": "passed",
+          "duration_ms": 0.34960000000000946
+        },
+        {
+          "name": "候选覆盖保存后的版本关联 仅复用同job、任务、快照及资源的实际候选来源，不改写anchor",
+          "status": "passed",
+          "duration_ms": 0.40049999999996544
+        }
+      ]
+    },
+    {
+      "file": "F:/work/project2026-1/front_design/radio-planning-20261022/tests/planning-deployment-review.test.ts",
+      "tests": [
+        {
+          "name": "修改意见：新增部署与冻结位置 历史配置从同一快照节点回读缺失位置，并优先保留明确规划位置",
+          "status": "passed",
+          "duration_ms": 4.276499999999942
+        },
+        {
+          "name": "修改意见：新增部署与冻结位置 显式新增标志经过HTTP边界保留；错误标志拒收且历史缺省保持缺省",
+          "status": "passed",
+          "duration_ms": 1.6846000000000458
+        },
+        {
+          "name": "修改意见：新增部署与冻结位置 新增节点常态为橙色，选中时沿用定位高亮，不改动冻结结果",
+          "status": "passed",
+          "duration_ms": 4.013300000000072
+        },
+        {
+          "name": "修改意见：新增部署与冻结位置 实际结果组件显示新增名称、设备、定位操作；完整配置读取冻结坐标；没有重复覆盖标签",
+          "status": "passed",
+          "duration_ms": 20.686099999999897
+        },
+        {
+          "name": "覆盖设备高亮的版本边界 独立高亮层标明设备与节点，不改变原覆盖格面或分级颜色",
+          "status": "passed",
+          "duration_ms": 1.913499999999658
+        },
+        {
+          "name": "覆盖设备高亮的版本边界 错plan不能高亮另一方案设备",
+          "status": "passed",
+          "duration_ms": 0.6723999999999251
+        },
+        {
+          "name": "覆盖设备高亮的版本边界 错snapshot不能高亮另一方案设备",
+          "status": "passed",
+          "duration_ms": 0.33159999999998035
+        },
+        {
+          "name": "覆盖设备高亮的版本边界 错device不能高亮另一方案设备",
+          "status": "passed",
+          "duration_ms": 0.28090000000020154
+        },
+        {
+          "name": "覆盖设备高亮的版本边界 错status不能高亮另一方案设备",
+          "status": "passed",
+          "duration_ms": 0.27979999999979555
+        },
+        {
+          "name": "覆盖设备高亮的版本边界 错engine不能高亮另一方案设备",
+          "status": "passed",
+          "duration_ms": 0.33140000000003056
+        }
+      ]
+    },
+    {
+      "file": "F:/work/project2026-1/front_design/radio-planning-20261022/tests/planning-guidance-entry.test.ts",
+      "tests": [
+        {
+          "name": "规划历史与诊断准备入口 返回输入步骤仍展示进行中状态并锁提交，失败结论可见且允许修改重试",
+          "status": "passed",
+          "duration_ms": 1067.6394
+        },
+        {
+          "name": "规划历史与诊断准备入口 已保存方案按钮绑定任务归属，失败留在目录并提示，成功后关闭",
+          "status": "passed",
+          "duration_ms": 1003.7265000000007
+        },
+        {
+          "name": "规划历史与诊断准备入口 旧历史用途打开已保存页签，关闭后同步身份不会重复弹出或写入",
+          "status": "passed",
+          "duration_ms": 1460.1304
+        },
+        {
+          "name": "规划历史与诊断准备入口 诊断两处引导带来源，准备未完成可显式返回并重新读取来源",
+          "status": "passed",
+          "duration_ms": 1153.874499999998
+        },
+        {
+          "name": "规划历史与诊断准备入口 设备维护后可保存、规划与转正，用户点击返回诊断取得有效网络",
+          "status": "passed",
+          "duration_ms": 7898.595999999998
+        },
+        {
+          "name": "规划历史与诊断准备入口 返回沿用离页保护，取消和保存失败保留输入，成功后才离开",
+          "status": "passed",
+          "duration_ms": 1988.3500000000022
+        },
+        {
+          "name": "规划历史与诊断准备入口 普通规划无诊断引导，失权隐藏返回，非法用途不覆盖现场或打开历史",
+          "status": "passed",
+          "duration_ms": 993.3912000000018
+        },
+        {
+          "name": "方案管理操作入口 进入第三步先选择业务操作，查看只读且不自动创建方案版本",
+          "status": "passed",
+          "duration_ms": 1001.4013000000014
+        },
+        {
+          "name": "方案管理操作入口 用户选择调整后才打开现有调整工作区，返回管理保留调整现场",
+          "status": "passed",
+          "duration_ms": 951.5113000000019
+        },
+        {
+          "name": "覆盖选择离开调整工作区保护 放弃离开决定时继续保留编辑；确认后才进入保存模式",
+          "status": "passed",
+          "duration_ms": 931.0913999999975
+        },
+        {
+          "name": "保存后显式读取原候选覆盖 按所选版本的job和snapshot读取原候选并保留真正anchor，可返回保存版自身来源",
+          "status": "passed",
+          "duration_ms": 939.9959000000017
+        }
+      ]
+    },
+    {
+      "file": "F:/work/project2026-1/front_design/radio-planning-20261022/tests/planning-interference-entry.test.ts",
+      "tests": [
+        {
+          "name": "规划到 GIS 干扰分析精确入口 真实按钮精确进入已确认方案，返回同方案，不提交分析或写业务",
+          "status": "passed",
+          "duration_ms": 5794.868900000001
+        },
+        {
+          "name": "规划到 GIS 干扰分析精确入口 仅干扰源变化沿现有资格进入，不把 current=false 当作不可分析",
+          "status": "passed",
+          "duration_ms": 4324.773700000002
+        },
+        {
+          "name": "规划到 GIS 干扰分析精确入口 unconfirmed 目标无可执行入口，旧按钮也不能跳转",
+          "status": "passed",
+          "duration_ms": 4375.600800000004
+        },
+        {
+          "name": "规划到 GIS 干扰分析精确入口 reference 目标无可执行入口，旧按钮也不能跳转",
+          "status": "passed",
+          "duration_ms": 4522.4352
+        },
+        {
+          "name": "规划到 GIS 干扰分析精确入口 missing 目标无可执行入口，旧按钮也不能跳转",
+          "status": "passed",
+          "duration_ms": 4283.808799999999
+        },
+        {
+          "name": "规划到 GIS 干扰分析精确入口 permission 目标无可执行入口，旧按钮也不能跳转",
+          "status": "passed",
+          "duration_ms": 3863.778400000003
+        },
+        {
+          "name": "规划到 GIS 干扰分析精确入口 已替换版本按服务原因拒绝，不回落另一个已确认版本",
+          "status": "passed",
+          "duration_ms": 3811.8234999999986
+        },
+        {
+          "name": "规划到 GIS 干扰分析精确入口 服务返回task身份变化不能进入另一个冻结来源",
+          "status": "passed",
+          "duration_ms": 3793.0964999999997
+        },
+        {
+          "name": "规划到 GIS 干扰分析精确入口 服务返回plan身份变化不能进入另一个冻结来源",
+          "status": "passed",
+          "duration_ms": 3784.161899999999
+        },
+        {
+          "name": "规划到 GIS 干扰分析精确入口 服务返回version身份变化不能进入另一个冻结来源",
+          "status": "passed",
+          "duration_ms": 3746.8161000000036
+        },
+        {
+          "name": "规划到 GIS 干扰分析精确入口 旧历史 B 不覆盖目标 A，刷新和焦点恢复仍保持 A 的分析输入",
+          "status": "passed",
+          "duration_ms": 4083.078999999998
+        },
+        {
+          "name": "规划到 GIS 干扰分析精确入口 same 方案正在分析时复用原运行或阻止切换，不取消任务",
+          "status": "passed",
+          "duration_ms": 4988.276899999997
+        },
+        {
+          "name": "规划到 GIS 干扰分析精确入口 other 方案正在分析时复用原运行或阻止切换，不取消任务",
+          "status": "passed",
+          "duration_ms": 4777.87030000001
+        },
+        {
+          "name": "规划到 GIS 干扰分析精确入口 规划输入 cancel 沿原离页保护",
+          "status": "passed",
+          "duration_ms": 3729.4688999999926
+        },
+        {
+          "name": "规划到 GIS 干扰分析精确入口 规划输入 failed-save 沿原离页保护",
+          "status": "passed",
+          "duration_ms": 4053.8952000000136
+        },
+        {
+          "name": "规划到 GIS 干扰分析精确入口 规划输入 discard 沿原离页保护",
+          "status": "passed",
+          "duration_ms": 4165.0680999999895
+        },
+        {
+          "name": "规划到 GIS 干扰分析精确入口 selection 后迟到入口资格响应不能导航",
+          "status": "passed",
+          "duration_ms": 3953.784400000004
+        },
+        {
+          "name": "规划到 GIS 干扰分析精确入口 permission 后迟到入口资格响应不能导航",
+          "status": "passed",
+          "duration_ms": 3759.635899999994
+        },
+        {
+          "name": "规划到 GIS 干扰分析精确入口 leave 后迟到入口资格响应不能导航",
+          "status": "passed",
+          "duration_ms": 3749.0924000000086
+        },
+        {
+          "name": "规划到 GIS 干扰分析精确入口 unmount 后迟到入口资格响应不能导航",
+          "status": "passed",
+          "duration_ms": 3699.474000000002
+        },
+        {
+          "name": "规划到 GIS 干扰分析精确入口 等待规划离页决定期间目标变化，旧导航不能提交放弃决定",
+          "status": "passed",
+          "duration_ms": 3781.964699999997
+        },
+        {
+          "name": "规划到 GIS 干扰分析精确入口 GIS wrong-task 深链不回落首个方案",
+          "status": "passed",
+          "duration_ms": 1454.9980000000069
+        },
+        {
+          "name": "规划到 GIS 干扰分析精确入口 GIS missing 深链不回落首个方案",
+          "status": "passed",
+          "duration_ms": 1420.0179999999964
+        },
+        {
+          "name": "规划到 GIS 干扰分析精确入口 GIS 同页深链 cancel 保留原资源决定",
+          "status": "passed",
+          "duration_ms": 3585.713699999993
+        },
+        {
+          "name": "规划到 GIS 干扰分析精确入口 GIS 同页深链 failed-save 保留原资源决定",
+          "status": "passed",
+          "duration_ms": 4084.8417999999947
+        },
+        {
+          "name": "规划到 GIS 干扰分析精确入口 GIS 同页深链 discard 保留原资源决定",
+          "status": "passed",
+          "duration_ms": 3669.6003999999957
+        },
+        {
+          "name": "规划到 GIS 干扰分析精确入口 GIS route 变化后迟到回调不接纳旧目标",
+          "status": "passed",
+          "duration_ms": 1553.0975000000035
+        },
+        {
+          "name": "规划到 GIS 干扰分析精确入口 GIS permission 变化后迟到回调不接纳旧目标",
+          "status": "passed",
+          "duration_ms": 1627.6493000000046
+        },
+        {
+          "name": "规划到 GIS 干扰分析精确入口 GIS session 变化后迟到回调不接纳旧目标",
+          "status": "passed",
+          "duration_ms": 1745.917499999996
+        },
+        {
+          "name": "规划到 GIS 干扰分析精确入口 GIS 返回等待资源决定时换号，旧返回不能离页或丢失资源输入",
+          "status": "passed",
+          "duration_ms": 6379.828200000004
+        },
+        {
+          "name": "规划到 GIS 干扰分析精确入口 新版冻结工作区场景草稿取消离开时保留输入，不隐式保存或取消运行",
+          "status": "passed",
+          "duration_ms": 4362.149000000005
+        },
+        {
+          "name": "规划到 GIS 干扰分析精确入口 分析提交超时保留原号，取消离开不重试/取消，明确离开仍不取消服务器任务",
+          "status": "passed",
+          "duration_ms": 4400.671100000007
+        },
+        {
+          "name": "P02 M5 任务编辑返回真实页面命令 只保存指定任务再回 GIS，同任务回读，不提交规划或保存资源",
+          "status": "passed",
+          "duration_ms": 6467.984800000006
+        },
+        {
+          "name": "P02 M5 任务编辑返回真实页面命令 保存被拒绝保留任务输入，返回按钮仍走原取消/放弃决定",
+          "status": "passed",
+          "duration_ms": 5118.034299999999
+        },
+        {
+          "name": "P02 M5 任务编辑返回真实页面命令 保存等待时换会话，晚回执不导航或覆盖新现场",
+          "status": "passed",
+          "duration_ms": 5023.667199999996
+        },
+        {
+          "name": "分析导航参数白名单 仅接受成对分析身份，保留不透明 ID 的编码",
+          "status": "passed",
+          "duration_ms": 4.272100000001956
+        },
+        {
+          "name": "分析导航参数白名单 拒绝 analysisTaskId=T",
+          "status": "passed",
+          "duration_ms": 0.25959999999031425
+        },
+        {
+          "name": "分析导航参数白名单 拒绝 analysisPlanId=P",
+          "status": "passed",
+          "duration_ms": 0.209900000016205
+        },
+        {
+          "name": "分析导航参数白名单 拒绝 analysisTaskId=T&analysisPlanId=P&taskId=T",
+          "status": "passed",
+          "duration_ms": 0.21619999999529682
+        },
+        {
+          "name": "分析导航参数白名单 拒绝 analysisTaskId=T&analysisPlanId=P&stationId=N",
+          "status": "passed",
+          "duration_ms": 0.18659999998635612
+        },
+        {
+          "name": "分析导航参数白名单 拒绝 analysisTaskId=T&analysisPlanId=P&diagnosisId=D",
+          "status": "passed",
+          "duration_ms": 0.18580000000656582
+        },
+        {
+          "name": "分析导航参数白名单 拒绝 analysisTaskId=T&analysisPlanId=P&faultEdit=1",
+          "status": "passed",
+          "duration_ms": 0.1820999999763444
+        },
+        {
+          "name": "分析导航参数白名单 拒绝 analysisTaskId=T&analysisPlanId=P&analysisPlanId=Q",
+          "status": "passed",
+          "duration_ms": 0.22000000000116415
+        },
+        {
+          "name": "已保存参考方案的分析确认 SAVED通过显式确认进入分析，不转正不改当前方案",
+          "status": "passed",
+          "duration_ms": 4261.461299999995
+        },
+        {
+          "name": "已保存参考方案的分析确认 REFERENCE通过显式确认进入分析，不转正不改当前方案",
+          "status": "passed",
+          "duration_ms": 4180.9927000000025
+        },
+        {
+          "name": "已保存参考方案的分析确认 确认等待时版本变化不会确认新的所选方案",
+          "status": "passed",
+          "duration_ms": 3886.3146000000124
+        }
+      ]
+    },
+    {
+      "file": "F:/work/project2026-1/front_design/radio-planning-20261022/tests/planning-interference-http-entry.test.ts",
+      "tests": [
+        {
+          "name": "规划到新版干扰工作流入口 指定任务/方案/版本核验通过，不提交任何分析",
+          "status": "passed",
+          "duration_ms": 4.8339
+        },
+        {
+          "name": "规划到新版干扰工作流入口 拒绝version错误，不替换成其他确认方案",
+          "status": "passed",
+          "duration_ms": 1.7176999999999794
+        },
+        {
+          "name": "规划到新版干扰工作流入口 拒绝plan错误，不替换成其他确认方案",
+          "status": "passed",
+          "duration_ms": 0.3953000000000202
+        },
+        {
+          "name": "规划到新版干扰工作流入口 拒绝task错误，不替换成其他确认方案",
+          "status": "passed",
+          "duration_ms": 0.31749999999999545
+        },
+        {
+          "name": "规划到新版干扰工作流入口 拒绝ineligible错误，不替换成其他确认方案",
+          "status": "passed",
+          "duration_ms": 0.30049999999999955
+        },
+        {
+          "name": "规划到新版干扰工作流入口 同一方案运行可进入，取消待确认的其他版本也须阻止切入",
+          "status": "passed",
+          "duration_ms": 1.1931000000000154
+        },
+        {
+          "name": "规划到新版干扰工作流入口 活动分析身份错误和请求失败均传播，不静默跳转",
+          "status": "passed",
+          "duration_ms": 0.7569000000000301
+        },
+        {
+          "name": "规划到新版干扰工作流入口 等待中切换输入不会改变原入口，取消后晚响应不继续",
+          "status": "passed",
+          "duration_ms": 0.7287000000000035
+        },
+        {
+          "name": "显式历史方案来源核验 指定方案不在首页时精确查询已保存来源，不用当前方案代替",
+          "status": "passed",
+          "duration_ms": 0.9184999999999945
+        },
+        {
+          "name": "显式历史方案来源核验 精确查询仍校验任务、方案和版本，不能使用近似匹配",
+          "status": "passed",
+          "duration_ms": 0.6210000000000377
+        }
+      ]
+    },
+    {
+      "file": "F:/work/project2026-1/front_design/radio-planning-20261022/tests/planning-progress-visible.test.ts",
+      "tests": [
+        {
+          "name": "规划页面的运行进度可见性 已有保存方案时，PENDING 新作业仍展示真实百分比和阶段",
+          "status": "passed",
+          "duration_ms": 63.636600000000044
+        },
+        {
+          "name": "规划页面的运行进度可见性 已有保存方案时，RUNNING 新作业仍展示真实百分比和阶段",
+          "status": "passed",
+          "duration_ms": 8.570299999999861
+        }
+      ]
+    },
+    {
+      "file": "F:/work/project2026-1/front_design/radio-planning-20261022/tests/planning-submit-refresh-guard.test.ts",
+      "tests": [
+        {
+          "name": "规划提交与任务资源刷新竞态 任务referencesRefreshing时动作出口拒绝提交，结束后可恢复",
+          "status": "passed",
+          "duration_ms": 23.28360000000066
+        },
+        {
+          "name": "规划提交与任务资源刷新竞态 任务busy时动作出口拒绝提交，结束后可恢复",
+          "status": "passed",
+          "duration_ms": 4.561799999999494
+        },
+        {
+          "name": "规划提交与任务资源刷新竞态 任务loading时动作出口拒绝提交，结束后可恢复",
+          "status": "passed",
+          "duration_ms": 3.8458000000009633
+        },
+        {
+          "name": "规划提交与任务资源刷新竞态 共享GIS资源已更新而任务尚未采纳时，不能提交旧版的干净任务",
+          "status": "passed",
+          "duration_ms": 4.49619999999959
+        },
+        {
+          "name": "规划提交与任务资源刷新竞态 只读版本列表不影响任务输入，读取期间仍可提交同版任务",
+          "status": "passed",
+          "duration_ms": 5.982700000000477
+        },
+        {
+          "name": "规划提交与任务资源刷新竞态 同版真实引用刷新在途时不夹入规划提交，引用回读后恢复且原任务不变",
+          "status": "passed",
+          "duration_ms": 69.29439999999886
+        }
+      ]
+    },
+    {
+      "file": "F:/work/project2026-1/front_design/radio-planning-20261022/tests/planning-task-navigation.test.ts",
+      "tests": [
+        {
+          "name": "Mock 保存任务跨页定位与草稿保护 GIS任务编辑入口保持输入步骤，并核实已有作业后继续锁定提交",
+          "status": "passed",
+          "duration_ms": 2422.342099999998
+        },
+        {
+          "name": "Mock 保存任务跨页定位与草稿保护 显式任务编辑定位进入第一步，同任务重新定位不覆盖草稿",
+          "status": "passed",
+          "duration_ms": 2767.0352999999996
+        },
+        {
+          "name": "Mock 保存任务跨页定位与草稿保护 异任务定位复用原保存保护，取消时不覆盖原任务",
+          "status": "passed",
+          "duration_ms": 1958.4932000000008
+        },
+        {
+          "name": "Mock 保存任务跨页定位与草稿保护 不存在和非法目标不会回退首条或改动现有任务",
+          "status": "passed",
+          "duration_ms": 2137.1556999999993
+        },
+        {
+          "name": "Mock 保存任务跨页定位与草稿保护 任务读取尚未完成时保留现场，完成后才按显式目标定位",
+          "status": "passed",
+          "duration_ms": 2407.826100000002
+        },
+        {
+          "name": "Mock 保存任务跨页定位与草稿保护 去 GIS 不再共享未保存任务，取消或保存失败都留在规划页",
+          "status": "passed",
+          "duration_ms": 2900.864300000001
+        }
+      ]
+    },
+    {
+      "file": "F:/work/project2026-1/front_design/radio-planning-20261022/tests/road-layers.test.ts",
+      "tests": [
+        {
+          "name": "道路 MVT 瓦片图层 按清单范围生成版本化瓦片地址，并解码实际瓦片",
+          "status": "passed",
+          "duration_ms": 75.02709999999996
+        },
+        {
+          "name": "道路 MVT 瓦片图层 清单无效时明确失败，不创建道路源",
+          "status": "passed",
+          "duration_ms": 64.36170000000004
+        },
+        {
+          "name": "道路 MVT 瓦片图层 复访复用清单缓存，但每张地图拥有独立瓦片源",
+          "status": "passed",
+          "duration_ms": 61.02869999999996
+        },
+        {
+          "name": "道路 MVT 瓦片图层 隐藏时取消读取，迟到清单不得重新挂载",
+          "status": "passed",
+          "duration_ms": 60.76769999999999
+        },
+        {
+          "name": "道路 Worker 与原始数据保真 只解析一次并按确认分批输出，完整坐标及属性与原加载方式一致",
+          "status": "passed",
+          "duration_ms": 953.7869000000001
+        },
+        {
+          "name": "道路 Worker 与原始数据保真 取消中断下载，过期请求失败不回传",
+          "status": "passed",
+          "duration_ms": 0.5887000000000171
+        },
+        {
+          "name": "道路 Worker 与原始数据保真 旧请求的迟到失败不覆盖当前请求，已取消的迟到响应不再解析",
+          "status": "passed",
+          "duration_ms": 1.0570999999999913
+        },
+        {
+          "name": "道路 Worker 与原始数据保真 错误 HTTP 或几何明确失败，不静默漏掉道路",
+          "status": "passed",
+          "duration_ms": 0.33780000000001564
+        }
+      ]
+    },
+    {
+      "file": "F:/work/project2026-1/front_design/radio-planning-20261022/tests/task-resource-refresh.test.ts",
+      "tests": [
+        {
+          "name": "GIS资源编辑后重新绑定旧任务 显式刷新同时采用新版引用，保留草稿与旧保存快照，另存输入版本后恢复规划",
+          "status": "passed",
+          "duration_ms": 21.678600000000074
+        },
+        {
+          "name": "GIS资源编辑后重新绑定旧任务 未刷新前拒绝把旧任务写入当前资源，提示有可操作的刷新入口",
+          "status": "passed",
+          "duration_ms": 3.47829999999999
+        },
+        {
+          "name": "GIS资源编辑后重新绑定旧任务 资源主视图失败保留原版与用户草稿，重试后清除错误",
+          "status": "passed",
+          "duration_ms": 4.2181000000000495
+        },
+        {
+          "name": "GIS资源编辑后重新绑定旧任务 新版引用缺失时不冒充已刷新，也不修改原保存版本",
+          "status": "passed",
+          "duration_ms": 3.2227000000000317
+        },
+        {
+          "name": "GIS资源编辑后重新绑定旧任务 引用加载中禁止保存，离页取消后迟到响应不替换任务版本",
+          "status": "passed",
+          "duration_ms": 55.40649999999994
+        },
+        {
+          "name": "GIS资源编辑后重新绑定旧任务 busy时刷新不与正在写入或规划的冻结版本竞态",
+          "status": "passed",
+          "duration_ms": 2.8182999999999083
+        },
+        {
+          "name": "GIS资源编辑后重新绑定旧任务 running时刷新不与正在写入或规划的冻结版本竞态",
+          "status": "passed",
+          "duration_ms": 2.6843999999999824
+        }
+      ]
+    }
+  ]
+}

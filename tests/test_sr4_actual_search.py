@@ -200,8 +200,9 @@ def test_new_task_keeps_frozen_candidate_sites_for_original_deployment(native_ca
               "comm_demand.csv": [dict(demands[0], task_id="UNIT-TASK")], "link_metric.csv": [],
               "candidate_site.csv": sites}
     monkeypatch.setattr(flow, "default_terrain", lambda **_: SyntheticTerrain((113.9, 37.9, 114.2, 38.1)))
-    def original_deployment(*args):
+    def original_deployment(*args, **kwargs):
         assert args[5] == sites
+        assert callable(kwargs["checkpoint"])
         raise RuntimeError("UNIT original deployment received frozen sites")
     monkeypatch.setattr(flow, "topology_from_deployment", original_deployment)
     with pytest.raises(RuntimeError, match="original deployment received frozen sites"):
@@ -380,9 +381,9 @@ def test_new_task_uses_two_step_actual_cut_search_not_only_single_step_greedy(ph
     source.update(usable=[(*edge, 12.0) for edge in source["links"]], connectivity=1.0,
                   mandatory_connectivity=1.0, survivability=0.5, total_power_w=1.0,
                   bridges=3, worst_bridge=(0, 1), relay_hops=0)
-    solution = SimpleNamespace(added=[])
+    solution = SimpleNamespace(added=[], lower_bound=0)
     monkeypatch.setattr(flow, "default_terrain", lambda **_: None)
-    monkeypatch.setattr(flow, "topology_from_deployment", lambda *_args: (
+    monkeypatch.setattr(flow, "topology_from_deployment", lambda *_args, **_kwargs: (
         problem.fm, solution, copy.deepcopy(initial["links"]), copy.deepcopy(nodes), copy.deepcopy(devices)))
     monkeypatch.setattr(flow.RP, "plan", lambda *_args, **_kwargs: {})
     monkeypatch.setattr(flow.MO, "Problem", lambda *_args, **_kwargs: problem)

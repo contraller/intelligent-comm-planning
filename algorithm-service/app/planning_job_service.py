@@ -193,6 +193,7 @@ def _dto(job: PlanningJob, revision: PlanningTaskRevision) -> dict[str, Any]:
         "input": revision.input_snapshot,
         "parent_plan_id": job.parent_plan_id,
         "status": job.status,
+        "stopping": job.status in {"FAILED", "CANCELLED"} and planning_w3.task_worker_active(job.job_id),
         "progress": progress,
         "phases": _phases(progress),
         "result": None,
@@ -420,6 +421,22 @@ def _reserve(factory: sessionmaker[Session], payload: PlanningJobSubmitRequest,
             })
         if (payload.parent_plan_id is None) != (payload.adjustment is None):
             raise PlanningJobError(1001, "父方案编号与人工调整必须同时提供", 422)
+        # 超时和取消先反馈终态，协作退出中的线程仍占用同一任务的计算槽。
+        # 在资源快照准备前检查，重复点击不能反复触发昂贵的输入准备。
+        active = session.scalar(select(PlanningJob).where(
+            PlanningJob.task_id == payload.task_id,
+            or_(PlanningJob.status.in_(("PENDING", "RUNNING")),
+                PlanningJob.job_id.in_(planning_w3.active_worker_ids())),
+        ))
+        if active is not None:
+            stopping = active.status in _FINAL_STATES
+            raise PlanningJobError(2002, "上一规划计算正在停止，请稍后重试" if stopping else "该任务已有计算作业", 409, {
+                "job_id": active.job_id,
+                "status": active.status,
+                "progress": active.progress,
+                "stage": "后台计算正在停止" if stopping else active.stage,
+                "stopping": stopping,
+            })
         algorithm_payload = _algorithm_payload(payload, revision)
         if payload.parent_plan_id is not None and payload.adjustment is not None:
             parent = session.get(PlanningPlan, payload.parent_plan_id)
@@ -434,17 +451,6 @@ def _reserve(factory: sessionmaker[Session], payload: PlanningJobSubmitRequest,
             algorithm_payload["adjustment"] = payload.adjustment.model_dump(
                 mode="json", exclude_unset=True
             )
-        active = session.scalar(select(PlanningJob).where(
-            PlanningJob.task_id == payload.task_id,
-            PlanningJob.status.in_(("PENDING", "RUNNING")),
-        ))
-        if active is not None:
-            raise PlanningJobError(2002, "该任务已有计算作业", 409, {
-                "job_id": active.job_id,
-                "status": active.status,
-                "progress": active.progress,
-                "stage": active.stage,
-            })
         now = datetime.now(timezone.utc)
         job = PlanningJob(
             job_id="tsk-" + uuid.uuid4().hex[:12],

@@ -12,7 +12,7 @@ const cloneQuery=(value:FrozenCoverageQuery):FrozenCoverageQuery=>({...value,...
 const active=(job:FrozenCoverageJob|null)=>!!job&&['PENDING','RUNNING'].includes(job.state);
 export function useFrozenCoverage(options:{query:()=>FrozenCoverageQuery|null;parameters:()=>FrozenCoverageInput;client:()=>FrozenCoverageClient|undefined;owner:()=>string;canWrite:()=>boolean;requestId?:()=>string;storage?:()=>Storage|undefined;pollMs?:number}) {
   const cache=shallowRef<FrozenCoverageCache|null>(null),job=shallowRef<FrozenCoverageJob|null>(null),pending=ref<Pending|null>(null);
-  const busy=ref(false),error=ref(''),selectedDeviceId=ref(''),visible=ref(true);
+  const busy=ref(false),error=ref(''),selectedDeviceId=ref(''),visible=ref(true),invalidationReason=ref('');
   const display=ref<FrozenCoverageDisplay>('strength');
   const knownJobId=ref('');
   const bandwidthOptions=shallowRef<FrozenCoverageBandwidthOptions|null>(null),bandwidthReceipt=shallowRef<FrozenCoverageBandwidthSelection|null>(null);
@@ -40,7 +40,7 @@ export function useFrozenCoverage(options:{query:()=>FrozenCoverageQuery|null;pa
   function rememberJob(id:string){const name='frozen-coverage.job:'+key();knownJobId.value=id;knownJobs.set(name,id);try{storage()?.setItem(name,id);}catch{ /* 已确认作业仍可在本标签回读。 */ }}
   function recallJob(){const name='frozen-coverage.job:'+key();let id=knownJobs.get(name);try{id??=storage()?.getItem(name)??undefined;}catch{ /* 不用其他身份或来源的记录回填。 */ }return id&&/^FCJ-[a-f0-9]{32}$/.test(id)?id:'';}
   function cancelRead(){serial++;control?.abort();control=null;clearTimeout(timer);timer=undefined;busy.value=false;}
-  const overlay=computed<FrozenCoverageOverlay|null>(()=>visible.value&&cache.value?.state==='HIT'&&cache.value.result&&selectedDeviceId.value?{anchor:cache.value.anchor,result:cache.value.result,deviceId:selectedDeviceId.value,...cache.value.anchor.engine_version==='V01-5'?{display:display.value}:{},...query()?.bandwidthSelection?{bandwidthSelection:query()!.bandwidthSelection}:{}}:null);
+  const overlay=computed<FrozenCoverageOverlay|null>(()=>visible.value&&cache.value?.state==='HIT'&&cache.value.result&&selectedDeviceId.value?{anchor:cache.value.anchor,result:cache.value.result,deviceId:selectedDeviceId.value,...cache.value.anchor.engine_version==='V01-5'?{display:display.value}:{},...cache.value.bandwidth_selection_id&&cache.value.bandwidth_selection_hash?{bandwidthSelection:{selectionId:cache.value.bandwidth_selection_id,selectionHash:cache.value.bandwidth_selection_hash}}:{}}:null);
   const devices=computed(()=>cache.value?.result?.devices??[]);
   async function run(action:(client:FrozenCoverageClient,query:FrozenCoverageQuery,signal:AbortSignal,current:()=>boolean)=>Promise<void>){
     const client=options.client(),source=query();if(disposed||busy.value||!client||!source)return;
@@ -49,7 +49,7 @@ export function useFrozenCoverage(options:{query:()=>FrozenCoverageQuery|null;pa
     try{await action(client,captured,control.signal,current);}catch(reason){if(current())error.value=reason instanceof Error?reason.message:'冻结覆盖请求失败';}
     finally{if(current()){busy.value=false;control=null;}}
   }
-  function acceptCache(value:FrozenCoverageCache){cache.value=value;if(!value.result?.devices.some(row=>row.device_id===selectedDeviceId.value))selectedDeviceId.value=value.result?.devices.find(row=>row.status==='COMPLETE')?.device_id??value.result?.devices[0]?.device_id??'';}
+  function acceptCache(value:FrozenCoverageCache){cache.value=value;invalidationReason.value='';if(!value.result?.devices.some(row=>row.device_id===selectedDeviceId.value))selectedDeviceId.value=value.result?.devices.find(row=>row.status==='COMPLETE')?.device_id??value.result?.devices[0]?.device_id??'';}
   async function read(){await run(async(client,query,signal,current)=>{const value=await client.getCache(query,{...options.parameters()},signal);if(current())acceptCache(value);});}
   function schedule(){clearTimeout(timer);if(!disposed&&active(job.value))timer=setTimeout(()=>void refreshJob(),options.pollMs??2000);}
   async function refreshJob(){
@@ -128,8 +128,8 @@ export function useFrozenCoverage(options:{query:()=>FrozenCoverageQuery|null;pa
     bandwidthSerial++;bandwidthAbort?.abort();bandwidthAbort=null;bandwidthLoading.value=false;bandwidthSaving.value=false;
     bandwidthOptions.value=null;bandwidthReceipt.value=null;bandwidthReady.value=false;bandwidthError.value='';bandwidthPending.value=selectionRequests.get(baseKey())??null;
   },{immediate:true,flush:'sync'});
-  watch([key,options.client],()=>{cancelRead();cache.value=null;job.value=null;error.value='';selectedDeviceId.value='';pending.value=recall();knownJobId.value=recallJob();},{immediate:true,flush:'sync'});
+  watch([key,options.client],()=>{if(cache.value?.state==='HIT'&&cache.value.result)invalidationReason.value='方案、带宽选择或覆盖参数已变化，原覆盖不再代表当前配置；请读取匹配缓存或重新计算。';cancelRead();cache.value=null;job.value=null;error.value='';selectedDeviceId.value='';pending.value=recall();knownJobId.value=recallJob();},{immediate:true,flush:'sync'});
   onScopeDispose(()=>{disposed=true;cancelRead();bandwidthSerial++;bandwidthAbort?.abort();});
-  return {cache,job,knownJobId,pending,busy,error,devices,selectedDeviceId,visible,overlay,read,refreshJob,compute:()=>write(false),cancel:()=>write(true),retry:()=>write(!!pending.value?.jobId),running:computed(()=>active(job.value)),stop:cancelRead,
+  return {cache,job,knownJobId,pending,busy,error,invalidationReason,devices,selectedDeviceId,visible,overlay,read,refreshJob,compute:()=>write(false),cancel:()=>write(true),retry:()=>write(!!pending.value?.jobId),running:computed(()=>active(job.value)),stop:cancelRead,
     display,bandwidthOptions,bandwidthReceipt,bandwidthPending,bandwidthLoading,bandwidthSaving,bandwidthError,bandwidthReady,loadBandwidthOptions,saveBandwidthSelection,retryBandwidthSelection:()=>saveBandwidthSelection()};
 }

@@ -1,0 +1,12 @@
+{
+  "pid": 43384,
+  "previous_pid": 19008,
+  "url": "http://127.0.0.24:5324/#/planning",
+  "database_preserved": true,
+  "active_jobs_before_restart": {
+    "planning_jobs": 0,
+    "interference_workbench_runs": 0,
+    "interference_workbench_adoptions": 0
+  },
+  "latest_cache_route": true
+}
