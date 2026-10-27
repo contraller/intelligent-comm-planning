@@ -6,7 +6,7 @@
     :disabled="disabled"
     ><legend>频率范围与部署数量</legend>
     <p class="muted"
-      >条件随任务保存，由服务进行分配和求解；留空表示未设置。新增部署单元由位置与设备类型组成，数量不等于设备实例数量。</p
+      >条件随任务保存，由服务进行分配和求解；未启用表示未设置，留空规则见各项提示。新增部署单元由位置与设备类型组成，数量不等于设备实例数量。</p
     >
     <fieldset
       v-for="kind in ['HF', 'VUHF'] as const"
@@ -21,6 +21,7 @@
           v-on="{ change: checkAction(controls.enable, kind) }"
         />设置 {{ kind }} 条件</label
       >
+      <small>每类最多一组条件；启用后须填写完整频率范围或至少一个排除频点。</small>
       <template v-if="filter(kind)"
         ><div
           class="range"
@@ -33,7 +34,8 @@
             }}<input
               inputmode="decimal"
               :value="numberText(kind + index, filter(kind)?.rangeKhz?.[index])"
-              v-on="{ input: inputAction(controls.range, kind, index) }" /></label
+              v-on="{ input: inputAction(controls.range, kind, index) }"
+            /><small>单位 kHz；有限正数（&gt; 0，不含 0），可填小数，未设固定上限。</small></label
           ><small
             v-if="
               inlineIssues &&
@@ -44,12 +46,17 @@
             >{{ fieldIssueMessage(issues, 'frequencyConstraints.' + kind + '.rangeKhz') }}</small
           ></div
         >
+        <small
+          >按中心频率筛选闭区间 [最低频率, 最高频率]（含两端），最低频率须 ≤ 最高频率。上下界须同时填写或同时留空；同时留空表示不按范围筛选，此时须填写排除频点。仅筛选当前资源池，不新增频点。</small
+        >
         <label
           >排除频点 ID（分号分隔）<input
             :data-validation-field="'frequencyConstraints.' + kind + '.excludeFreqIds'"
             :value="filter(kind)?.excludeFreqIds.join(';') ?? ''"
             v-on="{ input: inputAction(controls.excludes, kind) }"
           /><small
+            >留空表示不额外排除；每个 ID 为 1–120 个字符，以英文分号 ; 分隔。ID 不可重复、含空白或控制字符，分隔项不可为空；求解时须为对应类别的现有频点。</small
+          ><small
             v-if="
               inlineIssues &&
               fieldIssueMessage(issues, 'frequencyConstraints.' + kind + '.excludeFreqIds')
@@ -86,7 +93,12 @@
         >搜索频点<input
           v-model="search"
           placeholder="频点 ID、类别或中心频率"
-      /></label>
+      /><small
+        >按频点 ID、HF/VUHF 类别或中心频率（kHz）文本匹配；留空显示全部频点。</small
+      ></label>
+      <small
+        >勾选表示排除该频点；取消勾选仅撤销额外排除，不改变资源可用性。复用间距（m）与邻道间隔（kHz）由资源提供，此处仅展示。</small
+      >
       <p
         v-if="frequencyResources == null"
         class="muted"
@@ -131,6 +143,7 @@
           v-on="{ change: checkAction(controls.solve) }"
         />设置部署数量与备选数量</label
       >
+      <small>未勾选表示不设置本组求解条件；启用后期望备选数量不可留空。</small>
       <template v-if="modelValue.deploymentSolve"
         ><label
           >求解模式<select
@@ -139,6 +152,8 @@
             v-on="{ change: inputAction(controls.mode) }"
             ><option value="MIN_COUNT">尽量少新增部署</option
             ><option value="FIXED_COUNT">指定新增部署数量</option></select
+          ><small
+            >“尽量少新增部署”：由系统确定新增数量；“指定新增部署数量”：须填写新增部署单元数，允许为 0。</small
           ></label
         >
         <label v-if="modelValue.deploymentSolve.mode === 'FIXED_COUNT'"
@@ -148,6 +163,8 @@
             :value="numberText('fixedCount', modelValue.deploymentSolve.fixedCount)"
             v-on="{ input: inputAction(controls.count, 'fixedCount') }"
           /><small
+            >单位：个；整数闭区间 [0, 9007199254740991]；0 表示不新增部署，本模式不可留空。</small
+          ><small
             v-if="inlineIssues && fieldIssueMessage(issues, 'deploymentSolve.fixedCount')"
             class="field-error"
             role="alert"
@@ -161,12 +178,14 @@
             :value="numberText('solutionCount', modelValue.deploymentSolve.solutionCount)"
             v-on="{ input: inputAction(controls.count, 'solutionCount') }"
           /><small
+            >单位：份；整数闭区间 [1, 9007199254740991]；不可留空。</small
+          ><small
             v-if="inlineIssues && fieldIssueMessage(issues, 'deploymentSolve.solutionCount')"
             class="field-error"
             role="alert"
             >{{ fieldIssueMessage(issues, 'deploymentSolve.solutionCount') }}</small
           ></label
-        ><small>实际完整结果数量以服务返回为准。</small></template
+        ><small>实际完整结果数量以服务返回为准，受可行方案和既有搜索预算限制。</small></template
       >
       <small
         v-if="
