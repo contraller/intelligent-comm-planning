@@ -229,18 +229,19 @@
           >
         </div>
         <div
+          ref="progressContent"
           class="result-content"
           :class="{ 'adjustment-content': planning.step === 3 }"
         >
           <PlanningApiProgressPanel
             v-if="
-              !planning.selectedPlan ||
+              planning.running || !planning.selectedPlan ||
               planning.feedback ||
               planning.queryFeedback ||
               planning.pending
             "
             compact
-            :show-job="!planning.selectedPlan"
+            :show-job="planning.running || !planning.selectedPlan"
           />
           <PlanningApiResultPanel
             v-show="planning.step === 2"
@@ -429,7 +430,7 @@
   </div>
 </template>
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, shallowRef, toRaw, watch } from 'vue';
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, toRaw, watch } from 'vue';
 import { useTerrainBasemap } from '../composables/useTerrainBasemap';
 import DeploymentConstraintsSummary from '../components/DeploymentConstraintsSummary.vue';
 import PlanningOptionsSummary from '../components/PlanningOptionsSummary.vue';
@@ -764,6 +765,13 @@ const map = ref<InstanceType<typeof MapCanvas>>();
 const focused = ref(''),
   inputFocused = ref('');
 const resultPanel = ref<InstanceType<typeof PlanningApiResultPanel>>();
+const progressContent = ref<HTMLElement>();
+// 仅切换作业时定位进度，常规轮询不改滚动位置，避免页面跳动。
+watch(() => planning.job?.id, async (id, previous) => {
+  if (!id || id === previous) return;
+  await nextTick();
+  if (planning.job?.id === id && progressContent.value) progressContent.value.scrollTop = 0;
+}, { immediate: true });
 const selectionEpoch = ref(0);
 const focusedLink = ref('');
 const nodeHighlights = ref<string[]>([]);

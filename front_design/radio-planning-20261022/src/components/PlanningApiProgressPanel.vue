@@ -1,7 +1,8 @@
 <template>
   <section
-    class="panel"
+    class="panel planning-progress-panel"
     :class="{ 'compact-progress': compact }"
+    aria-label="规划进度与阶段"
     ><div
       v-if="showJob"
       class="panel-head"
@@ -119,6 +120,13 @@ const labels = {
 };
 </script>
 <style scoped>
+/* 进度独立占位，不被结果表格挤压成零高度；阶段过多时由本区域滚动。 */
+.planning-progress-panel {
+  flex: 0 0 auto;
+  min-width: 0;
+  max-height: min(360px, 50vh);
+  overflow: auto;
+}
 .compact-progress .panel-head {
   padding: 8px 12px;
 }
