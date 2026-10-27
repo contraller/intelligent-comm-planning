@@ -452,7 +452,7 @@ import {
 } from '../maps/mock-coverage-layers';
 import type { CoverageDisplay, PlanningCoverage } from '../types/coverage';
 import type { FrozenCoverageOverlay } from '../types/frozen-coverage';
-import { frozenCoverageLayer } from '../maps/frozen-coverage-layers';
+import { frozenCoverageLayer, frozenCoverageDeviceLayer } from '../maps/frozen-coverage-layers';
 import { createGisDeviceStatusLayer, observeGisDeviceStatusRender, type GisDeviceStatusOverlay, type GisDeviceStatusRender } from '../maps/gis-device-status-layer';
 import type { DeviceCoverageOverlay } from '../types/device-coverage';
 import { createDeviceCoverageLayers } from '../maps/device-coverage-layers';
@@ -956,13 +956,13 @@ let lastViewportKey = '';
 let resizeFrame: number | undefined;
 let lastSize = '';
 let renderedCoverage: ReturnType<typeof coverageLayers> | null = null;
-let frozenCoverageRender:{value:FrozenCoverageOverlay;snapshot:string;planId?:string;layer:ReturnType<typeof frozenCoverageLayer>}|null=null;
-function clearFrozenCoverage(){frozenCoverageRender?.layer.getSource()?.dispose();frozenCoverageRender?.layer.dispose();frozenCoverageRender=null;}
+let frozenCoverageRender:{value:FrozenCoverageOverlay;snapshot:string;planId?:string;layer:ReturnType<typeof frozenCoverageLayer>;deviceLayer:ReturnType<typeof frozenCoverageDeviceLayer>}|null=null;
+function clearFrozenCoverage(){for(const layer of frozenCoverageRender?[frozenCoverageRender.layer,frozenCoverageRender.deviceLayer]:[]){layer.getSource()?.dispose();layer.dispose();}frozenCoverageRender=null;}
 function updateFrozenCoverage(){
   const value=props.frozenCoverage,snapshot=props.frozenNetwork?.identity.snapshot_id??props.planningOverlay?.snapshotId,planId=props.frozenNetwork?.identity.plan_id;
   if(!value||!snapshot||fullScene.value){clearFrozenCoverage();return null;}
   if(!frozenCoverageRender||frozenCoverageRender.value!==value||frozenCoverageRender.snapshot!==snapshot||frozenCoverageRender.planId!==planId){
-    clearFrozenCoverage();frozenCoverageRender={value,snapshot,planId,layer:frozenCoverageLayer(value,snapshot,planId)};
+    clearFrozenCoverage();frozenCoverageRender={value,snapshot,planId,layer:frozenCoverageLayer(value,snapshot,planId),deviceLayer:frozenCoverageDeviceLayer(value,snapshot,planId)};
   }
   return frozenCoverageRender.layer;
 }
@@ -1050,7 +1050,7 @@ function paint() {
     updateLinkDisplay();
     roads.setVisible(props.showRoads);
     const layers: import('ol/layer/Base').default[] = [...(terrainLayer ? [terrainLayer] : []), roads];
-    if(frozenLayer) layers.push(frozenLayer);
+    if(frozenLayer&&frozenCoverageRender) layers.push(frozenLayer,frozenCoverageRender.deviceLayer);
     if (props.planningOverlay?.coverage && props.showCoverage) {
       const url = coverageImage.url.value;
       if (

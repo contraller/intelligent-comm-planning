@@ -28,7 +28,8 @@ def test_versioned_submit_freezes_all_rows(api, monkeypatch):
     assert response.status_code == 202, response.text
     payload = calls[0][0]
     assert payload["resource_revision"] == saved["resource_revision"] == initialized["revision"]
-    assert payload["resource_rows"] == initialized["tables"]
+    assert {name: payload["resource_rows"][name] for name in initialized["tables"]} == initialized["tables"]
+    assert payload["resource_rows"]["planning_input"]["bbox"] == saved["input"]["bbox"]
     frozen = deepcopy(payload["resource_rows"])
     add_test_version(factory, initialized)
     assert payload["resource_rows"] == frozen
@@ -51,9 +52,10 @@ def test_full_flow_reads_snapshot(api, monkeypatch):
     monkeypatch.setattr(sr4_flow, "default_terrain", lambda **_: object())
     class ReachedDeployment(Exception):
         pass
-    def deployment(stations, terrain, nodes, devices, models, candidates):
+    def deployment(stations, terrain, nodes, devices, models, candidates, **kwargs):
         assert nodes == tables["node.csv"] and devices == tables["device.csv"]
         assert models == tables["device_model.csv"] and candidates == tables["candidate_site.csv"]
+        assert callable(kwargs["checkpoint"])
         raise ReachedDeployment()
     monkeypatch.setattr(sr4_flow, "topology_from_deployment", deployment)
     with pytest.raises(ReachedDeployment):
@@ -77,5 +79,6 @@ def test_parent_flow_reads_snapshot(api, monkeypatch):
         raise ReachedParameters()
     monkeypatch.setattr(sr4_flow, "stations_from_nodes", stations)
     with pytest.raises(ReachedParameters):
-        sr4_flow.run_from_parent({"detail": {"nodes": [{"node_id": "PARENT"}], "devices": [], "links": []}},
+        sr4_flow.run_from_parent({"detail": {"nodes": [{"node_id": "PARENT"}], "devices": [], "links": [],
+            "optimization": {"uplinks": {}}}},
             {}, [], "T1", [], resource_rows=initialized["tables"])

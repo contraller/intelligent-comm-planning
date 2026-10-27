@@ -25,9 +25,12 @@ from deployment import solve_assignment, lower_bound as capacity_lower_bound
 def servers_of(fm, orphan, cand_idx):
     """能服务该失联节点的候选集合（位图形式返回 set）。"""
     out = set()
+    checkpoint = getattr(fm, "checkpoint", None)
     for band in E.bands_of(fm.stations[orphan].subtype):
         mask = fm.normal[band][orphan]
         for ci in cand_idx:
+            if checkpoint:
+                checkpoint()
             if mask >> ci & 1:
                 out.add(ci)
     return out
@@ -58,7 +61,10 @@ def port_bound(fm, unconnected, cand_idx):
     if not unconnected:
         return 0
     best_room = 0
+    checkpoint = getattr(fm, "checkpoint", None)
     for ci in cand_idx:
+        if checkpoint:
+            checkpoint()
         sub = fm.stations[ci].subtype
         for band in E.bands_of(sub):
             best_room = max(best_room, E.capacity(sub, band) - 1)
@@ -85,7 +91,8 @@ def branch_and_bound(fm, base_idx, cand_idx, incumbent, time_limit=30.0,
     分支方式：每步取「增量上界最高」的候选，分「选它」与「不选它」两支。
     不选支会把该候选从可用集合移除，从而不会重复搜索同一组合。
     """
-    t0 = time.time()
+    t0 = time.monotonic()
+    checkpoint = getattr(fm, "checkpoint", None)
     best = list(incumbent)
     ub = len(best)
     stats = dict(nodes=0, pruned=0, improved=0, timeout=False)
@@ -96,6 +103,8 @@ def branch_and_bound(fm, base_idx, cand_idx, incumbent, time_limit=30.0,
             mask |= 1 << i
         scored = []
         for ci in avail:
+            if checkpoint:
+                checkpoint()
             st = fm.stations[ci]
             g = 0
             for band in E.bands_of(st.subtype):
@@ -110,8 +119,10 @@ def branch_and_bound(fm, base_idx, cand_idx, incumbent, time_limit=30.0,
 
     def dfs(chosen, avail, depth):
         nonlocal best, ub
+        if checkpoint:
+            checkpoint()
         stats["nodes"] += 1
-        if time.time() - t0 > time_limit:
+        if time.monotonic() - t0 > time_limit:
             stats["timeout"] = True
             return
         if depth > max_depth:

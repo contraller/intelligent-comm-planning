@@ -237,7 +237,9 @@ def test_preflight_uses_the_same_mandatory_denominator_as_final_checks(monkeypat
         "antenna_model.csv": [], "comm_demand.csv": [dict(demands[0], task_id="T1"),
             dict(demands[0], demand_id="OTHER", task_id="T2")],
         "frequency_resource.csv": pool, "interference_source.csv": []}
-    def preflight(rows, *_):
+    def preflight(rows, *_, checkpoint=None):
+        assert callable(checkpoint)
+        assert checkpoint() is True
         assert len(rows) == count
         raise RuntimeError("已验证必要通联分母")
     monkeypatch.setattr(flow, "preflight_frequency", preflight)

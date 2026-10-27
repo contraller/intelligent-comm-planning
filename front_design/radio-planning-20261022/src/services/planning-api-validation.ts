@@ -30,11 +30,11 @@ export function withPlanningReads(service: Omit<PlanningApiServices,ReadMethods>
   };
 }
 export async function planningProgress(value:ApiPlanningJob){
-  const {id,taskId,revision,state,progress,phases,error,expired,sourceChanged,savedPlanId,cancelRequested}=value;
+  const {id,taskId,revision,state,progress,phases,error,expired,sourceChanged,savedPlanId}=value;
   // 调整内容用摘要核对，轮询无需重复运输整份人工参数与路由。
   const adjustmentKey=value.adjustment?Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(JSON.stringify([value.parentPlanId,value.adjustment]))))).map(n=>n.toString(16).padStart(2,'0')).join(''):null;
   const resultKey=Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(JSON.stringify([value.result,value.solutions]))))).map(n=>n.toString(16).padStart(2,'0')).join('');
-  return {id,taskId,revision,state,progress,phases,error,expired,sourceChanged,savedPlanId,cancelRequested,adjustmentKey,resultKey};
+  return {id,taskId,revision,state,progress,phases,error,expired,sourceChanged,savedPlanId,stopping:value.stopping??false,cancelRequested:value.cancelRequested??false,adjustmentKey,resultKey};
 }
 
 const ids = (v: unknown, field: string) => uniqueIds(apiList(v, field, x => apiId(x)), x => x, field);
@@ -129,7 +129,7 @@ function assertConfiguration(configuration: PlanningConfiguration, result: Pick<
 }
 export function readPlanningResult(value: unknown, input?: PlanningInput): ApiPlanningResult {
   const v = apiRecord(value), m = apiRecord(v.metrics);
-  const nodes = uniqueIds(apiList(v.nodes, 'nodes', raw => { const n = apiRecord(raw); return { id: apiId(n.id), name: apiText(n.name, 'name'), coordinate: readCoveragePoint(n.coordinate), status: n.status === null ? null : apiChoice(n.status, ['NORMAL', 'FAULT', 'OFFLINE'], 'status'), alert: n.alert === null ? null : apiBool(n.alert, 'alert') }; }), n => n.id, 'nodes');
+  const nodes = uniqueIds(apiList(v.nodes, 'nodes', raw => { const n = apiRecord(raw); return { id: apiId(n.id), name: apiText(n.name, 'name'), coordinate: readCoveragePoint(n.coordinate), ...('isNewDeployment' in n ? { isNewDeployment: apiBool(n.isNewDeployment, 'isNewDeployment') } : {}), status: n.status === null ? null : apiChoice(n.status, ['NORMAL', 'FAULT', 'OFFLINE'], 'status'), alert: n.alert === null ? null : apiBool(n.alert, 'alert') }; }), n => n.id, 'nodes');
   const devices = uniqueIds(apiList(v.devices, 'devices', raw => { const d = apiRecord(raw); return {
     id: apiId(d.id), stationId: apiId(d.stationId), modelId: apiId(d.modelId), modelName: apiText(d.modelName, 'modelName'), deviceClass: apiChoice(d.deviceClass, ['HF', 'VUHF'], 'deviceClass'),
     availability: d.availability === null ? null : apiChoice(d.availability, ['ACTIVE', 'OFF_SHELF'], 'availability'),
@@ -198,10 +198,11 @@ export function readPlanningJob(value: unknown, expected: { taskId: string; jobI
   const savedPlanId = solutions !== undefined && v.saved_plan_id === undefined ? selected?.savedPlanId ?? null : nullableId(v.saved_plan_id);
   if (solutions !== undefined && savedPlanId !== (selected?.savedPlanId ?? null)) invalidApi('legacy/default saved plan mismatch');
   return { id, taskId, revision: apiId(v.revision), inputVersion: nullableId(v.input_version), conditionVersion: apiId(v.condition_version), resourceRevision: nullableId(v.resource_revision), input, parentPlanId: nullableId(v.parent_plan_id), state, progress: progress * 100,
-    ...(cancelRequested === undefined ? {} : { cancelRequested }),
     ...(adjustment === undefined ? {} : { adjustment }),
     ...(solutions === undefined ? {} : { solutions, defaultSolutionId }),
     phases: apiList(v.phases, 'phases', raw => { const p = apiRecord(raw); return { name: apiText(p.name, 'phase'), state: apiChoice(p.state, ['waiting', 'running', 'done'], 'phase state') }; }), result, outcome, error: v.error === null ? null : apiText(v.error, 'error'), expired: apiBool(v.expired, 'expired'), sourceChanged: apiBool(v.source_changed, 'source_changed'), savedPlanId,
+    ...(cancelRequested === undefined ? {} : { cancelRequested }),
+    ...(v.stopping === undefined ? {} : { stopping: apiBool(v.stopping, 'stopping') }),
   };
 }
 export function planPasses(result: ApiPlanningResult): boolean {

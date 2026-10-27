@@ -160,14 +160,16 @@ class InterferenceWorkbenchService:
             ResourceDatasetCurrent.scope == resources.SCOPE).with_for_update())
         plan = session.get(PlanningPlan, scene["plan_id"])
         task = session.get(PlanningTask, scene["task_id"])
-        if plan is None or task is None or pointer is None:
-            fail("没有指定任务的当前确认方案", 2001, 404)
+        if plan is None or task is None:
+            fail("所选分析方案或任务不存在", 2001, 404)
         if resource is None:
             fail("资源尚未初始化", 5003, 503)
         if resource.revision != scene["resource_revision"]:
             fail("资源版本已变化", 1205, 409)
-        if (pointer.plan_id != plan.plan_id or plan.task_id != scene["task_id"]
-                or plan.state != "CONFIRMED" or plan.source != "SR4" or f"V{plan.version_no}" != scene["plan_version"]
+        if (plan.task_id != scene["task_id"]
+                or plan.state not in {"SAVED", "REFERENCE", "CONFIRMED"}
+                or plan.state == "CONFIRMED" and (pointer is None or pointer.plan_id != plan.plan_id)
+                or plan.source != "SR4" or f"V{plan.version_no}" != scene["plan_version"]
                 or task.current_revision_id != scene["plan_snapshot"]["input_version"]
                 or plan.input_snapshot != scene["plan_snapshot"]["input_snapshot"]
                 or plan.raw_snapshot != scene["plan_snapshot"]["raw_snapshot"]):
@@ -318,7 +320,7 @@ class InterferenceWorkbenchService:
             return {"items": items, "total": total, "page": query.page, "page_size": query.page_size}
 
     def _source_options(self, session, query):
-        statement = select(PlanningPlan).join(PlanningCurrentPlan, PlanningCurrentPlan.plan_id == PlanningPlan.plan_id)
+        statement = select(PlanningPlan).where(PlanningPlan.state.in_(("SAVED", "REFERENCE", "CONFIRMED")))
         if query.task_id:
             statement = statement.where(PlanningPlan.task_id == query.task_id)
         if getattr(query, "search", ""):
@@ -337,8 +339,10 @@ class InterferenceWorkbenchService:
                 "input_snapshot": plan.input_snapshot, "raw_snapshot": plan.raw_snapshot}
             task = session.get(PlanningTask, plan.task_id)
             reasons = []
-            if plan.state != "CONFIRMED" or plan.source != "SR4":
-                reasons.append("不是已确认SR4方案")
+            pointer = session.get(PlanningCurrentPlan, plan.task_id)
+            is_current = pointer is not None and pointer.plan_id == plan.plan_id and plan.state == "CONFIRMED"
+            if plan.source != "SR4" or plan.state == "CONFIRMED" and not is_current:
+                reasons.append("不是可用的已保存SR4方案")
             if resource is None or resource.revision != plan.resource_revision:
                 reasons.append("资源版本已变化或缺失")
             if task is None or task.current_revision_id != plan.revision_id:
@@ -353,7 +357,7 @@ class InterferenceWorkbenchService:
             items.append({k: frozen[k] for k in ("task_id", "plan_id", "plan_version", "input_version",
                 "condition_version", "resource_revision", "source")} | {
                 "name": plan.name, "plan_snapshot_id": plan.result_snapshot.get("snapshot_id"),
-                "data_origin": origin, "current": True, "eligible": not reasons,
+                "data_origin": origin, "current": is_current, "eligible": not reasons,
                 "unavailable_reasons": reasons})
         return {"items": items, "total": total, "page": page, "page_size": size}
 
@@ -383,7 +387,7 @@ class InterferenceWorkbenchService:
                 "source_options": sources["items"], "scene_count": count(InterferenceScene), "run_count": count(Run),
                 "active_run_ids": list(session.scalars(active)), "data_origin": snapshot["data_origin"] if snapshot else None,
                 "interference_sources": deepcopy(snapshot["tables"]["interference_source.csv"]) if snapshot else [],
-                "capabilities": {"scene_save": cap("planning.save" in permissions and eligible, "需要保存权限及可用确认方案"),
+                "capabilities": {"scene_save": cap("planning.save" in permissions and eligible, "需要保存权限及可用的已保存方案"),
                     "analyze": cap("planning.execute" in permissions and eligible, "需要执行权限及可核验的冻结来源"),
                     "cancel": cap("planning.execute" in permissions, "需要执行权限"), "preview": cap(True, ""),
                     "adopt_replan": cap("planning.save" in permissions and "planning.execute" in permissions

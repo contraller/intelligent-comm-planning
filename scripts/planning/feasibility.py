@@ -157,7 +157,7 @@ class FeasibilityMatrix:
     """
 
     def __init__(self, stations, terrain, margin_min=DEFAULT_MARGIN_MIN, verbose=False,
-                 candidate_pairs=True):
+                 candidate_pairs=True, checkpoint=None):
         """candidate_pairs=False 时**跳过候选点两两之间**的传播计算。
 
         规模测试实测：1100 候选 × 4 类型 + 132 台站 = 4532 个台站，
@@ -165,6 +165,9 @@ class FeasibilityMatrix:
         而贪心每轮只会选中一两个候选，这些对算了也白算。
         跳过后降到候选×现有的 1.2 M 对。选中之后再用 extend_pairs 补算那几对即可。
         """
+        self.checkpoint = checkpoint
+        if checkpoint:
+            checkpoint()
         self.stations = list(stations)
         self.margin_min = float(margin_min)
         self.terrain = terrain
@@ -183,9 +186,13 @@ class FeasibilityMatrix:
             nml = [0] * n
             cnt_phys = cnt_norm = cnt_far = 0
             for ii in range(len(holders)):
+                if self.checkpoint:
+                    self.checkpoint()
                 i = holders[ii]
                 sa = self.stations[i]
                 for jj in range(ii + 1, len(holders)):
+                    if self.checkpoint:
+                        self.checkpoint()
                     j = holders[jj]
                     sb = self.stations[j]
                     if not candidate_pairs and sa.is_candidate and sb.is_candidate:
@@ -227,9 +234,13 @@ class FeasibilityMatrix:
         for band in E.BANDS:
             hs = [i for i in idx if self.stations[i].has(band)]
             for ii in range(len(hs)):
+                if self.checkpoint:
+                    self.checkpoint()
                 i = hs[ii]
                 sa = self.stations[i]
                 for jj in range(ii + 1, len(hs)):
+                    if self.checkpoint:
+                        self.checkpoint()
                     j = hs[jj]
                     if (min(i, j), max(i, j), band) in self.margins:
                         continue

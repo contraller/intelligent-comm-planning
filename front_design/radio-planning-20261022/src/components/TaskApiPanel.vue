@@ -32,10 +32,15 @@
         ><button
           class="text-link"
           :disabled="!task.editable || resources.refreshing"
-          @click="refreshReferences"
+          @click="task.refreshResources()"
           >刷新已保存资源引用</button
         ><p class="muted">刷新保留任务草稿</p></details
       >
+      <p v-if="task.resourceStale" class="notice warn" role="status">
+        当前任务仍引用历史资源；新增或修改资源后，请刷新并保存任务。
+        <button class="text-link" :disabled="!task.editable || resources.refreshing" @click="task.refreshResources()">刷新资源并保留草稿</button>
+      </p>
+      <p v-if="task.referencesRefreshing" class="notice" role="status">正在刷新资源及任务引用…</p>
       <div
         v-if="task.error"
         class="notice warn"
@@ -169,9 +174,6 @@ async function locate(issue: PlanningIssue) {
   locationNotice.value = (await form.value?.focusIssue(issue))
     ? ''
     : '该问题无法在当前任务表单定位，请按对象和字段核查；输入已保留。';
-}
-async function refreshReferences() {
-  if (await resources.refresh()) await task.refreshReferences();
 }
 </script>
 <style scoped>

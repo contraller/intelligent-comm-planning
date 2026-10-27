@@ -98,6 +98,23 @@
             <p>数量缺口原因：{{ deploymentSummary.shortfallReasons }}</p>
             <p>强制部署候选点：{{ deploymentSummary.forcedSiteIds }}</p>
           </div>
+          <h4 class="panel-body">新增部署单元</h4>
+          <p class="panel-body deployment-legend"><span class="new-deployment-dot"></span>橙色节点为本方案新增部署；点击定位可在地图中查看。</p>
+          <AppTable
+            v-if="newDeploymentRows.length"
+            :sortable="false"
+            compact
+            :rows="newDeploymentRows"
+            :columns="newDeploymentColumns"
+            :page-size="10"
+            :selected="selectedRow('deployment', newDeploymentRows)"
+            @select="handlers.deployment"
+          ><template #stationName="{ row }"><strong>{{ row.stationName }}</strong><small class="cell-secondary">{{ row.stationId }}</small></template>
+            <template #plannedCoordinate="{ row }">{{ row.plannedCoordinate?.join(', ') ?? '未提供规划坐标' }}</template>
+            <template #actions="{ row }"><button class="text-link" @click="handlers.deployment(row)">定位</button></template>
+          </AppTable>
+          <p v-else class="panel-body muted">{{ radioCount && !result.nodes.some(node => node.isNewDeployment !== undefined) ? '此历史结果未提供新增部署标识，请重新规划以查看新增单元明细。' : '此方案没有新增部署单元。' }}</p>
+          <h4 class="panel-body">全部部署节点</h4>
           <AppTable
             :sortable="false"
             compact
@@ -109,8 +126,8 @@
             :selected="selectedRow('deployment', deploymentRows)"
             @select="handlers.deployment"
             ><template #stationId="{ row }"
-              ><strong>{{ row.stationId }}</strong
-              ><small class="cell-secondary">{{ row.role }}</small></template
+              ><strong>{{ row.stationName }}</strong
+              ><small class="cell-secondary">{{ row.stationId }} · {{ row.role }}{{ row.isNewDeployment ? ' · 新增部署' : '' }}</small></template
             ><template #deviceIds="{ row }">{{ row.deviceIds.join(' / ') }}</template
             ><template #detail-plannedCoordinate="{ row }">{{
               row.plannedCoordinate?.join(', ') ?? '未提供规划坐标'
@@ -132,55 +149,6 @@
           <p v-if="candidateLimitations !== null" class="panel-body">
             候选数据限制：{{ candidateLimitations }}
           </p></template>
-        <div
-          v-else-if="tab === '覆盖与场强'"
-          class="panel-body"
-        >
-          <label
-            >覆盖显示
-            <select
-              :value="coverageDisplay"
-              aria-label="覆盖显示方式"
-              @change="
-                emit(
-                  'update:coverageDisplay',
-                  ($event.target as HTMLSelectElement).value as CoverageDisplay,
-                )
-              "
-              ><option value="auto">自动</option
-              ><option value="raster">场强热力图</option
-              ><option value="contour">覆盖轮廓</option></select
-            ></label
-          >
-          <p
-            >覆盖率：{{ result.metrics.coveragePercent ?? '未提供'
-            }}{{ result.metrics.coveragePercent === null ? '' : '%' }}</p
-          ><p
-            >覆盖轮廓数量：{{ result.coverage.contour?.features.length ?? '未提供' }} ·
-            {{ result.coverage.rasterPng ? '已提供场强热力图' : '未提供场强热力图' }}</p
-          >
-          <p
-            v-if="coverageDisplay === 'contour' && !result.coverage.contour?.features.length"
-            class="notice warn"
-            >此结果未提供覆盖轮廓。</p
-          >
-          <p
-            v-else-if="!result.coverage.contour?.features.length && !result.coverage.rasterPng"
-            class="notice warn"
-            >此结果未提供覆盖数据。</p
-          >
-          <p
-            v-else-if="coverageDisplay === 'raster' && !result.coverage.rasterPng"
-            class="notice warn"
-            >此结果未提供场强热力图，显示已有覆盖轮廓。</p
-          >
-          <p class="muted"
-            >场强热力图以颜色呈现场强空间分布，单位 dBμV/m；覆盖轮廓显示已提供的覆盖边界。</p
-          >
-          <p class="muted"
-            >自动：全域显示场强热力图，放大后叠加已有覆盖边界；手动选择不随缩放改变。</p
-          >
-        </div>
         <template v-else-if="tab === '路由路径'"
           ><p
             v-if="detailCollection(details?.routeQuality)"
@@ -358,7 +326,7 @@
     ><p
       v-else
       class="panel-body muted"
-      >{{ emptyMessage }}</p
+      >{{ planning.running ? '规划正在计算，结果生成后将在此显示。' : planning.job ? '本次规划已结束，未生成可用结果。请查看上方作业结论。' : '提交规划并取得结果后，在此查看各分项。' }}</p
     >
     <AppDrawer
       v-if="result"
@@ -386,7 +354,7 @@
       ><AppTable
         :sortable="false"
         compact
-        :rows="configurationData?.deployment.map((d) => ({ id: d.stationId, ...d })) ?? []"
+        :rows="configurationDeploymentRows"
         :columns="deploymentColumns"
         table-min-width="600px"
         :page-size="10"
@@ -432,6 +400,7 @@
 <script setup lang="ts">
 // 所有结果页签读取同一冻结快照，选择结果仅联动地图高亮。
 import { computed, ref, watch } from 'vue';
+import { usePlanningApiStore } from '../stores/planning-api';
 import AppTable from './AppTable.vue';
 import AppDrawer from './AppDrawer.vue';
 import PlanningCandidatePanel from './PlanningCandidatePanel.vue';
@@ -440,6 +409,7 @@ import type { PlanningCandidatesView } from '../types/planning-candidates';
 import { planningMetricCards } from '../services/planning-result-display';
 import type { ApiPlan, ApiPlanningResult, PlanningConfirmedConfiguration } from '../types/planning-api';
 import type { CoverageDisplay } from '../types/coverage';
+import { deploymentDisplayRows } from '../services/planning-deployment-display';
 import { planningIssueText } from '../services/planning-issue-display';
 import {
   deploymentDetailCells,
@@ -456,6 +426,7 @@ import {
   resolveFrequencyFocus,
 } from '../services/planning-result-details-display';
 import type { FrequencySelection } from '../services/planning-result-details-display';
+const planning = usePlanningApiStore();
 const props = withDefaults(
   defineProps<{
     result: ApiPlanningResult | null;
@@ -467,9 +438,8 @@ const props = withDefaults(
     ownerKey?: string;
     active?: boolean;
     candidates?: PlanningCandidatesView;
-    emptyMessage?: string;
   }>(),
-  { coverageDisplay: 'auto', ownerKey: '', active: true, radioCount: null, emptyMessage: '提交规划并取得结果后，在此查看各分项。' },
+  { coverageDisplay: 'auto', ownerKey: '', active: true, radioCount: null },
 );
 // 偏好由页面持有，查看另一结果或切回此页签不恢复默认值。
 const emit = defineEmits<{
@@ -482,7 +452,7 @@ const emit = defineEmits<{
   'update:coverageDisplay': [mode: CoverageDisplay];
 }>();
 const tab = ref('部署点位'),
-  tabs = ['部署点位', '覆盖与场强', '路由路径', '频率分配', '设备参数', '优化权衡'];
+  tabs = ['部署点位', '路由路径', '频率分配', '设备参数', '优化权衡'];
 const resultScroll = ref<HTMLElement>();
 // 仅复位分项明细，保留整页位置、地图视野与已有联动规则。
 watch(
@@ -494,7 +464,6 @@ watch(
 );
 const tabGuides: Record<string, string> = {
   部署点位: '查看最终部署的节点与设备；点击“定位”在地图中找到它。',
-  覆盖与场强: '查看场强空间分布与覆盖边界，按需切换场强热力图与覆盖轮廓。',
   路由路径: '查看通联需求经过的路径；点击“高亮路径”在地图中查看。',
   频率分配: '查看链路使用的频率及冲突；选择记录查看明确关联的链路。',
   设备参数: '查看规划采用的频率、功率和天线高度，展开详情查看辅助参数。',
@@ -577,8 +546,15 @@ const epoch = ref(0);
 const bindRows = <T extends { id: string }>(rows: T[]) =>
   rows.map((row) => ({ ...row, selectionOwner: props.ownerKey, selectionEpoch: epoch.value }));
 const deploymentRows = computed(() =>
-  bindRows(props.result?.configuration.deployment.map((d) => ({ id: d.stationId, ...d })) ?? []),
+  bindRows(deploymentDisplayRows(props.result)),
 );
+const newDeploymentRows = computed(() => deploymentRows.value.filter(row => row.isNewDeployment));
+const configurationDeploymentRows = computed(() => deploymentDisplayRows(props.result, configurationData.value?.deployment));
+const newDeploymentColumns = [
+  { field: 'stationName', header: '新增节点名称', minWidth: '140px' },
+  { field: 'deviceLabels', header: '部署设备 / 型号', minWidth: '220px' },
+  { field: 'plannedCoordinate', header: '规划位置', minWidth: '160px' },
+];
 const linkRows = computed(() => bindRows(props.result?.links ?? []));
 const linkColumns = [
   { field: 'id', header: '链路' },
@@ -853,12 +829,13 @@ watch(
     epoch.value++;
     selection.value = null;
     selectionMessage.value = '';
-    emit('coverage', tab.value === '覆盖与场强');
+    emit('coverage', false);
   },
   { immediate: true, flush: 'sync' },
 );
 const deploymentColumns = [
   { field: 'stationId', header: '节点' },
+  { field: 'stationName', header: '节点名称' },
   { field: 'role', header: '角色' },
   { field: 'deviceIds', header: '设备' },
   { field: 'plannedCoordinate', header: '规划位置' },
@@ -911,6 +888,8 @@ const deviceSummaryColumns = [
 ];
 </script>
 <style scoped>
+.deployment-legend { display: flex; align-items: center; gap: 8px; }
+.new-deployment-dot { width: 10px; height: 10px; border-radius: 50%; background: #ff9f43; flex: none; }
 .configuration-origin {
   display: grid;
   gap: 8px;
@@ -1021,7 +1000,7 @@ const deviceSummaryColumns = [
 }
 .tabs {
   display: flex;
-  /* 六个分项共用一行导航，窄屏横向滚动，不再挤占明细高度。 */
+  /* 分项共用一行导航，窄屏横向滚动。覆盖计算统一进入调整工作区。 */
   flex-wrap: nowrap;
   gap: 12px;
   padding: 0 12px;

@@ -56,7 +56,8 @@ class ProvenInfeasible(ValueError):
             suggestions=["核对端点在架设备、指定设备与冻结频率筛选条件"])
 
 
-def preflight_frequency(demands, devices, models, pool_rows, constraints):
+
+def preflight_frequency(demands, devices, models, pool_rows, constraints, checkpoint=None):
     """端点必须至少有一台设备能使用冻结池中的频点；中继无法弥补端点缺口。
 
     不要求两端同频，不推断传播、带宽、端口竞争或拓扑搜索已经无解。
@@ -69,6 +70,8 @@ def preflight_frequency(demands, devices, models, pool_rows, constraints):
     pool = FQ.FreqPool(pool_rows)
     reasons, impossible = [], 0
     for demand in mandatory:
+        if checkpoint:
+            checkpoint()
         failures = []
         for endpoint, specified in (("src_node_id", "source_device_id"),
                                     ("dst_node_id", "target_device_id")):
@@ -100,6 +103,35 @@ def preflight_frequency(demands, devices, models, pool_rows, constraints):
     required = constraints.get("mandatory_e2e_connectivity", MO.DEFAULT_CONSTRAINTS["mandatory_e2e_connectivity"])
     if upper + 1e-9 < required:
         raise ProvenInfeasible(reasons, required, upper)
+
+
+
+def _runtime_callbacks(start, callback):
+    """所有阶段共享期限；长循环的检查点也检查服务层取消请求。"""
+    current = [0.1, "任务条件输入"]
+    last_update = float("-inf")
+
+    def checkpoint():
+        nonlocal last_update
+        now = time.monotonic()
+        if now >= start + TIME_LIMIT_S:
+            raise TimeoutError(
+                "规划计算超过%d秒时间预算，尚未获得满足条件的完整规划结果；"
+                "本次超时不表示已证明无解，请调整任务或约束后重新提交" % TIME_LIMIT_S)
+        if callback and now - last_update >= 0.5:
+            last_update = now
+            callback(*current)
+        return True
+
+    def report(value, stage):
+        nonlocal last_update
+        current[:] = [value, stage]
+        last_update = time.monotonic()
+        checkpoint()
+        if callback:
+            callback(value, stage)
+
+    return checkpoint, report
 
 # 历史临时扩容已进入带来源标记的构造资源池；保留显式传参的假设试验入口。
 WHATIF_EXTRA_CHANNELS = ()
@@ -307,7 +339,7 @@ def _fixed_topology_metrics(links, demands, routes, params, constraints):
 
 
 def _actual_link_margins(stations, links, terrain, frequency, ftasks, params,
-                         devices, models, antennas, jam_rows, caps):
+                         devices, models, antennas, jam_rows, caps, checkpoint=None):
     """父候选与冻结子方案共用实际频点/物理设备口径，不回退代表频点。"""
     assigned = {row["link_id"]: row.get("freq_khz")
                 for row in frequency["link_assignments"]}
@@ -320,7 +352,7 @@ def _actual_link_margins(stations, links, terrain, frequency, ftasks, params,
         raise ValueError("实际分配频点必须为有限正数")
     scenario = IF.scenario_from_plan(dict(stations=stations, links=live, terrain=terrain,
         frequency=frequency, freq_tasks=ftasks, params=params, devices=devices,
-        models=models, antennas=antennas), jam_rows)
+        models=models, antennas=antennas), jam_rows, checkpoint=checkpoint)
     if {row.link_id for row in scenario.links} != {row["link_id"] for row in live}:
         raise ValueError("实际频点校验未覆盖全部已绑定物理链路")
     states = {}
@@ -429,10 +461,12 @@ def _check_candidate(pb, solution, stations, nodes, devices, models, antennas,
                                    terrain, preset=preset,
                                    fade_margin_db=solution["m_req"],
                                    frequency_by_link={row["link_id"]: row["freq_khz"] for row in freq["link_assignments"]},
-                                   interference_rows=[] if interference_rows is None else interference_rows)
+                                   interference_rows=[] if interference_rows is None else interference_rows,
+                                   checkpoint=getattr(fm, "checkpoint", None))
     binding_errors.extend(params["manual_errors"])
     scenario = _actual_link_margins(st2, links, terrain, freq, ftasks, params,
-        devices2, models, antennas, [] if interference_rows is None else interference_rows, caps)
+        devices2, models, antennas, [] if interference_rows is None else interference_rows, caps,
+        checkpoint=getattr(fm, "checkpoint", None))
     fixed_paths = [dict(demand_id=row["demand_id"],
                         node_path=route["primary"]["node_path"])
                    for row in demands for route in routes["routes"]
@@ -554,10 +588,7 @@ def run_from_parent(parent_snapshot, adjustment, device_refs, task_id, demand_ro
     """固定父方案拓扑，重算人工调整后的下游规划结果。"""
     started = time.time()
     monotonic_start = time.monotonic()
-
-    def parent_checkpoint():
-        if time.monotonic() >= monotonic_start + TIME_LIMIT_S:
-            raise TimeoutError("固定父方案重算超过既有SR4时间预算，未返回过期候选结果")
+    parent_checkpoint, progress = _runtime_callbacks(monotonic_start, progress)
 
     parent_checkpoint()
     read = _resource_reader(resource_rows)
@@ -620,7 +651,7 @@ def run_from_parent(parent_snapshot, adjustment, device_refs, task_id, demand_ro
         preset=preset, fade_margin_db=parent_best["fade_margin_db"],
         manual_override=adjustment["manual_override"],
         frequency_by_link={row["link_id"]: row["freq_khz"] for row in frequency["link_assignments"]},
-        interference_rows=jam_rows)
+        interference_rows=jam_rows, checkpoint=parent_checkpoint)
     if params["manual_errors"]:
         raise ValueError("人工设备参数无效：" + "；".join(params["manual_errors"]))
     actual_margins = {row["link_id"]: row["margin_db"] for row in params["links"]}
@@ -645,7 +676,7 @@ def run_from_parent(parent_snapshot, adjustment, device_refs, task_id, demand_ro
     if device_path_errors:
         raise ValueError("；".join(device_path_errors))
     scenario = _actual_link_margins(stations, links, terrain, frequency, ftasks, params,
-        devices, models, antennas, jam_rows, caps)
+        devices, models, antennas, jam_rows, caps, checkpoint=parent_checkpoint)
     graph = routing.graph_from_links(route_links, metrics_rows)[0]
     routes = routing.plan_routes(graph, demand_rows, default_strategy=strategy,
                                  manual_paths=adjustment["manual_paths"])
@@ -778,10 +809,12 @@ def run(task_id=None, preset="TERRAIN", strategy="MAX_RELIABILITY",
         raise ValueError("survivability_scope 只能取 %s，收到 %r"
                          % (" / ".join(SURVIVABILITY_SCOPES), survivability_scope))
     extra_freq_rows = list(extra_freq_rows or [])
-    read = _resource_reader(resource_rows)
     steps = []
     T = time.time()
     monotonic_start = time.monotonic()
+    deployment_checkpoint, progress = _runtime_callbacks(monotonic_start, progress)
+    deployment_checkpoint()
+    read = _resource_reader(resource_rows)
 
     # ── 1 任务条件输入 ──
     t0 = time.time()
@@ -807,7 +840,10 @@ def run(task_id=None, preset="TERRAIN", strategy="MAX_RELIABILITY",
     frequency_constraints = (resource_rows or {}).get("frequency_constraints")
     pool_rows = constrained_frequency_rows(pool_rows, frequency_constraints)
     preflight_demands = demands if (task_id is None or survivability_scope == "TASK") else demands_all
-    preflight_frequency(preflight_demands, devices, models, pool_rows, constraints or {})
+    deployment_checkpoint()
+    preflight_frequency(preflight_demands, devices, models, pool_rows, constraints or {},
+                        checkpoint=deployment_checkpoint)
+    deployment_checkpoint()
     active_ids = {row["device_id"] for row in devices}
     active_nodes = {row["node_id"] for row in devices}
     for demand in demands:
@@ -816,13 +852,10 @@ def run(task_id=None, preset="TERRAIN", strategy="MAX_RELIABILITY",
         if any(demand.get(key) and demand[key] not in active_ids for key in ("source_device_id", "target_device_id")):
             raise ValueError("指定通联设备不存在或已下架")
     terrain = default_terrain(verbose=False)
+    deployment_checkpoint()
     metrics_rows, cand_rows = read("link_metric.csv"), read("candidate_site.csv")
     stations = stations_from_nodes(nodes, devices, models, antennas)
     planning_input = copy.deepcopy((resource_rows or {}).get("planning_input"))
-
-    def deployment_checkpoint():
-        if time.monotonic() >= monotonic_start + TIME_LIMIT_S:
-            raise TimeoutError("候选扫描超过既有SR4时间预算，未返回部分扫描冒充完成")
 
     cand_rows, candidate_filter = DI.prepare_candidates(
         cand_rows, planning_input, terrain, nodes, stations, checkpoint=deployment_checkpoint)
@@ -836,7 +869,8 @@ def run(task_id=None, preset="TERRAIN", strategy="MAX_RELIABILITY",
     # ── 2 电台部署（第 2 周 P1）──
     t0 = time.time()
     fm, sol, links0, nodes1, devices1 = topology_from_deployment(
-        stations, terrain, nodes, devices, models, cand_rows, deployment_options=planning_input)
+        stations, terrain, nodes, devices, models, cand_rows, deployment_options=planning_input,
+        checkpoint=deployment_checkpoint)
     steps.append(("2 电台部署（新增 %d 台）" % len(sol.added), time.time() - t0))
     if progress:
         progress(0.30, "电台部署完成")
@@ -845,7 +879,8 @@ def run(task_id=None, preset="TERRAIN", strategy="MAX_RELIABILITY",
     t0 = time.time()
     st1 = stations + [fm.stations[i] for i, _s in sol.added]
     caps1 = RP.capabilities_from_tables(st1, devices1, models, antennas)
-    params1 = RP.plan(st1, RP.topo_from_links(st1, links0), caps1, terrain, preset=preset)
+    params1 = RP.plan(st1, RP.topo_from_links(st1, links0), caps1, terrain, preset=preset,
+                      checkpoint=deployment_checkpoint)
     steps.append(("3 初始功率配置", time.time() - t0))
     if progress:
         progress(0.40, "初始参数配置完成")
@@ -857,7 +892,8 @@ def run(task_id=None, preset="TERRAIN", strategy="MAX_RELIABILITY",
     opt_demands = demands if (task_id is None or survivability_scope == "TASK") else demands_all
     pb = MO.Problem(fm, sol, opt_demands, caps1,
                     survivability_threshold=cons["survivability_threshold"], **problem_options)
-    opt = MO.optimize(pb, constraints=cons, pop_size=pop_size, generations=generations)
+    opt = MO.optimize(pb, constraints=cons, pop_size=pop_size, generations=generations,
+                      checkpoint=deployment_checkpoint)
     steps.append(("4 多目标优化（评估 %d 次）" % opt["evaluations"], time.time() - t0))
     if progress:
         progress(0.70, "多目标优化完成")
@@ -969,7 +1005,8 @@ def run(task_id=None, preset="TERRAIN", strategy="MAX_RELIABILITY",
                                 survivability_threshold=cons["survivability_threshold"], **problem_options)
             alt_opt = MO.optimize(alt_pb, constraints=cons,
                                   pop_size=max(12, min(pop_size // 2, 20)),
-                                  generations=max(8, min(generations // 2, 16)))
+                                  generations=max(8, min(generations // 2, 16)),
+                                  checkpoint=deployment_checkpoint)
             if consider(alt_pb, alt_opt, 3):
                 break
 

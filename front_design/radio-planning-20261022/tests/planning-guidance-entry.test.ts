@@ -13,8 +13,16 @@ import { usePlanningApiStore } from '../src/stores/planning-api';
 import { useDiagnosisStore } from '../src/stores/diagnosis';
 import { authorizeStore } from './helpers/auth';
 import { TestStorage } from './helpers/storage';
+import { apiJob, apiPlan } from './fixtures/planning-api';
+import { createPlanningAdjustment } from '../src/services/planning-adjustment';
 import { clientTemplate, node, renderer, find, textOf, type HostNode } from './helpers/vue-client';
 
+const coverageLeave = vi.hoisted(() => vi.fn(async () => true));
+const coverageRead = vi.hoisted(() => vi.fn(async () => {}));
+vi.mock('../src/components/FrozenCoveragePanel.vue', async () => {
+  const {defineComponent,h}=await import('vue');
+  return {default:defineComponent({props:['query','active','readonly'],setup:(props,{expose})=>{expose({requestLeave:coverageLeave,hasProtectedSelection:()=>false,readCache:coverageRead});return()=>h('coverage-probe',{query:props.query,readonly:props.readonly,active:props.active});}})};
+});
 // 运行真实页面、历史查询、路由及离页保护；只替换地图与无关的结果呈现。
 vi.mock('../src/components/MapCanvas.vue', () => ({default:{inheritAttrs:false,render:()=>null}}));
 vi.mock('../src/components/ResourceReadStatus.vue', () => ({default:{render:()=>null}}));
@@ -50,6 +58,7 @@ let app:App|undefined,pinia:ReturnType<typeof createPinia>|undefined;
 afterEach(()=>{app?.unmount();app=undefined;if(pinia){useTaskInputStore(pinia).clearForSession();disposePinia(pinia);}pinia=undefined;vi.restoreAllMocks();vi.unstubAllGlobals();});
 async function settle(){for(let i=0;i<20;i++)await nextTick();}
 async function setup(path:string,maintained=false){
+  coverageLeave.mockReset();coverageLeave.mockResolvedValue(true);coverageRead.mockClear();
   vi.stubGlobal('window',new EventTarget());vi.stubGlobal('document',Object.assign(new EventTarget(),{activeElement:null}));
   let time=Date.parse('2026-10-22T03:00:00Z');vi.spyOn(Date,'now').mockImplementation(()=>time);
   pinia=createPinia();setActivePinia(pinia);const auth=authorizeStore();vi.spyOn(auth,'check').mockResolvedValue(true);
@@ -76,6 +85,20 @@ async function click(root:HostNode,label:string){
 }
 
 describe('规划历史与诊断准备入口',()=>{
+  it('返回输入步骤仍展示进行中状态并锁提交，失败结论可见且允许修改重试', async () => {
+    const s = await setup('/planning?taskId=T1&editTask=1');
+    s.planning.job = { ...apiJob(), state: 'RUNNING', result: null, outcome: null };
+    await settle();
+    const status = () => find(s.root, n => String(n.props.class).includes('planning-job-status'));
+    expect(textOf(status()!)).toContain('尚无最终结论');
+    expect(find(s.root, n => n.tag === 'button' && textOf(n) === '提交规划')?.props.disabled).toBe(true);
+    await click(s.root, '查看当前作业'); expect(s.planning.step).toBe(2);
+    s.planning.step = 1;
+    s.planning.job = { ...apiJob(), state: 'FAILED', result: null, outcome: null, progress: 100, error: '未找到满足当前任务与约束的规划结果' };
+    await settle();
+    expect(textOf(status()!)).toContain('未找到满足当前任务与约束的规划结果');
+    expect(status()!.props.role).toBe('alert'); expect(s.planning.canSubmit).toBe(true); expect(s.task.editable).toBe(true);
+  });
   it('已保存方案按钮绑定任务归属，失败留在目录并提示，成功后关闭',async()=>{
     const s=await setup('/planning?history=saved');
     const row={id:'P-HISTORY',taskId:'T1',name:'数据库历史方案',version:'V1',state:'SAVED' as const,current:false,sourceChanged:false,savedAt:'2026-10-23T00:00:00Z'};
@@ -132,5 +155,52 @@ describe('规划历史与诊断准备入口',()=>{
     expect(find(s.root,node=>node.tag==='button'&&textOf(node)==='返回故障诊断')).toBeUndefined();
     const before=JSON.stringify(s.task.draft),writes=s.storage.writes;await s.router.push('/planning?history=invalid');await settle();
     expect(find(s.root,node=>node.tag==='drawer-probe')).toBeUndefined();expect(JSON.stringify(s.task.draft)).toBe(before);expect(s.storage.writes).toBe(writes);
+  });
+});
+
+
+describe('方案管理操作入口',()=>{
+  it('进入第三步先选择业务操作，查看只读且不自动创建方案版本',async()=>{
+    const s=await setup('/planning');s.planning.job=apiJob();s.planning.step=3;await settle();
+    const management=find(s.root,n=>n.props['aria-label']==='方案管理')!;
+    expect(textOf(management)).toContain('查看方案');expect(textOf(management)).toContain('调整方案');expect(textOf(management)).toContain('保存方案');
+    expect(textOf(management)).toContain('网络连通率');expect(textOf(management)).toContain('尚未保存');
+    const writes=s.storage.writes;await click(s.root,'查看方案');
+    expect(textOf(s.root)).toContain('只读查看，不会修改已保存方案');
+    expect(s.storage.writes).toBe(writes);expect(previewService.savePlanningReceipt).not.toHaveBeenCalled();expect(previewService.confirmPlanningReceipt).not.toHaveBeenCalled();
+    await click(s.root,'返回方案管理');expect(textOf(find(s.root,n=>n.props['aria-label']==='方案管理')!)).toContain('查看方案');
+  });
+  it('用户选择调整后才打开现有调整工作区，返回管理保留调整现场',async()=>{
+    const s=await setup('/planning');s.planning.selectedPlan=apiPlan();s.planning.step=3;await settle();
+    const open=vi.spyOn(s.planning,'openPlanAdjustment').mockImplementation(async()=>{s.planning.adjustmentOpen=true;return true;});
+    await click(s.root,'调整方案');expect(open).toHaveBeenCalledTimes(1);expect(textOf(s.root)).toContain('调整 → 计算覆盖 → 查看效果 → 对比 → 保存');
+    await click(s.root,'返回方案管理');expect(s.planning.adjustmentOpen).toBe(false);expect(s.task.editable).toBe(true);
+    expect(previewService.savePlanningReceipt).not.toHaveBeenCalled();
+  });
+});
+
+describe('覆盖选择离开调整工作区保护',()=>{
+  it('放弃离开决定时继续保留编辑；确认后才进入保存模式',async()=>{
+    const s=await setup('/planning');s.planning.selectedPlan=apiPlan();s.planning.step=3;await settle();
+    vi.spyOn(s.planning,'openPlanAdjustment').mockImplementation(async()=>{s.planning.adjustmentOpen=true;return true;});
+    await click(s.root,'调整方案');coverageLeave.mockClear();coverageLeave.mockResolvedValueOnce(false);
+    await click(s.root,'对比与保存调整结果');
+    expect(coverageLeave).toHaveBeenCalledTimes(1);expect(find(s.root,n=>n.tag==='coverage-probe')?.props.readonly).toBe(false);
+    expect(textOf(s.root)).toContain('调整 → 计算覆盖 → 查看效果 → 对比 → 保存');
+    coverageLeave.mockResolvedValueOnce(true);await click(s.root,'对比与保存调整结果');
+    expect(find(s.root,n=>n.tag==='coverage-probe')?.props.readonly).toBe(true);expect(s.planning.adjustmentOpen).toBe(false);
+  });
+});
+
+describe('保存后显式读取原候选覆盖',()=>{
+  it('按所选版本的job和snapshot读取原候选并保留真正anchor，可返回保存版自身来源',async()=>{
+    const s=await setup('/planning'),plan=apiPlan();
+    plan.adjustment=createPlanningAdjustment({id:'BASE',snapshotId:'BASE-SNAPSHOT',input:plan.input,configuration:plan.result.configuration,nodeIds:plan.result.nodes.map(n=>n.id)});
+    s.planning.selectedPlan=plan;s.planning.step=2;await settle();const writes=s.storage.writes;
+    await click(s.root,'读取该版本原候选覆盖');
+    expect(find(s.root,n=>n.tag==='coverage-probe')?.props.query).toEqual({planId:'PREVIEW-J1',taskId:'T1',snapshotId:plan.result.snapshotId,resourceRevision:'r1',context:'planning'});
+    expect(coverageRead).toHaveBeenCalledTimes(1);expect(s.planning.selectedPlan?.id).toBe(plan.id);expect(s.storage.writes).toBe(writes);
+    await click(s.root,'读取保存版本自身覆盖');expect((find(s.root,n=>n.tag==='coverage-probe')?.props.query as {planId:string}).planId).toBe(plan.id);expect(coverageRead).toHaveBeenCalledTimes(2);
+    expect(previewService.savePlanningReceipt).not.toHaveBeenCalled();expect(previewService.confirmPlanningReceipt).not.toHaveBeenCalled();
   });
 });

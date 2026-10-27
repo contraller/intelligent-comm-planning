@@ -22,6 +22,16 @@ describe('规划失败载荷展示', () => {
       expect(html).toContain('正在等待计算停止'); expect(html).toContain('正在取消'); expect(html).not.toContain('本次规划已取消');
     } finally {disposePinia(pinia);}
   });
+  it('停止中的失败作业保留超时结论，不显示完成百分比或再次取消入口', async () => {
+    const pinia = createPinia(); setActivePinia(pinia);
+    try {
+      const planning = usePlanningApiStore();
+      planning.job = { ...apiJob(), state: 'FAILED', result: null, outcome: null, stopping: true, progress: 100, error: '计算超时，超时不代表已证明无解' };
+      const html = await renderToString(createSSRApp({ render: () => h(PlanningApiProgressPanel, { compact: true }) }).use(pinia));
+      expect(html).toContain('正在停止后台计算'); expect(html).toContain('超时不代表已证明无解');
+      expect(html).not.toContain('100%'); expect(html).not.toContain('取消规划');
+    } finally { disposePinia(pinia); }
+  });
   // 本次故障来自顶层数组，不能只证明 gap 分支可展示。
   it('反馈详情默认收起，保留未知字段且不修改载荷', async () => {
     const data=[{objectId:'TASK',field:'demands',message:'通联需求与所选输入不匹配'},{objectId:'TASK',field:'futureField',message:'待核对'}];

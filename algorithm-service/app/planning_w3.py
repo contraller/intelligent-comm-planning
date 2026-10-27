@@ -29,6 +29,7 @@ for _p in (REPO_ROOT / "scripts", REPO_ROOT / "scripts" / "planning"):
         sys.path.insert(0, str(_p))
 
 _TASKS: dict[str, dict[str, Any]] = {}
+_WORKERS: set[str] = set()
 _LOCK = threading.Lock()
 _CACHE: dict[str, Any] = {}
 TASK_DIR = Path(os.environ.get("ALGORITHM_TASK_DIR", REPO_ROOT / "data" / "runtime" / "tasks"))
@@ -37,6 +38,31 @@ _FINAL_STATES = {"SUCCESS", "FAILED", "CANCELLED"}
 
 class PlanningTaskCancelled(Exception):
     """算法在进度检查点收到取消请求。"""
+
+
+class PlanningTaskTimedOut(TimeoutError):
+    """作业达到运行时限，晚到检查点不得继续保存结果。"""
+
+
+
+def _timeout_message(timeout_s: float) -> str:
+    return (f"计算超时：已达到本次规划时限（{timeout_s:g} 秒），"
+            "未能在时限内获得规划结论。请调整任务与约束后重试；"
+            "超时不代表约束已被证明无解。")
+
+
+
+def active_worker_ids() -> tuple[str, ...]:
+    """终态反馈与线程退出独立，退出前仍保留作业的计算占用。"""
+    with _LOCK:
+        return tuple(_WORKERS)
+
+
+
+def task_worker_active(task_id: str) -> bool:
+    with _LOCK:
+        return task_id in _WORKERS
+
 
 
 class PlanningSearchFailed(Exception):
@@ -248,7 +274,8 @@ def cancel_task(task_id: str) -> dict[str, Any]:
 
 
 def _spawn(kind: str, payload: dict[str, Any], fn, *, task_id: str | None = None,
-           on_update=None, isolated_budget_s: float | None = None) -> dict[str, Any]:
+           on_update=None, timeout_s: float | None = None,
+           isolated_budget_s: float | None = None) -> dict[str, Any]:
     if payload.get("callback_url") not in (None, ""):
         return {"code": CODE_BAD_PARAM, "message": "callback_url 尚未支持，请使用任务查询接口轮询",
                 "data": None}
@@ -262,23 +289,36 @@ def _spawn(kind: str, payload: dict[str, Any], fn, *, task_id: str | None = None
 
     initial = publish(task_id=tid, kind=kind, status="PENDING", progress=0.0,
                       stage="排队中", submitted_at=time.time(), result=None, error=None,
-                      owner_pid=os.getpid())
+                      owner_pid=os.getpid(), isolated=isolated_budget_s is not None)
+    thread_timeout = timeout_s if isolated_budget_s is None else None
+    deadline = time.monotonic() + thread_timeout if thread_timeout is not None else None
+    watchdog = None
 
-    def checkpoint(progress, stage) -> None:
+    def timed_out():
+        publish(status="FAILED", stage="计算超时",
+                error=_timeout_message(timeout_s), finished_at=time.time())
+
+    def checkpoint(progress=None, stage=None) -> None:
         if cancellation_requested(tid):
             raise PlanningTaskCancelled()
-        if progress is not None:
-            if publish(progress=progress, stage=stage)["status"] == "CANCELLED":
-                raise PlanningTaskCancelled()
+        if deadline is not None and time.monotonic() >= deadline:
+            timed_out()
+        state = (publish(progress=progress, stage=stage) if progress is not None
+                 else get_task_record(tid))
+        if state["status"] == "CANCELLED":
+            raise PlanningTaskCancelled()
+        if state["status"] == "FAILED":
+            raise PlanningTaskTimedOut(state.get("error") or "规划计算已终止")
 
     def _worker():
         try:
-            checkpoint(None, None)
-            if publish(status="RUNNING", progress=0.05, stage="加载数据")["status"] == "CANCELLED":
+            if publish(status="RUNNING", progress=0.05, stage="加载数据")["status"] in _FINAL_STATES:
                 return
+            checkpoint()
             data = (fn(payload, checkpoint) if isolated_budget_s is None else
                     _run_isolated(tid, fn, payload, checkpoint, isolated_budget_s))
-            checkpoint(None, None)
+            # 没有细粒度回调的阶段也必须在返回时核对期限与终态。
+            checkpoint(0.99, "汇总结果")
             publish(status="SUCCESS", progress=1.0, stage="完成",
                     result=data, finished_at=time.time())
         except PlanningTaskCancelled:
@@ -287,13 +327,35 @@ def _spawn(kind: str, payload: dict[str, Any], fn, *, task_id: str | None = None
         except PlanningSearchFailed as exc:
             publish(status="FAILED", progress=1.0, stage=exc.outcome["message"],
                     error=str(exc), outcome=exc.outcome, finished_at=time.time())
+        except TimeoutError as exc:
+            publish(status="FAILED", stage="计算超时",
+                    error=_timeout_message(timeout_s) if timeout_s is not None else str(exc),
+                    finished_at=time.time())
         except Exception as exc:                     # noqa: BLE001
             publish(status="FAILED", progress=1.0, stage="失败",
                     error="%s: %s" % (type(exc).__name__, exc),
                     finished_at=time.time())
+        finally:
+            if watchdog is not None:
+                watchdog.cancel()
+            with _LOCK:
+                _WORKERS.discard(tid)
 
     if initial["status"] not in _FINAL_STATES:
-        threading.Thread(target=_worker, daemon=True).start()
+        with _LOCK:
+            _WORKERS.add(tid)
+        if thread_timeout is not None:
+            watchdog = threading.Timer(timeout_s, timed_out)
+            watchdog.daemon = True
+            watchdog.start()
+        try:
+            threading.Thread(target=_worker, daemon=True).start()
+        except Exception:
+            if watchdog is not None:
+                watchdog.cancel()
+            with _LOCK:
+                _WORKERS.discard(tid)
+            raise
     return {"code": CODE_OK, "message": "success",
             "data": {"task_id": tid, "estimated_sec": 5}}
 

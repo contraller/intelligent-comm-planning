@@ -232,12 +232,15 @@ def capabilities_by_device(stations, devices, models, antennas):
 
 
 def _actual_bound_power(stations, links, devices, models, antennas, terrain,
-                        caps, height, forced, required, frequency_by_link, interference_rows):
+                        caps, height, forced, required, frequency_by_link, interference_rows,
+                        checkpoint=None):
     """固定频点/挂高，按物理设备的全部关联链路下降自由功率档位。"""
     import interference as IF
     from terrain import haversine_m
     eligible = []
     for link in links:
+        if checkpoint:
+            checkpoint()
         frequency = frequency_by_link.get(link["link_id"])
         if frequency is None:
             continue
@@ -254,7 +257,7 @@ def _actual_bound_power(stations, links, devices, models, antennas, terrain,
             frequency=frequency, freq_tasks=[], devices=devices, models=models, antennas=antennas,
             params={"params": [{"device_id": did, "tx_power_dbm": tx[did],
                 "antenna_height_m": height[did]} for did in caps]}),
-            [] if interference_rows is None else interference_rows)
+            [] if interference_rows is None else interference_rows, checkpoint=checkpoint)
         by_id = {link.link_id: link for link in scenario.links}
         if len(by_id) != len(eligible) or set(by_id) != {row["link_id"] for row in eligible}:
             raise ValueError("实际功率求解未覆盖全部已绑定物理链路")
@@ -274,9 +277,13 @@ def _actual_bound_power(stations, links, devices, models, antennas, terrain,
     targets = {lid: min(required, margin) for lid, margin in allowed_maximum.items()}
     # 所有自由设备先在最大档确认可达性；不可达链路也保护其最大余量，不牺牲全网质量省电。
     for did, cap in sorted(caps.items()):
+        if checkpoint:
+            checkpoint()
         if did in forced:
             continue
         for level in sorted(cap.levels):
+            if checkpoint:
+                checkpoint()
             tx[did] = level
             for link in incident[did]:
                 for sid, owner in link.device.items():
@@ -307,8 +314,10 @@ def _actual_bound_power(stations, links, devices, models, antennas, terrain,
 
 def plan_bound_devices(stations, links, devices, models, antennas, terrain,
                        preset="TERRAIN", fade_margin_db=None, manual_override=None, *,
-                       frequency_by_link=None, interference_rows=None):
+                       frequency_by_link=None, interference_rows=None, checkpoint=None):
     """按冻结的链路设备绑定，独立规划每台物理电台。"""
+    if checkpoint:
+        checkpoint()
     actual_mode = frequency_by_link is not None
     if actual_mode and not isinstance(frequency_by_link, dict):
         raise ValueError("实际功率求解频点必须为链路映射")
@@ -361,6 +370,8 @@ def plan_bound_devices(stations, links, devices, models, antennas, terrain,
 
     base = []
     for link in links:
+        if checkpoint:
+            checkpoint()
         if str(link.get("is_available", "true")).lower() == "false":
             continue
         a, b = link.get("device_a_id"), link.get("device_b_id")
@@ -383,7 +394,8 @@ def plan_bound_devices(stations, links, devices, models, antennas, terrain,
         base.append((link, sa, sb, a, b, need, maximum))
     if actual_mode:
         tx, result_links = _actual_bound_power(stations, [row[0] for row in base], devices,
-            models, antennas, terrain, caps, height, forced, required, frequency_by_link, interference_rows)
+            models, antennas, terrain, caps, height, forced, required, frequency_by_link, interference_rows,
+            checkpoint=checkpoint)
     else:
         wanted = {}
         for _link, _sa, _sb, a, b, need, _maximum in base:
@@ -393,6 +405,8 @@ def plan_bound_devices(stations, links, devices, models, antennas, terrain,
               for did, cap in caps.items()}
         result_links = []
         for link, sa, sb, a, b, _need, maximum in base:
+            if checkpoint:
+                checkpoint()
             margin, distance, loss = _margin_with(terrain, sa, sb, link["device_class"],
                                                    tx[a], tx[b], height[a], height[b])
             result_links.append(dict(link_id=link["link_id"], node_a=sa.sid, node_b=sb.sid,
@@ -443,7 +457,7 @@ def _margin_with(terrain, sa, sb, band, tx_a, tx_b, h_a, h_b):
 
 
 def plan(stations, topo, caps, terrain, preset="TERRAIN",
-         fade_margin_db=None, manual_override=None, tilt_deg=None):
+         fade_margin_db=None, manual_override=None, tilt_deg=None, checkpoint=None):
     """参数规划主入口。
 
     参数
@@ -453,6 +467,8 @@ def plan(stations, topo, caps, terrain, preset="TERRAIN",
         preset    PRESETS 里的键，或 None（用传入的 fade_margin_db）
         manual_override  [{node_id, band, tx_power_dbm?, antenna_height_m?}]
     """
+    if checkpoint:
+        checkpoint()
     cfg = dict(PRESETS.get(preset, {})) if preset else {}
     M_req = fade_margin_db if fade_margin_db is not None else \
         cfg.get("fade_margin_db", DEFAULT_FADE_MARGIN_DB)
@@ -492,6 +508,8 @@ def plan(stations, topo, caps, terrain, preset="TERRAIN",
     # 3) 在「两端都开到最大功率」下量一次基准余量，据此反推每条链路的功率下界
     base = []
     for (i, j, band) in topo:
+        if checkpoint:
+            checkpoint()
         sa, sb = stations[i], stations[j]
         ka, kb = (sa.sid, band), (sb.sid, band)
         if ka not in caps or kb not in caps:
@@ -523,6 +541,8 @@ def plan(stations, topo, caps, terrain, preset="TERRAIN",
     # 5) 按最终参数复算，得出真实余量与未达标链路
     links, failed = [], []
     for b in base:
+        if checkpoint:
+            checkpoint()
         sa, sb = stations[b["i"]], stations[b["j"]]
         m, dist, pl = _margin_with(terrain, sa, sb, b["band"],
                                    tx[b["ka"]], tx[b["kb"]],

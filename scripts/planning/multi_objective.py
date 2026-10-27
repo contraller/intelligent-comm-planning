@@ -63,6 +63,9 @@ class Problem:
                  backups_per_node=2, locked_links=(), locked_relays=(), seed=20260908,
                  survivability_threshold=DEFAULT_CONSTRAINTS["survivability_threshold"]):
         self.fm = fm
+        self.checkpoint = getattr(fm, "checkpoint", None)
+        if self.checkpoint:
+            self.checkpoint()
         self.sol = sol
         self.rng = random.Random(seed)
         n = len(fm.stations)
@@ -73,6 +76,8 @@ class Problem:
         # 设备最大功率与当前功率（候选/新增中继没有设备表，取其射频模板的功率）
         self.tx_max, self.tx_now, self.levels = {}, {}, {}
         for i, st in enumerate(fm.stations):
+            if self.checkpoint:
+                self.checkpoint()
             for band, r in st.radio.items():
                 c = (caps or {}).get((st.sid, band))
                 self.tx_now[(i, band)] = r["tx_dbm"]
@@ -129,6 +134,8 @@ class Problem:
         self.backups = []
         seen = set()
         for child in sorted(sol.connected):
+            if self.checkpoint:
+                self.checkpoint()
             if child not in sol.parent_of:
                 continue
             for band in sorted(fm.stations[child].radio):
@@ -169,6 +176,8 @@ class Problem:
         self.mandatory_orphans = mandatory_orphans
 
         def legal_links(i):
+            if self.checkpoint:
+                self.checkpoint()
             out = []
             st = fm.stations[i]
             for band in st.radio:
@@ -223,6 +232,8 @@ class Problem:
         for orphan in sorted(mandatory_orphans):
             ranked = []
             for i in cand_idx:
+                if self.checkpoint:
+                    self.checkpoint()
                 reaches = [(m, band) for m, j, band in links_of(i)
                            if j == orphan and port_free(orphan, band, self.ports_base)]
                 anchors = [(m, band) for m, j, band in links_of(i)
@@ -293,6 +304,8 @@ class Problem:
                 break
             ranked = []
             for i in cand_idx:
+                if self.checkpoint:
+                    self.checkpoint()
                 ins = [(m, j, b) for m, j, b in links_of(i)
                        if j in sub and port_free(j, b, self.ports_base)]
                 outs = [(m, j, b) for m, j, b in links_of(i)
@@ -704,7 +717,10 @@ def _crowding(pop, front):
 # ─────────────────────────── NSGA-II ───────────────────────────
 
 def optimize(pb, constraints=None, pop_size=40, generations=40, pareto_size=10,
-             progress=None):
+             progress=None, checkpoint=None):
+    checkpoint = checkpoint or getattr(pb, "checkpoint", None)
+    if checkpoint:
+        checkpoint()
     cons = dict(DEFAULT_CONSTRAINTS)
     cons.update(constraints or {})
     rng = pb.rng
@@ -721,7 +737,11 @@ def optimize(pb, constraints=None, pop_size=40, generations=40, pareto_size=10,
     archive = []
 
     def ev(genome):
+        if checkpoint:
+            checkpoint()
         e = evaluate(pb, genome)
+        if checkpoint:
+            checkpoint()
         e["_v"] = violation(e, cons)
         archive.append(e)
         return e
@@ -737,6 +757,8 @@ def optimize(pb, constraints=None, pop_size=40, generations=40, pareto_size=10,
 
     evals = len(pop)
     for gen in range(generations):
+        if checkpoint:
+            checkpoint()
         fr = _fronts(pop, cons)
         for f in fr:
             _crowding(pop, f)

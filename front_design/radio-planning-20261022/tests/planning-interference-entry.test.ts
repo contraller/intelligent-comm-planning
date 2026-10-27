@@ -35,6 +35,7 @@ vi.mock('../src/components/MapCanvas.vue', () => ({ default: Vue.defineComponent
   expose({ locate() {}, locateResource() {}, fitDeviceCoverage() {}, expandResource() {} }); return () => h('map-probe');
 } }) }));
 vi.mock('../src/components/AppDrawer.vue', () => ({ default: Vue.defineComponent({ props: ['visible'], setup: (p, { slots }) => () => p.visible ? h('aside', [slots.default?.(), slots.footer?.()]) : null }) }));
+vi.mock('../src/components/FrozenCoveragePanel.vue', () => ({default:Vue.defineComponent({inheritAttrs:false,setup(_p,{expose}){expose({requestLeave:async()=>true,hasProtectedSelection:()=>false,readCache:async()=>{}});return()=>null;}})}));
 vi.mock('../src/components/TaskApiPanel.vue', () => ({ default: { render: () => null } }));
 vi.mock('../src/components/PlanningApiResultPanel.vue', () => ({ default: { render: () => null } }));
 vi.mock('../src/components/PlanningApiProgressPanel.vue', () => ({ default: { render: () => null } }));
@@ -111,6 +112,8 @@ async function fixture(options: FixtureOptions = {}) {
     taskLoading: task.loading, taskDirty: task.dirty, taskDecision: task.decision, taskError: task.error,
     taskResource: task.resourceRevision, currentResource: useResourceReadStore().workspace?.revision,
     planningStep: planning.step, planId: planning.selectedPlan?.id, planningBusy: planning.busy, planningPending: !!planning.pending,
+    taskRunning: task.running, taskEditable: task.editable, unverifiedJob: planning.unverifiedActiveJobId,
+    planningJobState: planning.job?.state, planningQueryError: planning.queryError,
     editorDecision: editor.decision, editorBusy: editor.busy, gisBusy: gis.busy, authBlocked: auth.blocked });
   waitingFor = '初始router.push'; await hostStep('fixture.router.push', () => router.push(options.path ?? planningPath));
   waitingFor = 'router.isReady'; await hostStep('fixture.router.ready', () => router.isReady());
@@ -118,6 +121,16 @@ async function fixture(options: FixtureOptions = {}) {
   traceHostErrors(app);
   const root = node('root'); waitingFor = '页面mount及初始化';
   await hostStep('fixture.mount', async () => { app!.mount(root); await settle(); await settle(); await settleWorkbench(); });
+  // 页面通过 start() 异步核实已有作业；WebCrypto 摘要不属于可用 nextTick 耗尽的微任务。
+  // 编辑断言必须等待真实服务回读终态，不能把未核实作业的写入保护当成页面已就绪。
+  if (router.currentRoute.value.path === '/planning' && task.saved?.activeJobId) {
+    waitingFor = '核实夹具已有规划作业终态';
+    await hostStep('fixture.verifyTerminalJob', () => planning.refreshJob(task.saved!.activeJobId!));
+    await settle();
+    expect(planning.job?.state).toBe('SUCCESS');
+    expect(planning.unverifiedActiveJobId).toBeNull();
+    expect(task.running).toBe(false);
+  }
   waitingFor = '用例主体';
   return { ...f, second, raw, auth, planning, task, store, gis, editor, router, root, planningPath, targetPath, wb };
 }
@@ -173,7 +186,7 @@ describe('规划到 GIS 干扰分析精确入口', () => {
     if(kind==='plan')s.wb.source.plan_id='UNIT-OTHER-PLAN';
     if(kind==='version')s.wb.source.plan_version='V999';
     await click(s.root,'进入干扰分析');expect(s.router.currentRoute.value.path).toBe('/planning');
-    expect(textOf(s.root)).toContain('所选确认方案已不存在或版本已变化');s.wb.assertNoWrites();
+    expect(textOf(s.root)).toContain('所选方案已不存在或版本已变化');s.wb.assertNoWrites();
   });
   pageIt('旧历史 B 不覆盖目标 A，刷新和焦点恢复仍保持 A 的分析输入', async ({ page: s }) => {
     const oldTarget={taskId:s.plan.taskId,planId:'UNIT-HISTORY-B',planVersion:'V2'};
@@ -325,4 +338,24 @@ describe('P02 M5 任务编辑返回真实页面命令', () => {
 describe('分析导航参数白名单', () => {
   it('仅接受成对分析身份，保留不透明 ID 的编码', () => { expect(safeReturnPath('/situation?analysisTaskId=task%3A1&analysisPlanId=plan%2F2')).toBe('/situation?analysisTaskId=task%3A1&analysisPlanId=plan%2F2'); });
   it.each(['analysisTaskId=T', 'analysisPlanId=P', 'analysisTaskId=T&analysisPlanId=P&taskId=T', 'analysisTaskId=T&analysisPlanId=P&stationId=N', 'analysisTaskId=T&analysisPlanId=P&diagnosisId=D', 'analysisTaskId=T&analysisPlanId=P&faultEdit=1', 'analysisTaskId=T&analysisPlanId=P&analysisPlanId=Q'])('拒绝 %s', query => { expect(safeReturnPath('/situation?' + query)).toBeNull(); });
+});
+
+
+describe('已保存参考方案的分析确认',()=>{
+  pageIt.for(['SAVED','REFERENCE'] as const)('%s通过显式确认进入分析，不转正不改当前方案',async(state,{page:s})=>{
+    s.planning.selectedPlan!.state=state;s.planning.selectedPlan!.current=false;s.wb.source.current=false;await settle();
+    const writes=s.storage.writes;expect(button(s.root,'进入干扰分析').props.disabled).toBe(true);
+    expect(button(s.root,'确认用于干扰分析').props.disabled).toBe(false);
+    await click(s.root,'确认用于干扰分析');expect(button(s.root,'进入干扰分析').props.disabled).toBe(false);
+    expect(s.planning.selectedPlan!.state).toBe(state);expect(s.planning.selectedPlan!.current).toBe(false);
+    await click(s.root,'进入干扰分析');await settleWorkbench();expect(s.store.taskContext).toEqual(s.wb.target);assertNoBusinessWrite(s,writes);
+  });
+  pageIt('确认等待时版本变化不会确认新的所选方案',async({page:s})=>{
+    s.planning.selectedPlan!.state='REFERENCE';await settle();
+    const response=await s.wb.workbench.getContext({task_id:s.plan.taskId}), late=deferred<typeof response>();
+    s.wb.workbench.getContext.mockReturnValueOnce(late.promise);
+    const pending=button(s.root,'确认用于干扰分析').props.onClick();await settle();
+    s.planning.selectedPlan!.version='V999';await settle();late.resolve(response);await pending;await settle();
+    expect(button(s.root,'进入干扰分析').props.disabled).toBe(true);expect(s.router.currentRoute.value.path).toBe('/planning');s.wb.assertNoWrites();
+  });
 });

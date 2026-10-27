@@ -90,9 +90,10 @@ def test_flow_excludes_inactive_device_before_deployment(api, monkeypatch):
     monkeypatch.setattr(sr4_flow, "default_terrain", lambda **_: object())
     class ReachedDeployment(Exception):
         pass
-    def deployment(stations, terrain, nodes, devices, models, candidates):
+    def deployment(stations, terrain, nodes, devices, models, candidates, **kwargs):
         assert len(devices) == len(tables["device.csv"]) - 1
         assert tables["device.csv"][0]["device_id"] not in {row["device_id"] for row in devices}
+        assert callable(kwargs["checkpoint"])
         raise ReachedDeployment()
     monkeypatch.setattr(sr4_flow, "topology_from_deployment", deployment)
     with pytest.raises(ReachedDeployment):
@@ -107,4 +108,5 @@ def test_parent_cannot_silently_replace_off_shelf_device(api, monkeypatch):
     device = tables["device.csv"][0]
     device["availability"] = "OFF_SHELF"
     with pytest.raises(ValueError, match="父方案包含已下架"):
-        sr4_flow.run_from_parent({"detail": {"nodes": [], "devices": [device], "links": []}}, {}, [], "T1", [], resource_rows=tables)
+        sr4_flow.run_from_parent({"detail": {"nodes": [], "devices": [device], "links": [],
+            "optimization": {"uplinks": {}}}}, {}, [], "T1", [], resource_rows=tables)

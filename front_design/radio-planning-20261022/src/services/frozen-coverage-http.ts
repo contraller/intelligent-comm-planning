@@ -11,6 +11,15 @@ export function createFrozenCoverageHttp(request:AuthenticatedRequest):FrozenCov
   const id=(value:string,job=false)=>{if(!value||value.length>160||/[\u0000-\u001f\u007f]/.test(value)||job&&!/^FCJ-[a-f0-9]{32}$/.test(value))throw new ApiError('冻结覆盖请求标识无效','VALIDATION_ERROR');return value;};
   const queryString=(query:FrozenCoverageQuery)=>new URLSearchParams({task_id:query.taskId,snapshot_id:query.snapshotId,context:query.context});
   return {
+    async getLatestCache(query,signal){
+      const frozen=capture(query),qs=queryString(frozen);
+      if(frozen.engineVersion)qs.set('engine_version',frozen.engineVersion);
+      const raw=await request<unknown>(`${base}/${encodeURIComponent(frozen.planId)}/latest-cache?${qs}`,{signal});
+      if(!raw||typeof raw!=='object'||Array.isArray(raw))throw new ApiError('覆盖历史响应无效','INVALID_FROZEN_COVERAGE_RESPONSE');
+      const value=raw as import('../types/frozen-coverage').FrozenCoverageCache;
+      const expected={...frozen,...value.bandwidth_selection_id?{bandwidthSelection:{selectionId:value.bandwidth_selection_id,selectionHash:value.bandwidth_selection_hash!}}:{}};
+      return readFrozenCoverageCache(value,expected,coverageParameters(value.parameters));
+    },
     async getBandwidthOptions(query,signal){
       const frozen=capture(query);
       return readFrozenBandwidthOptions(await request<unknown>(`${base}/${encodeURIComponent(frozen.planId)}/bandwidth-options?${queryString(frozen)}`,{signal}),frozen);

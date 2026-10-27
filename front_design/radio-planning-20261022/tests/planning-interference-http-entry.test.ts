@@ -60,6 +60,7 @@ function fixture() {
   const services = {
     getContext: vi.fn(async () => context),
     getProgress: vi.fn(async () => progress),
+    listSources: vi.fn(async () => ({items: context.source_options, page:1, page_size:100, total:context.source_options.length})),
   };
   return { target, context, progress, services, controller: new AbortController() };
 }
@@ -137,5 +138,20 @@ describe('规划到新版干扰工作流入口', () => {
       false,
     );
     expect(f.services.getProgress).not.toHaveBeenCalled();
+  });
+});
+
+
+describe('显式历史方案来源核验',()=>{
+  it('指定方案不在首页时精确查询已保存来源，不用当前方案代替',async()=>{
+    const f=fixture(), source={...f.context.source_options[0],current:false};f.context.source_options=[];
+    f.services.listSources.mockResolvedValue({items:[source],page:1,page_size:100,total:1});
+    expect(await verifyPlanningInterferenceEntry(f.services,f.target,f.controller.signal)).toBe(true);
+    expect(f.services.listSources).toHaveBeenCalledWith({task_id:'T',page:1,page_size:100,search:'P'},f.controller.signal);
+  });
+  it('精确查询仍校验任务、方案和版本，不能使用近似匹配',async()=>{
+    const f=fixture(), source={...f.context.source_options[0],plan_version:'V2'};f.context.source_options=[];
+    f.services.listSources.mockResolvedValue({items:[source],page:1,page_size:100,total:1});
+    await expect(verifyPlanningInterferenceEntry(f.services,f.target,f.controller.signal)).rejects.toThrow('版本已变化');
   });
 });

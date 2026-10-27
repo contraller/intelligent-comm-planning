@@ -239,3 +239,15 @@ describe('V4活动分类与冻结构造来源',()=>{
     await expect(client.getCache(query,f.parameters)).rejects.toMatchObject({code:'INVALID_FROZEN_COVERAGE_RESPONSE'});
   });
 });
+
+
+describe('同来源已有覆盖读取',()=>{
+  it('读取真实参数且严格核对任务/快照，纯GET不回退其他来源',async()=>{
+    const f=bandwidthCase(),request=vi.fn<AuthenticatedRequest>().mockResolvedValue(f.cache),client=createFrozenCoverageHttp(request as AuthenticatedRequest);
+    expect(await client.getLatestCache!(f.query)).toEqual(f.cache);
+    expect(request.mock.calls[0][0]).toContain('/latest-cache?');
+    expect((request.mock.calls[0][1] as RequestInit).method).toBeUndefined();
+    f.anchor.task_id='OTHER';
+    await expect(client.getLatestCache!(f.query)).rejects.toMatchObject({code:'INVALID_FROZEN_COVERAGE_RESPONSE'});
+  });
+});

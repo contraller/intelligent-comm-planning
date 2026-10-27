@@ -137,6 +137,12 @@ export const useInterferenceStore = defineStore('interference', () => {
     try {
       const loaded = await read('context', signal => api().workbench.getContext(target ? { task_id: target.taskId } : {}, signal), value => { context.value = value; });
       if (!loaded) return;
+      if (target && generation === epoch && !selectedSource.value) {
+        await read('selected-source', signal => api().workbench.listSources({ task_id: target.taskId, page: 1, page_size: 100, search: target.planId }, signal), value => {
+          const source = value.items.find(row => row.task_id === target.taskId && row.plan_id === target.planId && row.plan_version === target.planVersion);
+          if (source && context.value && generation === epoch) context.value = { ...context.value, source_options: [...context.value.source_options, source] };
+        });
+      }
       if (generation === epoch) await loadSourceOptions(sourceDirectory.value?.page ?? 1);
       if (target && generation === epoch) await loadScenes();
     } finally { if (generation === epoch) { loading.value = false; schedule(); } }

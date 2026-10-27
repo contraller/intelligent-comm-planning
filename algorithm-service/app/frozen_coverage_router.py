@@ -65,6 +65,10 @@ class _BandwidthRead(_Anchor):
     context: Literal["planning", "gis"] = "planning"
 
 
+class _Latest(_BandwidthRead):
+    engine_version: Literal["V01-1", "V01-2", "V01-3", "V01-4", "V01-5"] | None = None
+
+
 class _Job(_Anchor):
     plan_id: str
     context: Literal["planning", "gis"] = "planning"
@@ -194,6 +198,11 @@ def create_frozen_coverage_router(authorize):
         return await call(request, _Cache, lambda service, query, actor, context: service.cache(_id(plan_id),
             query.task_id, query.snapshot_id, _json(query.parameters),
             bandwidth_selection_id=query.bandwidth_selection_id, engine_version=query.engine_version, audit_context=context))
+
+    @router.get("/{plan_id}/latest-cache")
+    async def latest_cache(plan_id: str, request: Request):
+        return await call(request, _Latest, lambda service, query, actor, context: service.latest_cache(
+            _id(plan_id), query.task_id, query.snapshot_id, engine_version=query.engine_version, audit_context=context))
 
     @router.get("/{plan_id}/bandwidth-options")
     async def bandwidth_options(plan_id: str, request: Request):

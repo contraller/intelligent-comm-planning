@@ -62,6 +62,7 @@ export interface FrozenCoverageJob extends FrozenCoverageSelectionBinding {
 export type FrozenCoverageDisplay='strength'|'field'|'boundary';
 export interface FrozenCoverageOverlay { anchor:FrozenCoverageAnchor;result:FrozenCoverageResult;deviceId:string;bandwidthSelection?:FrozenCoverageSelectionRef;display?:FrozenCoverageDisplay }
 export interface FrozenCoverageClient {
+  getLatestCache?(query:FrozenCoverageQuery,signal?:AbortSignal):Promise<FrozenCoverageCache>;
   getBandwidthOptions(query:FrozenCoverageQuery,signal?:AbortSignal):Promise<FrozenCoverageBandwidthOptions>;
   saveBandwidthSelection(query:FrozenCoverageQuery,choices:FrozenCoverageBandwidthChoice[],requestId:string,signal?:AbortSignal):Promise<FrozenCoverageBandwidthSelection>;
   getBandwidthSelection(query:FrozenCoverageQuery,selectionId:string,signal?:AbortSignal):Promise<FrozenCoverageBandwidthSelection>;

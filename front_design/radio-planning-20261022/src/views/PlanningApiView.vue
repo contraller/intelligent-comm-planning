@@ -7,8 +7,8 @@
         <button
           v-if="planning.step === 1"
           class="btn"
-          :disabled="!resources.readable || resources.refreshing"
-          @click="resources.refresh()"
+          :disabled="!resources.readable || resources.refreshing || task.busy || task.running || !!task.pendingSave"
+          @click="task.draft ? task.refreshResources() : resources.refresh()"
           >{{ resources.refreshing ? '正在刷新' : '刷新资源' }}</button
         >
         <button
@@ -52,6 +52,7 @@
         >返回故障诊断</button
       >
     </div>
+    <div v-if="planning.step === 1 && planning.adjustmentDirty" class="notice warn" role="status">已保留未完成的方案调整。提交新规划前，请继续调整或明确放弃。<button class="text-link" @click="enterAdjustmentWorkspace">继续方案调整</button><button class="text-link" :disabled="planning.busy || planning.running || !!planning.pending" @click="discardAdjustmentWorkspace">放弃本次调整</button></div>
     <div class="steps"
       ><button
         v-for="(label, i) in ['任务与约束输入', '规划计算与结果', '方案调整与对比']"
@@ -66,11 +67,12 @@
         planning.step === 1 ? undefined : '请返回“任务与约束输入”刷新资源；当前规划结果保持原快照。'
       "
     />
-    <p v-if="terrainMessage" class="notice warn" role="status">{{ terrainMessage }} 站点和链路仍可浏览。</p>
-    <div v-if="planning.step === 1 && (planning.executionBlocked || planning.queryError)" class="notice warn" role="status" aria-label="当前规划作业状态">
-      <p>{{ planning.unverifiedJobId ? '当前任务有尚未核实的规划作业，核实状态前暂停提交。' : planning.queryError ? '作业状态查询中断，请恢复查询；当前作业及输入仍保留。' : '当前规划尚未结束，请等待完成或取消后再提交。' }}</p>
-      <button class="btn small" :disabled="planning.busy || !!planning.pending || !task.readable" @click="showCurrentPlanningJob">查看当前作业状态</button>
+    <div v-if="planning.jobStatus" class="notice planning-job-status" :class="{ warn: planning.jobStatus.warning }" :role="planning.jobStatus.warning ? 'alert' : 'status'" aria-live="polite">
+      <span>{{ planning.jobStatus.message }}</span>
+      <button v-if="planning.job" class="text-link" @click="planning.step = 2; resultCollapsed = false">查看当前作业</button>
+      <button v-if="planning.queryError || planning.unverifiedActiveJobId" class="text-link" :disabled="planning.busy || !!planning.pending" @click="planning.refreshJob()">恢复查询</button>
     </div>
+    <p v-if="terrainMessage" class="notice warn" role="status">{{ terrainMessage }} 站点和链路仍可浏览。</p>
     <details
       v-if="planning.step !== 1 && planning.job?.solutions"
       class="solution-choices"
@@ -89,7 +91,7 @@
     /></details>
     <div
       class="planning-layout"
-      :class="{ input: planning.step === 1, collapsed: planning.step !== 1 && resultCollapsed }"
+      :class="{ input: planning.step === 1, results: planning.step === 2, collapsed: planning.step !== 1 && resultCollapsed }"
       ><div
         v-show="planning.step === 1"
         class="input-panel"
@@ -133,7 +135,7 @@
           :resource-frame="planning.step === 1 ? resources.frame : null"
           :resource-bounds="bounds"
           :planning-overlay="overlay"
-          :show-coverage="planning.step === 3 && !!planning.adjustmentParent ? true : showCoverage"
+          :show-coverage="editingAdjustment && !!planning.adjustmentParent ? true : showCoverage"
           :coverage-display="coverageDisplay"
           :selected-id="planning.step === 1 ? inputFocused : focused"
           :frozen-coverage="frozenCoverageForMap"
@@ -210,11 +212,9 @@
           <strong>{{
             planning.step === 2
               ? currentObjectLabel
-              : editingAdjustment
-                ? '调整方案'
-                : planning.selectedPlan
-                  ? '选用已保存的方案'
-                  : '保存规划结果'
+              : workspaceMode === 'manage' ? '方案管理'
+                : workspaceMode === 'view' ? '只读查看方案'
+                  : workspaceMode === 'adjust' ? '调整方案' : '保存方案与版本对比'
           }}</strong>
           <p>{{ workflowHint }}</p>
           <p
@@ -225,7 +225,7 @@
           <p
             v-if="planning.selectedPlan?.state === 'REFERENCE'"
             class="warn"
-            >此版本仅供参考，不能设为当前方案。</p
+            >参考方案保留用于查看、对比和符合条件的干扰分析。</p
           >
         </div>
         <div
@@ -233,24 +233,50 @@
           class="result-content"
           :class="{ 'adjustment-content': planning.step === 3 }"
         >
+          <section v-if="planning.step === 3" class="plan-management" aria-label="方案管理">
+            <template v-if="workspaceMode === 'manage'">
+              <h2>{{ currentObjectLabel }}</h2>
+              <p role="status">{{ planSaveState }}</p>
+              <dl v-if="planning.result" class="plan-metrics">
+                <div><dt>网络连通率</dt><dd>{{ planning.result.metrics.connectivityPercent ?? '未提供' }}%</dd></div>
+                <div><dt>总辐射功率</dt><dd>{{ planning.result.metrics.totalRadiatedPowerW ?? '未提供' }} W</dd></div>
+                <div><dt>抗毁性</dt><dd>{{ planning.result.metrics.survivabilityPercent ?? '未提供' }}%</dd></div>
+                <div><dt>部署节点</dt><dd>{{ planning.result.nodes.length }}</dd></div>
+              </dl>
+              <p v-if="hasAdjustmentWork || planning.adjustmentDirty" class="notice">调整草稿已保留，可继续调整、计算和对比。</p>
+              <div class="toolbar" aria-label="方案操作入口">
+                <button class="btn" :disabled="!planning.result" @click="switchWorkspaceMode('view')">查看方案</button>
+                <button class="btn" :disabled="!planning.result || planning.busy || !!planning.pending" @click="enterAdjustmentWorkspace">调整方案</button>
+                <button class="btn primary" :disabled="!planning.result" @click="switchWorkspaceMode('save')">保存方案</button>
+              </div>
+              <button class="text-link" @click="switchWorkspaceMode('save')">历史版本与方案对比</button>
+              <button v-if="planning.adjustmentParent" class="text-link" :disabled="planning.busy || planning.running || !!planning.pending" @click="discardAdjustmentWorkspace">放弃本次调整</button>
+            </template>
+            <template v-else>
+              <div class="toolbar"><button class="btn small" @click="returnToManagement">返回方案管理</button><span>{{ workspaceMode === 'view' ? '只读查看，不会修改已保存方案' : workspaceMode === 'adjust' ? '调整 → 计算覆盖 → 查看效果 → 对比 → 保存' : '保存新版本并保留原方案' }}</span></div>
+              <p v-if="workspaceMode === 'adjust'" role="status">{{ planning.adjustmentStatus }}</p>
+              <p v-if="workspaceMode === 'adjust' && !frozenCoverageQuery" class="notice warn" role="status">当前调整与已有覆盖来源不一致。请完成本次调整预览后重新计算覆盖；基准方案的旧结果不会用于当前候选方案。</p>
+              <div v-if="workspaceMode === 'adjust'" class="toolbar">
+                <button class="btn" @click="switchWorkspaceMode('save')">对比与保存调整结果</button>
+              </div>
+            </template>
+          </section>
           <PlanningApiProgressPanel
             v-if="
-              planning.running || !planning.selectedPlan ||
-              planning.feedback ||
-              planning.queryFeedback ||
-              planning.pending
+              (planning.step === 2 || workspaceMode !== 'manage' || planning.feedback || planning.queryFeedback || planning.pending) && (
+                planning.running || !planning.selectedPlan || planning.feedback || planning.queryFeedback || planning.pending
+              )
             "
             compact
             :show-job="planning.running || !planning.selectedPlan"
           />
           <PlanningApiResultPanel
-            v-show="planning.step === 2"
+            v-show="planning.step === 2 || workspaceMode === 'view'"
             ref="resultPanel"
             v-model:coverage-display="coverageDisplay"
             :candidates="candidates.view.value"
             @candidate-active="candidateTab = $event"
             :result="planning.result"
-            :empty-message="emptyResultMessage"
             :outcome="planning.selectedPlan?.outcome"
             :radio-count="resultRadioCount"
             :confirmed-configuration="planning.selectedPlan?.confirmedConfiguration"
@@ -260,8 +286,15 @@
             @focus="resultFocus"
             @coverage="showCoverage = $event"
           />
-          <FrozenCoveragePanel v-if="lastCoverageQuery" v-show="!!frozenCoverageQuery || coveragePanel?.hasProtectedSelection()" ref="coveragePanel" :query="lastCoverageQuery" :active="!!frozenCoverageQuery"
-            :services="collaborationHttp.frozenCoverage" @overlay="frozenCoverage=$event" />
+          <section v-if="planning.step === 2 || workspaceMode === 'view'" class="coverage-summary" aria-label="方案覆盖结果摘要">
+            <h3>覆盖结果</h3>
+            <button v-if="planning.selectedPlan?.adjustment && planning.selectedPlan.jobId && planning.selectedPlan.resourceRevision" class="btn small" :disabled="planning.busy || !!planning.pending" @click="readSavedCandidateCoverage(!frozenCoverageQuery?.planId.startsWith('PREVIEW-'))">{{ frozenCoverageQuery?.planId.startsWith('PREVIEW-') ? '读取保存版本自身覆盖' : '读取该版本原候选覆盖' }}</button>
+            <p v-if="planning.selectedPlan && frozenCoverageQuery?.planId.startsWith('PREVIEW-')" role="status">该覆盖来自此保存版本的原候选作业快照，仍保留实际候选来源标识。</p>
+            <p>{{ frozenCoverageForMap ? '当前方案已有覆盖结果，可在地图查看选中设备的覆盖范围。' : '当前方案尚无已读取且匹配的覆盖结果，请进入调整工作区读取缓存或计算。' }}</p>
+            <button class="btn small" :disabled="!planning.result || planning.busy || !!planning.pending" @click="enterAdjustmentWorkspace">{{ frozenCoverageForMap ? '查看覆盖详情' : '进入覆盖计算' }}</button>
+          </section>
+          <FrozenCoveragePanel v-if="lastCoverageQuery" v-show="planning.step === 2 || (planning.step === 3 && (workspaceMode === 'view' || workspaceMode === 'adjust') && (!!frozenCoverageQuery || coveragePanel?.hasProtectedSelection()))" ref="coveragePanel" :query="lastCoverageQuery" :readonly="planning.step !== 3 || workspaceMode !== 'adjust'" :active="(planning.step === 2 || planning.step === 3 && (workspaceMode === 'view' || workspaceMode === 'adjust')) && !!frozenCoverageQuery"
+            :services="collaborationHttp.frozenCoverage" @overlay="acceptFrozenCoverage" />
           <PlanningAdjustmentDrawer
             v-if="
               planning.adjustmentContext && planning.adjustmentDraft && planning.adjustmentParent
@@ -279,7 +312,7 @@
             @update:model-value="planning.updateAdjustment"
             :pending="!!planning.pending"
             @reconcile="planning.reconcile"
-            @close="planning.closeAdjustment"
+            @close="returnToManagement"
             @submit="planning.submitAdjustment"
           />
           <PlanningAdjustmentPreview
@@ -289,8 +322,8 @@
             :status="planning.adjustmentStatus"
           />
           <PlanningApiVersionsPanel
-            v-show="planning.step === 3"
-            :adjusting="editingAdjustment"
+            v-show="planning.step === 3 && workspaceMode === 'save'"
+            :adjusting="!!planning.adjustmentParent && !adjustmentSaved && (planning.adjustmentOpen || planning.adjustmentDirty || planning.job?.parentPlanId === planning.adjustmentParent.id && !!planning.job?.adjustment)"
             @view-configuration="
               (planId) =>
                 planning.selectedPlan?.id === planId && resultPanel?.openConfiguration(resultOwner)
@@ -303,7 +336,7 @@
           />
           <button
             v-if="
-              planning.step === 3 && hasAdjustmentWork && !editingAdjustment && !adjustmentSaved
+              planning.step === 3 && workspaceMode === 'adjust' && hasAdjustmentWork && !editingAdjustment && !adjustmentSaved
             "
             class="btn"
             :disabled="planning.busy || !!planning.pending"
@@ -312,7 +345,7 @@
           >
           <details
             v-if="
-              planning.step === 3 &&
+              planning.step === 3 && workspaceMode !== 'manage' &&
               !editingAdjustment &&
               planning.adjustmentParent &&
               hasAdjustmentWork
@@ -331,7 +364,7 @@
               "
             />
           </details>
-          <details class="result-details"
+          <details v-if="planning.step === 2 || workspaceMode === 'view' || workspaceMode === 'adjust'" class="result-details"
             ><summary>查看当前结果的输入条件</summary>
             <DeploymentConstraintsSummary
               v-if="planning.step !== 1"
@@ -345,6 +378,8 @@
           </details>
         </div>
         <div class="analysis-entry">
+          <button v-if="planning.selectedPlan && !analysisPlanConfirmed" class="btn small" :disabled="!!analysisValidationReason || analysisEntryBusy" @click="confirmAnalysisPlan">{{ analysisEntryBusy ? '正在核对分析方案…' : '确认用于干扰分析' }}</button>
+          <span v-if="analysisPlanConfirmed && planning.selectedPlan" role="status">已确认分析输入：{{ planning.selectedPlan.name }} · {{ planning.selectedPlan.version }}</span>
           <button
             class="btn small"
             :disabled="!!analysisEntryReason || analysisEntryBusy"
@@ -356,6 +391,8 @@
             :role="analysisEntryError ? 'alert' : 'status'"
             >{{ analysisEntryError || analysisEntryReason }}</p
           >
+          <button v-if="!planning.selectedPlan && planning.result" class="text-link" @click="planning.step = 3; switchWorkspaceMode('save')">保存并选择分析方案</button>
+          <button v-if="analysisEntryError" class="text-link" @click="planning.step = 3; switchWorkspaceMode('view')">核对所选方案配置</button>
         </div>
         <div class="step-actions"
           ><button
@@ -366,7 +403,6 @@
           <button
             v-if="planning.step === 2"
             class="btn primary small"
-            :disabled="!planning.result || planning.running || planning.busy || !!planning.pending"
             @click="changePlanningStep(3)"
             >下一步：保存或调整方案</button
           >
@@ -464,8 +500,10 @@ import { collaborationHttp } from '../services/http';
 import FrozenCoveragePanel from '../components/FrozenCoveragePanel.vue';
 import type { FrozenCoverageOverlay,FrozenCoverageQuery } from '../types/frozen-coverage';
 import { verifyPlanningInterferenceEntry } from '../services/planning-interference-entry';
+import { resolvePlanningCoverageQuery } from '../services/planning-coverage-query';
 import { saveTaskForGis } from '../services/gis-task-edit-entry';
 
+const workspaceMode = ref<'manage' | 'view' | 'adjust' | 'save'>('manage');
 const task = useTaskInputStore();
 const planning = usePlanningApiStore();
 const resources = useResourceReadStore();
@@ -475,28 +513,47 @@ const { basemap: terrainBasemap, message: terrainMessage } = useTerrainBasemap((
 const route = useRoute();
 const router = useRouter();
 const auth = useAuthStore();
+const previewSide = ref<'before' | 'after'>('after');
 const frozenCoverage=shallowRef<FrozenCoverageOverlay|null>(null);
+const candidateCoverageOrigins=shallowRef<FrozenCoverageQuery[]>([]);
 const coveragePanel=ref<InstanceType<typeof FrozenCoveragePanel>>();
 let changingStep=false;
 async function changePlanningStep(step:number){
   if(changingStep||step===planning.step)return;
   changingStep=true;const session=auth.generation,current=planning.step;
-  try{if((!coveragePanel.value||await coveragePanel.value.requestLeave())&&session===auth.generation&&!auth.blocked&&planning.step===current)planning.step=step;}
+  try{if((!coveragePanel.value||await coveragePanel.value.requestLeave())&&session===auth.generation&&!auth.blocked&&planning.step===current){if(current===3&&step!==3){planning.setAutomaticPreview(false);planning.adjustmentOpen=false;}planning.step=step;}}
   finally{changingStep=false;}
 }
-async function showCurrentPlanningJob() {
-  await planning.refreshBlockingJob();
-  if (planning.job) await changePlanningStep(2);
+const frozenCoverageQuery=computed<FrozenCoverageQuery|null>(()=>resolvePlanningCoverageQuery({
+  selectedPlan:planning.selectedPlan, adjustmentParent:planning.adjustmentParent,
+  adjustmentResult:planning.adjustmentResult, job:planning.job,
+  inAdjustment:planning.step===3 && workspaceMode.value==='adjust', previewSide:previewSide.value,
+  dirty:planning.adjustmentDirty, running:planning.running, pending:!!planning.pending, candidateOrigins:candidateCoverageOrigins.value,
+}));
+function acceptFrozenCoverage(value:FrozenCoverageOverlay|null) {
+  frozenCoverage.value=value;const query=frozenCoverageQuery.value;
+  if(value&&query&&query.planId.startsWith('PREVIEW-')&&value.anchor.plan_id===query.planId&&value.anchor.task_id===query.taskId&&value.anchor.snapshot_id===query.snapshotId&&value.anchor.resource_revision===query.resourceRevision){
+    const origin={...query};if(!candidateCoverageOrigins.value.some(row=>JSON.stringify(row)===JSON.stringify(origin)))candidateCoverageOrigins.value=[...candidateCoverageOrigins.value.filter(row=>row.planId!==origin.planId||row.snapshotId!==origin.snapshotId),origin];
+  }
 }
-const frozenCoverageQuery=computed<FrozenCoverageQuery|null>(()=>{
-  const plan=planning.selectedPlan;
-  return plan?.resourceRevision?{planId:plan.id,taskId:plan.taskId,snapshotId:plan.result.snapshotId,resourceRevision:plan.resourceRevision,context:'planning'}:null;
-});
+watch(()=>[auth.generation,task.taskId],()=>{candidateCoverageOrigins.value=[];},{flush:'sync'});
+async function readSavedCandidateCoverage(candidate = true) {
+  const plan = planning.selectedPlan;
+  if (!plan?.adjustment || !plan.jobId || !plan.resourceRevision) return;
+  const owner = JSON.stringify([auth.generation,plan.taskId,plan.id,plan.version,plan.result.snapshotId,plan.resourceRevision]);
+  if (coveragePanel.value && !await coveragePanel.value.requestLeave()) return;
+  const selected = planning.selectedPlan;
+  if (!selected || owner !== JSON.stringify([auth.generation,selected.taskId,selected.id,selected.version,selected.result.snapshotId,selected.resourceRevision])) return;
+  const origin:FrozenCoverageQuery={planId:`PREVIEW-${plan.jobId}`,taskId:plan.taskId,snapshotId:plan.result.snapshotId,resourceRevision:plan.resourceRevision,context:'planning'};
+  candidateCoverageOrigins.value=candidateCoverageOrigins.value.filter(row=>row.planId!==origin.planId||row.snapshotId!==origin.snapshotId);
+  if(candidate)candidateCoverageOrigins.value=[...candidateCoverageOrigins.value,origin];
+  await nextTick(); await coveragePanel.value?.readCache();
+}
 const lastCoverageQuery=shallowRef<FrozenCoverageQuery|null>(null);
 watch(frozenCoverageQuery,query=>{if(query)lastCoverageQuery.value=query;},{immediate:true});
 const frozenCoverageForMap=computed(()=>{
   const query=frozenCoverageQuery.value,value=frozenCoverage.value;
-  return planning.step!==1&&query&&value&&value.anchor.plan_id===query.planId&&value.anchor.snapshot_id===query.snapshotId?value:null;
+  return planning.step!==1&&query&&value&&value.anchor.plan_id===query.planId&&value.anchor.task_id===query.taskId&&value.anchor.snapshot_id===query.snapshotId&&value.anchor.resource_revision===query.resourceRevision?value:null;
 });
 const routeTaskError = ref('');
 const historyVisible = ref(false);
@@ -538,15 +595,16 @@ const analysisEntryBusy = ref(false),
 let analysisEntrySerial = 0,
   analysisEntryAbort: AbortController | undefined;
 let analysisNavigation: { path: string; current: () => boolean } | null = null;
-const analysisEntryReason = computed(() =>
+const analysisConfirmedOwner = ref('');
+const analysisValidationReason = computed(() =>
   auth.blocked || !auth.can('situation.view') || !auth.can('planning.view')
     ? '当前角色没有干扰分析查看权限'
     : !planning.selectedPlan
-      ? '请先保存并选择已确认方案'
-      : planning.selectedPlan.state !== 'CONFIRMED'
-        ? '请先确认所选方案，再进入干扰分析'
-        : planning.busy || planning.pending
-          ? '请先完成当前规划操作'
+      ? '请先保存并选择分析方案'
+      : planning.busy || planning.pending
+        ? '请先完成当前规划操作'
+        : planning.adjustmentDirty || planning.adjustmentOpen && !planning.selectedPlan
+          ? '请先完成并保存调整结果，再确认分析输入'
           : '',
 );
 const analysisEntryOwner = computed(() =>
@@ -557,11 +615,27 @@ const analysisEntryOwner = computed(() =>
     planning.selectedPlan?.id,
     planning.selectedPlan?.version,
     planning.selectedPlan?.state,
+    planning.selectedPlan?.result.snapshotId,
     planning.step,
   ]),
 );
+const analysisPlanConfirmed = computed(() => !!planning.selectedPlan && (planning.selectedPlan.state === 'CONFIRMED' || analysisConfirmedOwner.value === analysisEntryOwner.value));
+const analysisEntryReason = computed(() => analysisValidationReason.value || (!analysisPlanConfirmed.value ? '请点击“确认用于干扰分析”，核对所选方案版本' : ''));
+async function confirmAnalysisPlan() {
+  if (analysisValidationReason.value || analysisEntryBusy.value || !planning.selectedPlan) return;
+  const owner = analysisEntryOwner.value, target = planning.selectedPlan, serial = ++analysisEntrySerial;
+  analysisEntryAbort?.abort(); analysisEntryAbort = new AbortController();
+  analysisEntryBusy.value = true; analysisEntryError.value = '';
+  try {
+    const verified = await verifyPlanningInterferenceEntry(collaborationHttp.interferenceWorkbench, { taskId: target.taskId, planId: target.id, planVersion: target.version }, analysisEntryAbort.signal);
+    if (verified && owner === analysisEntryOwner.value && serial === analysisEntrySerial && !analysisValidationReason.value) analysisConfirmedOwner.value = owner;
+  } catch (reason) {
+    if (owner === analysisEntryOwner.value && serial === analysisEntrySerial) analysisEntryError.value = reason instanceof Error ? reason.message : '分析方案核对失败，请重试';
+  } finally { if (serial === analysisEntrySerial) analysisEntryBusy.value = false; }
+}
 function cancelAnalysisEntry() {
   analysisEntrySerial++;
+  analysisConfirmedOwner.value = '';
   analysisEntryAbort?.abort();
   analysisEntryBusy.value = false;
   analysisEntryError.value = '';
@@ -616,8 +690,7 @@ const analysisEntry = computed(() => {
     },
   };
 });
-const resultCollapsed = ref(false),
-  previewSide = ref<'before' | 'after'>('after');
+const resultCollapsed = ref(false);
 // 界面阶段只描述当前对象；不创建第二套保存状态或改变服务端确认条件。
 const adjustmentSaved = computed(
   () =>
@@ -627,7 +700,41 @@ const adjustmentSaved = computed(
     planning.selectedPlan.result.snapshotId === planning.adjustmentResult?.snapshotId &&
     !planning.adjustmentDirty,
 );
-const editingAdjustment = computed(() => planning.adjustmentOpen && !adjustmentSaved.value);
+const editingAdjustment = computed(() => planning.step === 3 && workspaceMode.value === 'adjust' && planning.adjustmentOpen && !adjustmentSaved.value);
+const planSaveState = computed(() => planning.adjustmentDirty || planning.adjustmentResult && !adjustmentSaved.value && !planning.selectedPlan ? '待保存：调整结果不会覆盖原始方案' : planning.selectedPlan ? `已保存版本 ${planning.selectedPlan.version}` : planning.currentSavedPlanId ? '本结果已有保存版本，请在历史版本中打开' : '当前规划结果尚未保存');
+async function switchWorkspaceMode(mode: 'manage' | 'view' | 'adjust' | 'save') {
+  if (mode === workspaceMode.value) return true;
+  const previous = workspaceMode.value, session = auth.generation;
+  if (coveragePanel.value && !await coveragePanel.value.requestLeave()) return false;
+  if (session !== auth.generation || auth.blocked || workspaceMode.value !== previous) return false;
+  if (previous === 'adjust' && mode !== 'adjust') { planning.setAutomaticPreview(false); planning.adjustmentOpen = false; }
+  workspaceMode.value = mode; return true;
+}
+async function returnToManagement() { await switchWorkspaceMode('manage'); }
+async function discardAdjustmentWorkspace() {
+  if (planning.busy || planning.running || planning.pending || !planning.adjustmentParent) return;
+  const parent = planning.adjustmentParent;
+  const owner = JSON.stringify([auth.generation,task.taskId,parent.id,planning.adjustmentDraft]);
+  const answer = await task.ask({title:'放弃方案调整',message:'放弃当前设备参数与路由草稿，原始方案和已有覆盖历史继续保留。',discardLabel:'放弃调整',cancelLabel:'继续保留'});
+  if (answer !== 'discard' || owner !== JSON.stringify([auth.generation,task.taskId,planning.adjustmentParent?.id,planning.adjustmentDraft])) return;
+  if (coveragePanel.value && !await coveragePanel.value.requestLeave()) return;
+  if (owner !== JSON.stringify([auth.generation,task.taskId,planning.adjustmentParent?.id,planning.adjustmentDraft])) return;
+  planning.discardAdjustment(); planning.selectedPlan = parent; workspaceMode.value = 'manage';
+}
+async function enterAdjustmentWorkspace() {
+  if (planning.busy || planning.pending) return;
+  if (!planning.selectedPlan && !planning.adjustmentParent) {
+    planning.step = 3; workspaceMode.value = 'save';
+    planning.notice = '请先保存规划结果作为基准版本，再进入调整与覆盖计算。';
+    return;
+  }
+  if (planning.adjustmentParent && !adjustmentSaved.value && (!planning.selectedPlan || planning.selectedPlan.id === planning.adjustmentParent.id)) {
+    planning.step = 3; planning.adjustmentOpen = true; workspaceMode.value = 'adjust'; return;
+  }
+  if (await planning.openPlanAdjustment()) workspaceMode.value = 'adjust';
+}
+watch(() => planning.step, (next, previous) => { if (next === 3 && previous !== 3) workspaceMode.value = 'manage'; }, { flush: 'sync' });
+watch(() => planning.adjustmentOpen, (open) => { if (open) workspaceMode.value = 'adjust'; }, { flush: 'sync' });
 const previewReviewOpen = ref(false);
 const hasAdjustmentWork = computed(
   () =>
@@ -639,7 +746,7 @@ const hasAdjustmentWork = computed(
 const previewMode = computed(
   () =>
     planning.step === 3 &&
-    !!planning.adjustmentParent &&
+    !!planning.adjustmentParent && workspaceMode.value === 'adjust' &&
     (editingAdjustment.value ||
       previewReviewOpen.value ||
       (!planning.selectedPlan && hasAdjustmentWork.value)),
@@ -670,27 +777,19 @@ const workflowHint = computed(() =>
   planning.step === 2
     ? planning.result
       ? '先查看约束结论和三项指标，再按需查看分项；满意后进入下一步保存或调整。'
-      : planning.job?.state === 'FAILED' || planning.job?.state === 'CANCELLED'
-        ? emptyResultMessage.value
       : '等待规划结果；可查看阶段进度，异常时按提示恢复。'
     : editingAdjustment.value
       ? planning.adjustmentStatus
       : planning.sourceChanged
         ? '来源已变化，当前内容仅供回看；如需新方案，请返回任务输入核对条件后重新规划。'
         : planning.selectedPlan?.state === 'REFERENCE'
-          ? '此版本仅供参考和比较，不能设为当前方案。'
+          ? '参考方案可查看、比较；确认用于分析后，可进入干扰分析。'
           : planning.selectedPlan?.current
             ? '此版本已是当前方案。可返回查看结果，或按需调整；无需重复确认。'
             : planning.selectedPlan
-              ? '已保存版本。可直接设为当前方案，或先调整参数；历史与对比按需查看。'
+              ? '已保存版本。请选择查看、调整或保存操作；分析确认与设为当前方案分别处理。'
               : '先把所选结果保存为方案。保存后可直接选用，也可继续调整。',
 );
-// 终态不再沿用等待结果的占位文案，具体原因仍取服务端结论。
-const emptyResultMessage = computed(() => planning.job?.state === 'FAILED'
-  ? '本次规划已结束，未生成可用规划方案。请查看上方原因和建议。'
-  : planning.job?.state === 'CANCELLED' ? '本次规划已取消，未生成新的规划结果。'
-  : planning.running ? '规划仍在运行，结果尚未生成。'
-  : '提交规划并取得结果后，在此查看各分项。');
 watch(
   () => [adjustmentSaved.value, planning.busy, planning.pending, planning.adjustmentOpen] as const,
   ([saved, busy, pending, open]) => {
@@ -703,9 +802,9 @@ const submitHint = computed(() =>
     ? '当前账号没有规划执行权限'
     : task.pendingSave || planning.pending
       ? '请先核实待确认的操作结果'
-      : planning.unverifiedJobId
-        ? '请先核实当前任务已有的规划作业状态'
-      : planning.busy || planning.executionBlocked
+      : planning.unverifiedActiveJobId
+        ? '已有作业状态待核实，请恢复查询后再提交'
+      : planning.busy || planning.running
         ? '请等待当前作业或操作完成'
         : planning.adjustmentOpen || planning.adjustmentDirty
           ? '请先处理方案调整输入'
@@ -721,10 +820,11 @@ watch(
       auth.generation,
       auth.can('planning.execute'),
       task.readable,
+      workspaceMode.value,
     ] as const,
   () =>
     planning.setAutomaticPreview(
-      planning.step === 3 && task.readable && auth.can('planning.execute'),
+      planning.step === 3 && workspaceMode.value === 'adjust' && task.readable && auth.can('planning.execute'),
     ),
   { immediate: true },
 );
@@ -1038,6 +1138,7 @@ async function restoreRoute() {
     if (!active || token !== routeTicket) return;
     if (route.query.editTask === '1') {
       planning.step = 1;
+      if (planning.unverifiedActiveJobId) await planning.refreshJob(planning.unverifiedActiveJobId);
       if (task.saved) await planning.loadPlans(1);
       planning.start();
       return;
@@ -1169,6 +1270,15 @@ onBeforeUnmount(() => {
   gap: 16px;
   align-items: stretch;
 }
+.planning-layout.results {
+  grid-template-columns: minmax(280px, 1fr) minmax(720px, 72%);
+}
+.plan-management, .coverage-summary { padding: 12px; background: #14273b; border: 1px solid var(--line); }
+.plan-management h2 { margin: 0 0 8px; font-size: 16px; }
+.plan-management p, .coverage-summary p { font-size: 12px; line-height: 1.6; }
+.plan-metrics { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.plan-metrics dt { color: var(--muted); font-size: 12px; }
+.plan-metrics dd { margin: 5px 0; font-size: 19px; color: #9edaff; }
 .planning-layout.input {
   grid-template-columns: 410px minmax(400px, 1fr);
 }
@@ -1216,12 +1326,6 @@ onBeforeUnmount(() => {
 .result-column > .notice {
   margin: 0;
   font-size: 12px;
-}
-/* 进度和失败原因不能被下方结果面板挤出可视区域。 */
-.result-content > :deep(.compact-progress) {
-  flex: 0 0 auto;
-  max-height: min(360px, 50vh);
-  overflow: auto;
 }
 .result-content > :deep(.result-panel) {
   flex: 1 1 300px;
@@ -1331,6 +1435,10 @@ onBeforeUnmount(() => {
   border-bottom: 1px solid var(--line);
 }
 @media (max-width: 1250px) {
+  .planning-layout.results { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(300px, 40vh) minmax(440px, auto); }
+  .planning-layout.results .map-panel { min-height: 300px; }
+  .planning-layout.results .result-column { overflow: visible; }
+  .planning-layout.results .result-content { overflow: visible; }
   .planning-layout,
   .planning-layout.input {
     grid-template-columns: 360px minmax(360px, 1fr);

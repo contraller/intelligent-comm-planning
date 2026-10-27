@@ -137,12 +137,15 @@ class _PLCache:
     """干扰源 → 接收点的传播损耗缓存。损耗只取决于干扰源频率与两点位置，
     与受害链路的工作频率无关（那部分在 FDR 里），所以可以跨措施复用。"""
 
-    def __init__(self, terrain, hour=12):
+    def __init__(self, terrain, hour=12, checkpoint=None):
         self.terrain = terrain
+        self.checkpoint = checkpoint
         self.hour = hour
         self.memo = {}
 
     def loss(self, j, lon, lat, h_rx):
+        if self.checkpoint:
+            self.checkpoint()
         key = (j.jid, round(lon, 6), round(lat, 6), round(h_rx, 1))
         v = self.memo.get(key)
         if v is None:
@@ -198,18 +201,23 @@ class VictimLink:
 class Scenario:
     """一次干扰分析的全部状态。措施预评估在它的副本上改参数重算。"""
 
-    def __init__(self, stations, links, terrain, jammers, hour=12):
+    def __init__(self, stations, links, terrain, jammers, hour=12, checkpoint=None):
+        self.checkpoint = checkpoint
+        if checkpoint:
+            checkpoint()
         self.stations = {s.sid: s for s in stations}
         self.links = links                     # [VictimLink]
         self.terrain = terrain
         self.jammers = [j for j in jammers if j.active]
         self.hour = hour
-        self.cache = _PLCache(terrain, hour)
+        self.cache = _PLCache(terrain, hour, checkpoint=checkpoint)
         self.pos = {s.sid: (s.lon, s.lat) for s in stations}
         self._sig = {}                         # (link_id, f, 位置签名) -> 路径损耗
 
     # —— 信号 ——
     def _signal_pl(self, lk):
+        if self.checkpoint:
+            self.checkpoint()
         pa, pb = self.pos[lk.a], self.pos[lk.b]
         key = (lk.link_id, round(lk.f, 3), pa, pb)
         v = self._sig.get(key)
@@ -247,6 +255,8 @@ class Scenario:
                     margin_before=m_before, margin_after=m_after)
 
     def link_state(self, lk):
+        if self.checkpoint:
+            self.checkpoint()
         ea, eb = self.end_state(lk, lk.a), self.end_state(lk, lk.b)
         worst = ea if ea["margin_after"] <= eb["margin_after"] else eb
         before = min(ea["margin_before"], eb["margin_before"])
@@ -272,7 +282,7 @@ def grade(m_before, m_after, delta_db):
 
 
 def build_scenario(stations, topo_rows, terrain, jammer_rows, freq_of=None,
-                   net_of=None, tx_of=None, hour=12, device_radios=None):
+                   net_of=None, tx_of=None, hour=12, device_radios=None, checkpoint=None):
     """由组网方案造分析场景。
 
     topo_rows  规划拓扑链路（link_id / node_a_id / node_b_id / device_class）
@@ -283,6 +293,8 @@ def build_scenario(stations, topo_rows, terrain, jammer_rows, freq_of=None,
     by_id = {s.sid: s for s in stations}
     links = []
     for r in topo_rows:
+        if checkpoint:
+            checkpoint()
         sa, sb = by_id.get(r["node_a_id"]), by_id.get(r["node_b_id"])
         band = r["device_class"]
         if sa is None or sb is None or band not in sa.radio or band not in sb.radio:
@@ -307,7 +319,8 @@ def build_scenario(stations, topo_rows, terrain, jammer_rows, freq_of=None,
             elif tx_of and (sid, band) in tx_of:
                 lk.tx[sid] = tx_of[(sid, band)]
         links.append(lk)
-    return Scenario(stations, links, terrain, [Jammer(x) for x in jammer_rows], hour)
+    return Scenario(stations, links, terrain, [Jammer(x) for x in jammer_rows], hour,
+                    checkpoint=checkpoint)
 
 
 # ─────────────────────────── 分析 ───────────────────────────
@@ -401,10 +414,13 @@ def affected_area(sc, cell_m=3000.0, bbox=BBOX):
     频谱重叠的干扰源按线性功率叠加（扩展 1），不重叠的各自成组、取最重的一组。
     """
     nx, ny, mpd = gridgeo.grid_spec(bbox, cell_m)
+    checkpoint = getattr(sc, "checkpoint", None)
     groups = _jammer_groups(sc.jammers)
     level_cells = {}
     for gx in range(nx):
         for gy in range(ny):
+            if checkpoint:
+                checkpoint()
             lon, lat = gridgeo.cell_center(bbox, cell_m, gx, gy, mpd)
             best_in, best_ids = None, None
             for grp in groups:
@@ -726,6 +742,9 @@ def recommend(sc, analysis, freq_ctx=None, caps=None, route_ctx=None,
     - 同一目标的措施按「能否恢复可用」优先、再按操作代价排 priority；
     - 一个受扰对象若五类措施都不能恢复，列入 unresolved 并说明原因（扩展 2）。
     """
+    checkpoint = getattr(sc, "checkpoint", None)
+    if checkpoint:
+        checkpoint()
     n_before = analysis["summary"]["affected_links"]
     by_id = {lk.link_id: lk for lk in sc.links}
     serious = [x for x in analysis["affected_links"] if x["level"] in ("SEVERE", "MODERATE")]
@@ -739,6 +758,8 @@ def recommend(sc, analysis, freq_ctx=None, caps=None, route_ctx=None,
     seen_nets = set()
     reasons_of = {}
     for x in serious[:max_targets]:
+        if checkpoint:
+            checkpoint()
         lk = by_id[x["link_id"]]
         cand, reasons = [], []
         net = lk.net_id or (freq_ctx.net_of_link.get(lk.link_id) if freq_ctx else None)
@@ -770,6 +791,8 @@ def recommend(sc, analysis, freq_ctx=None, caps=None, route_ctx=None,
 
     node_reasons = {}
     for nd in [n for n in analysis["affected_nodes"] if n["level"] == "SEVERE"][:10]:
+        if checkpoint:
+            checkpoint()
         rm, rs = _redeploy_measure(sc, nd["node_id"], candidate_rows, n_before)
         node_reasons[nd["node_id"]] = rs
         if rm:
@@ -874,8 +897,10 @@ def adopt(sc, cm):
 
 # ─────────────────────────── 自检 ───────────────────────────
 
-def scenario_from_plan(plan, jammer_rows, hour=12):
+def scenario_from_plan(plan, jammer_rows, hour=12, checkpoint=None):
     """由第 3 周全流程结果造干扰分析场景：用分配到的频点与参数规划后的功率。"""
+    if checkpoint:
+        checkpoint()
     la = plan["frequency"].get("link_assignments") or []
     if not la:
         from frequency import expand_to_links
@@ -909,7 +934,7 @@ def scenario_from_plan(plan, jammer_rows, hour=12):
                     tx_of[(link["link_id"], sid)] = params[did]["tx_power_dbm"]
     return build_scenario(plan["stations"], plan["links"], plan["terrain"], jammer_rows,
                           freq_of=freq_of, net_of=net_of, tx_of=tx_of, hour=hour,
-                          device_radios=device_radios)
+                          device_radios=device_radios, checkpoint=checkpoint)
 
 
 def _self_test():

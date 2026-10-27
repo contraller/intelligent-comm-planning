@@ -19,6 +19,7 @@ from openpyxl.cell.cell import ILLEGAL_CHARACTERS_RE
 from . import frontend_integration, planning_adjustment_service, planning_job_service
 from .database import get_session_factory
 from .planning_job_models import PlanningJob
+from .planning_result_adapter import project_saved_deployment_display
 from .planning_operation_service import _append_owner, _business_context, _require_owner
 from .planning_plan_models import (
     PlanningCurrentPlan,
@@ -93,7 +94,7 @@ def _dto(plan: PlanningPlan, current_plan_id: str | None = None, *,
         "saved_at": _timestamp(plan.saved_at),
         "confirmed_at": _timestamp(plan.confirmed_at),
         "source": plan.source,
-        "result": plan.result_snapshot,
+        "result": project_saved_deployment_display(plan.result_snapshot, getattr(plan, "raw_snapshot", None)),
         "outcome": plan.outcome_snapshot,
     }
     if plan.adjustment is not None:

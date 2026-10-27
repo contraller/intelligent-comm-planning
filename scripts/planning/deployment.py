@@ -94,6 +94,9 @@ def solve_assignment(fm, active=None, damaged=False):
     贪心把 4 个 Ⅳ 都挂上去，等轮到 Ⅲ 自己上行时已无端口可用，
     而代码若只检查上级余量、不检查下级余量，就会错误地判为配上了。
     """
+    checkpoint = getattr(fm, "checkpoint", None)
+    if checkpoint:
+        checkpoint()
     sol = Solution()
     n = len(fm.stations)
     act = set(range(n)) if active is None else set(active)
@@ -121,6 +124,8 @@ def solve_assignment(fm, active=None, damaged=False):
         pset = set(parents)
         cand, prefer = {}, {}
         for c in children:
+            if checkpoint:
+                checkpoint()
             opts = []
             for p in fm.neighbors(c, band, damaged=damaged):
                 if p not in act or p not in pset:
@@ -150,6 +155,8 @@ def solve_assignment(fm, active=None, damaged=False):
             cur = band                       # 未配上者的上行预留当前在 cdb
             changed = True
             while changed and un:
+                if checkpoint:
+                    checkpoint()
                 changed = False
                 for pband in pbands:
                     if not un:
@@ -400,7 +407,7 @@ def _required_sites(fm, base_idx, cand_idx, required, spacing):
 def p1_solve(base_stations, candidate_rows, terrain, types=E.DEPLOYABLE_TYPES,
              margin_min=None, max_add=30, shortlist=24, refine=True,
              refine_seconds=30.0, verbose=False, required_site_ids=(),
-             min_site_spacing_m=None, enforce_sites=False):
+             min_site_spacing_m=None, enforce_sites=False, checkpoint=None):
     """P1：最少电台数，使所有节点连通到根。
 
     外层贪心用**惰性求值**：每轮先用位运算算出每个候选的增量上界（微秒级），
@@ -412,6 +419,8 @@ def p1_solve(base_stations, candidate_rows, terrain, types=E.DEPLOYABLE_TYPES,
     惰性求值把每轮的精确求解次数从 4400 降到 shortlist 个。
     """
     from feasibility import FeasibilityMatrix
+    if checkpoint:
+        checkpoint()
     kw = {} if margin_min is None else dict(margin_min=margin_min)
 
     # 只有 Ⅲ 机动站带超短波，是 Ⅳ 接入的唯一手段；其余三类只能补 db 侧
@@ -423,7 +432,7 @@ def p1_solve(base_stations, candidate_rows, terrain, types=E.DEPLOYABLE_TYPES,
     all_st = list(base_stations) + pool
     # 候选×候选先不算：贪心每轮只选一两个，那些对算了也白算，选中后再补
     fm = FeasibilityMatrix(all_st, terrain, verbose=verbose,
-                           candidate_pairs=False, **kw)
+                           candidate_pairs=False, checkpoint=checkpoint, **kw)
     base_idx = list(range(len(base_stations)))
     cand_idx = list(range(len(base_stations), len(all_st)))
     if verbose:
@@ -439,6 +448,8 @@ def p1_solve(base_stations, candidate_rows, terrain, types=E.DEPLOYABLE_TYPES,
 
     n_exact = 0
     while sol.unconnected and len(chosen) < max_add:
+        if checkpoint:
+            checkpoint()
         # 失联节点按频段做成位图，供上界计算
         band_of_orphan = {}
         for band in E.BANDS:
@@ -450,6 +461,8 @@ def p1_solve(base_stations, candidate_rows, terrain, types=E.DEPLOYABLE_TYPES,
 
         ranked = []
         for ci in cand_idx:
+            if checkpoint:
+                checkpoint()
             if ci in chosen:
                 continue
             if enforce_sites and not _compatible_site(fm, ci, chosen, min_site_spacing_m):
@@ -467,6 +480,8 @@ def p1_solve(base_stations, candidate_rows, terrain, types=E.DEPLOYABLE_TYPES,
 
         best = None
         for neg_ub, cost, neg_margin, ci in ranked[:shortlist]:
+            if checkpoint:
+                checkpoint()
             if best is not None and -neg_ub <= best[0][0] * -1:
                 break                       # 上界已不可能超过当前最优，剪枝
             if enforce_sites:
@@ -492,6 +507,8 @@ def p1_solve(base_stations, candidate_rows, terrain, types=E.DEPLOYABLE_TYPES,
 
     # 冗余消除：逐个试着撤掉，仍全连通则永久撤
     for ci in list(chosen):
+        if checkpoint:
+            checkpoint()
         if candidate_site_id(fm.stations[ci]) in required_site_ids:
             continue
         rest = [x for x in chosen if x != ci]
@@ -535,7 +552,7 @@ def p1_solve(base_stations, candidate_rows, terrain, types=E.DEPLOYABLE_TYPES,
 
 def p2_solve(fm, base_idx, cand_idx, p, shortlist=24, objective="connect",
              verbose=False, required_site_ids=(), min_site_spacing_m=None,
-             enforce_sites=False):
+             enforce_sites=False, checkpoint=None):
     """P2：人工指定部署数量 p，求该数量下的最优位置（SR-4.2.1.2 c）。
 
     objective:
@@ -546,6 +563,9 @@ def p2_solve(fm, base_idx, cand_idx, p, shortlist=24, objective="connect",
     p 小于最少需求时，返回「最多能连通多少」并给出仍失联的清单 ——
     这正是 SR-4.2.1.2 扩展流 1 要求的「提示原因并给出参数调整建议」。
     """
+    checkpoint = checkpoint or getattr(fm, "checkpoint", None)
+    if checkpoint:
+        checkpoint()
     if p < len(required_site_ids):
         raise ValueError("指定部署数量小于强制部署点数量")
     chosen = (_required_sites(fm, base_idx, cand_idx, required_site_ids, min_site_spacing_m)
@@ -555,6 +575,8 @@ def p2_solve(fm, base_idx, cand_idx, p, shortlist=24, objective="connect",
         # 固定数量不足时保留实际短缺，不填入无合法连接的占位电台。
         cand_idx = list(cand_idx)
     while len(chosen) < p:
+        if checkpoint:
+            checkpoint()
         band_of_orphan = {}
         for band in E.BANDS:
             m = 0
@@ -568,6 +590,8 @@ def p2_solve(fm, base_idx, cand_idx, p, shortlist=24, objective="connect",
         # 压过「能新连通 2 个节点」，导致加了电台反而连通率更低。
         ranked = []
         for ci in cand_idx:
+            if checkpoint:
+                checkpoint()
             if ci in chosen:
                 continue
             if enforce_sites and not _compatible_site(fm, ci, chosen, min_site_spacing_m):
@@ -580,6 +604,8 @@ def p2_solve(fm, base_idx, cand_idx, p, shortlist=24, objective="connect",
             # 此前这里和抗毁优先共用「冗余上界」排序，挑出来的候选碰不到最差链路，
             # 三套方案最差余量一模一样（待办 #12 重测时发现）。
             for ci in cand_idx:
+                if checkpoint:
+                    checkpoint()
                 if ci in chosen:
                     continue
                 if enforce_sites and not _compatible_site(fm, ci, chosen, min_site_spacing_m):
@@ -589,6 +615,8 @@ def p2_solve(fm, base_idx, cand_idx, p, shortlist=24, objective="connect",
                     ranked.append((-gain, E.DEPLOY_COST[fm.stations[ci].subtype], 0.0, ci))
         if not ranked and objective != "connect":
             for ci in cand_idx:
+                if checkpoint:
+                    checkpoint()
                 if ci in chosen:
                     continue
                 if enforce_sites and not _compatible_site(fm, ci, chosen, min_site_spacing_m):
@@ -603,6 +631,8 @@ def p2_solve(fm, base_idx, cand_idx, p, shortlist=24, objective="connect",
 
         best = None
         for _nub, cost, _nm, ci in ranked[:shortlist]:
+            if checkpoint:
+                checkpoint()
             if enforce_sites:
                 fm.extend_pairs(chosen + [ci])
             trial = solve_assignment(fm, active=base_idx + chosen + [ci])

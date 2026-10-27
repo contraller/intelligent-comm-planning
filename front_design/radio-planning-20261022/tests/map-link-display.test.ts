@@ -5,6 +5,7 @@ import type View from 'ol/View';
 import type Feature from 'ol/Feature';
 import type BaseLayer from 'ol/layer/Base';
 import VectorLayer from 'ol/layer/Vector';
+import VectorTileLayer from 'ol/layer/VectorTile';
 import ImageLayer from 'ol/layer/Image';
 import type ImageSource from 'ol/source/Image';
 import type { Style } from 'ol/style';
@@ -167,29 +168,33 @@ describe('冻结覆盖全域定位',()=>{
 });
 
 describe('地图道路后台生命周期', () => {
-  // 仅替换 Worker 传输，地图模板、业务图层及道路管理器真实执行。
-  it('道路准备不阻塞业务图层，显隐及离页停止后台任务和迟到批次', async () => {
-    const workers: { onmessage: ((event: MessageEvent) => void) | null; terminate: ReturnType<typeof vi.fn> }[] = [];
-    vi.stubGlobal('Worker', class {
-      onmessage = null; onerror = null;
-      postMessage = vi.fn(); terminate = vi.fn();
-      constructor() { workers.push(this); }
-    });
-    const s = await mountMap(), roads = s.map.layers[0] as VectorLayer;
-    expect(workers).toHaveLength(1);
+  // 现行道路使用MVT清单和瓦片请求；仅替换传输，真实地图和管理器仍执行。
+  it('道路准备不阻塞业务图层，显隐及离页取消瓦片清单并隔离迟到响应', async () => {
+    const requests: { signal: AbortSignal; finish: (value: Response) => void }[] = [];
+    const fetcher = vi.fn((_url: RequestInfo | URL, init?: RequestInit) => new Promise<Response>(finish => {
+      requests.push({ signal: init!.signal as AbortSignal, finish });
+    }));
+    vi.stubGlobal('fetch', fetcher);
+    const s = await mountMap(), roads = s.map.layers[0] as VectorTileLayer;
+    await vi.waitFor(() => expect(requests).toHaveLength(1));
+    expect(String(fetcher.mock.calls[0]![0])).toContain('demo-roads-tiles/manifest.json');
     expect(textOf(s.root)).toContain('道路加载中');
+    expect(roads.getSource()).toBeNull();
     expect(s.layer().getSource()!.getFeatures()).toHaveLength(s.props.links.length);
     s.props.showRoads = false; await nextTick();
-    expect(workers[0].terminate).toHaveBeenCalledOnce();
+    expect(requests[0]!.signal.aborted).toBe(true);
     expect(textOf(s.root)).not.toContain('道路加载中');
     s.props.showRoads = true; await nextTick();
-    expect(workers).toHaveLength(2);
-    const source = roads.getSource()!, late = workers[1].onmessage!;
+    await vi.waitFor(() => expect(requests).toHaveLength(2));
+    expect(requests[1]!.signal.aborted).toBe(false);
     app!.unmount(); app = undefined;
-    late({ data: { type: 'batch', roads: [], done: true } } as MessageEvent);
-    expect(workers[1].terminate).toHaveBeenCalledOnce();
+    expect(requests[1]!.signal.aborted).toBe(true);
+    // 故意让传输忽略abort，确认迟到返回仍不能给已卸载地图重新挂载源。
+    const manifest = { format: 'mvt', layer: 'roads', version: 'a'.repeat(16), minZoom: 0, maxZoom: 14, tileSize: 256,
+      bounds: [113, 36, 116, 39], ranges: Array.from({ length: 15 }, () => [0, 0, 0, 0]), tiles: `${'a'.repeat(16)}/{z}/{x}/{y}.mvt` };
+    for (const request of requests) request.finish(new Response(JSON.stringify(manifest)));
+    for (let i = 0; i < 8; i++) await Promise.resolve();
     expect(roads.getSource()).toBeNull();
-    expect(source.getFeatures()).toHaveLength(0);
     expect(s.map.dispose).toHaveBeenCalledOnce();
   });
 });

@@ -193,6 +193,7 @@ def _dto(job: PlanningJob, revision: PlanningTaskRevision) -> dict[str, Any]:
         "input": revision.input_snapshot,
         "parent_plan_id": job.parent_plan_id,
         "status": job.status,
+        "stopping": job.status in {"FAILED", "CANCELLED"} and planning_w3.task_worker_active(job.job_id),
         "progress": progress,
         "phases": _phases(progress),
         "result": None,
@@ -434,13 +435,15 @@ def _reserve(factory: sessionmaker[Session], payload: PlanningJobSubmitRequest,
             raise PlanningJobError(1001, "父方案编号与人工调整必须同时提供", 422)
         active = session.scalar(select(PlanningJob).where(
             PlanningJob.task_id == payload.task_id,
-            PlanningJob.status.in_(("PENDING", "RUNNING")),
+            or_(PlanningJob.status.in_(("PENDING", "RUNNING")),
+                PlanningJob.job_id.in_(planning_w3.active_worker_ids())),
         ))
         if active is not None:
             raise PlanningJobError(2002, "该任务已有计算作业", 409, {
                 "job_id": active.job_id, "status": active.status,
                 "task_id": active.task_id, "revision": active.revision_id,
                 "progress": active.progress, "stage": active.stage,
+                "stopping": active.status in _FINAL_STATES,
                 "input_version": active.revision_id,
             })
         algorithm_payload = _algorithm_payload(payload, revision)
@@ -636,13 +639,15 @@ def submit_interference_replan(request: dict[str, Any], factory=None, *, runtime
                 adjustment=adjustment.model_dump(mode="json", exclude_unset=True),
                 interference_rows=deepcopy(adjustment.interference.sources))
             active = session.scalar(select(PlanningJob).where(PlanningJob.task_id == adoption.task_id,
-                PlanningJob.status.in_(("PENDING", "RUNNING"))))
+                or_(PlanningJob.status.in_(("PENDING", "RUNNING")),
+                    PlanningJob.job_id.in_(planning_w3.active_worker_ids()))))
             if active is not None:
                 raise PlanningJobError(2002, "该任务已有其他活动规划作业", 409, {
                     "job_id": active.job_id, "task_id": active.task_id,
                     "status": active.status, "revision": active.revision_id,
                     "input_version": active.revision_id,
                     "progress": active.progress, "stage": active.stage,
+                "stopping": active.status in _FINAL_STATES,
                 })
             stamp = datetime.now(timezone.utc)
             job = PlanningJob(job_id="tsk-" + uuid.uuid4().hex[:12], request_id=adoption.planning_request_id,
