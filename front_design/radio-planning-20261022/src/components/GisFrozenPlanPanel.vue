@@ -106,7 +106,7 @@
       <div class="snapshot-heading toolbar"
         ><strong>{{ model.network.identity.plan_id }}</strong
         ><span>{{ model.network.identity.snapshot_id }}</span
-        ><span>构造联调 · 算法预测，非实测</span
+        ><span>算法预测</span
         ><span v-if="model.network.identity.source_changed">历史来源已变化</span
         ><button
           class="btn small"

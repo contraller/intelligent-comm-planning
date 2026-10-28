@@ -212,7 +212,9 @@ describe('actual isolated reference drawer template and lifecycle', () => {
     const s = mount(); await ready(s.root);
     const text = textOf(s.root);
     expect(text).toContain('历史资源快照 · 只读'); expect(text).toContain(resourceRevision); expect(text).not.toContain(currentResourceRevision);
-    expect(text).toContain('声明成员 2 台 · 完整快照 5 台'); expect(text).toContain('非真实遥测');
+    expect(text).toContain('声明成员 2 台 · 完整快照 5 台');
+    // 来源明细继续取冻结记录，固定开发标签不参与业务展示。
+    expect(text).toContain('Frozen historical source'); expect(text).toContain('Declared construction, not telemetry');
     expect(text).toContain('未知'); expect(text).toContain('N-D0000');
     expect(text).not.toContain('保存'); expect(text).not.toContain('导入状态');
     expect(s.f.observations.importObservation).not.toHaveBeenCalled(); expect(s.f.statuses.importSnapshot).not.toHaveBeenCalled();

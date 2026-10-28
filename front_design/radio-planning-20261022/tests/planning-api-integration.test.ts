@@ -355,7 +355,7 @@ describe('网络规划与 GIS HTTP 页面组合',()=>{
     data.cache.state='HIT';data.cache.result=data.result;
     await button(root,'读取覆盖缓存').props.onClick();await nextTick();
     expect(map().props.frozenCoverage?.anchor.snapshot_id).toBe(data.query.snapshotId);
-    expect(text(root)).toContain('预测值，非实测');expect(text(root)).toContain('资源版本');
+    expect(text(root)).toContain('预测场强。');expect(text(root)).toContain('资源版本');
     expect(planning.result!.coverage).toMatchObject({contour:null,rasterPng:null});
     const control=find(root,n=>n.props['aria-label']==='预测覆盖显示方式')!;
     control.props['onUpdate:modelValue']('boundary');await nextTick();

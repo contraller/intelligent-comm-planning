@@ -1,6 +1,6 @@
 <template>
   <section class="device-monitor">
-    <p class="origin">设备冻结状态 · SYNTHETIC_INTEGRATION · 构造导入，非实测</p>
+    <p class="origin">设备状态快照</p>
     <div class="stats"><span v-for="(count, name) in counts" :key="name">{{ name }} <strong>{{ count }}</strong></span></div>
     <p v-if="!deviceStatusAnchor" class="muted">未选择或未读取同版状态快照；设备状态与告警未知</p>
     <div class="toolbar"><input v-model="query" aria-label="筛选监控设备" placeholder="设备 / 节点 ID" /><select v-model="filter" aria-label="筛选设备状态"><option value="all">全部状态</option><option value="NORMAL">正常</option><option value="FAULT">故障</option><option value="OFFLINE">离线</option><option value="unknown">未知</option><option value="alarm">有告警标记</option></select></div>
@@ -10,7 +10,7 @@
         <td>{{ row.device.frequencyKhz ?? '未提供' }}</td><td>{{ row.device.txPowerDbm ?? '未提供' }}</td>
         <td><StatusBadge v-if="row.status?.status" :status="row.status.status" /><span v-else>未知</span></td>
         <td>{{ row.status?.alert === true ? '有告警标记' : row.status?.alert === false ? '无告警标记' : '未知' }}</td><td>{{ row.status?.observedAt ?? '未知' }}</td>
-        <td>{{ row.status?.unknownReasons.join('；') || (row.status ? '冻结构造状态' : '未选择或未读取同版状态快照') }}<small>{{ row.status?.ref?.snapshotId }} · {{ row.status?.ref?.snapshotRevision }}</small></td>
+        <td>{{ row.status?.unknownReasons.join('；') || (row.status ? '冻结状态' : '未选择或未读取同版状态快照') }}<small>{{ row.status?.ref?.snapshotId }} · {{ row.status?.ref?.snapshotRevision }}</small></td>
       </tr><tr v-if="!rows.length"><td colspan="7">没有匹配的设备</td></tr>
     </tbody></table></div>
   </section>

@@ -4,7 +4,7 @@
     <p v-if="error" class="error" role="alert">{{ error }}</p>
     <button v-if="error && !busy" class="btn" @click="load(page)"><i class="pi pi-refresh" aria-hidden="true" />重新核验</button>
     <template v-if="result">
-      <p class="origin">SYNTHETIC_INTEGRATION · 构造资料，非真实遥测</p>
+      <p class="origin">观测与设备状态的冻结关联</p>
       <p v-if="currentResourceRevision && currentResourceRevision !== result.header.resource_revision" class="origin">历史资源快照 · 只读</p>
       <dl class="identity">
         <dt>观测集</dt><dd>{{ result.target.datasetId }}</dd>

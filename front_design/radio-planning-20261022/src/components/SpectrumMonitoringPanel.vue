@@ -1,6 +1,6 @@
 <template>
   <section class="spectrum-monitor">
-    <header class="toolbar"><h3>频谱观测</h3><span class="origin">SYNTHETIC_INTEGRATION · 构造资料，非实测</span>
+    <header class="toolbar"><h3>频谱观测</h3><span class="origin">观测记录与回放</span>
       <button class="btn" :disabled="!canView || s.loading" aria-label="刷新观测集" title="刷新观测集" @click="store.load()"><i class="pi pi-refresh" /></button>
       <button class="btn primary" :disabled="!canView || !canImport || importBusy" @click="openImport()"><i class="pi pi-upload" /> 显式导入</button></header>
     <p v-if="!canView" role="alert">无权读取观测</p>

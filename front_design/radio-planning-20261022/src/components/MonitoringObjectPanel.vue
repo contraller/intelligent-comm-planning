@@ -4,7 +4,6 @@
     <template v-if="device">
       <h4>{{ device.id }}</h4>
       <dl><dt>所属节点</dt><dd>{{ device.stationId }}</dd><dt>冻结状态</dt><dd>{{ status?.status ?? '未知' }}</dd><dt>告警</dt><dd>{{ status?.alert === true ? '有告警标记' : status?.alert === false ? '无告警标记' : '未知' }}</dd><dt>观测时间</dt><dd>{{ status?.observedAt ?? '未知' }}</dd><dt>状态快照</dt><dd>{{ status?.ref?.snapshotId ?? '未关联' }}</dd><dt>快照版本</dt><dd>{{ status?.ref?.snapshotRevision ?? '未知' }}</dd><dt>资源历史来源</dt><dd>{{ status?.ref?.resourceRevision ?? '未知' }}</dd><dt>观测功率 / 频率</dt><dd>未提供</dd><dt>方案配置功率</dt><dd>{{ configured?.txPowerDbm ?? '未提供' }} dBm</dd><dt>方案配置频率</dt><dd>{{ configured?.frequencyKhz ?? '未提供' }} kHz</dd></dl>
-      <p v-if="status" class="muted">SYNTHETIC_INTEGRATION · 构造状态，非实测</p>
       <p v-for="reason in status?.unknownReasons ?? ['未选择或未读取同版状态快照']" :key="reason" class="muted">{{ reason }}</p>
     </template>
     <template v-else-if="link">

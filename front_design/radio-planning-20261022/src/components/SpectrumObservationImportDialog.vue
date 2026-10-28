@@ -1,6 +1,6 @@
 <template>
   <AppDrawer :visible="visible" title="显式导入观测" width="620px" @update:visible="!$event && close()">
-    <p class="origin">SYNTHETIC_INTEGRATION · 构造资料，非实测 · 不建立采集连接</p>
+    <p class="origin">导入观测文件；本操作不建立采集连接</p>
     <fieldset :disabled="locked || !canImport">
       <label>观测 JSON<input type="file" accept=".json,application/json" @change="upload" /></label>
       <details><summary>选择仓库既有构造预设</summary>
