@@ -1,0 +1,250 @@
+{
+  "notice": "知识页面目前不接受CSV直接导入；本内容已通过正式知识保存接口保存为草稿，供页面继续编辑、送审。版本与身份应从当前会话获取。",
+  "draft": {
+    "baseVersionId": "KGV-1",
+    "summary": "演示02 故障知识录入与审核（构造示例，非实测）",
+    "entities": [
+      {
+        "id": "SHOWCASE-20261028-fault",
+        "type": "Fault",
+        "name": "演示案例 功放输出异常",
+        "category": "故障运维知识",
+        "description": "人工构造用户操作演示，非生产、非实测；仅演示图谱草稿、关联和审核流程，不构成现场故障结论。",
+        "keywords": [
+          "构造演示",
+          "20261028",
+          "功放"
+        ],
+        "source": "人工构造用户操作演示，非生产、非实测；仅演示图谱草稿、关联和审核流程，不构成现场故障结论。",
+        "attributes": [],
+        "modelIds": []
+      },
+      {
+        "id": "SHOWCASE-20261028-symptom",
+        "type": "Symptom",
+        "name": "演示现象 发射功率接近零",
+        "category": "故障运维知识",
+        "description": "人工构造用户操作演示，非生产、非实测；仅演示图谱草稿、关联和审核流程，不构成现场故障结论。",
+        "keywords": [
+          "构造演示",
+          "20261028",
+          "功放"
+        ],
+        "source": "人工构造用户操作演示，非生产、非实测；仅演示图谱草稿、关联和审核流程，不构成现场故障结论。",
+        "attributes": [],
+        "modelIds": []
+      },
+      {
+        "id": "SHOWCASE-20261028-cause",
+        "type": "Cause",
+        "name": "演示原因 功放输出级异常",
+        "category": "故障运维知识",
+        "description": "人工构造用户操作演示，非生产、非实测；仅演示图谱草稿、关联和审核流程，不构成现场故障结论。",
+        "keywords": [
+          "构造演示",
+          "20261028",
+          "功放"
+        ],
+        "source": "人工构造用户操作演示，非生产、非实测；仅演示图谱草稿、关联和审核流程，不构成现场故障结论。",
+        "attributes": [],
+        "modelIds": []
+      },
+      {
+        "id": "SHOWCASE-20261028-component",
+        "type": "Component",
+        "name": "演示部件 功率放大模块",
+        "category": "故障运维知识",
+        "description": "人工构造用户操作演示，非生产、非实测；仅演示图谱草稿、关联和审核流程，不构成现场故障结论。",
+        "keywords": [
+          "构造演示",
+          "20261028",
+          "功放"
+        ],
+        "source": "人工构造用户操作演示，非生产、非实测；仅演示图谱草稿、关联和审核流程，不构成现场故障结论。",
+        "attributes": [],
+        "modelIds": []
+      },
+      {
+        "id": "SHOWCASE-20261028-solution",
+        "type": "Solution",
+        "name": "演示处置 核对输出级后按维护规程处理",
+        "category": "故障运维知识",
+        "description": "人工构造用户操作演示，非生产、非实测；仅演示图谱草稿、关联和审核流程，不构成现场故障结论。",
+        "keywords": [
+          "构造演示",
+          "20261028",
+          "功放"
+        ],
+        "source": "人工构造用户操作演示，非生产、非实测；仅演示图谱草稿、关联和审核流程，不构成现场故障结论。",
+        "attributes": [],
+        "modelIds": []
+      }
+    ],
+    "relations": [
+      {
+        "id": "SHOWCASE-20261028-R0",
+        "head": "SHOWCASE-20261028-fault",
+        "tail": "SHOWCASE-20261028-symptom",
+        "type": "hasSymptom",
+        "weight": null,
+        "source": "人工构造用户操作演示，非生产、非实测；仅演示图谱草稿、关联和审核流程，不构成现场故障结论。"
+      },
+      {
+        "id": "SHOWCASE-20261028-R1",
+        "head": "SHOWCASE-20261028-fault",
+        "tail": "SHOWCASE-20261028-cause",
+        "type": "causedBy",
+        "weight": null,
+        "source": "人工构造用户操作演示，非生产、非实测；仅演示图谱草稿、关联和审核流程，不构成现场故障结论。"
+      },
+      {
+        "id": "SHOWCASE-20261028-R2",
+        "head": "SHOWCASE-20261028-fault",
+        "tail": "SHOWCASE-20261028-component",
+        "type": "locatedAt",
+        "weight": null,
+        "source": "人工构造用户操作演示，非生产、非实测；仅演示图谱草稿、关联和审核流程，不构成现场故障结论。"
+      },
+      {
+        "id": "SHOWCASE-20261028-R3",
+        "head": "SHOWCASE-20261028-fault",
+        "tail": "SHOWCASE-20261028-solution",
+        "type": "resolvedBy",
+        "weight": null,
+        "source": "人工构造用户操作演示，非生产、非实测；仅演示图谱草稿、关联和审核流程，不构成现场故障结论。"
+      }
+    ]
+  },
+  "receipt": {
+    "objectId": "CR-89486B1D0D1D43C5",
+    "entityId": "CR-89486B1D0D1D43C5",
+    "changed": true,
+    "revision": "KG-2",
+    "currentVersionId": "KGV-1",
+    "change": {
+      "id": "CR-89486B1D0D1D43C5",
+      "authorId": "ACC-596dc07169c04b4988042fba6a7fdec1",
+      "state": "DRAFT",
+      "revision": 1,
+      "content": {
+        "baseVersionId": "KGV-1",
+        "summary": "演示02 故障知识录入与审核（构造示例，非实测）",
+        "entities": [
+          {
+            "id": "SHOWCASE-20261028-fault",
+            "type": "Fault",
+            "name": "演示案例 功放输出异常",
+            "category": "故障运维知识",
+            "description": "人工构造用户操作演示，非生产、非实测；仅演示图谱草稿、关联和审核流程，不构成现场故障结论。",
+            "keywords": [
+              "构造演示",
+              "20261028",
+              "功放"
+            ],
+            "source": "人工构造用户操作演示，非生产、非实测；仅演示图谱草稿、关联和审核流程，不构成现场故障结论。",
+            "attributes": [],
+            "modelIds": []
+          },
+          {
+            "id": "SHOWCASE-20261028-symptom",
+            "type": "Symptom",
+            "name": "演示现象 发射功率接近零",
+            "category": "故障运维知识",
+            "description": "人工构造用户操作演示，非生产、非实测；仅演示图谱草稿、关联和审核流程，不构成现场故障结论。",
+            "keywords": [
+              "构造演示",
+              "20261028",
+              "功放"
+            ],
+            "source": "人工构造用户操作演示，非生产、非实测；仅演示图谱草稿、关联和审核流程，不构成现场故障结论。",
+            "attributes": [],
+            "modelIds": []
+          },
+          {
+            "id": "SHOWCASE-20261028-cause",
+            "type": "Cause",
+            "name": "演示原因 功放输出级异常",
+            "category": "故障运维知识",
+            "description": "人工构造用户操作演示，非生产、非实测；仅演示图谱草稿、关联和审核流程，不构成现场故障结论。",
+            "keywords": [
+              "构造演示",
+              "20261028",
+              "功放"
+            ],
+            "source": "人工构造用户操作演示，非生产、非实测；仅演示图谱草稿、关联和审核流程，不构成现场故障结论。",
+            "attributes": [],
+            "modelIds": []
+          },
+          {
+            "id": "SHOWCASE-20261028-component",
+            "type": "Component",
+            "name": "演示部件 功率放大模块",
+            "category": "故障运维知识",
+            "description": "人工构造用户操作演示，非生产、非实测；仅演示图谱草稿、关联和审核流程，不构成现场故障结论。",
+            "keywords": [
+              "构造演示",
+              "20261028",
+              "功放"
+            ],
+            "source": "人工构造用户操作演示，非生产、非实测；仅演示图谱草稿、关联和审核流程，不构成现场故障结论。",
+            "attributes": [],
+            "modelIds": []
+          },
+          {
+            "id": "SHOWCASE-20261028-solution",
+            "type": "Solution",
+            "name": "演示处置 核对输出级后按维护规程处理",
+            "category": "故障运维知识",
+            "description": "人工构造用户操作演示，非生产、非实测；仅演示图谱草稿、关联和审核流程，不构成现场故障结论。",
+            "keywords": [
+              "构造演示",
+              "20261028",
+              "功放"
+            ],
+            "source": "人工构造用户操作演示，非生产、非实测；仅演示图谱草稿、关联和审核流程，不构成现场故障结论。",
+            "attributes": [],
+            "modelIds": []
+          }
+        ],
+        "relations": [
+          {
+            "id": "SHOWCASE-20261028-R0",
+            "head": "SHOWCASE-20261028-fault",
+            "tail": "SHOWCASE-20261028-symptom",
+            "type": "hasSymptom",
+            "weight": null,
+            "source": "人工构造用户操作演示，非生产、非实测；仅演示图谱草稿、关联和审核流程，不构成现场故障结论。"
+          },
+          {
+            "id": "SHOWCASE-20261028-R1",
+            "head": "SHOWCASE-20261028-fault",
+            "tail": "SHOWCASE-20261028-cause",
+            "type": "causedBy",
+            "weight": null,
+            "source": "人工构造用户操作演示，非生产、非实测；仅演示图谱草稿、关联和审核流程，不构成现场故障结论。"
+          },
+          {
+            "id": "SHOWCASE-20261028-R2",
+            "head": "SHOWCASE-20261028-fault",
+            "tail": "SHOWCASE-20261028-component",
+            "type": "locatedAt",
+            "weight": null,
+            "source": "人工构造用户操作演示，非生产、非实测；仅演示图谱草稿、关联和审核流程，不构成现场故障结论。"
+          },
+          {
+            "id": "SHOWCASE-20261028-R3",
+            "head": "SHOWCASE-20261028-fault",
+            "tail": "SHOWCASE-20261028-solution",
+            "type": "resolvedBy",
+            "weight": null,
+            "source": "人工构造用户操作演示，非生产、非实测；仅演示图谱草稿、关联和审核流程，不构成现场故障结论。"
+          }
+        ]
+      },
+      "createdAt": "2026-10-28T04:28:39.169474+00:00",
+      "updatedAt": "2026-10-28T04:28:39.169474+00:00",
+      "submissions": [],
+      "publishedVersionId": null
+    }
+  }
+}

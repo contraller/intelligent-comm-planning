@@ -1,0 +1,43 @@
+{
+  "taskId": "DEMO-20261028-QUALIFY-baseline",
+  "jobId": "tsk-f1004d868214",
+  "planId": "PLAN-8654a33bfe7a48988da7242d4c8f6248",
+  "planState": "CONFIRMED",
+  "current": true,
+  "resourceRevision": "resource-b5c98c3421d8e716",
+  "metrics": {
+    "connectivityPercent": 98.29,
+    "totalRadiatedPowerW": 16301.6,
+    "survivabilityPercent": 91.01,
+    "coveragePercent": null,
+    "delayMs": 25.01
+  },
+  "checks": [
+    {
+      "id": "connectivity",
+      "label": "必要通联连通率",
+      "passed": true,
+      "detail": "必要需求已生成主路由 1/1 条；算法值 1.0"
+    },
+    {
+      "id": "survivability",
+      "label": "抗毁性",
+      "passed": true,
+      "detail": "算法值 0.9101，要求 0.9"
+    },
+    {
+      "id": "relay",
+      "label": "中继约束",
+      "passed": true,
+      "detail": "算法值 0.0，要求不超过 2.0"
+    },
+    {
+      "id": "frequency",
+      "label": "频率冲突",
+      "passed": true,
+      "detail": "检测到 0 处频率冲突"
+    }
+  ],
+  "importIssues": [],
+  "source": "人工构造演示，非生产、非实测"
+}

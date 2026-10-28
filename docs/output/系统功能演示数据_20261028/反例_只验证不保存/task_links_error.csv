@@ -1,0 +1,3 @@
+demand_id,task_id,src_node_id,dst_node_id,priority,is_mandatory,data_volume_mb,required_rate_kbps,max_delay_ms,min_reliability,service_type,preferred_class,endpoint_mode,src_device_id,dst_device_id,strategy,need_backup
+DEMO-D01,DEMO-20261028-ERROR,ND-0001,ND-0002,P1,true,10,16,500,95,数据,HF,station,,,MAX_RELIABILITY,true
+DEMO-D02,DEMO-20261028-ERROR,ND-0002,ND-0003,P2,true,,4.8,500,0.95,话音,HF,station,,,MAX_RELIABILITY,true

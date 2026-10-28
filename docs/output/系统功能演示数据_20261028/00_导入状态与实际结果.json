@@ -1,0 +1,74 @@
+{
+  "origin": "http://127.0.0.1:18480",
+  "taskId": "DEMO-20261028-PLAN-05",
+  "taskName": "演示01 规划诊断图谱闭环",
+  "jobId": "tsk-72951fc38639",
+  "planId": "PLAN-1cef1d183be2456dbb2969020320dd6e",
+  "planState": "REFERENCE",
+  "metrics": {
+    "connectivityPercent": 97.08,
+    "totalRadiatedPowerW": 16653.41,
+    "survivabilityPercent": 88.89,
+    "coveragePercent": null,
+    "delayMs": 25.01
+  },
+  "checks": [
+    {
+      "id": "connectivity",
+      "label": "必要通联连通率",
+      "passed": true,
+      "detail": "必要需求已生成主路由 2/2 条；算法值 1.0"
+    },
+    {
+      "id": "survivability",
+      "label": "抗毁性",
+      "passed": false,
+      "detail": "算法值 0.8889，要求 0.9"
+    },
+    {
+      "id": "relay",
+      "label": "中继约束",
+      "passed": true,
+      "detail": "算法值 0.0，要求不超过 2.0"
+    },
+    {
+      "id": "frequency",
+      "label": "频率冲突",
+      "passed": true,
+      "detail": "检测到 0 处频率冲突"
+    }
+  ],
+  "outcome": {
+    "code": 3001,
+    "message": "规划完成，但未满足全部硬约束",
+    "suggestions": [
+      "调整设备或链路后重新计算"
+    ],
+    "gap": [
+      {
+        "objectId": "PL-853F76D5",
+        "field": "constraints",
+        "message": "survivability"
+      }
+    ]
+  },
+  "resourceRevision": "resource-b5c98c3421d8e716",
+  "constructedAddedFrequencies": 36,
+  "knowledgeChangeId": "CR-89486B1D0D1D43C5",
+  "knowledgeState": "DRAFT",
+  "knowledgeEntityCount": 5,
+  "knowledgeRelationCount": 4,
+  "publishedKnowledgeQueryMatches": 1,
+  "diagnosisSources": {
+    "plans": [],
+    "error": "暂无当前已确认的完整方案，请先在网络规划中计算、保存并确认。"
+  },
+  "diagnosisImported": false,
+  "wholeChainComplete": false,
+  "browserVerified": {
+    "knowledgeDraftVisible": true,
+    "referencePlanVisible": true,
+    "pageErrors": [],
+    "businessWrites": false
+  }
+}

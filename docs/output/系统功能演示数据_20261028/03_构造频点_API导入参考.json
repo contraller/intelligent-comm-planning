@@ -1,0 +1,473 @@
+{
+  "description": "须经预检再保存，先新增停用记录再按原回执启用；版本号应读取目标实例当前值。此文件不是页面CSV导入文件。",
+  "changes": [
+    {
+      "kind": "ADD",
+      "freq_id": "DEMO-HF-001",
+      "item": {
+        "device_class": "HF",
+        "center_freq_khz": 3100,
+        "bandwidth_khz": 3,
+        "channel_no": null,
+        "reuse_min_distance_m": 60000,
+        "adjacent_guard_khz": 3,
+        "note": "人工构造演示频点，非正式频率授权，非生产、非实测；用于演示规划与故障诊断。"
+      }
+    },
+    {
+      "kind": "ADD",
+      "freq_id": "DEMO-HF-002",
+      "item": {
+        "device_class": "HF",
+        "center_freq_khz": 3200,
+        "bandwidth_khz": 3,
+        "channel_no": null,
+        "reuse_min_distance_m": 60000,
+        "adjacent_guard_khz": 3,
+        "note": "人工构造演示频点，非正式频率授权，非生产、非实测；用于演示规划与故障诊断。"
+      }
+    },
+    {
+      "kind": "ADD",
+      "freq_id": "DEMO-HF-003",
+      "item": {
+        "device_class": "HF",
+        "center_freq_khz": 3300,
+        "bandwidth_khz": 3,
+        "channel_no": null,
+        "reuse_min_distance_m": 60000,
+        "adjacent_guard_khz": 3,
+        "note": "人工构造演示频点，非正式频率授权，非生产、非实测；用于演示规划与故障诊断。"
+      }
+    },
+    {
+      "kind": "ADD",
+      "freq_id": "DEMO-HF-004",
+      "item": {
+        "device_class": "HF",
+        "center_freq_khz": 3400,
+        "bandwidth_khz": 3,
+        "channel_no": null,
+        "reuse_min_distance_m": 60000,
+        "adjacent_guard_khz": 3,
+        "note": "人工构造演示频点，非正式频率授权，非生产、非实测；用于演示规划与故障诊断。"
+      }
+    },
+    {
+      "kind": "ADD",
+      "freq_id": "DEMO-HF-005",
+      "item": {
+        "device_class": "HF",
+        "center_freq_khz": 3500,
+        "bandwidth_khz": 3,
+        "channel_no": null,
+        "reuse_min_distance_m": 60000,
+        "adjacent_guard_khz": 3,
+        "note": "人工构造演示频点，非正式频率授权，非生产、非实测；用于演示规划与故障诊断。"
+      }
+    },
+    {
+      "kind": "ADD",
+      "freq_id": "DEMO-HF-006",
+      "item": {
+        "device_class": "HF",
+        "center_freq_khz": 3600,
+        "bandwidth_khz": 3,
+        "channel_no": null,
+        "reuse_min_distance_m": 60000,
+        "adjacent_guard_khz": 3,
+        "note": "人工构造演示频点，非正式频率授权，非生产、非实测；用于演示规划与故障诊断。"
+      }
+    },
+    {
+      "kind": "ADD",
+      "freq_id": "DEMO-HF-007",
+      "item": {
+        "device_class": "HF",
+        "center_freq_khz": 3700,
+        "bandwidth_khz": 3,
+        "channel_no": null,
+        "reuse_min_distance_m": 60000,
+        "adjacent_guard_khz": 3,
+        "note": "人工构造演示频点，非正式频率授权，非生产、非实测；用于演示规划与故障诊断。"
+      }
+    },
+    {
+      "kind": "ADD",
+      "freq_id": "DEMO-HF-008",
+      "item": {
+        "device_class": "HF",
+        "center_freq_khz": 3800,
+        "bandwidth_khz": 3,
+        "channel_no": null,
+        "reuse_min_distance_m": 60000,
+        "adjacent_guard_khz": 3,
+        "note": "人工构造演示频点，非正式频率授权，非生产、非实测；用于演示规划与故障诊断。"
+      }
+    },
+    {
+      "kind": "ADD",
+      "freq_id": "DEMO-VUHF-001",
+      "item": {
+        "device_class": "VUHF",
+        "center_freq_khz": 470500,
+        "bandwidth_khz": 25,
+        "channel_no": null,
+        "reuse_min_distance_m": 25000,
+        "adjacent_guard_khz": 25,
+        "note": "人工构造演示频点，非正式频率授权，非生产、非实测；用于演示规划与故障诊断。"
+      }
+    },
+    {
+      "kind": "ADD",
+      "freq_id": "DEMO-VUHF-002",
+      "item": {
+        "device_class": "VUHF",
+        "center_freq_khz": 471500,
+        "bandwidth_khz": 25,
+        "channel_no": null,
+        "reuse_min_distance_m": 25000,
+        "adjacent_guard_khz": 25,
+        "note": "人工构造演示频点，非正式频率授权，非生产、非实测；用于演示规划与故障诊断。"
+      }
+    },
+    {
+      "kind": "ADD",
+      "freq_id": "DEMO-VUHF-003",
+      "item": {
+        "device_class": "VUHF",
+        "center_freq_khz": 472500,
+        "bandwidth_khz": 25,
+        "channel_no": null,
+        "reuse_min_distance_m": 25000,
+        "adjacent_guard_khz": 25,
+        "note": "人工构造演示频点，非正式频率授权，非生产、非实测；用于演示规划与故障诊断。"
+      }
+    },
+    {
+      "kind": "ADD",
+      "freq_id": "DEMO-VUHF-004",
+      "item": {
+        "device_class": "VUHF",
+        "center_freq_khz": 473500,
+        "bandwidth_khz": 25,
+        "channel_no": null,
+        "reuse_min_distance_m": 25000,
+        "adjacent_guard_khz": 25,
+        "note": "人工构造演示频点，非正式频率授权，非生产、非实测；用于演示规划与故障诊断。"
+      }
+    },
+    {
+      "kind": "ADD",
+      "freq_id": "DEMO-VUHF-005",
+      "item": {
+        "device_class": "VUHF",
+        "center_freq_khz": 474500,
+        "bandwidth_khz": 25,
+        "channel_no": null,
+        "reuse_min_distance_m": 25000,
+        "adjacent_guard_khz": 25,
+        "note": "人工构造演示频点，非正式频率授权，非生产、非实测；用于演示规划与故障诊断。"
+      }
+    },
+    {
+      "kind": "ADD",
+      "freq_id": "DEMO-VUHF-006",
+      "item": {
+        "device_class": "VUHF",
+        "center_freq_khz": 475500,
+        "bandwidth_khz": 25,
+        "channel_no": null,
+        "reuse_min_distance_m": 25000,
+        "adjacent_guard_khz": 25,
+        "note": "人工构造演示频点，非正式频率授权，非生产、非实测；用于演示规划与故障诊断。"
+      }
+    },
+    {
+      "kind": "ADD",
+      "freq_id": "DEMO-VUHF-007",
+      "item": {
+        "device_class": "VUHF",
+        "center_freq_khz": 476500,
+        "bandwidth_khz": 25,
+        "channel_no": null,
+        "reuse_min_distance_m": 25000,
+        "adjacent_guard_khz": 25,
+        "note": "人工构造演示频点，非正式频率授权，非生产、非实测；用于演示规划与故障诊断。"
+      }
+    },
+    {
+      "kind": "ADD",
+      "freq_id": "DEMO-VUHF-008",
+      "item": {
+        "device_class": "VUHF",
+        "center_freq_khz": 477500,
+        "bandwidth_khz": 25,
+        "channel_no": null,
+        "reuse_min_distance_m": 25000,
+        "adjacent_guard_khz": 25,
+        "note": "人工构造演示频点，非正式频率授权，非生产、非实测；用于演示规划与故障诊断。"
+      }
+    },
+    {
+      "kind": "ADD",
+      "freq_id": "DEMO-VUHF-009",
+      "item": {
+        "device_class": "VUHF",
+        "center_freq_khz": 478500,
+        "bandwidth_khz": 25,
+        "channel_no": null,
+        "reuse_min_distance_m": 25000,
+        "adjacent_guard_khz": 25,
+        "note": "人工构造演示频点，非正式频率授权，非生产、非实测；用于演示规划与故障诊断。"
+      }
+    },
+    {
+      "kind": "ADD",
+      "freq_id": "DEMO-VUHF-010",
+      "item": {
+        "device_class": "VUHF",
+        "center_freq_khz": 479500,
+        "bandwidth_khz": 25,
+        "channel_no": null,
+        "reuse_min_distance_m": 25000,
+        "adjacent_guard_khz": 25,
+        "note": "人工构造演示频点，非正式频率授权，非生产、非实测；用于演示规划与故障诊断。"
+      }
+    },
+    {
+      "kind": "ADD",
+      "freq_id": "DEMO-VUHF-011",
+      "item": {
+        "device_class": "VUHF",
+        "center_freq_khz": 480500,
+        "bandwidth_khz": 25,
+        "channel_no": null,
+        "reuse_min_distance_m": 25000,
+        "adjacent_guard_khz": 25,
+        "note": "人工构造演示频点，非正式频率授权，非生产、非实测；用于演示规划与故障诊断。"
+      }
+    },
+    {
+      "kind": "ADD",
+      "freq_id": "DEMO-VUHF-012",
+      "item": {
+        "device_class": "VUHF",
+        "center_freq_khz": 481500,
+        "bandwidth_khz": 25,
+        "channel_no": null,
+        "reuse_min_distance_m": 25000,
+        "adjacent_guard_khz": 25,
+        "note": "人工构造演示频点，非正式频率授权，非生产、非实测；用于演示规划与故障诊断。"
+      }
+    },
+    {
+      "kind": "ADD",
+      "freq_id": "DEMO-VUHF-L001",
+      "item": {
+        "device_class": "VUHF",
+        "center_freq_khz": 430500,
+        "bandwidth_khz": 25,
+        "channel_no": null,
+        "reuse_min_distance_m": 25000,
+        "adjacent_guard_khz": 25,
+        "note": "人工构造演示频点，非正式频率授权，非生产、非实测；用于演示规划与故障诊断。"
+      }
+    },
+    {
+      "kind": "ADD",
+      "freq_id": "DEMO-VUHF-L002",
+      "item": {
+        "device_class": "VUHF",
+        "center_freq_khz": 431500,
+        "bandwidth_khz": 25,
+        "channel_no": null,
+        "reuse_min_distance_m": 25000,
+        "adjacent_guard_khz": 25,
+        "note": "人工构造演示频点，非正式频率授权，非生产、非实测；用于演示规划与故障诊断。"
+      }
+    },
+    {
+      "kind": "ADD",
+      "freq_id": "DEMO-VUHF-L003",
+      "item": {
+        "device_class": "VUHF",
+        "center_freq_khz": 432500,
+        "bandwidth_khz": 25,
+        "channel_no": null,
+        "reuse_min_distance_m": 25000,
+        "adjacent_guard_khz": 25,
+        "note": "人工构造演示频点，非正式频率授权，非生产、非实测；用于演示规划与故障诊断。"
+      }
+    },
+    {
+      "kind": "ADD",
+      "freq_id": "DEMO-VUHF-L004",
+      "item": {
+        "device_class": "VUHF",
+        "center_freq_khz": 433500,
+        "bandwidth_khz": 25,
+        "channel_no": null,
+        "reuse_min_distance_m": 25000,
+        "adjacent_guard_khz": 25,
+        "note": "人工构造演示频点，非正式频率授权，非生产、非实测；用于演示规划与故障诊断。"
+      }
+    },
+    {
+      "kind": "ADD",
+      "freq_id": "DEMO-VUHF-L005",
+      "item": {
+        "device_class": "VUHF",
+        "center_freq_khz": 434500,
+        "bandwidth_khz": 25,
+        "channel_no": null,
+        "reuse_min_distance_m": 25000,
+        "adjacent_guard_khz": 25,
+        "note": "人工构造演示频点，非正式频率授权，非生产、非实测；用于演示规划与故障诊断。"
+      }
+    },
+    {
+      "kind": "ADD",
+      "freq_id": "DEMO-VUHF-L006",
+      "item": {
+        "device_class": "VUHF",
+        "center_freq_khz": 435500,
+        "bandwidth_khz": 25,
+        "channel_no": null,
+        "reuse_min_distance_m": 25000,
+        "adjacent_guard_khz": 25,
+        "note": "人工构造演示频点，非正式频率授权，非生产、非实测；用于演示规划与故障诊断。"
+      }
+    },
+    {
+      "kind": "ADD",
+      "freq_id": "DEMO-VUHF-L007",
+      "item": {
+        "device_class": "VUHF",
+        "center_freq_khz": 436500,
+        "bandwidth_khz": 25,
+        "channel_no": null,
+        "reuse_min_distance_m": 25000,
+        "adjacent_guard_khz": 25,
+        "note": "人工构造演示频点，非正式频率授权，非生产、非实测；用于演示规划与故障诊断。"
+      }
+    },
+    {
+      "kind": "ADD",
+      "freq_id": "DEMO-VUHF-L008",
+      "item": {
+        "device_class": "VUHF",
+        "center_freq_khz": 437500,
+        "bandwidth_khz": 25,
+        "channel_no": null,
+        "reuse_min_distance_m": 25000,
+        "adjacent_guard_khz": 25,
+        "note": "人工构造演示频点，非正式频率授权，非生产、非实测；用于演示规划与故障诊断。"
+      }
+    },
+    {
+      "kind": "ADD",
+      "freq_id": "DEMO-VUHF-L009",
+      "item": {
+        "device_class": "VUHF",
+        "center_freq_khz": 438500,
+        "bandwidth_khz": 25,
+        "channel_no": null,
+        "reuse_min_distance_m": 25000,
+        "adjacent_guard_khz": 25,
+        "note": "人工构造演示频点，非正式频率授权，非生产、非实测；用于演示规划与故障诊断。"
+      }
+    },
+    {
+      "kind": "ADD",
+      "freq_id": "DEMO-VUHF-L010",
+      "item": {
+        "device_class": "VUHF",
+        "center_freq_khz": 439500,
+        "bandwidth_khz": 25,
+        "channel_no": null,
+        "reuse_min_distance_m": 25000,
+        "adjacent_guard_khz": 25,
+        "note": "人工构造演示频点，非正式频率授权，非生产、非实测；用于演示规划与故障诊断。"
+      }
+    },
+    {
+      "kind": "ADD",
+      "freq_id": "DEMO-VUHF-L011",
+      "item": {
+        "device_class": "VUHF",
+        "center_freq_khz": 440500,
+        "bandwidth_khz": 25,
+        "channel_no": null,
+        "reuse_min_distance_m": 25000,
+        "adjacent_guard_khz": 25,
+        "note": "人工构造演示频点，非正式频率授权，非生产、非实测；用于演示规划与故障诊断。"
+      }
+    },
+    {
+      "kind": "ADD",
+      "freq_id": "DEMO-VUHF-L012",
+      "item": {
+        "device_class": "VUHF",
+        "center_freq_khz": 441500,
+        "bandwidth_khz": 25,
+        "channel_no": null,
+        "reuse_min_distance_m": 25000,
+        "adjacent_guard_khz": 25,
+        "note": "人工构造演示频点，非正式频率授权，非生产、非实测；用于演示规划与故障诊断。"
+      }
+    },
+    {
+      "kind": "ADD",
+      "freq_id": "DEMO-VUHF-L013",
+      "item": {
+        "device_class": "VUHF",
+        "center_freq_khz": 442500,
+        "bandwidth_khz": 25,
+        "channel_no": null,
+        "reuse_min_distance_m": 25000,
+        "adjacent_guard_khz": 25,
+        "note": "人工构造演示频点，非正式频率授权，非生产、非实测；用于演示规划与故障诊断。"
+      }
+    },
+    {
+      "kind": "ADD",
+      "freq_id": "DEMO-VUHF-L014",
+      "item": {
+        "device_class": "VUHF",
+        "center_freq_khz": 443500,
+        "bandwidth_khz": 25,
+        "channel_no": null,
+        "reuse_min_distance_m": 25000,
+        "adjacent_guard_khz": 25,
+        "note": "人工构造演示频点，非正式频率授权，非生产、非实测；用于演示规划与故障诊断。"
+      }
+    },
+    {
+      "kind": "ADD",
+      "freq_id": "DEMO-VUHF-L015",
+      "item": {
+        "device_class": "VUHF",
+        "center_freq_khz": 444500,
+        "bandwidth_khz": 25,
+        "channel_no": null,
+        "reuse_min_distance_m": 25000,
+        "adjacent_guard_khz": 25,
+        "note": "人工构造演示频点，非正式频率授权，非生产、非实测；用于演示规划与故障诊断。"
+      }
+    },
+    {
+      "kind": "ADD",
+      "freq_id": "DEMO-VUHF-L016",
+      "item": {
+        "device_class": "VUHF",
+        "center_freq_khz": 445500,
+        "bandwidth_khz": 25,
+        "channel_no": null,
+        "reuse_min_distance_m": 25000,
+        "adjacent_guard_khz": 25,
+        "note": "人工构造演示频点，非正式频率授权，非生产、非实测；用于演示规划与故障诊断。"
+      }
+    }
+  ]
+}

@@ -1,0 +1,102 @@
+{
+  "planId": "PLAN-8654a33bfe7a48988da7242d4c8f6248",
+  "bindings": {
+    "__HF_DEVICE_ID__": "DV-0214",
+    "__VUHF_LINK_ID__": "OL-0001",
+    "__VUHF_DEVICE_ID__": "DV-0279"
+  },
+  "scenarios": [
+    {
+      "scenarioId": "FS-2AC4E32593B14454",
+      "scenarioVersionId": "FSV-B8337A3B0E9F49D3",
+      "runId": "FR-fb67197914d945348041",
+      "name": "构造演示：短波设备功放故障",
+      "object": {
+        "objectType": "DEVICE",
+        "objectId": "DV-0214",
+        "faultType": "HW_FAILURE",
+        "symptomIds": [
+          "SY-0001",
+          "SY-0002"
+        ],
+        "occurTime": null,
+        "interferenceId": null
+      },
+      "rootCause": "功放模块输出级晶体管击穿",
+      "rootCauseIdentified": true,
+      "component": "功率放大模块",
+      "needManualReview": true,
+      "summary": {
+        "affectedNodeCount": 1,
+        "directCount": 1,
+        "indirectCount": 0,
+        "interruptedNodeCount": 1,
+        "degradedNodeCount": 0,
+        "affectedLinkCount": 1,
+        "totalBandwidthLossKbps": 0,
+        "affectedDemandIds": []
+      }
+    },
+    {
+      "scenarioId": "FS-87198F015AD44562",
+      "scenarioVersionId": "FSV-25DC147442194C42",
+      "runId": "FR-57e284eb06ed4c1f811e",
+      "name": "构造演示：超短波链路中断",
+      "object": {
+        "objectType": "LINK",
+        "objectId": "OL-0001",
+        "faultType": "LINK_DOWN",
+        "symptomIds": [
+          "SY-0005",
+          "SY-0007"
+        ],
+        "occurTime": null,
+        "interferenceId": null
+      },
+      "rootCause": "天线指向偏离",
+      "rootCauseIdentified": true,
+      "component": "天线系统",
+      "needManualReview": true,
+      "summary": {
+        "affectedNodeCount": 2,
+        "directCount": 2,
+        "indirectCount": 0,
+        "interruptedNodeCount": 2,
+        "degradedNodeCount": 0,
+        "affectedLinkCount": 1,
+        "totalBandwidthLossKbps": 0,
+        "affectedDemandIds": []
+      }
+    },
+    {
+      "scenarioId": "FS-46502D60A2644534",
+      "scenarioVersionId": "FSV-AA141424B9414FF9",
+      "runId": "FR-7919cec3db704ef38ee7",
+      "name": "构造演示：超短波频率配置不一致",
+      "object": {
+        "objectType": "DEVICE",
+        "objectId": "DV-0279",
+        "faultType": "SW_CONFIG",
+        "symptomIds": [
+          "SY-0012"
+        ],
+        "occurTime": null,
+        "interferenceId": null
+      },
+      "rootCause": "工作频率配置与对端不一致",
+      "rootCauseIdentified": true,
+      "component": "配置参数",
+      "needManualReview": true,
+      "summary": {
+        "affectedNodeCount": 1,
+        "directCount": 1,
+        "indirectCount": 0,
+        "interruptedNodeCount": 1,
+        "degradedNodeCount": 0,
+        "affectedLinkCount": 1,
+        "totalBandwidthLossKbps": 0,
+        "affectedDemandIds": []
+      }
+    }
+  ]
+}

@@ -1,0 +1,62 @@
+{
+  "name": "演示01 规划诊断图谱闭环",
+  "description": "人工构造演示数据，非生产、非实测。使用已启用的演示频点，展示两条短波必要通联、主备路由及故障诊断知识反馈。",
+  "bbox": [
+    113.37497663855423,
+    36.461013295002346,
+    114.72474558374593,
+    37.53898670499157
+  ],
+  "stationIds": [
+    "ND-0001",
+    "ND-0002",
+    "ND-0003"
+  ],
+  "presetId": "reliable",
+  "frequencyId": "available-hf",
+  "startTime": null,
+  "durationH": null,
+  "constraints": {
+    "connectivityPercent": 100,
+    "maxRelayHops": 2,
+    "survivabilityPercent": 90
+  },
+  "demands": [
+    {
+      "id": "DEMO-D01",
+      "sourceId": "ND-0001",
+      "targetId": "ND-0002",
+      "endpointMode": "station",
+      "sourceDeviceId": null,
+      "targetDeviceId": null,
+      "preferredClass": "HF",
+      "routeStrategy": "MAX_RELIABILITY",
+      "needBackup": true,
+      "service": "数据",
+      "priority": "P1",
+      "mandatory": true,
+      "dataVolumeMb": 10,
+      "requiredRateKbps": 16,
+      "maxDelayMs": 500,
+      "minReliability": 0.95
+    },
+    {
+      "id": "DEMO-D02",
+      "sourceId": "ND-0002",
+      "targetId": "ND-0003",
+      "endpointMode": "station",
+      "sourceDeviceId": null,
+      "targetDeviceId": null,
+      "preferredClass": "HF",
+      "routeStrategy": "MAX_RELIABILITY",
+      "needBackup": true,
+      "service": "话音",
+      "priority": "P2",
+      "mandatory": true,
+      "dataVolumeMb": null,
+      "requiredRateKbps": 4.8,
+      "maxDelayMs": 500,
+      "minReliability": 0.95
+    }
+  ]
+}

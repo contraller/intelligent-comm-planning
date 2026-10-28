@@ -1,0 +1,36 @@
+{
+  "status": "尚未执行，不是可直接导入的场景文件",
+  "prerequisite": "先取得有效的已确认网络，再选择该网络中的真实对象编号；当前只有未达标参考方案。",
+  "dataOrigin": "人工构造演示，非生产、非实测",
+  "examples": [
+    {
+      "name": "短波设备功放异常",
+      "objectType": "DEVICE",
+      "selectObject": "从已确认网络选择实际参与HF链路的设备",
+      "faultType": "HW_FAILURE",
+      "symptomIds": ["SY-0001", "SY-0002"],
+      "symptoms": ["发射时驻波比告警", "功率表读数接近零"]
+    },
+    {
+      "name": "超短波链路中断",
+      "objectType": "LINK",
+      "selectObject": "从已确认网络选择实际存在的VUHF链路",
+      "faultType": "LINK_DOWN",
+      "symptomIds": ["SY-0005", "SY-0007"],
+      "symptoms": ["对端完全失联", "握手超时"]
+    },
+    {
+      "name": "超短波频率配置不一致",
+      "objectType": "DEVICE",
+      "selectObject": "从已确认网络选择实际参与VUHF链路的设备",
+      "faultType": "SW_CONFIG",
+      "symptomIds": ["SY-0012"],
+      "symptoms": ["频率配置与对端不一致"]
+    }
+  ],
+  "notes": [
+    "故障类型是注入假设，不是诊断答案。根因应以实际诊断结果与知识依据为准。",
+    "现有规则还包含本导入接口未提供的自检输入；即使案例有匹配，仍须保留部分匹配及人工复核提示。",
+    "目前没有启用经独立实测验证的机器学习诊断模型。"
+  ]
+}

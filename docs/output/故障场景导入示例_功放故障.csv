@@ -1,0 +1,2 @@
+scenario_key,scenario_name,description,object_type,object_id,fault_type,symptom_ids,occur_time,interference_id
+manual-pa-01,手工导入验收－功放故障,人工构造测试数据，非实测,DEVICE,DV-0001,HW_FAILURE,SY-0001;SY-0002,,

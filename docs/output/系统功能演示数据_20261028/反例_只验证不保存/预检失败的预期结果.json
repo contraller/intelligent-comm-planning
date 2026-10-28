@@ -1,0 +1,9 @@
+[
+  {
+    "objectId": "DEMO-D01",
+    "field": "min_reliability",
+    "message": "数值超出允许范围",
+    "sheet": "task_links",
+    "row": 2
+  }
+]

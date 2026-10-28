@@ -1,0 +1,26 @@
+{
+  "query": {
+    "versionId": "KGV-1",
+    "search": "功放模块输出级晶体管击穿",
+    "categories": "故障运维知识",
+    "type": "Cause",
+    "pageNum": "1",
+    "pageSize": "20"
+  },
+  "result": {
+    "versionId": "KGV-1",
+    "items": [
+      {
+        "id": "E-01279",
+        "name": "功放模块输出级晶体管击穿",
+        "category": "故障运维知识",
+        "type": "Cause"
+      }
+    ],
+    "total": 1,
+    "pageNum": 1,
+    "pageSize": 20,
+    "similar": [],
+    "code": 0
+  }
+}
