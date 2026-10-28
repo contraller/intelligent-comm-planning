@@ -4,7 +4,7 @@
 
 ## 当前交付入口
 
-唯一维护的前端为 `front_design/radio-planning-20261022/`。旧前端、旧 HTML 及其专用脚本已移动到 `old_front/`，不再启动或与后端联调；下文历史分工不等于全部能力已交付。
+唯一维护的前端为 `front_design/radio-planning-20261022/`。旧前端、旧 HTML 及其专用脚本已按用户授权清理，`old_front/` 只保留隔离说明，历史内容可由 Git 追溯；下文历史分工不等于全部能力已交付。
 
 在最新版前端目录执行 `npm run build -- --mode integration`，然后在仓库根目录运行：
 

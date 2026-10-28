@@ -1,8 +1,0 @@
-# 来源资料和生成文件不参与源码格式整理。
-node_modules/
-dist/
-tmp/
-public/
-docs/
-src/mocks/
-package-lock.json
