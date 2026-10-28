@@ -4,7 +4,13 @@
     ref="formRoot"
     class="task-form"
     :class="{ planning: isPlanning }"
-    ><details
+    ><!-- 提示只解释已有字段，不写入示例值或改变任务条件。 -->
+    <details v-if="isPlanning" class="input-group">
+      <summary>填写顺序与示例 <small>第一次使用可展开</small></summary>
+      <p class="muted">先确认任务区域 → 选择参与节点 → 配置谁与谁通联 → 检查频率与可选约束 → 保存任务 → 提交规划。保存只记录输入，提交后才开始计算。</p>
+      <p class="muted">练习示例：选择两个不同节点，新增一条必要通联；速率填 64 kbps、最大时延填 100 ms、最低可靠性填 0.95。示例用于说明填法，实际数值按业务需求确定，不保证当前资源一定可行。</p>
+    </details>
+    <details
       class="input-group"
       open
       ><summary
@@ -18,6 +24,7 @@
             v-model="task.draft.name"
             maxlength="60"
             :disabled="!task.editable"
+            placeholder="例如：区域通信保障－上午演练"
           /><small
             v-for="issue in messages('name')"
             :key="issue.message"
@@ -99,6 +106,8 @@
             data-validation-field="bbox"
             tabindex="-1"
             ><legend>任务区域 / WGS84{{ isPlanning ? '（必填）' : '' }}</legend
+            ><p v-if="isPlanning" class="muted">初始范围来自已加载的规划区域，可在此修改；缩放或平移地图不会改变这四个值。范围用于限制候选位置与新增部署，已有台站不会因此自动移走。</p
+            ><p v-if="isPlanning" class="muted">经度范围 -180°～180°、纬度范围 -90°～90°；最小值须小于最大值。经纬度使用十进制度，例如 114.25；不要填成公里或度分秒文本。</p
             ><label
               v-for="(name, i) in ['最小经度', '最小纬度', '最大经度', '最大纬度']"
               :key="name"
@@ -136,6 +145,7 @@
           >管理参与节点</button
         ></div
       >
+      <p v-if="isPlanning" class="muted">参与节点是通联需求的起点、终点候选，至少选择两个不同节点；选中节点不会自动生成两两通联要求。现有网络中的其他台站仍可参与中继。</p>
       <p
         v-for="issue in messages('stationIds')"
         :key="issue.message"
@@ -235,6 +245,7 @@
           @click="edit(null)"
           >新增需求</button
         ></div
+      ><p v-if="isPlanning" class="muted">每条需求说明“谁需要向谁通信”。两端须来自参与节点且不能相同；必要通联要求端到端可达，可以经过中继，不要求两端直接连线。</p
       ><p
         v-for="issue in messages('demands')"
         :key="issue.message"
@@ -284,6 +295,7 @@
       class="input-group"
     >
       <h3>可用频率资源</h3>
+      <p class="muted">选择任务引用的频率资源组。仅选择资源组不等于把全网限定在该单一频段；实际频点范围与排除项请在下方“频率与求解条件”中设置。</p>
       <div class="fields"
         ><label
           >频率资源组（必填）<select
@@ -313,6 +325,7 @@
       class="input-group"
     >
       <summary>时间与说明 <small>选填</small></summary>
+      <p class="muted">时间用于记录任务计划，不设置自动执行或定时停止；点击“提交规划”后才开始本次计算。</p>
       <div class="fields">
         <label class="time-field"
           >开始时间（含时区）<input
@@ -320,8 +333,8 @@
             :aria-invalid="messages('startTime').length > 0"
             v-model="task.draft.startTime"
             :disabled="!task.editable"
-            placeholder="2026-10-05T09:00:00+08:00"
-          /><small
+            placeholder="例如：2026-10-28T09:00:00+08:00"
+          /><small class="muted">可留空。填写完整日期、时间和时区；+08:00 表示北京时间。</small><small
             v-for="issue in messages('startTime')"
             :key="issue.message"
             class="field-error"
@@ -345,7 +358,7 @@
                   ? null
                   : Number(($event.target as HTMLInputElement).value)
             "
-          /><small
+          /><small class="muted">可留空；填写时须大于 0，单位为小时。例如 1.5 表示 90 分钟。</small><small
             v-for="issue in messages('durationH')"
             :key="issue.message"
             class="field-error"
@@ -360,7 +373,7 @@
             v-model="task.draft.description"
             maxlength="500"
             :disabled="!task.editable"
-          /><small
+          /><small class="muted">选填，最多 500 字；可记录任务背景、保障对象及特殊要求，文字说明不会自动转换为算法约束。</small><small
             v-for="issue in messages('description')"
             :key="issue.message"
             class="field-error"
@@ -395,7 +408,7 @@
               :value="p.id"
               >{{ p.label }}</option
             > </select
-          ><small>切换将替换频率、部署及求解条件。</small
+          ><small>用于切换一组规划参数；保留当前参与节点与通联需求，但会替换频率、部署及求解条件。已手动设置这些条件时，切换前请先核对。</small
           ><small
             v-for="issue in messages('presetId')"
             :key="issue.message"
@@ -433,7 +446,7 @@
           >{{
             task.draft.frequencyConstraints || task.draft.deploymentSolve
               ? '已设置 · 展开查看'
-              : '沿用频率资源组'
+              : '未设置额外筛选'
           }}{{ task.auxiliary.options ? ' · 输入待完善' : '' }}</small
         ></summary
       >
@@ -754,6 +767,12 @@ summary small,
 }
 .area-details {
   margin-top: 2px;
+}
+/* 区域说明跨满两列，窄任务栏中不挤成两段并排小字。 */
+.task-bounds > p {
+  grid-column: 1 / -1;
+  margin: 0;
+  line-height: 1.7;
 }
 /* 摘要内的提示保持同行，避免继承字段帮助文本的块级排版。 */
 .fields summary small {

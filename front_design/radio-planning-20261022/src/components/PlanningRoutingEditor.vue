@@ -24,7 +24,7 @@
           :value="item.value"
           >{{ item.label }}</option
         > </select
-      ><small
+      ><small v-if="inlineIssues">最短路径按无线链路跳数最少选路；最小时延侧重传输时延，最高可靠性侧重路径可靠性。同一次全流程计算中，显式指定的策略须一致。</small><small
         v-if="inlineIssues"
         role="alert"
         >{{
@@ -50,7 +50,7 @@
           :value="backup"
           >无效请求（{{ String(modelValue.needBackup) }}）</option
         > </select
-      ><small
+      ><small v-if="inlineIssues">请求备份表示主路径故障时希望有替代路径；请求不保证一定存在可行备份，实际结果需查看规划输出。</small><small
         v-if="inlineIssues"
         role="alert"
         >{{

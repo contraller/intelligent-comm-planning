@@ -16,10 +16,10 @@
     <p
       v-if="!modelValue"
       class="muted"
-      >未设置；不会根据预设补填旧任务。</p
+      >未设置额外筛选。首次试用可保留未勾选；有选址限制时再启用，不会自动补填旧任务。</p
     >
     <template v-else>
-      <p class="muted">留空表示未指定。条件由服务处理；这里仅校验格式。改动只写入任务草稿。</p>
+      <p class="muted">用于筛选候选位置和新增部署，已有台站不会被自动搬移。各条件需要同时满足；留空表示不额外指定该项，改动需保存任务后提交规划。</p>
       <label
         v-for="key in scalarKeys"
         :key="key"
@@ -45,7 +45,7 @@
         tabindex="-1"
         ><legend>海拔范围 / m</legend
         ><p class="muted"
-          >可填有限数值，无固定上下限；上下界须同时填写，且下界≤上界；均留空表示未指定。</p
+          >限制候选位置的地面海拔，不是天线挂高。单位 m；例如下界 200、上界 1500 表示保留海拔 200–1500 m 的位置。上下界须同时填写且下界≤上界；可填有限数值，无固定上下限，均留空表示未指定。</p
         ><label
           v-for="(label, index) in ['下界', '上界']"
           :key="label"
@@ -58,217 +58,51 @@
           v-if="inlineIssues && fieldIssueMessage(issues, 'deploymentConstraints.elevationRangeM')"
           class="field-error"
           role="alert"
-          >{{ fieldIssueMessage(issues, 'deploymentConstraints.elevationRangeM') }}</small
-        ></fieldset
+          >{{ fieldIssueMessage(issues, 'deploymentConstraints.…11217 tokens truncated… 2 表示请求两份用于比较，不是新增两个台站。单位：份；整数闭区间 [1, 9007199254740991]；不可留空。</small
+          ><small
+            v-if="inlineIssues && fieldIssueMessage(issues, 'deploymentSolve.solutionCount')"
+            class="field-error"
+            role="alert"
+            >{{ fieldIssueMessage(issues, 'deploymentSolve.solutionCount') }}</small
+          ></label
+        ><small>实际完整结果数量以服务返回为准，受可行方案和既有搜索预算限制。</small></template
       >
-      <label
-        >允许地物（分号分隔，可填写其他名称）<input
-          data-validation-field="deploymentConstraints.allowedLandcover"
-          :aria-invalid="
-            inlineIssues && fieldIssues(issues, 'deploymentConstraints.allowedLandcover').length > 0
-          "
-          :value="modelValue.allowedLandcover?.join(';') ?? ''"
-          placeholder="草地;耕地;林地;建成区"
-          v-on="{ input: inputAction(controls.covers) }"
-        /><small
-          v-if="inlineIssues && fieldIssueMessage(issues, 'deploymentConstraints.allowedLandcover')"
-          class="field-error"
-          role="alert"
-          >{{ fieldIssueMessage(issues, 'deploymentConstraints.allowedLandcover') }}</small
-        ></label
+      <small
+        v-if="
+          inlineIssues &&
+          issues
+            .filter((issue) => issue.field === 'deploymentSolve')
+            .map((issue) => issue.message)
+            .join('；')
+        "
+        class="field-error"
+        role="alert"
+        >{{
+          issues
+            .filter((issue) => issue.field === 'deploymentSolve')
+            .map((issue) => issue.message)
+            .join('；')
+        }}</small
       >
-      <fieldset
-        data-validation-field="deploymentConstraints.losRequiredNodeIds"
-        class="los-nodes"
-        tabindex="-1"
-        ><legend>要求全部通视的节点</legend
-        ><p class="muted">可选择未参与任务的已保存节点；不自动增加通联需求。</p>
-        <label
-          v-for="node in nodes"
-          :key="node.id"
-          class="check"
-          ><input
-            type="checkbox"
-            :checked="modelValue.losRequiredNodeIds.includes(node.id)"
-            v-on="{ change: checkAction(controls.los, node.id) }"
-          />{{ node.name }} · {{ node.id }}</label
-        >
-        <p v-if="!nodes.length">暂无节点选项</p
-        ><div
-          v-for="id in modelValue.losRequiredNodeIds"
-          :key="id"
-          >已选 {{ id }}
-          <button
-            type="button"
-            class="text-link"
-            v-on="{ click: controls.los.bind(null, id, false) }"
-            >移除</button
-          ></div
-        >
-        <small
-          v-if="
-            inlineIssues && fieldIssueMessage(issues, 'deploymentConstraints.losRequiredNodeIds')
-          "
-          class="field-error"
-          role="alert"
-          >{{ fieldIssueMessage(issues, 'deploymentConstraints.losRequiredNodeIds') }}</small
-        >
-      </fieldset>
-      <fieldset
-        data-validation-field="deploymentConstraints.forcedInclude"
-        tabindex="-1"
-        ><legend>强制部署点 / WGS84</legend>
-        <p class="muted"
-          >0–{{ deploymentLimits.points }} 个点；经度 -180°～180°，纬度 -90°～90°（含边界），均须填有限数值。</p
-        >
-        <div
-          v-for="(point, index) in modelValue.forcedInclude"
-          :key="index"
-          class="coordinate-row"
-          ><label
-            >经度<input
-              inputmode="decimal"
-              :value="numberText('point' + index + 'lon', point.lon)"
-              v-on="{ input: inputAction(controls.point, index, 'lon') }" /></label
-          ><label
-            >纬度<input
-              inputmode="decimal"
-              :value="numberText('point' + index + 'lat', point.lat)"
-              v-on="{ input: inputAction(controls.point, index, 'lat') }" /></label
-          ><button
-            type="button"
-            class="text-link"
-            v-on="{ click: controls.removePoint.bind(null, index) }"
-            >移除点</button
-          ></div
-        >
-        <button
-          type="button"
-          class="btn small"
-          :disabled="modelValue.forcedInclude.length >= deploymentLimits.points"
-          v-on="{ click: controls.addPoint.bind(null) }"
-          >增加强制点</button
-        >
-        <small
-          v-if="inlineIssues && fieldIssueMessage(issues, 'deploymentConstraints.forcedInclude')"
-          class="field-error"
-          role="alert"
-          >{{ fieldIssueMessage(issues, 'deploymentConstraints.forcedInclude') }}</small
-        >
-      </fieldset>
-      <fieldset
-        data-validation-field="deploymentConstraints.forcedExcludePolygons"
-        tabindex="-1"
-        ><legend>禁部署区 / WGS84</legend>
-        <p class="muted"
-          >0–{{ deploymentLimits.polygons }} 个禁区；经度 -180°～180°，纬度 -90°～90°（含边界），均须填有限数值。所有禁区合计最多 {{ deploymentLimits.coordinates }} 个坐标（含闭合点）。</p
-        >
-        <p class="muted"
-          >每个禁区至少一个环；每环至少三个不同顶点、四个坐标，首尾坐标相同。环不得自交或相交；内环须位于外环内部且不得嵌套。</p
-        >
-        <fieldset
-          v-for="(polygon, p) in modelValue.forcedExcludePolygons"
-          :key="p"
-          ><legend>禁区 {{ p + 1 }}</legend
-          ><button
-            type="button"
-            class="text-link"
-            v-on="{ click: controls.removePolygon.bind(null, p) }"
-            >移除禁区</button
-          >
-          <fieldset
-            v-for="(ring, r) in polygon.coordinates"
-            :key="r"
-            ><legend>{{ r === 0 ? '外环' : '内环 ' + r }}</legend
-            ><div
-              v-for="(point, i) in ring"
-              :key="i"
-              class="coordinate-row"
-              ><label
-                v-for="(axis, a) in ['经度', '纬度']"
-                :key="axis"
-                >{{ axis
-                }}<input
-                  inputmode="decimal"
-                  :value="numberText(`vertex${p}-${r}-${i}-${a}`, point[a])"
-                  v-on="{ input: inputAction(controls.vertex, p, r, i, a) }" /></label
-              ><button
-                type="button"
-                class="text-link"
-                v-on="{ click: controls.removeVertex.bind(null, p, r, i) }"
-                >移除坐标</button
-              ></div
-            >
-            <div class="toolbar"
-              ><button
-                type="button"
-                class="btn small"
-                v-on="{ click: controls.addVertex.bind(null, p, r) }"
-                >增加坐标</button
-              ><button
-                type="button"
-                class="btn small"
-                v-on="{ click: controls.close.bind(null, p, r) }"
-                >用首点闭合</button
-              ><button
-                v-if="r > 0"
-                type="button"
-                class="text-link"
-                v-on="{ click: controls.removeRing.bind(null, p, r) }"
-                >移除内环</button
-              ></div
-            > </fieldset
-          ><button
-            type="button"
-            class="btn small"
-            v-on="{ click: controls.addRing.bind(null, p) }"
-            >增加内环</button
-          > </fieldset
-        ><button
-          type="button"
-          class="btn small"
-          :disabled="modelValue.forcedExcludePolygons.length >= deploymentLimits.polygons"
-          v-on="{ click: controls.addPolygon.bind(null) }"
-          >增加禁区</button
-        >
-        <p class="muted"
-          >超出任务区域的坐标仍原样保留，由服务判断。</p
-        >
-        <small
-          v-if="
-            inlineIssues && fieldIssueMessage(issues, 'deploymentConstraints.forcedExcludePolygons')
-          "
-          class="field-error"
-          role="alert"
-          >{{ fieldIssueMessage(issues, 'deploymentConstraints.forcedExcludePolygons') }}</small
-        >
-      </fieldset>
-    </template>
+    </fieldset>
     <p
-      v-if="
-        inlineIssues &&
-        issues.some((issue) =>
-          ['deploymentConstraints', 'deploymentConstraints.shape'].includes(issue.field),
-        )
-      "
+      v-if="inlineIssues && issues.some((issue) => issue.field === 'frequencyConstraints')"
       class="field-error"
       role="alert"
       >{{
         issues
-          .filter((issue) =>
-            ['deploymentConstraints', 'deploymentConstraints.shape'].includes(issue.field),
-          )
+          .filter((issue) => issue.field === 'frequencyConstraints')
           .map((issue) => issue.message)
           .join('；')
       }}</p
     >
     <ul
       v-if="issues.length && !inlineIssues"
-      class="notice warn"
       role="alert"
+      class="notice warn"
       ><li
-        v-for="issue in issues"
-        :key="issue.field"
+        v-for="(issue, index) in issues"
+        :key="index"
         >{{ issue.message }}</li
       ></ul
     >
@@ -276,31 +110,26 @@
 </template>
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref, toRaw, watch } from 'vue';
-import type { DeploymentConstraints } from '../types/deployment-constraints';
-import { fieldIssueMessage, fieldIssues } from '../services/planning-issue-display';
-import {
-  deploymentConstraintIssues,
-  deploymentLabels,
-  deploymentLimits,
-  emptyDeploymentConstraints,
-} from '../services/deployment-constraints';
+import type { PlanningInput } from '../types/planning';
+import type { PlanningFrequencyResource } from '../types/planning-options';
+import { planningOptionIssues } from '../services/planning-options';
+import { fieldIssueMessage } from '../services/planning-issue-display';
+type Options = Pick<PlanningInput, 'frequencyConstraints' | 'deploymentSolve'>;
 const props = defineProps<{
-  modelValue?: DeploymentConstraints | null;
-  nodes: { id: string; name: string }[];
+  modelValue: Options;
+  frequencyResources?: PlanningFrequencyResource[] | null;
   owner: string;
   disabled?: boolean;
   inlineIssues?: boolean;
 }>();
-const emit = defineEmits<{
-  'update:modelValue': [value: DeploymentConstraints | null];
-  pending: [value: boolean];
-}>();
-const raw = ref<Record<string, string>>({});
+const emit = defineEmits<{ 'update:modelValue': [value: Options]; pending: [value: boolean] }>();
+const raw = ref<Record<string, string>>({}),
+  search = ref(''),
+  epoch = ref(0);
 let alive = true,
   lastInput = '';
-const epoch = ref(0);
-const serial = (value: unknown) =>
-  JSON.stringify(value, (_key, item) =>
+const serial = (value: Options) =>
+  JSON.stringify([value.frequencyConstraints, value.deploymentSolve], (_key, item) =>
     typeof item === 'number' && !Number.isFinite(item) ? '无效数值' : item,
   );
 watch(
@@ -308,6 +137,7 @@ watch(
   () => {
     epoch.value++;
     raw.value = {};
+    search.value = '';
   },
   { flush: 'sync' },
 );
@@ -319,156 +149,144 @@ watch(
   { flush: 'sync' },
 );
 watch(
-  () => props.modelValue,
+  () => serial(props.modelValue),
   (value) => {
-    if (serial(value) !== lastInput) raw.value = {};
+    if (value !== lastInput) raw.value = {};
   },
-  { deep: true, flush: 'sync' },
+  { flush: 'sync' },
 );
-const issues = computed(() => deploymentConstraintIssues(props.modelValue));
+const issues = computed(() => planningOptionIssues(props.modelValue));
 watch(issues, (value) => emit('pending', !!value.length), { immediate: true });
 onBeforeUnmount(() => {
   alive = false;
   epoch.value++;
   emit('pending', false);
 });
-const scalarKeys = ['maxSlopeDeg', 'roadMaxDistanceM', 'minSiteSpacingM', 'gridStepM'] as const;
-// 只说明现有校验边界，不额外限制填写范围。
-const scalarHints = {
-  maxSlopeDeg: '可填 0–90°（含边界）。',
-  roadMaxDistanceM: '可填 ≥0 m 的有限数值，无固定上限。',
-  minSiteSpacingM: '可填 ≥0 m 的有限数值，无固定上限。',
-  gridStepM: '可填 >0 m 的有限数值，无固定上限；单次网格扫描最多 100000 点。',
-};
+const filter = (kind: 'HF' | 'VUHF') =>
+  props.modelValue.frequencyConstraints?.filters.find((row) => row.deviceClass === kind);
 const numberText = (key: string, value: number | null | undefined) =>
   raw.value[key] ?? (value == null || !Number.isFinite(value) ? '' : String(value));
-const text = (event: Event) => (event.target as HTMLInputElement).value;
-const checked = (event: Event) => (event.target as HTMLInputElement).checked;
-// v-on 对象保留当次闭包，不让迟到的 DOM 事件调用新一代控件。
-const inputAction =
-  <T extends unknown[]>(action: (...args: [...T, string]) => void, ...args: T) =>
-  (event: Event) =>
-    action(...args, text(event));
-const checkAction =
-  <T extends unknown[]>(action: (...args: [...T, boolean]) => void, ...args: T) =>
-  (event: Event) =>
-    action(...args, checked(event));
-// 每组事件捕获任务和编辑代次；失权、切任务及卸载后的旧控件不能回写。
+const pool = computed(
+  () =>
+    props.frequencyResources?.filter((row) =>
+      `${row.freqId} ${row.centerFreqKhz} ${row.deviceClass}`
+        .toLowerCase()
+        .includes(search.value.toLowerCase()),
+    ) ?? [],
+);
+const unknown = computed(
+  () =>
+    props.modelValue.frequencyConstraints?.filters.flatMap((row) =>
+      row.excludeFreqIds
+        .filter((id) => !props.frequencyResources?.some((f) => f.freqId === id))
+        .map((id) => `${row.deviceClass} / ${id}`),
+    ) ?? [],
+);
+// 每个事件捕获所属任务及权限代次，旧控件不能改写后来打开的草稿。
 const controls = computed(() => {
   const owner = props.owner,
     generation = epoch.value,
     disabled = props.disabled;
   const valid = () =>
     alive && !disabled && !props.disabled && owner === props.owner && generation === epoch.value;
-  const send = (value: DeploymentConstraints | null) => {
+  const change = (fn: (value: Options) => void) => {
     if (!valid()) return;
+    const value: Options = {};
+    for (const key of ['frequencyConstraints', 'deploymentSolve'] as const)
+      if (Object.hasOwn(props.modelValue, key))
+        Object.assign(value, { [key]: structuredClone(toRaw(props.modelValue[key])) });
+    fn(value);
     lastInput = serial(value);
     emit('update:modelValue', value);
   };
-  const change = (action: (value: DeploymentConstraints) => void) => {
-    if (!valid() || !props.modelValue) return;
-    const value = structuredClone(toRaw(props.modelValue));
-    action(value);
-    send(value);
-  };
-  const numeric = (key: string, input: string, nullable = true) => {
-    raw.value[key] = input;
-    return input.trim() === '' ? (nullable ? null : NaN) : Number(input);
+  const numeric = (key: string, text: string) => {
+    raw.value[key] = text;
+    return text.trim() === '' ? NaN : Number(text);
   };
   return {
-    enable: (enabled: boolean) => send(enabled ? emptyDeploymentConstraints() : null),
-    scalar: (key: (typeof scalarKeys)[number], input: string) => {
+    // 未填写范围时保持空值，允许仅排除频点；半填或非法输入仍由 range 和校验器拦截。
+    enable: (kind: 'HF' | 'VUHF', enabled: boolean) =>
+      change((value) => {
+        const rows = value.frequencyConstraints?.filters ?? [];
+        value.frequencyConstraints = enabled
+          ? { filters: [...rows, { deviceClass: kind, rangeKhz: null, excludeFreqIds: [] }] }
+          : rows.length === 1
+            ? null
+            : { filters: rows.filter((row) => row.deviceClass !== kind) };
+      }),
+    range: (kind: 'HF' | 'VUHF', index: number, text: string) => {
+      if (!valid()) return;
+      change((value) => {
+        const row = value.frequencyConstraints?.filters.find((item) => item.deviceClass === kind);
+        if (!row) return;
+        const pair = row.rangeKhz ? [...row.rangeKhz] : [NaN, NaN];
+        pair[index] = numeric(kind + index, text);
+        row.rangeKhz =
+          text.trim() === '' &&
+          !Number.isFinite(pair[1 - index]) &&
+          !(raw.value[kind + (1 - index)] ?? '').trim()
+            ? null
+            : (pair as [number, number]);
+      });
+    },
+    excludes: (kind: 'HF' | 'VUHF', text: string) =>
+      change((value) => {
+        const row = value.frequencyConstraints?.filters.find((item) => item.deviceClass === kind);
+        if (row) row.excludeFreqIds = text.trim() ? text.split(';').map((item) => item.trim()) : [];
+      }),
+    exclude: (kind: 'HF' | 'VUHF', id: string, enabled: boolean) =>
+      change((value) => {
+        value.frequencyConstraints ??= { filters: [] };
+        let row = value.frequencyConstraints.filters.find((item) => item.deviceClass === kind);
+        if (!row) {
+          row = { deviceClass: kind, rangeKhz: null, excludeFreqIds: [] };
+          value.frequencyConstraints.filters.push(row);
+        }
+        row.excludeFreqIds = enabled
+          ? [...new Set([...row.excludeFreqIds, id])]
+          : row.excludeFreqIds.filter((item) => item !== id);
+      }),
+    solve: (enabled: boolean) =>
+      change((value) => {
+        value.deploymentSolve = enabled
+          ? { mode: 'MIN_COUNT', fixedCount: null, solutionCount: 1 }
+          : null;
+      }),
+    mode: (mode: string) =>
+      change((value) => {
+        if (value.deploymentSolve) {
+          value.deploymentSolve.mode = mode as 'MIN_COUNT' | 'FIXED_COUNT';
+          value.deploymentSolve.fixedCount = mode === 'MIN_COUNT' ? null : NaN;
+          delete raw.value.fixedCount;
+        }
+      }),
+    count: (key: 'fixedCount' | 'solutionCount', text: string) => {
       if (valid())
         change((value) => {
-          value[key] = numeric(key, input);
+          if (value.deploymentSolve) value.deploymentSolve[key] = numeric(key, text);
         });
     },
-    elevation: (index: number, input: string) => {
-      if (valid())
-        change((value) => {
-          const other = 1 - index,
-            pair = value.elevationRangeM ? [...value.elevationRangeM] : [NaN, NaN];
-          pair[index] = numeric('elevation' + index, input, false)!;
-          value.elevationRangeM =
-            input.trim() === '' &&
-            !Number.isFinite(pair[other]) &&
-            !(raw.value['elevation' + other] ?? '').trim()
-              ? null
-              : (pair as [number, number]);
-        });
-    },
-    covers: (input: string) =>
-      change((value) => {
-        value.allowedLandcover = input.trim() ? input.split(';').map((item) => item.trim()) : null;
-      }),
-    los: (id: string, enabled: boolean) =>
-      change((value) => {
-        value.losRequiredNodeIds = enabled
-          ? [...new Set([...value.losRequiredNodeIds, id])]
-          : value.losRequiredNodeIds.filter((item) => item !== id);
-      }),
-    point: (index: number, axis: 'lon' | 'lat', input: string) => {
-      if (valid())
-        change((value) => {
-          value.forcedInclude[index][axis] = numeric('point' + index + axis, input, false)!;
-        });
-    },
-    addPoint: () => change((value) => value.forcedInclude.push({ lon: NaN, lat: NaN })),
-    removePoint: (index: number) =>
-      change((value) => {
-        value.forcedInclude.splice(index, 1);
-        raw.value = {};
-      }),
-    addPolygon: () =>
-      change((value) => value.forcedExcludePolygons.push({ type: 'Polygon', coordinates: [[]] })),
-    removePolygon: (index: number) =>
-      change((value) => {
-        value.forcedExcludePolygons.splice(index, 1);
-        raw.value = {};
-      }),
-    addRing: (polygon: number) =>
-      change((value) => value.forcedExcludePolygons[polygon].coordinates.push([])),
-    removeRing: (polygon: number, ring: number) =>
-      change((value) => {
-        value.forcedExcludePolygons[polygon].coordinates.splice(ring, 1);
-        raw.value = {};
-      }),
-    vertex: (polygon: number, ring: number, index: number, axis: number, input: string) => {
-      if (valid())
-        change((value) => {
-          value.forcedExcludePolygons[polygon].coordinates[ring][index][axis] = numeric(
-            `vertex${polygon}-${ring}-${index}-${axis}`,
-            input,
-            false,
-          )!;
-        });
-    },
-    addVertex: (polygon: number, ring: number) =>
-      change((value) => value.forcedExcludePolygons[polygon].coordinates[ring].push([NaN, NaN])),
-    removeVertex: (polygon: number, ring: number, index: number) =>
-      change((value) => {
-        value.forcedExcludePolygons[polygon].coordinates[ring].splice(index, 1);
-        raw.value = {};
-      }),
-    close: (polygon: number, ring: number) =>
-      change((value) => {
-        const points = value.forcedExcludePolygons[polygon].coordinates[ring];
-        if (points.length && serial(points[0]) !== serial(points.at(-1)))
-          points.push([...points[0]]);
-      }),
   };
 });
+const inputAction =
+  <T extends unknown[]>(action: (...args: [...T, string]) => void, ...args: T) =>
+  (event: Event) =>
+    action(...args, (event.target as HTMLInputElement).value);
+const checkAction =
+  <T extends unknown[]>(action: (...args: [...T, boolean]) => void, ...args: T) =>
+  (event: Event) =>
+    action(...args, (event.target as HTMLInputElement).checked);
 </script>
 <style scoped>
-.deployment-editor,
+.options-editor,
 fieldset {
-  min-width: 0;
   display: grid;
   gap: 10px;
+  min-width: 0;
   border: 1px solid var(--line);
   padding: 12px;
 }
-.deployment-editor {
+.options-editor {
   margin-top: 12px;
   grid-template-columns: minmax(0, 1fr);
 }
@@ -477,43 +295,41 @@ label {
   gap: 6px;
   font-size: 12px;
 }
-input {
-  width: 100%;
-  min-width: 0;
-}
 .check {
   display: flex;
   flex-direction: row;
   align-items: center;
+  gap: 8px;
 }
 .check input {
   width: auto;
 }
-/* 节点目录只在约束组内滚动，避免挤占其他条件。 */
-.los-nodes {
-  max-height: 300px;
-  overflow: auto;
-}
-.coordinate-row {
-  display: flex;
-  gap: 8px;
-  align-items: end;
-}
-.coordinate-row label {
-  flex: 1;
+input,
+select {
   min-width: 0;
+  width: 100%;
 }
-.toolbar {
-  display: flex;
+.range {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
   gap: 8px;
-  flex-wrap: wrap;
 }
-.muted {
-  font-size: 11px;
-  line-height: 1.8;
+.pool {
+  max-height: 240px;
+  overflow: auto;
+  display: grid;
+  gap: 10px;
+  margin-top: 10px;
 }
+small {
+  display: block;
+  color: var(--muted);
+  line-height: 1.7;
+}
+.muted,
 .notice {
-  padding-left: 20px;
+  font-size: 12px;
+  line-height: 1.8;
   overflow-wrap: anywhere;
 }
 /* 规划字段级反馈沿用统一警示色，不影响其他调用的默认呈现。 */
