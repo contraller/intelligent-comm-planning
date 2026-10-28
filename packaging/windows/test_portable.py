@@ -30,6 +30,68 @@ def test_valid_archive_path():
     assert load("build_portable").safe_member("Lib/site-packages/a/__init__.py")
 
 
+@pytest.fixture
+def first_use_source(tmp_path, monkeypatch):
+    """构造最小公开例程，私有运行文件不得被通配复制进包。"""
+    builder = load("build_portable")
+    monkeypatch.setattr(builder, "ROOT", tmp_path)
+    examples = tmp_path / "演示资料/便携版首次使用"
+    values = {
+        "首次使用演示.html": "<!doctype html><meta charset='utf-8'><h1>首次使用</h1>",
+        "演示步骤.txt": "先导入两份CSV，再实际计算。",
+        "01_规划任务导入/01_task_scenarios.csv": "task_id,hf_exclude_freq_ids,vuhf_exclude_freq_ids\nDEMO-FIRST-PLAN,,\n",
+        "01_规划任务导入/02_task_links.csv": "task_id,demand_id\nDEMO-FIRST-PLAN,DEMO-FIRST-D01\n",
+        "02_故障场景导入/05_故障场景_三类示例.csv": "object_id\nDV-0001\nOL-0001\nDV-0002\n",
+    }
+    for name, text in values.items():
+        path = examples / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text, encoding="utf-8")
+    for suffix in ("docx", "pdf"):
+        manual = tmp_path / ("docs/output/短波超短波智能规划系统用户手册_V1.0_20261028." + suffix)
+        manual.parent.mkdir(parents=True, exist_ok=True)
+        manual.write_bytes(b"public-manual-fixture")
+    (examples / "private-settings.json").write_text('{"password":"must-not-copy"}', encoding="utf-8")
+    return builder, examples
+
+
+def test_first_use_materials_include_only_public_examples_and_manuals(first_use_source, tmp_path):
+    builder, _examples = first_use_source
+    target = tmp_path / "output"
+    copied = builder.copy_first_use_materials(target)
+    assert "首次使用演示.html" in copied
+    assert "用户手册/用户手册.pdf" in copied
+    assert len(copied) == 7
+    assert not list(target.rglob("*private*"))
+    assert not (target / "app/data/runtime").exists()
+
+
+def test_missing_first_use_file_stops_before_copy(first_use_source, tmp_path):
+    builder, _examples = first_use_source
+    # 不物理删文件；用缺少材料的新根目录验证漏包保护。
+    builder.ROOT = tmp_path / "missing-root"
+    target = tmp_path / "must-not-create"
+    with pytest.raises(RuntimeError, match="缺失"):
+        builder.copy_first_use_materials(target)
+    assert not target.exists()
+
+
+def test_first_use_cannot_reference_developer_frequency_ids(first_use_source, tmp_path):
+    builder, examples = first_use_source
+    scenario = examples / "01_规划任务导入/01_task_scenarios.csv"
+    scenario.write_text("task_id,hf_exclude_freq_ids,vuhf_exclude_freq_ids\nDEMO-FIRST-PLAN,DEMO-HF-001,\n", encoding="utf-8")
+    with pytest.raises(RuntimeError, match="开发库额外频点"):
+        builder.copy_first_use_materials(tmp_path / "must-not-create")
+
+
+def test_first_use_rejects_mismatched_task_pair(first_use_source):
+    builder, examples = first_use_source
+    (examples / "01_规划任务导入/02_task_links.csv").write_text(
+        "task_id,demand_id\nOTHER-TASK,DEMO-FIRST-D01\n", encoding="utf-8")
+    with pytest.raises(RuntimeError, match="编号不一致"):
+        builder.first_use_materials()
+
+
 def test_state_from_other_directory_is_never_controlled(tmp_path, monkeypatch):
     entry = load("launcher")
     path = tmp_path / "state.json"

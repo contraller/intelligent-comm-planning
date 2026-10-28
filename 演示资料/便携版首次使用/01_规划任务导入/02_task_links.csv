@@ -1,0 +1,2 @@
+demand_id,task_id,src_node_id,dst_node_id,priority,is_mandatory,data_volume_mb,required_rate_kbps,max_delay_ms,min_reliability,service_type,preferred_class,endpoint_mode,src_device_id,dst_device_id,strategy,need_backup
+DEMO-FIRST-D01,DEMO-FIRST-PLAN,ND-0001,ND-0002,P1,true,10,64,100,0.95,数据,,station,,,MAX_RELIABILITY,true
