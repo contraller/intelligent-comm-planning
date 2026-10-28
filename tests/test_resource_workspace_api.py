@@ -153,7 +153,7 @@ def new_device(baseline, station_id=None, identifier="MANUAL-DEVICE"):
 def new_interference(identifier="MANUAL-INTERFERENCE"):
     return {"id": identifier, "name": "手工干扰源", "coordinate": new_node()["coordinate"],
             "elevationM": None, "antennaHeightM": 0, "centerFreqKhz": 1500, "bandwidthKhz": 10,
-            "txPowerDbm": -10, "antennaGainDbi": None, "interferenceType": "NOISE", "patternType": None,
+            "txPowerDbm": -10, "antennaGainDbi": 0, "interferenceType": "NOISE", "patternType": None,
             "azimuthDeg": None, "dutyCycle": None, "active": False, "origin": "MANUAL", "status": None, "alert": None}
 
 
@@ -554,3 +554,70 @@ def test_unknown_target_is_404_and_transaction_failure_rolls_back(workspace_api,
     monkeypatch.setattr(datasets, "_validate_snapshot", reject_changed)
     assert save(client, body(baseline)).status_code == 503
     assert_unchanged(factory, baseline)
+
+
+@pytest.mark.parametrize("gain", [None, "omitted"])
+def test_manual_interference_missing_gain_is_named_input_error_and_atomic(workspace_api, gain):
+    client, factory, baseline, _ = workspace_api
+    switch(client)
+    row = new_interference()
+    if gain == "omitted":
+        row.pop("antennaGainDbi")
+    else:
+        row["antennaGainDbi"] = gain
+    response = save(client, body(baseline, {"newInterferences": [row]}))
+    assert response.status_code == 422 and response.json()["code"] == 1001
+    assert all(text in response.json()["message"] for text in ("手工干扰源", "天线增益", row["id"], "antenna_gain_dbi"))
+    assert_unchanged(factory, baseline)
+
+
+@pytest.mark.parametrize("gain", [0, -12.5])
+def test_manual_interference_optional_values_and_gain_roundtrip_without_silent_defaults(workspace_api, gain):
+    from app.interference_analysis_engine import normalize_interference_sources
+    client, factory, baseline, _ = workspace_api
+    switch(client)
+    row = {**new_interference(), "antennaGainDbi": gain, "active": True}
+    response = save(client, body(baseline, {"newInterferences": [row]}))
+    assert response.status_code == 200, response.text
+    snapshot = datasets.current()
+    raw = next(item for item in snapshot["tables"]["interference_source.csv"] if item["interference_id"] == row["id"])
+    assert raw["elevation_m"] == raw["pattern_type"] == raw["azimuth_deg"] == raw["duty_cycle"] == ""
+    effective = normalize_interference_sources([raw])[0]
+    assert effective["parameters"]["antenna_gain_dbi"] == gain
+    assert effective["parameters"]["antenna_height_m"] == 0
+    assert effective["parameters"]["pattern_type"] == "OMNI" and effective["parameters"]["duty_cycle"] == 1
+    assert effective["parameters"]["azimuth_deg"] is None
+    saved_row = next(item for item in context(client, context="gis")["resources"]["interferences"] if item["id"] == row["id"])
+    assert saved_row["antennaGainDbi"] == gain and saved_row["patternType"] is None and saved_row["dutyCycle"] is None
+    assert counts(factory) == (2, 1)
+
+
+def test_interference_save_aggregates_sources_and_directional_fields(workspace_api):
+    client, factory, baseline, _ = workspace_api
+    switch(client)
+    first = {**new_interference("MISSING-GAIN"), "antennaGainDbi": None, "name": "缺增益源"}
+    second = {**new_interference("MISSING-DIRECTION"), "patternType": "DIRECTIONAL", "name": "缺方位源"}
+    response = save(client, body(baseline, {"newInterferences": [first, second]}))
+    assert response.status_code == 422 and response.json()["code"] == 1001
+    assert all(text in response.json()["message"] for text in ("缺增益源", "天线增益", "MISSING-GAIN", "缺方位源", "方位角", "MISSING-DIRECTION"))
+    assert_unchanged(factory, baseline)
+
+
+def test_legacy_empty_gain_does_not_lock_other_resources_but_edit_requires_value(workspace_api):
+    client, factory, baseline, _ = workspace_api
+    switch(client)
+    identifier = baseline["tables"]["interference_source.csv"][0]["interference_id"]
+    legacy = seed(baseline, lambda tables: tables["interference_source.csv"][0].update(antenna_gain_dbi=""))
+    # 读取不补零，保存未涉及干扰源的设备仍成功。
+    read = next(item for item in context(client, context="gis")["resources"]["interferences"] if item["id"] == identifier)
+    assert read["antennaGainDbi"] is None
+    assert save(client, body(legacy, request_id="unrelated-device")).status_code == 200
+    current = datasets.current()
+    changed = {"interferences": [{"id": identifier, "name": "编辑历史空增益源"}]}
+    response = save(client, body(current, changed, request_id="legacy-invalid"))
+    assert response.status_code == 422 and "天线增益" in response.json()["message"]
+    assert datasets.current()["revision"] == current["revision"]
+    changed["interferences"][0]["antennaGainDbi"] = -2
+    response = save(client, body(current, changed, request_id="legacy-fixed"))
+    assert response.status_code == 200, response.text
+    assert float(datasets.current()["tables"]["interference_source.csv"][0]["antenna_gain_dbi"]) == -2

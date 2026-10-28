@@ -84,7 +84,7 @@ beforeEach(()=>{
     if(path.endsWith('/plan/tasks/J1'))return response(serverJob, serverJob.status === 'FAILED' ? serverJob.outcome?.code ?? 0 : 0);
     if(path.endsWith('/plans')&&init.method==='POST'){const plan={...planDto(),name:body.name,note:body.note,input:serverJob.input,input_version:serverJob.input_version};serverPlans.push(plan);return response(plan);}
     if(path.endsWith('/plans'))return response({items:serverPlans,page:Number(p.get('page')),page_size:Number(p.get('page_size')),total:serverPlans.length});
-    if(path.endsWith('/plans/P-1/confirm')){serverPlans[0]={...serverPlans[0],revision:'p2',state:'CONFIRMED',current:true,confirmed_at:'2026-10-05T01:00:00Z'};return response(serverPlans[0]);}
+    if(path.endsWith('/plans/P-1/confirm')){serverPlans[0]={...serverPlans[0],revision:'p2',state:'CONFIRMED',current:true,confirmed_at:'2026-10-05T01:00:00Z',...(body.accept_quality_risk===true?{quality_risk_confirmation:{accepted:true,plan_id:'P-1',revision:'p2',snapshot_id:serverPlans[0].result.snapshot_id,confirmed_at:'2026-10-05T01:00:00Z',request_id:body.request_id,outcome_code:serverPlans[0].outcome.code}}:{})};return response(serverPlans[0]);}
     if(path.endsWith('/plans/P-1'))return response(serverPlans[0]);
     throw new Error('意外请求 '+path);
   });vi.stubGlobal('fetch',fetcher);
@@ -125,7 +125,7 @@ describe('网络规划与 GIS HTTP 页面组合',()=>{
     const cause = find(root, n => n.props['aria-label'] === '当前方案服务结论')!;
     expect(visible(cause)).toBe(true);expect(text(cause)).toContain('实际新增部署数量为0');
     expect(text(cause)).toContain('核对部署条件');expect(text(cause)).not.toContain('读取方案失败');
-    expect(planning.canConfirm).toBe(false);
+    expect(planning.canConfirm).toBe(true);
     await button(root, '路由路径').props.onClick();await nextTick();
     const route = find(root, n => n.tag === 'table-stub' && n.props.rows.some((row: any) => row.id === 'R1'))!;
     expect(route.props.rows[0]).toMatchObject({ totalDelayMs: '未提供', bottleneckMarginDb: -2, reliability: '0%', isFeasible: '不可行' });
@@ -139,6 +139,23 @@ describe('网络规划与 GIS HTTP 页面组合',()=>{
     expect(text(root)).not.toContain('候选数据限制');
     expect(find(root, n => n.props['aria-label'] === '候选数据来源')).toBeUndefined();
     expect(fetcher.mock.calls.some(([, init]) => ['POST', 'PUT', 'DELETE'].includes(init?.method ?? 'GET'))).toBe(false);
+  });
+  it('完整未达标方案在页面确认风险后转正，HTTP回读保留原质量结果', async () => {
+    const plan = planDto(); plan.state = 'REFERENCE'; plan.outcome.code = 3001;
+    plan.outcome.message = '连通率未达到要求'; plan.result.checks[0].passed = false;
+    plan.outcome.gap = [{ objectId: 'D1', field: 'connectivity', message: '需求一未连通' }];
+    serverPlans = [plan]; const { root, planning, task } = await mount('/planning?taskId=T1&planId=P-1');
+    await vi.waitFor(() => expect(planning.selectedPlan?.id).toBe('P-1'));
+    const original = JSON.stringify({ result: planning.selectedPlan!.result, outcome: planning.selectedPlan!.outcome });
+    planning.step = 3; await nextTick(); expect(button(root, '转正并设为当前方案').props.disabled).toBe(false);
+    const action = button(root, '转正并设为当前方案').props.onClick(); await nextTick();
+    expect(task.decision!.message).toContain('需求一未连通'); expect(task.decision!.message).toContain('是否确认转正');
+    task.answer('save'); await action; await nextTick();
+    expect(planning.selectedPlan).toMatchObject({ state: 'CONFIRMED', current: true, qualityRiskConfirmation: { accepted: true } });
+    expect(JSON.stringify({ result: planning.selectedPlan!.result, outcome: planning.selectedPlan!.outcome })).toBe(original);
+    expect(text(root)).toContain('经用户明确确认质量风险后转正');
+    const write = fetcher.mock.calls.find(([url]) => String(url).includes('/plans/P-1/confirm'))!;
+    expect(JSON.parse(String(write[1]!.body))).toMatchObject({ accept_quality_risk: true });
   });
   it('各步骤保留资源过期提示，刷新只在输入步骤提供且不重算规划',async()=>{
     const {root,planning}=await mount(),resources=useResourceReadStore(pinia);
@@ -353,6 +370,8 @@ describe('网络规划与 GIS HTTP 页面组合',()=>{
     serverPlans=[planDto()];serverTask.active_job_id='J1';serverJob=jobDto();
     const {planning,router,task}=await mount('/planning?taskId=T1&planId=P-1');await vi.waitFor(()=>expect(planning.selectedPlan?.id).toBe('P-1'));
     await vi.waitFor(()=>expect(planning.plans?.items[0]?.id).toBe('P-1'));await nextTick();
+    // 目录返回早于活跃作业核实；按实际编辑门禁等待，不能借测试绕过作业保护。
+    await vi.waitFor(()=>expect(task.editable).toBe(true));
     await planning.adjust();await vi.waitFor(()=>expect(router.currentRoute.value.query).toEqual({taskId:'T1'}));
     expect(planning.step).toBe(1);expect(planning.parentPlanId).toBe('P-1');expect(planning.job).toBeNull();expect(task.draft).not.toBeNull();
   });

@@ -41,7 +41,7 @@ def tables():
     result["interference_source.csv"] = [{
         "interference_id": "I1", "name": "当前干扰源", "lon": "114.5", "lat": "37.5", "elevation_m": "",
         "antenna_height_m": "0", "center_freq_khz": "1500", "bandwidth_khz": "10", "tx_power_dbm": "-10",
-        "antenna_gain_dbi": "", "interference_type": "NOISE", "pattern_type": "", "azimuth_deg": "",
+        "antenna_gain_dbi": "0", "interference_type": "NOISE", "pattern_type": "", "azimuth_deg": "",
         "duty_cycle": "", "active": "false",
     }]
     # 其余七表的内容也必须完整保留，不由导入器投影或补造。
@@ -447,7 +447,10 @@ def test_device_references_and_class_compatibility(tables, target):
     ("azimuth_deg", "360"), ("interference_type", "UNKNOWN"), ("pattern_type", "X"),
 ])
 def test_interference_changes_are_validated(tables, field, value):
-    result = parse(tables, "interference_sources", [{**tables["interference_source.csv"][0], field: value}])
+    row = {**tables["interference_source.csv"][0], field: value}
+    if field == "azimuth_deg":
+        row["pattern_type"] = "DIRECTIONAL"
+    result = parse(tables, "interference_sources", [row])
     assert_atomic_failure(tables, result)
 
 
@@ -460,12 +463,36 @@ def test_directional_interference_requires_azimuth(tables):
 
 def test_unchanged_legacy_doubts_do_not_reject_whole_database(tables):
     tables["interference_source.csv"][0]["lon"] = "113.7"
+    tables["interference_source.csv"][0]["antenna_gain_dbi"] = ""
     tables["device.csv"][0]["node_id"] = "missing"
     result = parse(tables, "nodes", [{**tables["node.csv"][0], "remark": "修改备注"}])
     assert not result["issues"]
     result = parse_xlsx(tables)
     assert not result["issues"]
     assert all(row["action"] == "UNCHANGED" for row in result["rows"])
+
+
+@pytest.mark.parametrize("creating", [False, True])
+def test_import_interference_gain_required_on_new_and_changed_rows(tables, creating):
+    row = {**tables["interference_source.csv"][0], "antenna_gain_dbi": "", "name": "待补增益的导入源"}
+    if creating:
+        row["interference_id"] = "I2"
+    result = parse(tables, "interference_sources", [row])
+    assert_atomic_failure(tables, result)
+    assert any(problem["field"] == "antenna_gain_dbi" and "待补增益的导入源" in problem["message"]
+               and "天线增益" in problem["message"] for problem in result["issues"])
+
+
+@pytest.mark.parametrize("gain", ["0", "-12.5"])
+def test_import_interference_preserves_explicit_gain_and_optional_values(tables, gain):
+    row = {**tables["interference_source.csv"][0], "interference_id": "I2", "antenna_gain_dbi": gain,
+           "pattern_type": "OMNI", "azimuth_deg": "", "duty_cycle": "0"}
+    result = parse(tables, "interference_sources", [row])
+    assert not result["issues"], result["issues"]
+    saved = next(item for item in result["tables"]["interference_source.csv"] if item["interference_id"] == "I2")
+    assert saved["antenna_gain_dbi"] == gain and saved["duty_cycle"] == "0"
+    assert saved["elevation_m"] == saved["azimuth_deg"] == ""
+    assert saved["antenna_height_m"] == "0"
 
 
 @pytest.mark.parametrize("kind", list(parser.HEADERS))

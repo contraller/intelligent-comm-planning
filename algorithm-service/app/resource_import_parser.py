@@ -425,24 +425,14 @@ def _validate_record(kind, line, row, old, changed, indexes, issues, warnings, b
         coords()
         if old is None or "name" in changed:
             text("name", 60, True)
-        for field, options in (
-            ("elevation_m", {"nullable": True}), ("antenna_height_m", {"low": 0}),
-            ("center_freq_khz", {"low": 0}), ("bandwidth_khz", {"low": 0}),
-            ("tx_power_dbm", {}), ("antenna_gain_dbi", {"nullable": True}),
-            ("azimuth_deg", {"nullable": True, "low": 0, "high": 360, "exclusive_high": True}),
-            ("duty_cycle", {"nullable": True, "low": 0, "high": 1}),
-        ):
-            if old is None or field in changed:
-                value = number(field, **options)
-                if field in {"center_freq_khz", "bandwidth_khz"} and value == 0:
-                    issue(field, "频率及带宽必须大于 0")
-        if (old is None or "interference_type" in changed) and row.get("interference_type") not in {"NARROWBAND", "BROADBAND", "SWEEP", "PULSE", "NOISE"}:
-            issue("interference_type", "干扰类型无效")
-        if old is None or {"pattern_type", "azimuth_deg"} & changed:
-            if row.get("pattern_type", "") not in {"", "OMNI", "DIRECTIONAL"}:
-                issue("pattern_type", "方向图无效")
-            if row.get("pattern_type") == "DIRECTIONAL" and not row.get("azimuth_deg"):
-                issue("azimuth_deg", "定向干扰源须填写方位角")
+        from .interference_analysis_engine import InterferenceParameterError, normalize_interference_sources
+        # 调用方仅对新建/实际修改行进入本函数；历史未改行和模板往返不追补参数。
+        # 仅复用校验，不把默认值写回导入行，避免导入绕过手工保存必填规则。
+        try:
+            normalize_interference_sources([row])
+        except InterferenceParameterError as exc:
+            for problem in exc.issues:
+                issue(problem["field"], problem["message"])
 
 
 def parse_import(tables: dict, file_name: str, data: bytes, kind: str, bounds=None) -> dict:

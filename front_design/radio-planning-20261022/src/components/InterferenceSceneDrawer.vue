@@ -8,6 +8,7 @@
           <label>备注<textarea v-model="store.draft.note" maxlength="500" rows="3" /></label>
           <label>搜索干扰源<input v-model="search" type="search" /></label>
           <p>已选 {{ store.draft.interferenceIds.length }} 项</p>
+          <p>天线增益必须填写有效数值；0 与负值可用。高程可空；空方向图按全向、空占空比按 1 计算并记录来源。</p>
           <div class="source-list">
             <label v-for="row in filtered" :key="row.interference_id" class="source-option">
               <input v-model="store.draft.interferenceIds" type="checkbox" :value="row.interference_id"
@@ -24,6 +25,7 @@
         </div>
       </form>
       <p v-if="store.dirty" role="status">有未保存更改</p>
+      <section v-if="parameterIssues.length" aria-label="场景干扰源参数问题"><p>所选源参数尚不满足分析条件，请先编辑主资源。</p><ul><li v-for="issue in parameterIssues" :key="issue.interferenceId + issue.field">{{ issue.message }}</li></ul></section>
       <p v-if="store.scene">{{ store.scene.version.sceneId }} · 版本 {{ store.scene.version.versionNo }} · {{ store.scene.sourceState.state === 'CURRENT' ? '当前来源' : '冻结历史' }}</p>
       <section v-if="store.pendingScene" aria-label="保存回执待核实">
         <p>保存结果待核实 · {{ store.pendingScene.requestId }}</p>
@@ -57,10 +59,12 @@ import AppDrawer from './AppDrawer.vue';
 import { useAuthStore } from '../stores/auth';
 import { useInterferenceStore } from '../stores/interference';
 import type { TaskContext } from '../types/interference-workbench';
+import { interferenceParameterIssues } from '../services/interference-workbench-validation';
 defineProps<{ visible: boolean; taskContext: TaskContext | null }>();
 const emit = defineEmits<{ 'update:visible': [value: boolean]; saved: [value: { sceneId: string; versionId: string }]; selected: [value: { sceneId: string; versionId: string }] }>();
 const store = useInterferenceStore(), auth = useAuthStore(), search = ref(''), sceneSearch = ref('');
-const canSave = computed(() => auth.can('planning.save') && store.selectedSource?.eligible && !!store.draft.name.trim());
+const parameterIssues = computed(() => interferenceParameterIssues((store.context?.interference_sources ?? []).filter(row => store.draft.interferenceIds.includes(row.interference_id!))));
+const canSave = computed(() => auth.can('planning.save') && store.selectedSource?.eligible && !!store.draft.name.trim() && !parameterIssues.value.length);
 const filtered = computed(() => (store.context?.interference_sources ?? []).filter(row => (row.name + ' ' + row.interference_id).toLocaleLowerCase().includes(search.value.toLocaleLowerCase())));
 async function close(value: boolean) { if (value || await store.prepareLeave()) emit('update:visible', value); }
 async function save() { const previous = store.lastSceneReceipt?.requestId; await store.saveScene(); const receipt = store.lastSceneReceipt; if (receipt && receipt.requestId !== previous) emit('saved', { sceneId: receipt.sceneId, versionId: receipt.versionId }); }

@@ -2,7 +2,63 @@ import { ApiError } from './types';
 import { readSceneDetail } from './interference-scene-validation';
 import { measureTypes } from '../types/interference-workbench';
 import type { AdoptionDetail, AnalysisResult, Capability, Impact, Measure, MeasurePreview, Page, RunDetail,
-  RunProgress, SourceOption, SourceState, WorkbenchContext, WriteReceipt } from '../types/interference-workbench';
+  RunProgress, SourceOption, SourceState, WorkbenchContext, WriteReceipt, InterferenceParameterIssue,
+  InterferenceAnalysisParameters } from '../types/interference-workbench';
+
+export const interferenceParameterLabels: Record<string, string> = { lon: '经度', lat: '纬度', elevation_m: '高程',
+  antenna_height_m: '天线高度', center_freq_khz: '中心频率', bandwidth_khz: '带宽', tx_power_dbm: '发射功率',
+  antenna_gain_dbi: '天线增益', interference_type: '干扰类型', pattern_type: '天线方向图', azimuth_deg: '方位角',
+  duty_cycle: '占空比', active: '生效状态' };
+
+// 与后端冻结规则一致：只检查副本；不把空串、布尔值或非法数转换为零。
+export function interferenceParameterIssues(rows: Record<string, unknown>[]): InterferenceParameterIssue[] {
+  const issues: InterferenceParameterIssue[] = [];
+  const missing = (value: unknown) => value == null || typeof value === 'string' && !value.trim();
+  for (const row of rows) {
+    const interferenceId = String(row.interference_id ?? '未知ID'), name = String(row.name || interferenceId);
+    const issue = (field: string, reason: string, code: string) => issues.push({ interferenceId, name, field, code,
+      message: `干扰源『${name}』的${interferenceParameterLabels[field]}${reason}（ID=${interferenceId}，字段=${field}，代码=${code}）` });
+    function number(field: string, low?: number, high?: number, positive = false, exclusiveHigh = false, optional = false) {
+      const value = row[field];
+      if (missing(value)) { if (!optional) issue(field, '缺失，请填写后保存资源并重新保存场景', 'MISSING_PARAMETER'); return; }
+      const valid = typeof value === 'number' || typeof value === 'string' && /^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:e[+-]?\d+)?$/i.test(value.trim());
+      const parsed = valid ? Number(value) : NaN;
+      if (!Number.isFinite(parsed)) { issue(field, '无效，须为有限数值', 'INVALID_NUMBER'); return; }
+      if (positive && parsed <= 0 || low !== undefined && parsed < low || high !== undefined && (exclusiveHigh ? parsed >= high : parsed > high)) {
+        const bounds = positive ? '大于 0' : high === undefined ? `不小于 ${low}` : `${low} 至 ${exclusiveHigh ? '小于 ' : ''}${high}`;
+        issue(field, `超出允许范围，须为${bounds}`, 'OUT_OF_RANGE');
+      }
+    }
+    number('lon', -180, 180); number('lat', -90, 90); number('antenna_height_m', 0);
+    number('center_freq_khz', undefined, undefined, true); number('bandwidth_khz', undefined, undefined, true);
+    number('tx_power_dbm'); number('antenna_gain_dbi'); number('elevation_m', undefined, undefined, false, false, true);
+    const pattern = missing(row.pattern_type) ? 'OMNI' : row.pattern_type;
+    if (!['OMNI', 'DIRECTIONAL'].includes(pattern as string)) issue('pattern_type', '无效，须为 OMNI 或 DIRECTIONAL', 'INVALID_CHOICE');
+    if (pattern === 'DIRECTIONAL') number('azimuth_deg', 0, 360, false, true);
+    if (!missing(row.duty_cycle)) number('duty_cycle', 0, 1);
+    if (!['NARROWBAND', 'BROADBAND', 'SWEEP', 'PULSE', 'NOISE'].includes(row.interference_type as string)) issue('interference_type', '无效，须选择已有干扰类型', 'INVALID_CHOICE');
+    if (!['true', 'false'].includes(row.active as string)) issue('active', '无效，须明确为 true 或 false', 'INVALID_CHOICE');
+  }
+  return issues;
+}
+
+function readAnalysisParameters(value: unknown, source: RunDetail['source']): InterferenceAnalysisParameters[] | null {
+  if (value == null) return null; // 历史运行没有新字段，保留其原始来源，不追补默认值。
+  const rows = list(value).map(item => {
+    const row = record(item); id(row.interference_id); text(row.name);
+    const parameters = record(row.parameters), sources = record(row.sources);
+    const fields = Object.keys(interferenceParameterLabels);
+    ensure(Object.keys(parameters).length === fields.length && Object.keys(sources).length === fields.length);
+    fields.forEach(field => { ensure(Object.hasOwn(parameters, field) && Object.hasOwn(sources, field)); text(sources[field]); });
+    ['lon', 'lat', 'antenna_height_m', 'center_freq_khz', 'bandwidth_khz', 'tx_power_dbm', 'antenna_gain_dbi', 'duty_cycle'].forEach(field => finite(parameters[field]));
+    nullable(parameters.elevation_m, finite); nullable(parameters.azimuth_deg, finite); bool(parameters.active);
+    ensure(interferenceParameterIssues([{ ...parameters, active: String(parameters.active), interference_id: row.interference_id, name: row.name }]).length === 0);
+    ensure(parameters.pattern_type === 'DIRECTIONAL' || parameters.azimuth_deg === null);
+    return structuredClone(row) as unknown as InterferenceAnalysisParameters;
+  });
+  ensure(rows.length === source.interferenceIds.length && rows.every((row, index) => row.interference_id === source.interferenceIds[index]));
+  return rows;
+}
 
 export function ensure(value: unknown): asserts value { if (!value) throw new ApiError('干扰工作流响应不符合冻结契约', 'INVALID_RESPONSE'); }
 export function record(value: unknown): Record<string, unknown> { ensure(value !== null && typeof value === 'object' && !Array.isArray(value)); return value as Record<string, unknown>; }
@@ -107,6 +163,7 @@ export function readRun(value: unknown, expected: { task_id: string; run_id: str
   adoptions.forEach(item => ensure(item.run_id === progress.run_id && item.source_hash === progress.source_hash && result?.measures.some(m => m.measure_id === item.measure_id)));
   const caps = record(row.adoption_capabilities); measureTypes.forEach(key => capability(caps[key]));
   return { ...progress, source, result, result_hash: row.result_hash as string | null, adoptions,
+    analysis_parameters: readAnalysisParameters(row.analysis_parameters, source),
     adoption_capabilities: structuredClone(caps) as RunDetail['adoption_capabilities'] };
 }
 export function readPreview(value: unknown, expected: { run_id: string; measure_id: string; expected_run_version: number }): MeasurePreview {

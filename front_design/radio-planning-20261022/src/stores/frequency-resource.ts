@@ -31,14 +31,14 @@ export const useFrequencyResourceStore = defineStore('frequency-resource', () =>
   const editor = ref<{ kind: 'ADD' | 'PATCH'; item: FrequencyResourceItem | null } | null>(null), editorDirty = ref(false);
   const changesPreview = ref<FrequencyChangesValidation | null>(null), changeDraft = ref<FrequencyAction[] | null>(null);
   const phase = ref<'IDLE' | 'SAVING' | 'RESULT_UNKNOWN' | 'RESOLVED' | 'REJECTED'>('IDLE');
-  const error = ref(''), notice = ref(''), stale = ref(false), listFailed = ref(false), decision = ref<DecisionRequest | null>(null);
+  const error = ref(''), notice = ref(''), stale = ref(false), listFailed = ref(false), listReady = ref(false), decision = ref<DecisionRequest | null>(null);
   const loading = ref<Record<string, boolean>>({});
   const busy = computed(() => phase.value === 'SAVING' || Object.values(loading.value).some(Boolean));
   const locked = computed(() => !!pending.value || stale.value || !!loading.value.preview || !!changesPreview.value);
   const canSelect = computed(() => !!session.value?.readable && !!(session.value.canDisable || session.value.canMaintain) && !locked.value
-    && !editor.value && !listFailed.value && !loading.value.list && !loading.value.context);
+    && !editor.value && listReady.value && !listFailed.value && !loading.value.list && !loading.value.context);
   const canMaintain = computed(() => !!session.value?.readable && !!session.value.canMaintain && !locked.value
-    && !listFailed.value && !loading.value.list && !loading.value.context && !!page.value);
+    && listReady.value && !listFailed.value && !loading.value.list && !loading.value.context && !!page.value);
   let options: FrequencyWorkspaceOptions | null = null, generation = 0;
   const controllers = new Map<string, AbortController>();
   let leaveAnswer: ((value: boolean) => void) | null = null;
@@ -55,6 +55,7 @@ export const useFrequencyResourceStore = defineStore('frequency-resource', () =>
     generation++;
     controllers.forEach(controller => controller.abort()); controllers.clear(); loading.value = {};
     preview.value = null; changesPreview.value = null; changeDraft.value = null;
+    if (!pending.value && !editorDirty.value) editor.value = null;
     closeDecision();
   }
   function configure(next: FrequencyWorkspaceOptions) {
@@ -63,7 +64,7 @@ export const useFrequencyResourceStore = defineStore('frequency-resource', () =>
     if (changed) {
       stopReading(); revision.value = ''; page.value = null; history.value = null; selectedIds.value = [];
       preview.value = null; receipt.value = null; operation.value = null; detail.value = null;
-      pending.value = null; phase.value = 'IDLE'; stale.value = false; listFailed.value = false; error.value = ''; notice.value = '';
+      pending.value = null; phase.value = 'IDLE'; stale.value = false; listFailed.value = false; listReady.value = false; error.value = ''; notice.value = '';
       editor.value = null; editorDirty.value = false;
       query.value = { page: 1, pageSize: 10 }; historyQuery.value = { context: 'ledger', page: 1, pageSize: 10 };
     }
@@ -112,9 +113,9 @@ export const useFrequencyResourceStore = defineStore('frequency-resource', () =>
     closeDecision(); preview.value = null; detail.value = null;
     query.value = { ...query.value, ...input };
     const request: FrequencyPageQuery = { ...query.value, context: 'ledger', revision: revision.value };
-    error.value = '';
+    error.value = ''; listReady.value = false; listFailed.value = false;
     const value = await read('list', signal => options!.services.queryFrequencyResources(request, signal));
-    if (value) { page.value = value; listFailed.value = false; }
+    if (value) { page.value = value; listFailed.value = false; listReady.value = true; }
   }
   async function loadHistory(input: Partial<FrequencyHistoryQuery> = {}) {
     if (!options) return;
@@ -125,10 +126,13 @@ export const useFrequencyResourceStore = defineStore('frequency-resource', () =>
   }
   async function refresh() {
     if (!options || phase.value === 'SAVING' || pending.value || editor.value) return;
-    stopReading(); listFailed.value = true; selectedIds.value = []; preview.value = null; detail.value = null; error.value = '';
+    // 读取中和主动中断都不是失败，但旧列表必须等当前查询成功后才能维护。
+    stopReading(); listReady.value = false; listFailed.value = false; selectedIds.value = []; preview.value = null; detail.value = null; error.value = '';
+    const token = generation;
     const value = await read('context', signal => options!.loadContext(signal));
-    if (!value) return;
+    if (!value || token !== generation) return;
     if (typeof value.revision !== 'string' || !/^resource-[0-9a-f]{16}$/.test(value.revision) || value.revision.length !== 25) {
+      listFailed.value = true;
       failure(new ApiError('资源上下文版本无效', 'INVALID_FREQUENCY_RESOURCE_RESPONSE')); return;
     }
     revision.value = value.revision; stale.value = false;
@@ -232,12 +236,13 @@ export const useFrequencyResourceStore = defineStore('frequency-resource', () =>
   async function requestLeave(): Promise<boolean> {
     if (phase.value === 'SAVING') { notice.value = '正在保存，请等待结果；关闭请求不能撤销已提交事务。'; return false; }
     if (loading.value.preview) { stopReading(); preview.value = null; }
-    if (!pending.value && selectedIds.value.length === 0 && !preview.value && !changesPreview.value && !editorDirty.value) return true;
+    // 勾选和停用预检只读，不作为未保存修改；构造草稿和已提交请求仍须明确处理。
+    if (!pending.value && !changesPreview.value && !editorDirty.value) return true;
     closeDecision(); decisionKind = 'leave';
     decision.value = pending.value
       ? { title: '操作结果待核实', message: `请求 ${pending.value.requestId} 尚待核实。离开后仍可通过本人历史或原请求号核实，离开不会撤销保存。`,
         saveLabel: '核实回执', discardLabel: '保留请求并离开', cancelLabel: '留在此页' }
-      : { title: '离开规划频点', message: '当前选择、构造草稿及预检尚未提交，是否放弃本地草稿？', discardLabel: '放弃选择并离开', cancelLabel: '继续选择' };
+      : { title: '离开规划频点', message: '构造频点修改尚未保存，是否放弃本地草稿？', discardLabel: '放弃草稿并离开', cancelLabel: '继续编辑' };
     return new Promise(resolve => { leaveAnswer = resolve; });
   }
   async function answer(value: Decision) {
@@ -248,7 +253,12 @@ export const useFrequencyResourceStore = defineStore('frequency-resource', () =>
     else if (kind === 'closeEditor') { if (value === 'discard') { editor.value = null; editorDirty.value = false; } }
     else if (kind === 'leave') {
       if (value === 'discard') { if (!pending.value) { selectedIds.value = []; preview.value = null; editor.value = null; editorDirty.value = false; changesPreview.value = null; changeDraft.value = null; } callback?.(true); }
-      else { callback?.(false); if (value === 'save' && pending.value) await inspectOperation(pending.value.requestId); }
+      else {
+        callback?.(false);
+        if (value === 'save' && pending.value) await inspectOperation(pending.value.requestId);
+        // 取消离页后恢复维护确认，避免预检仍锁定草稿却失去保存或取消入口。
+        else if (changesPreview.value && changeDraft.value) confirmChanges(changesPreview.value);
+      }
     }
   }
   function frozenActions(actions: FrequencyAction[]) {
@@ -274,7 +284,10 @@ export const useFrequencyResourceStore = defineStore('frequency-resource', () =>
     const changes = frozenActions(actions), requestedRevision = revision.value;
     const value = await read('preview', signal => options!.services.validateFrequencyChanges({ context: 'ledger', revision: requestedRevision, changes }, signal));
     if (!value || requestedRevision !== revision.value) return;
-    changesPreview.value = value; changeDraft.value = changes; decisionKind = 'changes';
+    changesPreview.value = value; changeDraft.value = changes; confirmChanges(value);
+  }
+  function confirmChanges(value: FrequencyChangesValidation) {
+    decisionKind = 'changes';
     decision.value = { title: '确认构造频点维护', message: `将变更 ${value.wouldChange.length} 项，${value.unchanged.length} 项无变化。人工构造不代表正式频率授权；历史方案需重算，链路级影响未提供。`, saveLabel: '确认保存', cancelLabel: '取消' };
   }
   async function commitMaintenance() {
@@ -285,7 +298,7 @@ export const useFrequencyResourceStore = defineStore('frequency-resource', () =>
     await sendPending();
   }
   return { session, revision, page, history, query, historyQuery, selectedIds, detail, preview, receipt, operation,
-    pending, phase, error, notice, stale, listFailed, decision, loading, busy, locked, canSelect, canMaintain, editor, editorDirty,
+    pending, phase, error, notice, stale, listFailed, listReady, decision, loading, busy, locked, canSelect, canMaintain, editor, editorDirty,
     changesPreview, openEditor, closeEditor, prepareChanges, configure, stopReading,
     refresh, loadPage, loadHistory, applyFilters, select, selectPage, clearSelection, prepareDisable, answer,
     inspectOperation, retryPending: sendPending, requestLeave };

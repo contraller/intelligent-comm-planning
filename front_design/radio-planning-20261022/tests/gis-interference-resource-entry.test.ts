@@ -88,6 +88,28 @@ async function click(target: HostNode) {
 }
 
 describe('GIS 已选干扰源参数入口', () => {
+  it('真实表单标明增益必填、合法空值来源，并按方向图控制方位角', async () => {
+    const f = await mountEntry(); f.editor.context = 'gis'; f.editor.canEdit = true;
+    f.editor.form = { kind: 'interference', id: f.selectedInterferenceId.value,
+      fields: { name: '手工源', antennaGainDbi: '', patternType: 'OMNI', azimuthDeg: '' } };
+    await nextTick();
+    expect(find(f.root, row => row.props.id === 'interference-antennaGainDbi')?.props.required).toBe(true);
+    expect(textOf(f.root)).toContain('系统没有可代用的统一默认增益');
+    expect(textOf(f.root)).toContain('资源高程不参与当前传播计算');
+    expect(textOf(f.root)).toContain('占空比按连续发射 1');
+    expect(find(f.root, row => row.props.id === 'interference-azimuthDeg')?.props.disabled).toBe(true);
+    f.editor.form.fields.patternType = 'DIRECTIONAL'; await nextTick();
+    const azimuth = find(f.root, row => row.props.id === 'interference-azimuthDeg');
+    expect(azimuth?.props.required).toBe(true); expect(azimuth?.props.disabled).toBe(false);
+  });
+
+  it('历史缺增益详情指向编辑，不把缺失值展示为零', async () => {
+    const f = await mountEntry(); f.selectedInterference.value.antennaGainDbi = null;
+    await click(f.button()!);
+    expect(textOf(f.root)).toContain('此历史干扰源缺少天线增益');
+    expect(textOf(f.root)).toContain('请编辑资源补充有效增益');
+  });
+
   it('普通资源模式可查看同一原源，只读权限不出现编辑参数', async () => {
     const f = await mountEntry(); expect(textOf(f.button()!)).toBe('查看/编辑参数');
     await click(f.button()!);

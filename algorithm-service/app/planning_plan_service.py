@@ -4,6 +4,7 @@ from __future__ import annotations
 import hashlib
 import io
 import json
+import math
 import os
 import threading
 import uuid
@@ -11,7 +12,7 @@ from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import func, or_, select
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session, sessionmaker
 from openpyxl import Workbook
 from openpyxl.cell.cell import ILLEGAL_CHARACTERS_RE
@@ -72,7 +73,7 @@ def _source_changed(plan: PlanningPlan) -> bool:
 
 
 def _dto(plan: PlanningPlan, current_plan_id: str | None = None, *,
-         source_changed: bool | None = None) -> dict[str, Any]:
+         source_changed: bool | None = None, quality_confirmation=None) -> dict[str, Any]:
     if source_changed is None:
         source_changed = _source_changed(plan)
     data = {
@@ -99,6 +100,8 @@ def _dto(plan: PlanningPlan, current_plan_id: str | None = None, *,
     }
     if plan.adjustment is not None:
         data["adjustment"] = plan.adjustment
+    if quality_confirmation is not None:
+        data["quality_risk_confirmation"] = quality_confirmation
     return data
 
 
@@ -119,7 +122,8 @@ def _plan_dto(session: Session, plan: PlanningPlan, *, same_transaction_resource
         if pointer is not None and row is None:
             raise dataset.ResourceDatasetError("当前资源指针引用的快照不存在")
         changed = plan.resource_revision != dataset._decode(row)["revision"]
-    return _dto(plan, _current_plan_id(session, plan.task_id), source_changed=changed)
+    return _dto(plan, _current_plan_id(session, plan.task_id), source_changed=changed,
+                quality_confirmation=_quality_confirmation(session, plan))
 
 
 def _replay(session: Session, request_id: str,
@@ -435,7 +439,7 @@ def list_planning_plans(task_id: str, page: int, page_size: int,
         ).offset((page - 1) * page_size).limit(page_size)).all()
         current_plan_id = _current_plan_id(session, task_id)
         return {
-            "items": [_dto(row, current_plan_id) for row in rows],
+            "items": [_dto(row, current_plan_id, quality_confirmation=_quality_confirmation(session, row)) for row in rows],
             "total": total,
             "page": page,
             "page_size": page_size,
@@ -486,7 +490,7 @@ def compare_planning_plans(payload: PlanningPlanCompareRequest,
             )
 
         current_plan_id = _current_plan_id(session, payload.task_id)
-        return [_dto(row, current_plan_id) for row in ordered]
+        return [_dto(row, current_plan_id, quality_confirmation=_quality_confirmation(session, row)) for row in ordered]
 
 
 def _excel_value(value: Any) -> str | int | float | bool | None:
@@ -571,10 +575,80 @@ def export_planning_plan(plan_id: str, payload: PlanningPlanExportRequest,
 def _confirmation_digest(plan_id: str,
                          payload: PlanningPlanConfirmRequest) -> str:
     body = payload.model_dump(mode="json")
+    # 默认请求沿用历史摘要，使升级前已成功的幂等请求仍可重放。
+    if not payload.accept_quality_risk:
+        body.pop("accept_quality_risk", None)
     body["plan_id"] = plan_id
     raw = json.dumps(body, ensure_ascii=False, sort_keys=True,
                      separators=(",", ":")).encode("utf-8")
     return hashlib.sha256(raw).hexdigest()
+
+
+def _quality_risk(plan: PlanningPlan) -> bool:
+    checks = plan.result_snapshot.get("checks", [])
+    return plan.outcome_snapshot.get("code") != 0 or not isinstance(checks, list) or any(
+        not isinstance(check, dict) or check.get("passed") is not True for check in checks)
+
+
+def _quality_result_hash(plan: PlanningPlan) -> str:
+    frozen = {"result": plan.result_snapshot, "outcome": plan.outcome_snapshot}
+    return hashlib.sha256(json.dumps(frozen, ensure_ascii=False, sort_keys=True,
+        separators=(",", ":")).encode("utf-8")).hexdigest()
+
+
+def _quality_confirmation(session: Session, plan: PlanningPlan):
+    """仅从同事务审计恢复风险确认，不能仅凭CONFIRMED伪造质量通过。"""
+    if plan.state != "CONFIRMED" or not _quality_risk(plan):
+        return None
+    from .system_management_models import SystemAuditEvent
+    events = session.scalars(select(SystemAuditEvent).where(
+        SystemAuditEvent.module == "planning",
+        SystemAuditEvent.action == "plan.confirm.quality-risk",
+        SystemAuditEvent.object_id == plan.plan_id,
+        SystemAuditEvent.outcome == "SUCCESS").order_by(SystemAuditEvent.sequence)).all()
+    for event in events:
+        proof = event.changes
+        if (proof.get("accepted") is True and proof.get("plan_id") == plan.plan_id
+                and proof.get("revision") == plan.revision_id
+                and proof.get("snapshot_id") == plan.result_snapshot.get("snapshot_id")
+                and proof.get("confirmed_at") == _timestamp(plan.confirmed_at)
+                and proof.get("result_hash") == _quality_result_hash(plan)):
+            return {key: proof[key] for key in (
+                "accepted", "plan_id", "revision", "snapshot_id", "confirmed_at", "request_id", "outcome_code")}
+    return None
+
+
+def _validate_quality_confirmation(session: Session, plan: PlanningPlan) -> None:
+    """质量风险仅放行完整的成功作业，不能替代归属及父方案证明。"""
+    from .fault_plan_source import FaultPlanSourceError, _snapshot
+    job = session.get(PlanningJob, plan.job_id)
+    if (job is None or job.status != "SUCCESS" or job.context != "planning"
+            or any(getattr(job, key) != getattr(plan, key) for key in (
+                "task_id", "revision_id", "condition_version", "resource_revision", "parent_plan_id", "adjustment"))):
+        raise PlanningPlanError(1203, "方案缺少一致的成功作业，不能确认质量风险", 409)
+    try:
+        _snapshot(plan)
+    except FaultPlanSourceError as exc:
+        raise PlanningPlanError(exc.code, str(exc), exc.status) from exc
+    result, raw = plan.result_snapshot, plan.raw_snapshot
+    checks = result.get("checks", [])
+    if not isinstance(checks, list) or any(not isinstance(check, dict) for check in checks):
+        raise PlanningPlanError(1203, "方案质量检查清单不完整，请重新规划并保存", 409)
+    if (plan.outcome_snapshot.get("code") not in (0, 3001, 3002)
+            or result.get("snapshot_id") != "SNP-" + str(raw.get("solution_id"))
+            or {check.get("id") for check in checks} != {"connectivity", "survivability", "relay", "frequency"}
+            or len(checks) != 4 or any(type(check.get("passed")) is not bool for check in checks)
+            or any(type(result.get("metrics", {}).get(key)) not in (int, float)
+                   or not math.isfinite(result["metrics"][key]) for key in (
+                       "connectivityPercent", "survivabilityPercent", "totalRadiatedPowerW"))):
+        raise PlanningPlanError(1203, "方案质量结果或冻结快照不完整，请重新规划并保存", 409)
+    if plan.parent_plan_id:
+        parent = session.get(PlanningPlan, plan.parent_plan_id)
+        if parent is None or parent.task_id != plan.task_id or parent.resource_revision != plan.resource_revision:
+            raise PlanningPlanError(1203, "方案父版本来源不一致", 409)
+        if plan.adjustment and (plan.adjustment.get("source_plan_id") != parent.plan_id
+                or plan.adjustment.get("source_snapshot_id") != parent.result_snapshot.get("snapshot_id")):
+            raise PlanningPlanError(1203, "调整方案与父快照不一致", 409)
 
 
 def _confirmation_replay(session: Session, request_id: str,
@@ -597,7 +671,7 @@ def confirm_planning_plan(plan_id: str, payload: PlanningPlanConfirmRequest,
                           factory: sessionmaker[Session] | None = None, *,
                           audit_context: LocalBusinessContext | None = None
                           ) -> dict[str, Any]:
-    """确认达标且来源未变化的方案，并切换任务的当前方案指针。"""
+    """确认来源有效的方案；未达标结果必须显式接受质量风险。"""
     owner = _business_context(audit_context)
     factory = factory or get_session_factory()
     digest = _confirmation_digest(plan_id, payload)
@@ -625,11 +699,6 @@ def confirm_planning_plan(plan_id: str, payload: PlanningPlanConfirmRequest,
                     "suggestions": ["按当前资源重新运行规划"],
                 })
             current_plan_id = _current_plan_id(session, payload.task_id)
-            if plan.state == "REFERENCE":
-                raise PlanningPlanError(3001, "参考方案未满足全部硬约束，不能确认", 409, {
-                    "plan_id": plan.plan_id,
-                    "gap": plan.outcome_snapshot.get("gap", []),
-                })
             if plan.state == "CONFIRMED":
                 if current_plan_id != plan.plan_id:
                     raise PlanningPlanError(3001, "历史确认方案不能重新设为当前方案", 409)
@@ -647,8 +716,18 @@ def confirm_planning_plan(plan_id: str, payload: PlanningPlanConfirmRequest,
                         object_id=plan.plan_id, page_context="planning", task_id=plan.task_id,
                         revision_id=plan.revision_id, changed=False)
                 return _plan_dto(session, plan)
-            if plan.state != "SAVED":
+            if plan.state not in ("SAVED", "REFERENCE"):
                 raise PlanningPlanError(1001, "方案状态不允许确认", 409)
+            quality_risk = _quality_risk(plan)
+            if plan.state == "REFERENCE" or quality_risk:
+                _validate_quality_confirmation(session, plan)
+            if quality_risk and not payload.accept_quality_risk:
+                raise PlanningPlanError(3001, "方案未满足全部硬约束，请核对所有未达标项并确认转正", 409, {
+                    "plan_id": plan.plan_id,
+                    "gap": plan.outcome_snapshot.get("gap", []),
+                    "checks": [check for check in plan.result_snapshot.get("checks", []) if check.get("passed") is not True],
+                    "requires_quality_risk_confirmation": True,
+                })
 
             now = datetime.now(timezone.utc)
             plan.state = "CONFIRMED"
@@ -670,6 +749,21 @@ def confirm_planning_plan(plan_id: str, payload: PlanningPlanConfirmRequest,
                 created_at=now,
             ))
             session.flush()
+            if quality_risk:
+                from .system_audit_service import append_system_audit
+                from .system_management_schemas import SystemManagementError
+                # 风险记录与当前指针原子提交；保存原结果指纹，不改写算法结论。
+                try:
+                    append_system_audit(session, owner.actor if owner is not None else None,
+                        now=int(now.timestamp()), action="plan.confirm.quality-risk", module="planning",
+                        object_id=plan.plan_id, request_id=payload.request_id,
+                        changes={"accepted": True, "plan_id": plan.plan_id, "revision": plan.revision_id,
+                            "snapshot_id": plan.result_snapshot["snapshot_id"], "confirmed_at": _timestamp(now),
+                            "request_id": payload.request_id, "outcome_code": plan.outcome_snapshot["code"],
+                            "result_hash": _quality_result_hash(plan)},
+                        summary="用户显式确认未达标方案转正；原质量结论保留")
+                except SQLAlchemyError as exc:
+                    raise SystemManagementError("方案质量风险确认审计未能完成", 5002, 503) from exc
             if owner is not None:
                 _append_owner(owner, session, prepared, operation="plan.confirm", request_id=payload.request_id,
                     object_id=plan.plan_id, page_context="planning", task_id=plan.task_id, revision_id=plan.revision_id)

@@ -1778,6 +1778,8 @@ onMounted(() => window.addEventListener('keydown', escape));
 watch(() => props.selectedLinkId, locate);
 watch(() => props.selectedCandidateLinkId, locate);
 defineExpose({
+  // 任务查看复用地图现有全域定位，仅调整显示范围。
+  fit,
   locate,
   locateCandidate,
   locateResource,

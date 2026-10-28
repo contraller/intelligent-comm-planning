@@ -591,7 +591,7 @@ describe('新建资源草稿',()=>{
     const {editor,preview}=await setup();await editor.newForm('interference');
     const id=editor.form!.id;editor.pick([114.6,37.5]);editor.form!.fields.name='新干扰源';
     expect(editor.applyForm()).toBe(false);expect(editor.form!.id).toBe(id);
-    Object.assign(editor.form!.fields,{antennaHeightM:'2',centerFreqKhz:'5000',bandwidthKhz:'10',txPowerDbm:'20'});
+    Object.assign(editor.form!.fields,{antennaHeightM:'2',centerFreqKhz:'5000',bandwidthKhz:'10',txPowerDbm:'20',antennaGainDbi:'0'});
     expect(editor.applyForm()).toBe(true);expect(editor.resources.interferences).toHaveLength(17);
     await editor.moveHistory('undo');expect(editor.resources.interferences).toHaveLength(16);
     await editor.moveHistory('redo');expect(await editor.save(),editor.error).toBe(true);

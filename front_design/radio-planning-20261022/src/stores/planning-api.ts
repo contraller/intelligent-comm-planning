@@ -4,7 +4,7 @@ import { computed, nextTick, ref, toRaw, watch } from 'vue';
 import { defineStore } from 'pinia';
 import { previewService } from '../services';
 import { ApiError } from '../services/types';
-import { planPasses } from '../services/planning-api-validation';
+import { planQualityComplete, planQualityWarnings } from '../services/planning-api-validation';
 import { sameValue } from '../services/planning-validation';
 import type { PlanningApiFeedbackState, PlanningFeedbackOperation } from '../services/planning-api-feedback';
 import type { ApiPlan, ApiPlanningJob, PlanningPlanSummary, PlanningMutationReceipt } from '../types/planning-api';
@@ -18,7 +18,7 @@ import type { PlanningIssue } from '../types/planning';
 import { usePlanningStore } from './planning';
 import { apiId } from '../services/task-api-validation';
 
-interface PendingWrite { kind: Exclude<OperationKind, 'saveTask'>; requestId: string; taskId: string; adjustment?:PlanningAdjustment; parentPlanId?:string|null; jobId?:string; solutionId?:string; snapshotId?:string; planId?:string; planVersion?:string; name?:string; note?:string }
+interface PendingWrite { kind: Exclude<OperationKind, 'saveTask'>; requestId: string; taskId: string; adjustment?:PlanningAdjustment; parentPlanId?:string|null; jobId?:string; solutionId?:string; snapshotId?:string; planId?:string; planVersion?:string; name?:string; note?:string; qualitySnapshot?: { result: ApiPlan['result']; outcome: ApiPlan['outcome'] } }
 // 只维护当前任务的接口现场；分页历史、异步作业和输入草稿各自独立。
 export const usePlanningApiStore = defineStore('planning-api', () => {
   const auth = useAuthStore(), task = useTaskInputStore(), legacy = usePlanningStore();
@@ -54,6 +54,8 @@ export const usePlanningApiStore = defineStore('planning-api', () => {
   function assertConfirmIdentity(plan:ApiPlan,expected:Partial<PendingWrite>){
     if(expected.planId&&(plan.id!==expected.planId||plan.taskId!==expected.taskId||plan.version!==expected.planVersion||plan.result.snapshotId!==expected.snapshotId||plan.state!=='CONFIRMED'||!plan.confirmedAt))
       throw new ApiError('转正回执与原方案版本不一致','INVALID_PLANNING_RESPONSE');
+    if (expected.qualitySnapshot && (!plan.qualityRiskConfirmation || !sameValue(plan.result, expected.qualitySnapshot.result) || !sameValue(plan.outcome, expected.qualitySnapshot.outcome)))
+      throw new ApiError('风险确认回执缺少原质量结论或明确确认记录','INVALID_PLANNING_RESPONSE');
   }
   const page = ref(1), step = ref(1), notice = ref(''), busy = ref(false), loading = ref(false);
   const feedback = ref<PlanningApiFeedbackState | null>(null), queryFeedback = ref<PlanningApiFeedbackState | null>(null);
@@ -115,7 +117,7 @@ export const usePlanningApiStore = defineStore('planning-api', () => {
   });
   const canSubmit = computed(() => auth.can('planning.execute') && !task.referencesRefreshing && !task.resourceStale && !task.busy && !task.loading && !adjustmentOpen.value && !adjustmentDirty.value && !!task.saved && !task.dirty && !task.pendingSave && !running.value && !unverifiedActiveJobId.value && !busy.value && !pending.value);
   const canSave = computed(() => auth.can('planning.save') && !adjustmentDirty.value && (!adjustmentParent.value || !job.value?.adjustment || !!adjustmentResult.value) && !busy.value && !pending.value && !queryError.value && refreshRequiredJobId.value !== job.value?.id && !selectedPlan.value && job.value?.state === 'SUCCESS' && !!currentResult.value && !currentExpired.value && !currentSavedPlanId.value);
-  const canConfirm = computed(() => auth.can('planning.confirm') && !adjustmentOpen.value && !adjustmentDirty.value && !busy.value && !pending.value && !!selectedPlan.value && selectedPlan.value.state === 'SAVED' && !sourceChanged.value && planPasses(selectedPlan.value.result) && selectedPlan.value.outcome.code === 0);
+  const canConfirm = computed(() => auth.can('planning.confirm') && !adjustmentOpen.value && !adjustmentDirty.value && !busy.value && !pending.value && !!selectedPlan.value && ['SAVED', 'REFERENCE'].includes(selectedPlan.value.state) && !sourceChanged.value && planQualityComplete(selectedPlan.value.result) && [0, 3001, 3002].includes(selectedPlan.value.outcome.code));
   const options = (signal?: AbortSignal) => ({ context: task.context, signal });
   const syncTaskRunning = () => { task.running = running.value || !!unverifiedActiveJobId.value || busy.value || !!pending.value || adjustmentOpen.value; };
   watch(() => [running.value, unverifiedActiveJobId.value, busy.value, pending.value,adjustmentOpen.value] as const, syncTaskRunning, { flush: 'sync', immediate: true });
@@ -351,9 +353,14 @@ export const usePlanningApiStore = defineStore('planning-api', () => {
     const current = copy(selectedPlan.value);
     const owner={generation,session:auth.generation,taskId:task.taskId};
     const expected={planId:current.id,planVersion:current.version,snapshotId:current.result.snapshotId,...(current.adjustment?{adjustment:copy(current.adjustment),parentPlanId:current.parentPlanId}:{})};
-    if (await task.ask({ title: '确认方案转正', message: `将“${current.name} · ${current.version}”转正并设为本任务当前方案，保留旧版本。请先核对方案配置；本操作不下发设备，也不改写资源台账。`, saveLabel: '确认转正' }) !== 'save') return;
+    const warnings = planQualityWarnings(current), acceptQualityRisk = warnings.length > 0;
+    if (acceptQualityRisk) Object.assign(expected, { qualitySnapshot: { result: current.result, outcome: current.outcome } });
+    // 同一次弹窗列出所有检查缺口，取消不会发起写入；原质量结果始终保留。
+    const riskMessage = acceptQualityRisk ? `以下指标未达到要求：\n${warnings.map((warning, index) => `${index + 1}. ${warning}`).join('\n')}\n是否确认转正？转正后仍保留上述未达标结论。\n\n` : '';
+    if (await task.ask({ title: acceptQualityRisk ? '确认未达标方案转正' : '确认方案转正', message: `${riskMessage}将“${current.name} · ${current.version}”转正并设为本任务当前方案，保留旧版本。请先核对方案配置；本操作不下发设备，也不改写资源台账。`, saveLabel: '确认转正' }) !== 'save') return;
     if(owner.generation!==generation||owner.session!==auth.generation||owner.taskId!==task.taskId||selectedPlan.value?.id!==current.id||selectedPlan.value.version!==current.version||selectedPlan.value.result.snapshotId!==current.result.snapshotId||!canConfirm.value)return;
-    const ok=await write<ApiPlan>('confirm', requestId => previewService.confirmPlanningReceipt({ ...options(), taskId: current.taskId, planId: current.id, revision: current.revision, requestId }), value => {
+    if (!sameValue(selectedPlan.value.result, current.result) || !sameValue(selectedPlan.value.outcome, current.outcome)) return;
+    const ok=await write<ApiPlan>('confirm', requestId => previewService.confirmPlanningReceipt({ ...options(), taskId: current.taskId, planId: current.id, revision: current.revision, requestId, ...(acceptQualityRisk ? { acceptQualityRisk: true } : {}) }), value => {
       selectedPlan.value = value;refreshRequiredJobId.value=job.value?.id??null;notice.value = value.confirmedConfiguration?'方案已转正，可查看正式配置快照。':'方案已转正；服务未返回正式配置快照。';
     },expected,current.taskId);
     // 确认结果与后续查询分开处理，查询失败不重发已成功的确认。

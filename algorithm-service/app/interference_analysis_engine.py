@@ -17,6 +17,13 @@ class AnalysisInputError(ValueError):
     pass
 
 
+class InterferenceParameterError(AnalysisInputError):
+    """资源参数无效属于输入错误，不混用来源版本冲突。"""
+    def __init__(self, issues):
+        self.issues = issues
+        super().__init__("干扰源参数校验未通过：\n" + "\n".join(issue["message"] for issue in issues))
+
+
 class AnalysisCancelled(RuntimeError):
     pass
 
@@ -44,6 +51,82 @@ def _number(value, name, *, positive=False):
     if not math.isfinite(result) or positive and result <= 0:
         raise AnalysisInputError("参数范围无效：" + name)
     return result
+
+
+SOURCE_FIELDS = {"lon": "经度", "lat": "纬度", "elevation_m": "高程", "antenna_height_m": "天线高度",
+    "center_freq_khz": "中心频率", "bandwidth_khz": "带宽", "tx_power_dbm": "发射功率",
+    "antenna_gain_dbi": "天线增益", "interference_type": "干扰类型", "pattern_type": "天线方向图",
+    "azimuth_deg": "方位角", "duty_cycle": "占空比", "active": "生效状态"}
+
+
+def normalize_interference_sources(rows):
+    """只从场景原行生成计算副本；空值、默认值和不适用字段分别记录。"""
+    normalized, errors = [], []
+    for row in rows:
+        identity = row.get("interference_id", "未知ID")
+        name = row.get("name") or identity
+        parameters, sources = {}, {}
+
+        def issue(field, reason, code):
+            message = (f"干扰源『{name}』的{SOURCE_FIELDS[field]}{reason}"
+                       f"（ID={identity}，字段={field}，代码={code}）")
+            errors.append({"interference_id": identity, "field": field, "code": code, "message": message})
+
+        def missing(value):
+            return value is None or isinstance(value, str) and not value.strip()
+
+        def number(field, *, low=None, high=None, positive=False, exclusive_high=False, optional=False):
+            value = row.get(field)
+            if missing(value):
+                if not optional:
+                    issue(field, "缺失，请填写后保存资源并重新保存场景", "MISSING_PARAMETER")
+                return None
+            try:
+                result = _number(value, field)
+            except AnalysisInputError:
+                issue(field, "无效，须为有限数值", "INVALID_NUMBER")
+                return None
+            if (positive and result <= 0 or low is not None and result < low
+                    or high is not None and (result >= high if exclusive_high else result > high)):
+                bounds = ("大于 0" if positive else f"不小于 {low}" if high is None else
+                          f"{low} 至 {'小于 ' if exclusive_high else ''}{high}")
+                issue(field, f"超出允许范围，须为{bounds}", "OUT_OF_RANGE")
+            return result
+
+        for field in ("lon", "lat", "antenna_height_m", "center_freq_khz", "bandwidth_khz", "tx_power_dbm", "antenna_gain_dbi"):
+            options = ({"low": -180, "high": 180} if field == "lon" else
+                       {"low": -90, "high": 90} if field == "lat" else
+                       {"low": 0} if field == "antenna_height_m" else
+                       {"positive": True} if field in ("center_freq_khz", "bandwidth_khz") else {})
+            parameters[field] = number(field, **options)
+            sources[field] = "冻结场景原始参数"
+        # 0 dBi 是参考接收机的假设，并非干扰源默认增益；缺失增益不作推定。
+        parameters["elevation_m"] = number("elevation_m", optional=True)
+        sources["elevation_m"] = "资源高程仅保留原值；传播模型按已核验指纹的DEM地形剖面取地面高程"
+        pattern = row.get("pattern_type")
+        parameters["pattern_type"] = "OMNI" if missing(pattern) else pattern
+        sources["pattern_type"] = "既有Jammer模型缺省全向OMNI" if missing(pattern) else "冻结场景原始参数"
+        if parameters["pattern_type"] not in ("OMNI", "DIRECTIONAL"):
+            issue("pattern_type", "无效，须为 OMNI 或 DIRECTIONAL", "INVALID_CHOICE")
+        parameters["azimuth_deg"] = (number("azimuth_deg", low=0, high=360, exclusive_high=True)
+                                      if parameters["pattern_type"] == "DIRECTIONAL" else None)
+        sources["azimuth_deg"] = "冻结场景原始参数" if parameters["pattern_type"] == "DIRECTIONAL" else "全向方向图不使用方位角；原行保持不变"
+        duty = row.get("duty_cycle")
+        parameters["duty_cycle"] = 1.0 if missing(duty) else number("duty_cycle", low=0, high=1)
+        sources["duty_cycle"] = "既有Jammer模型缺省连续发射，占空比1" if missing(duty) else "冻结场景原始参数"
+        parameters["interference_type"] = row.get("interference_type")
+        sources["interference_type"] = "冻结场景原始参数；现有模型按带宽内均匀功率谱计算"
+        if parameters["interference_type"] not in ("NARROWBAND", "BROADBAND", "SWEEP", "PULSE", "NOISE"):
+            issue("interference_type", "无效，须选择已有干扰类型", "INVALID_CHOICE")
+        active = row.get("active")
+        if active not in ("true", "false"):
+            issue("active", "无效，须明确为 true 或 false", "INVALID_CHOICE")
+        parameters["active"] = active == "true"
+        sources["active"] = "冻结场景原始参数"
+        normalized.append({"interference_id": identity, "name": name, "parameters": parameters, "sources": sources})
+    if errors:
+        raise InterferenceParameterError(errors)
+    return normalized
 
 
 def _modules():
@@ -94,20 +177,15 @@ class FrozenInterferenceEngine:
         reasons = self.probe_plan(source["scene"]["plan_snapshot"])
         if reasons:
             raise AnalysisInputError("；".join(reasons))
-        for source_row in source["scene"]["interference_sources"]:
-            row = source_row["source_row"]
-            for key in ("lon", "lat", "tx_power_dbm", "antenna_gain_dbi"):
-                _number(row.get(key), row["interference_id"] + "." + key)
-            for key in ("center_freq_khz", "bandwidth_khz", "antenna_height_m", "duty_cycle"):
-                _number(row.get(key), row["interference_id"] + "." + key, positive=True)
-            if (abs(float(row["lon"])) > 180 or abs(float(row["lat"])) > 90
-                    or float(row["duty_cycle"]) > 1 or row.get("active") not in ("true", "false")
-                    or row.get("pattern_type") not in ("OMNI", "DIRECTIONAL") or not row.get("interference_type")):
-                raise AnalysisInputError("干扰源坐标、占空比、状态或类型无效")
-            if row["pattern_type"] == "DIRECTIONAL":
-                azimuth = _number(row.get("azimuth_deg"), "azimuth_deg")
-                if not 0 <= azimuth <= 360:
-                    raise AnalysisInputError("定向干扰源缺少有效方位角")
+        self.freeze_parameters(source)
+
+    @staticmethod
+    def freeze_parameters(source):
+        parameters = normalize_interference_sources([row["source_row"] for row in source["scene"]["interference_sources"]])
+        frozen = source.get("analysis_parameters")
+        if frozen is not None and frozen != parameters:
+            raise AnalysisInputError("分析有效参数与冻结场景不一致，请核实运行快照")
+        return parameters
 
     def _build(self, source):
         self.validate_source(source)
@@ -166,7 +244,8 @@ class FrozenInterferenceEngine:
             if not bbox[0] <= lon <= bbox[2] or not bbox[1] <= lat <= bbox[3]:
                 raise AnalysisInputError("冻结对象超出已核验地形范围，禁止边缘钳位冒充地形")
         scenario = IF.build_scenario(stations, links, terrain,
-            [deepcopy(row["source_row"]) for row in scene["interference_sources"]],
+            [{**row["parameters"], "interference_id": row["interference_id"], "name": row["name"]}
+             for row in self.freeze_parameters(source)],
             freq_of=freq_of, net_of=net_of, tx_of=tx_of, device_radios=radios)
         if len(scenario.links) != len(links):
             raise AnalysisInputError("部分冻结链路未能进入算法场景")

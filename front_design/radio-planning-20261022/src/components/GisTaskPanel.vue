@@ -1,6 +1,6 @@
 <template>
   <section class="gis-task-panel">
-    <p class="muted">选择已保存任务查看参与节点与通联关系；任务编辑在网络规划完成。</p>
+    <p class="muted">查询后端已保存任务，选择后查看冻结参与节点与通联需求；任务编辑在网络规划完成。</p>
     <div class="toolbar">
       <input
         v-model="search"
@@ -74,6 +74,13 @@
     </div>
     <template v-if="controller.selected">
       <p class="muted">{{ controller.selected.version }} · {{ controller.selected.updatedAt }}</p>
+      <button
+        class="btn small"
+        :disabled="!controller.readable || controller.selecting"
+        @click="viewTaskSituation"
+        >{{ controller.selecting ? '正在载入任务态势…' : '查看任务态势' }}</button
+      >
+      <p v-if="viewFeedback" class="muted" role="status" aria-live="polite">{{ viewFeedback }}</p>
       <p
         v-if="controller.selected.resourceRevision"
         class="muted"
@@ -98,7 +105,7 @@
           @click="emit('locateNode', id)"
           >定位节点</button
         >
-        <small v-if="!stationAvailable(id)">当前资源未提供此节点，无法定位。</small>
+        <small v-if="!stationAvailable(id)">冻结节点信息未提供，无法定位。</small>
       </article>
       <h3>通联需求（{{ controller.selected.input.demands.length }}）</h3>
       <article
@@ -134,9 +141,10 @@
   </section>
 </template>
 <script setup lang="ts">
-import { ref } from 'vue';
+import { ref, watch } from 'vue';
 import { RouterLink } from 'vue-router';
 import type { GisTaskSelectionController } from '../composables/useGisTaskSelection';
+import type { GisTaskSituationTarget } from '../types/gis-task';
 
 const props = defineProps<{
   controller: GisTaskSelectionController;
@@ -147,14 +155,30 @@ const emit = defineEmits<{
   locateNode: [id: string];
   locateDemand: [id: string];
   editTask: [taskId: string];
+  viewTask: [target: GisTaskSituationTarget];
 }>();
 const search = ref(props.controller.search);
+const viewFeedback = ref('');
+watch(() => props.controller.selected, () => { viewFeedback.value = ''; });
 // 面板只发定位与跳转意图，不持有或修改规划输入。
-const stationAvailable = (id: string) => !!props.stations?.some((row) => row.id === id);
+const stationAvailable = (id: string) => (props.stations ?? props.controller.nodes).some((row) => row.id === id);
 const stationName = (id: string) =>
-  props.stations?.find((row) => row.id === id)?.name ?? `${id}（节点信息未提供）`;
-function selectTask(id: string) {
-  if (id) void props.controller.select(id);
+  (props.stations ?? props.controller.nodes).find((row) => row.id === id)?.name ?? `${id}（节点信息未提供）`;
+function announceSituation() {
+  const task = props.controller.selected;
+  if (!task?.revision) return;
+  viewFeedback.value = `已载入任务“${task.name}”的冻结态势：${props.controller.nodes.length} 个参与节点、${task.input.demands.length} 条通联需求。`;
+  emit('viewTask', { taskId: task.taskId, revision: task.revision, snapshotId: props.controller.snapshot?.snapshotId ?? null });
+}
+async function viewTaskSituation() {
+  if (!props.controller.readable || !props.controller.selected || props.controller.selecting) return;
+  viewFeedback.value = '正在载入所选保存版本的任务态势…';
+  if (await props.controller.loadReferences()) announceSituation();
+  else viewFeedback.value = '任务态势未载入，请查看错误提示。';
+}
+async function selectTask(id: string) {
+  viewFeedback.value = '';
+  if (id) { if (await props.controller.select(id)) announceSituation(); }
   else props.controller.clearSelection();
 }
 </script>

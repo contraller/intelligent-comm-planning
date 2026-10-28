@@ -97,7 +97,7 @@ export function createPlanningHttp(request: AuthenticatedRequest, baseUrl: () =>
         || input.solutionId !== undefined && plan.result.snapshotId !== input.snapshotId) invalidApi('saved plan association');
       return plan;
     },
-    async confirmPlanningPlan(input) { apiId(input.planId); const plan = readApiPlan(await request(`/plans/${encodeURIComponent(input.planId)}/confirm`, { method: 'POST', body: JSON.stringify(mutation(input)), signal: input.signal }), input); if(plan.state!=='CONFIRMED')invalidApi('confirmation state');return plan; },
+    async confirmPlanningPlan(input) { apiId(input.planId); if(input.acceptQualityRisk!==undefined&&typeof input.acceptQualityRisk!=='boolean')invalidApi('quality risk acceptance');const plan = readApiPlan(await request(`/plans/${encodeURIComponent(input.planId)}/confirm`, { method: 'POST', body: JSON.stringify({...mutation(input),...(input.acceptQualityRisk?{accept_quality_risk:true}:{})}), signal: input.signal }), input); if(plan.state!=='CONFIRMED')invalidApi('confirmation state');return plan; },
     async comparePlanningPlans(input) {
       assertTaskOptions(input); apiId(input.taskId);
       if (!Array.isArray(input.planIds) || input.planIds.length < 2 || input.planIds.length > 4 || new Set(input.planIds).size !== input.planIds.length) throw new ApiError('请选择同任务的 2–4 个不同版本', 'INVALID_COMPARISON'); input.planIds.forEach(x => apiId(x));

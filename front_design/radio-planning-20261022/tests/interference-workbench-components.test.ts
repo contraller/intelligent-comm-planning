@@ -94,4 +94,29 @@ describe('专用干扰组件，不替代GIS宿主页验收', () => {
     store.selected = invalid; await nextTick(); expect(find(root, row => row.props['aria-label'] === '定位干扰源 IF-FROZEN')?.props.disabled).toBe(true);
     store.selected = successful(); await nextTick(); expect(find(root, row => row.props['aria-label'] === '定位干扰源 IF-LIVE')).toBeUndefined();
   });
+  it('已保存场景一次列出多源多字段问题，展示中文名称和ID而非只报首项', () => {
+    const store = useInterferenceStore(), view = successful();
+    view.source.interferenceSources = [{ interferenceId: 'BAD-1', sourceRow: { interference_id: 'BAD-1', name: '我的干扰源', active: 'true',
+      lon: '114', lat: '37', elevation_m: '', antenna_height_m: '20', center_freq_khz: '400', bandwidth_khz: '0',
+      tx_power_dbm: '60', antenna_gain_dbi: '', interference_type: 'NOISE', pattern_type: 'OMNI', azimuth_deg: '', duty_cycle: '' } }];
+    store.scene = { version: view.source, sourceState: { state: 'CURRENT', reasons: [] } };
+    const root = mount(Panel, { sourceEditable: false, selectedNodeId: '', selectedLinkId: '' });
+    const content = textOf(root);
+    expect(content).toContain('我的干扰源'); expect(content).toContain('天线增益缺失'); expect(content).toContain('带宽超出允许范围');
+    expect(content).toContain('BAD-1'); expect(content).toContain('antenna_gain_dbi');
+    expect(find(root, row => row.tag === 'button' && textOf(row).includes('提交干扰分析'))?.props.disabled).toBe(true);
+  });
+  it('任务受理后即可看到实际参数及默认来源，历史运行保留原状态', () => {
+    const store = useInterferenceStore(), view = successful();
+    view.state = 'PENDING'; view.progress = 0; view.result = null; view.result_hash = null;
+    view.analysis_parameters = [{ interference_id: 'IF-PARAM', name: '冻结参数源',
+      parameters: { antenna_gain_dbi: -2, pattern_type: 'OMNI', duty_cycle: 1, azimuth_deg: null },
+      sources: { antenna_gain_dbi: '冻结场景原始参数', pattern_type: '既有Jammer模型缺省全向OMNI',
+        duty_cycle: '既有Jammer模型缺省连续发射，占空比1', azimuth_deg: '全向方向图不使用方位角' } }];
+    store.selected = view;
+    const root = mount(Panel, { sourceEditable: false, selectedNodeId: '', selectedLinkId: '' });
+    expect(textOf(root)).toContain('分析有效参数及来源'); expect(textOf(root)).toContain('冻结参数源');
+    expect(textOf(root)).toContain('天线增益'); expect(textOf(root)).toContain('-2');
+    expect(textOf(root)).toContain('缺省连续发射'); expect(textOf(root)).not.toContain('历史运行未记录');
+  });
 });

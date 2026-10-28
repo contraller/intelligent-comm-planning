@@ -8,12 +8,15 @@ import pytest
 from sqlalchemy import select
 
 from test_interference_frontend_api import api as scene_api, body, data, headers, read, save
-from app.interference_analysis_engine import digest
+from test_interference_analysis_engine import frozen_sample
+from app.interference_analysis_engine import digest, FrozenInterferenceEngine
 from app.interference_workbench_models import InterferenceWorkbenchRun as Run
 from app.interference_workbench_router import router
 from app.interference_workbench_schemas import RunSubmit
 from app.interference_workbench_service import InterferenceWorkbenchService, now
 from app.planning_plan_models import PlanningPlan
+from app import resource_dataset_service as resources
+from app.task_input_models import PlanningTaskRevision
 
 BASE = "/api/v1/interference/workbench"
 
@@ -92,6 +95,136 @@ def test_submit_worker_persisted_preview_and_read_only(wb):
     from app.interference_workbench_schemas import TaskQuery
     assert reopened.detail(run_id, TaskQuery(task_id="T1")) == detail
     assert data(submit(wb)) == receipt
+
+
+def test_accepted_run_freezes_effective_parameters_separately_from_scene(wb):
+    from app.interference_workbench_schemas import TaskQuery
+    api, service, engine, previous = wb
+    data(save(api, body(api, request_id="scene-with-sources", base_scene_version_id=previous["version_id"])))
+    wb = (api, service, engine, data(read(api))["version"])
+    # 只用状态机桩替代执行；参数标准化调用真实逻辑，不把桩称为传播计算证据。
+    engine.freeze_parameters = FrozenInterferenceEngine.freeze_parameters
+    scene_before = deepcopy(wb[3])
+    receipt = data(submit(wb))
+    detail = service.detail(receipt["object_id"], TaskQuery(task_id="T1"))
+    assert detail["source"] == scene_before
+    assert len(detail["analysis_parameters"]) == len(scene_before["interference_ids"])
+    first = detail["analysis_parameters"][0]
+    assert first["parameters"]["antenna_gain_dbi"] == float(scene_before["interference_sources"][0]["source_row"]["antenna_gain_dbi"])
+    assert "冻结场景" in first["sources"]["antenna_gain_dbi"]
+    with api[1]() as session:
+        run = session.get(Run, receipt["object_id"])
+        assert digest(run.source_snapshot) == run.source_hash
+        assert run.source_snapshot["scene"] == scene_before
+        assert run.source_snapshot["analysis_parameters"] == detail["analysis_parameters"]
+    # 调用方改动返回副本不能改变持久化的冻结有效参数。
+    first["parameters"]["antenna_gain_dbi"] = 999
+    assert service.detail(receipt["object_id"], TaskQuery(task_id="T1"))["analysis_parameters"] != detail["analysis_parameters"]
+    accepted_parameters = service.detail(receipt["object_id"], TaskQuery(task_id="T1"))["analysis_parameters"]
+    def update_resource(snapshot):
+        snapshot["tables"]["interference_source.csv"][0]["antenna_gain_dbi"] = "88"
+        return True, {"object_id": "test-resource-change", "affected_ids": [], "warnings": []}
+    resources.commit_device_change(scene_before["resource_revision"], "resource-after-acceptance", "a" * 64,
+                                   "test-fixture", update_resource)
+    historical = service.detail(receipt["object_id"], TaskQuery(task_id="T1"))
+    assert historical["source_state"]["state"] == "HISTORICAL"
+    assert historical["analysis_parameters"] == accepted_parameters and historical["source"] == scene_before
+
+
+def test_legacy_invalid_parameters_are_422_not_version_conflict(scene_api):
+    api = scene_api
+    def legacy_parameters(snapshot):
+        first, second = snapshot["tables"]["interference_source.csv"][:2]
+        first.update(name="历史缺增益源", antenna_gain_dbi="", bandwidth_khz="0")
+        second.update(name="历史缺方位源", pattern_type="DIRECTIONAL", azimuth_deg="")
+        return True, {"object_id": "legacy-parameters", "affected_ids": [], "warnings": []}
+    resources.commit_device_change(api[2]["revision"], "legacy-parameters", "b" * 64, "test-fixture", legacy_parameters)
+    snapshot = resources.current()
+    with api[1].begin() as session:
+        session.get(PlanningPlan, "P1").resource_revision = snapshot["revision"]
+        session.get(PlanningTaskRevision, "REV-P1").resource_revision = snapshot["revision"]
+    api = (api[0], api[1], snapshot, *api[3:])
+    data(save(api, body(api)))
+    engine = EngineStub()
+    engine.freeze_parameters = FrozenInterferenceEngine.freeze_parameters
+    service = InterferenceWorkbenchService(api[1], engine=engine)
+    api[0].app.include_router(router)
+    api[0].app.state.interference_workbench = service
+    wb = (api, service, engine, data(read(api))["version"])
+    response = submit(wb)
+    assert response.status_code == 422 and response.json()["code"] == 1001
+    message = response.json()["message"]
+    assert all(text in message for text in ("历史缺增益源", "天线增益", "带宽", "历史缺方位源", "方位角", "IF-0001", "IF-0002"))
+    with api[1]() as session:
+        assert session.scalar(select(Run)) is None
+
+
+def test_resource_change_before_acceptance_is_explicit_conflict_not_silent_refresh(wb):
+    def update_resource(snapshot):
+        snapshot["tables"]["interference_source.csv"][0]["antenna_gain_dbi"] = "77"
+        return True, {"object_id": "before-acceptance", "affected_ids": [], "warnings": []}
+    resources.commit_device_change(wb[3]["resource_revision"], "resource-before-acceptance", "c" * 64,
+                                   "test-fixture", update_resource)
+    response = submit(wb)
+    assert response.status_code == 409 and response.json()["code"] == 1205
+    assert "资源版本已变化" in response.json()["message"]
+    assert data(read(wb[0]))["version"] == wb[3]
+    with wb[0][1]() as session:
+        assert session.scalar(select(Run)) is None
+
+
+@pytest.mark.parametrize("gain", [0, -2])
+def test_manual_source_http_save_scene_submit_and_native_small_analysis(scene_api, frozen_sample, gain, monkeypatch):
+    """真实HTTP+隔离SQLite+原生小拓扑算法；地形显式合成，不冒充真实DEM联调。"""
+    from app import resource_geography
+    from app.resource_workspace_router import router as workspace_router
+    api = scene_api
+    client, factory, baseline, _, raw = api
+    monkeypatch.setattr(resource_geography, "read_planning_bounds", lambda: (113.9, 36.9, 114.1, 37.1))
+    client.app.include_router(workspace_router)
+    data(client.post("/api/v1/auth/integration/switch", json={"accountId": "integration-editor"}, headers=headers(client)))
+    frequency = frozen_sample[2]
+    manual = {"id": "MANUAL-J", "name": "手工完整流程源", "coordinate": [114.005, 37.001], "elevationM": None,
+        "antennaHeightM": 0 if gain == 0 else 20, "centerFreqKhz": frequency, "bandwidthKhz": 25, "txPowerDbm": -10,
+        "antennaGainDbi": gain, "interferenceType": "NOISE", "patternType": None,
+        "azimuthDeg": None, "dutyCycle": None, "active": True, "origin": "MANUAL"}
+    saved = data(client.post("/api/v1/resource/workspace/changes", headers=headers(client), json={
+        "context": "gis", "base_revision": baseline["revision"], "request_id": "save-manual-source",
+        "changes": {"newInterferences": [manual]}}))
+    revision = saved["receipt"]["revision"]
+    plan_raw = {**deepcopy(raw), **deepcopy(frozen_sample[1]["scene"]["plan_snapshot"]["raw_snapshot"])}
+    for node in plan_raw["detail"]["nodes"]:
+        node["lat"] = "37.0"
+    node_ids = [row["node_id"] for row in plan_raw["detail"]["nodes"]]
+    plan_raw["detail"]["routes"] = {"routes": [{"demand_id": "C1", "primary": {
+        "node_path": node_ids, "link_path": ["L1"]}, "backup": None}]}
+    with factory.begin() as session:
+        plan = session.get(PlanningPlan, "P1")
+        plan.resource_revision, plan.raw_snapshot = revision, plan_raw
+        session.get(PlanningTaskRevision, "REV-P1").resource_revision = revision
+    data(client.post("/api/v1/auth/integration/switch", json={"accountId": "integration-planner"}, headers=headers(client)))
+    data(save(api, body(api, resource_revision=revision, interference_ids=[manual["id"]])))
+    scene = data(read(api))["version"]
+    terrain = frozen_sample[0].terrain_provider().__class__((113.995, 36.995, 114.02, 37.01))
+    engine = FrozenInterferenceEngine(terrain_provider=lambda: terrain, fingerprint_provider=lambda: "TEST-TERRAIN")
+    service = InterferenceWorkbenchService(factory, engine=engine)
+    client.app.include_router(router)
+    client.app.state.interference_workbench = service
+    wb = (api, service, engine, scene)
+    receipt = data(submit(wb))
+    accepted = data(client.get(BASE + "/runs/" + receipt["object_id"], params={"task_id": "T1"}))
+    assert accepted["state"] == "PENDING"
+    assert accepted["analysis_parameters"][0]["parameters"]["antenna_gain_dbi"] == gain
+    assert accepted["analysis_parameters"][0]["parameters"]["antenna_height_m"] == manual["antennaHeightM"]
+    assert accepted["analysis_parameters"][0]["parameters"]["duty_cycle"] == 1
+    assert service.run_once()
+    final = data(client.get(BASE + "/runs/" + receipt["object_id"], params={"task_id": "T1"}))
+    assert final["state"] == "SUCCESS", final["error"]
+    assert final["result"]["summary"]["jammers"] == 1
+    assert final["source"] == scene and final["analysis_parameters"] == accepted["analysis_parameters"]
+    source_row = next(row for row in resources.current()["tables"]["interference_source.csv"] if row["interference_id"] == manual["id"])
+    assert source_row["antenna_gain_dbi"] == str(gain)
+    assert source_row["elevation_m"] == source_row["pattern_type"] == source_row["azimuth_deg"] == source_row["duty_cycle"] == ""
 
 
 @pytest.mark.parametrize("patch", [{"expected": 1}, {"plan_version": "V0"}, {"snapshot_hash": "a"},

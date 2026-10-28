@@ -25,6 +25,7 @@ import { createLocalIdentityHttp } from './local-identity-http';
 import { createResourceResetHttp } from './resource-reset-http';
 import { createRuntimeParametersHttp, decodeRuntimeParameters } from './runtime-parameters-http';
 import { createFrozenCoverageHttp } from './frozen-coverage-http';
+import { createGisTaskHttp } from './gis-task-http';
 
 // 保留既有导出路径；认证、传输与页面会话分别维护，不在入口堆叠实现。
 export { createHttpClient } from './http-client';
@@ -46,6 +47,7 @@ export const collaborationHttp = Object.freeze({
   runtimeParameters: createRuntimeParametersHttp(authentication.authenticatedRequest),
   frozenCoverage: createFrozenCoverageHttp(authentication.authenticatedRequest),
   gisPlans: createGisPlanHttp(authentication.authenticatedRequest),
+  gisTasks: createGisTaskHttp(authentication.authenticatedRequest),
   interferenceScenes: createInterferenceSceneHttp(authentication.authenticatedRequest),
   frequencies: createFrequencyResourceHttp(authentication.authenticatedRequest),
   deviceConfigurations: createDeviceConfigurationHttp(authentication.authenticatedRequest),

@@ -254,8 +254,6 @@
       :services="collaborationHttp.frequencies"
       :load-context="loadFrequencyContext"
       @resource-changed="frequencyChanged"
-      @busy-change="frequencyBusy = $event"
-      @pending-operation-change="frequencyPendingOperation = $event"
     />
     <SpectrumConfigPanel
       v-if="spectrumVisited"
@@ -535,7 +533,7 @@ const frequencyPanel = ref<InstanceType<typeof FrequencyResourcePanel> | null>(n
   observationImport = ref<InstanceType<typeof SpectrumObservationImportDialog> | null>(null);
 const frequencyVisited = ref(false), spectrumVisited = ref(false), monitoringVisited = ref(false);
 const spectrumDirty = ref(false), spectrumBusy = ref(false), statusDirty = ref(false), statusBusy = ref(false),
-  frequencyBusy = ref(false), frequencyPendingOperation = ref(false), monitoringDirty = ref(false), monitoringBusy = ref(false),
+  monitoringDirty = ref(false), monitoringBusy = ref(false),
   observationDirty = ref(false), observationBusy = ref(false), sourceBusy = ref(false);
 const sessionGeneration = computed(() => JSON.stringify([auth.identity?.id, auth.identity?.sessionId, auth.generation]));
 const frequencySession = computed<FrequencyResourceHostContext>(() => ({
@@ -600,8 +598,9 @@ const leaveGuard = useResourceLedgerLeaveGuard(() => [
     leave: leaveConfiguration },
   { dirty: () => spectrumDirty.value, busy: () => spectrumBusy.value,
     leave: () => spectrumPanel.value?.requestLeave() ?? true, clear: () => spectrumPanel.value?.clearForSession() },
-  { dirty: () => frequencyPendingOperation.value || !!frequencyStore.pending || !!frequencyStore.selectedIds.length || !!frequencyStore.preview || frequencyStore.editorDirty || !!frequencyStore.changesPreview,
-    busy: () => frequencyBusy.value,
+  // 只读查询与选行不锁离页；保存中、未保存草稿和待核实请求继续保护。
+  { dirty: () => !!frequencyStore.pending || frequencyStore.editorDirty || !!frequencyStore.changesPreview,
+    busy: () => frequencyStore.phase === 'SAVING',
     leave: () => {
       if (frequencyStore.pending) { hostMessage.value = '请先核实频点原请求；停止读取不会撤销已提交保存。'; return false; }
       return frequencyPanel.value?.requestLeave() ?? true;

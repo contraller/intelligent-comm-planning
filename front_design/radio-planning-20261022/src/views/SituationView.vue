@@ -96,7 +96,7 @@
         </template>
       </div>
     </div>
-    <GisFrozenPlanPanel v-if="frozenView" ref="frozenPanel" :services="frozenServices" :operations="frozenOperationServices" :coverage-services="collaborationHttp.frozenCoverage"
+    <GisFrozenPlanPanel v-if="frozenView" ref="frozenPanel" :services="frozenServices" :operations="frozenOperationServices"
       :initial-tab="frozenInitialTab" :current-resource-revision="workspace.read.workspace?.revision" :session-generation="auth.generation"
       @open-plan="openAnalysisResult" @open-job="openAnalysisJob" />
     <template v-if="!frozenView">
@@ -501,6 +501,7 @@
           @locate-node="locateTaskNode"
           @locate-demand="locateTaskDemand"
           @edit-task="editSelectedTask"
+          @view-task="viewTaskOnMap"
         />
         <div
           v-if="!fault.active.value && sideTab === '图层管理'"
@@ -740,7 +741,7 @@
               !taskViewing && (!!data || editing || diagnosisMode || monitorMode || snapshotMode)
             "
             :resource-frame="taskViewing ? null : workspace.read.frame"
-            :resource-bounds="workspace.read.workspace?.bounds"
+            :resource-bounds="taskViewing ? taskBounds : workspace.read.workspace?.bounds"
             :resource-selected-kind="
               workspace.read.detail?.object.kind === 'device'
                 ? 'node'
@@ -1990,6 +1991,12 @@ const taskViewing = computed(
   () => taskPreview.value && gis.mapMode === 'resource' && !fault.active.value,
 );
 const taskStations = computed(() => task.nodes);
+const taskBounds = computed<import('../types/resource-read').Bounds | undefined>(() => {
+  const bbox = task.input?.bbox;
+  return bbox?.length === 4 && bbox.every(Number.isFinite)
+    ? [bbox[0]!, bbox[1]!, bbox[2]!, bbox[3]!]
+    : undefined;
+});
 const selectedTaskNode = ref('');
 const selectedTaskDemand = computed(() =>
   task.input?.demands.find((row) => row.id === selectedDemand.value),
@@ -2064,6 +2071,19 @@ async function returnToResources() {
 async function editSelectedTask(id: string) {
   if (id !== task.taskId || !auth.can('planning.view')) return;
   await router.push({ path: '/planning', query: { taskId: id, editTask: '1' } });
+}
+// 查看操作只切换冻结输入的地图显示，不改写任务草稿或当前资源。
+async function viewTaskOnMap(target: import('../types/gis-task').GisTaskSituationTarget) {
+  if (!task.selected || task.selecting || !auth.can('planning.view')
+    || target.taskId !== task.taskId || target.revision !== task.selected.revision
+    || target.snapshotId !== (task.snapshot?.snapshotId ?? null)) return;
+  taskPreview.value = true;
+  gis.mapMode = 'resource';
+  nodes.value = true;
+  demandsVisible.value = true;
+  await nextTick();
+  if (target.taskId !== task.taskId || target.revision !== task.selected?.revision) return;
+  mapRef.value?.fit();
 }
 async function locateTaskNode(id: string) {
   if (!taskViewing.value || !task.input?.stationIds.includes(id)) return;

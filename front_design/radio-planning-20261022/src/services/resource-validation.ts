@@ -9,6 +9,7 @@ import type { CandidateLink, CandidateLinkPatch } from '../types/candidate-link'
 import { candidateConfigFields, emptyCandidateAssessment, validateCandidateLinks } from './candidate-link';
 import { maintenanceIssues } from './device-maintenance';
 import { coordinateInBounds, validCoordinate, validPlanningBounds } from './resource-geography';
+import { interferenceParameterIssues, interferenceParameterLabels } from './interference-workbench-validation';
 
 export const stationFields = ['name', 'coordinate', 'elevationM', 'region', 'remark'] as const;
 export const deviceFields = ['antennaHeightM', 'txPowerDbm', 'workFreqKhz', 'currentWorkMode', 'ports'] as const;
@@ -224,14 +225,26 @@ export function validateResources(
       !['SOURCE','MANUAL','IMPORT'].includes(row.origin)||original&&original.origin!==row.origin)issue(row.id,'origin','未知字段或来源不可修改');
     if(typeof row.name!=='string'||!row.name.trim()||row.name!==row.name.trim()||row.name.length>60)issue(row.id,'name','名称需为 1–60 字符');
     checkCoordinate(row.id, row.coordinate, original?.coordinate);
-    for(const key of ['centerFreqKhz','bandwidthKhz'] as const)if(!finite(row[key])||row[key]<=0)issue(row.id,key,'必填且须大于 0');
-    for(const key of ['txPowerDbm','antennaHeightM'] as const)if(!finite(row[key])||key==='antennaHeightM'&&row[key]<0)issue(row.id,key,'必填有限数，天线高度不得小于 0');
-    for(const key of ['elevationM','antennaGainDbi'] as const)if(row[key]!==null&&!finite(row[key]))issue(row.id,key,'须为有限数或空值');
-    if(row.dutyCycle!==null&&(!finite(row.dutyCycle)||row.dutyCycle<0||row.dutyCycle>1))issue(row.id,'dutyCycle','占空比需为 0–1 或空值');
-    if(!['NARROWBAND','BROADBAND','SWEEP','PULSE','NOISE'].includes(row.interferenceType))issue(row.id,'interferenceType','干扰类型无效');
-    if(row.patternType!==null&&!['OMNI','DIRECTIONAL'].includes(row.patternType))issue(row.id,'patternType','方向图无效');
-    if(row.azimuthDeg!==null&&(!finite(row.azimuthDeg)||row.azimuthDeg<0||row.azimuthDeg>=360)||row.patternType==='DIRECTIONAL'&&row.azimuthDeg===null)issue(row.id,'azimuthDeg','定向需填写 0–小于 360 度方位角');
-    if(typeof row.active!=='boolean')issue(row.id,'active','生效标记必须为布尔值');
+    const parameterFields = { elevation_m: 'elevationM', antenna_height_m: 'antennaHeightM', center_freq_khz: 'centerFreqKhz',
+      bandwidth_khz: 'bandwidthKhz', tx_power_dbm: 'txPowerDbm', antenna_gain_dbi: 'antennaGainDbi',
+      interference_type: 'interferenceType', pattern_type: 'patternType', azimuth_deg: 'azimuthDeg', duty_cycle: 'dutyCycle' } as const;
+    const parameters: Record<string, unknown> = { interference_id: row.id, name: row.name,
+      lon: row.coordinate?.[0], lat: row.coordinate?.[1], active: typeof row.active === 'boolean' ? String(row.active) : null };
+    Object.entries(parameterFields).forEach(([field, key]) => { parameters[field] = row[key]; });
+    const changed = !original || !same(row, original);
+    for (const problem of interferenceParameterIssues([parameters])) {
+      // 未修改的历史空增益保持可读；新建、编辑必须补参，不能影响其他资源的保存。
+      if (!changed && problem.field === 'antenna_gain_dbi' && row.antennaGainDbi === null) continue;
+      const field = problem.field === 'lon' || problem.field === 'lat' ? 'coordinate'
+        : parameterFields[problem.field as keyof typeof parameterFields] ?? problem.field;
+      if (!issues.some(item => item.objectId === row.id && item.field === field)) issue(row.id, field, problem.message);
+    }
+    // 资源DTO数值必须为number；冻结CSV行才允许数值文本，避免复用时放宽资源类型。
+    for (const [field, key] of Object.entries(parameterFields)) {
+      if (['interference_type', 'pattern_type'].includes(field) || field === 'azimuth_deg' && row.patternType !== 'DIRECTIONAL') continue;
+      if (row[key] !== null && !finite(row[key]) && !issues.some(item => item.objectId === row.id && item.field === key))
+        issue(row.id, key, `干扰源『${row.name}』的${interferenceParameterLabels[field]}须为有限数值（ID=${row.id}，字段=${field}）`);
+    }
   }
   if(previous.interferences?.some(row=>!interferenceIds.has(row.id)))issue('interferences','id','不允许移除已保存干扰源');
   const candidates=validateCandidateLinks(candidate.candidateLinks,candidate,previous.candidateLinks);
