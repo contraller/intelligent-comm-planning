@@ -104,7 +104,8 @@
     >
     <template v-if="model.network">
       <div class="snapshot-heading toolbar"
-        ><strong>{{ model.network.identity.plan_id }}</strong
+        ><strong>方案 {{ model.planVersion || '版本未提供' }} · {{ model.network.identity.plan_id }}</strong
+        ><span>所属任务：{{ model.network.identity.task_id }}</span
         ><span>{{ model.network.identity.snapshot_id }}</span
         ><span>算法预测</span
         ><span v-if="model.network.identity.source_changed">历史来源已变化</span

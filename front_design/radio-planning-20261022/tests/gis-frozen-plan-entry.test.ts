@@ -12,4 +12,11 @@ describe('冻结GIS宿主边界', () => {
     expect(map).toContain("emit('selectFrozenNode', id)"); expect(map).toContain("emit('selectFrozenLink', id)");
     expect(map).toContain("feature.get('snapshot') !== props.frozenNetwork?.identity.snapshot_id");
   });
+  it('任务内方案入口沿用冻结网络及离开保护，不直接加载参与节点冒充结果', () => {
+    expect(view).toContain('@open-plan="openTaskPlan"');
+    expect(view).toContain('target.taskId !== task.taskId');
+    expect(view).toContain('await toggleFrozenPlans()');
+    expect(view).toContain('await frozenPanel.value?.openIdentity(target)');
+    expect(view).toContain("previewService.getPlanningPlan({ ...input, context: 'planning' })");
+  });
 });

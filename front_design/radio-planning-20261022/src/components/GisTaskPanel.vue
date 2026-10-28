@@ -1,6 +1,6 @@
 <template>
   <section class="gis-task-panel">
-    <p class="muted">查询后端已保存任务，选择后查看冻结参与节点与通联需求；任务编辑在网络规划完成。</p>
+    <p class="muted">选择已保存任务，查看任务输入态势或其各版本方案的完整网络；任务编辑在网络规划完成。</p>
     <div class="toolbar">
       <input
         v-model="search"
@@ -73,7 +73,7 @@
       >
     </div>
     <template v-if="controller.selected">
-      <p class="muted">{{ controller.selected.version }} · {{ controller.selected.updatedAt }}</p>
+      <p class="muted">任务输入版本：{{ controller.selected.version }} · {{ controller.selected.updatedAt }}</p>
       <button
         class="btn small"
         :disabled="!controller.readable || controller.selecting"
@@ -92,6 +92,11 @@
         @click="emit('editTask', controller.selected.taskId)"
         >编辑任务</button
       >
+      <GisTaskPlanVersions v-if="httpMode" :key="controller.selected.taskId"
+        :task-id="controller.selected.taskId" :readable="controller.readable"
+        :session-generation="sessionGeneration ?? 0" :query-plans="previewService.queryPlanningPlanSummaries"
+        @open-plan="emit('openPlan', $event)" />
+      <p class="muted">以下为任务输入的参与节点和通联需求，通联需求不等于计算后的链路。</p>
       <h3>参与节点（{{ controller.selected.input.stationIds.length }}）</h3>
       <article
         v-for="id in controller.selected.input.stationIds"
@@ -143,6 +148,9 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue';
 import { RouterLink } from 'vue-router';
+import GisTaskPlanVersions from './GisTaskPlanVersions.vue';
+import { previewService } from '../services';
+import { env } from '../config/env';
 import type { GisTaskSelectionController } from '../composables/useGisTaskSelection';
 import type { GisTaskSituationTarget } from '../types/gis-task';
 
@@ -150,13 +158,16 @@ const props = defineProps<{
   controller: GisTaskSelectionController;
   stations?: readonly { id: string; name: string }[];
   selectedDemandId?: string;
+  sessionGeneration?: number;
 }>();
 const emit = defineEmits<{
   locateNode: [id: string];
   locateDemand: [id: string];
   editTask: [taskId: string];
   viewTask: [target: GisTaskSituationTarget];
+  openPlan: [target: { taskId: string; planId: string }];
 }>();
+const httpMode = env.mode === 'http';
 const search = ref(props.controller.search);
 const viewFeedback = ref('');
 watch(() => props.controller.selected, () => { viewFeedback.value = ''; });
