@@ -1,6 +1,9 @@
 <template>
   <AppDrawer
     :visible="store.drawerOpen"
+    :close-button-props="{ disabled: store.locked }"
+    :close-on-escape="!store.locked"
+    :dismissable="!store.locked"
     :title="store.change ? '知识变更 · ' + store.change.id : '新建知识变更'"
     subtitle="实体与关系作为同一变更单审核；发布前不影响当前图谱。"
     @update:visible="!$event && store.closeDrawer()"
@@ -22,8 +25,10 @@
       >
       <p
         v-if="store.error"
+        ref="errorSummary"
         class="error"
         role="alert"
+        tabindex="-1"
         >{{ knowledgeText(store.error) }}</p
       >
       <ul
@@ -34,7 +39,7 @@
           :key="i"
           ><button
             class="text-link"
-            @click="locate(issue.objectId)"
+            @click="locate(issue.objectId, issue.field)"
             >{{ issue.objectId }} · {{ knowledgeAttributeName(issue.field) }}：{{ knowledgeText(issue.message) }}</button
           ></li
         ></ul
@@ -47,6 +52,7 @@
           placeholder="说明本次修改目的"
           @input="!locked && (store.draft.summary = ($event.target as HTMLInputElement).value)"
       /></label>
+      <p class="muted">变更摘要必填；加入已有条目后，需要实际修改知识内容才能保存。</p>
       <div
         v-if="store.canEdit"
         class="add-tools"
@@ -106,6 +112,7 @@
         <div class="form-grid section-gap">
           <label class="full"
             >名称<input
+              :ref="el => rememberField(e.id, 'name', el)"
               :value="knowledgeEntityName(e)"
               :readonly="locked"
               maxlength="80"
@@ -141,6 +148,7 @@
           /></label>
           <label class="full"
             >来源说明<input
+              :ref="el => rememberField(e.id, 'source', el)"
               :value="knowledgeSource(e.source)"
               :readonly="locked"
               maxlength="200"
@@ -307,6 +315,7 @@
           /></label>
           <label class="full"
             >来源说明<input
+              :ref="el => rememberField(r.id, 'source', el)"
               :value="knowledgeSource(r.source)"
               :readonly="locked"
               maxlength="200"
@@ -370,7 +379,17 @@
       </label>
     </template>
     <template #footer
-      ><div
+      ><p v-if="store.locked" class="muted save-feedback" role="status">正在处理，请稍候…</p>
+      <p v-if="store.change && !store.locked && !store.dirty && !store.receiptPending && !store.error" class="saved-feedback" role="status">
+        {{ store.change.state === 'PENDING' ? '已提交审核，内容已保存，可直接关闭或退出账号。' : '当前内容已保存，可直接关闭。' }}
+      </p><p v-if="store.receiptPending" class="muted save-feedback" role="status">
+        保存已受理，但详情尚未核实。可关闭后重新读取，请勿重复提交。
+      </p><p v-if="store.error" class="error save-feedback" role="status">
+        操作未完成：{{ knowledgeText(store.error) }}
+        <button class="text-link" @click="showSaveError">查看问题</button>
+      </p><p v-if="store.error.includes('没有可保存的知识变更') || store.error.includes('没有相对已发布基线的实际修改')" class="muted save-feedback">
+        仅选择已有实体或关系不会产生新知识。请修改内容后再保存，或关闭时选择“放弃输入”。
+      </p><div
         class="toolbar"
         style="flex-wrap: wrap"
       >
@@ -435,7 +454,7 @@ import { randomUuid } from '../services/random-uuid';
 import { useAuthStore } from '../stores/auth';
 // 当前权限变化时仅禁用操作，保留表单输入。
 const auth = useAuthStore();
-import { computed, ref, watch } from 'vue';
+import { computed, nextTick, ref, watch } from 'vue';
 import { useKnowledgeStore } from '../stores/knowledge';
 import {
   applyKnowledgeDraft,
@@ -460,6 +479,27 @@ import KnowledgeNetworkRuleEditor from './KnowledgeNetworkRuleEditor.vue';
 import { env } from '../config/env';
 import { canSelfReviewKnowledge } from '../services/knowledge-identity';
 const store = useKnowledgeStore();
+const errorSummary = ref<HTMLElement | null>(null);
+const fieldElements = new Map<string, HTMLElement>();
+function rememberField(id: string, field: string, element: unknown) {
+  const key = id + ':' + field;
+  if (element) fieldElements.set(key, element as HTMLElement);
+  else fieldElements.delete(key);
+}
+function showSaveError() {
+  errorSummary.value?.scrollIntoView?.({ block: 'start', behavior: 'auto' });
+  errorSummary.value?.focus?.({ preventScroll: true });
+}
+// 保存失败不清输入；确认弹窗和写请求结束后，把错误带回长抽屉的可见位置。
+watch(
+  () => [store.error, store.drawerOpen, store.locked, store.decision] as const,
+  async () => {
+    if (!store.error || !store.drawerOpen || store.locked || store.decision) return;
+    await nextTick();
+    if (store.error && store.drawerOpen && !store.locked && !store.decision) showSaveError();
+  },
+  { flush: 'post' },
+);
 // 中文仅用于显示；只有用户输入事件才更新原始草稿字段。
 // 保留正在输入的分隔符；草稿仍即时更新数组，新草稿不沿用旧输入文本。
 const keywordInputs = ref(new Map<KnowledgeEntity, string>());
@@ -565,10 +605,13 @@ function remove(kind: 'entities' | 'relations', id: string) {
     else store.draft.relations = store.draft.relations.filter((r) => r.id !== id);
   }
 }
-function locate(id: string) {
-  document
-    .getElementById('knowledge-row-' + id)
-    ?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+function locate(id: string, field?: string) {
+  const row = document.getElementById('knowledge-row-' + id);
+  // details可能已由用户折叠，先展开再定位原输入，不建立另一份表单状态。
+  if (row?.tagName === 'DETAILS') (row as HTMLDetailsElement).open = true;
+  row?.scrollIntoView({ block: 'center', behavior: 'auto' });
+  const input = field ? fieldElements.get(id + ':' + field) : undefined;
+  input?.focus?.({ preventScroll: true });
 }
 </script>
 <style scoped>
@@ -577,6 +620,14 @@ function locate(id: string) {
   flex-wrap: wrap;
   gap: 9px;
   margin: 18px 0;
+}
+.save-feedback {
+  margin: 0 0 8px;
+  overflow-wrap: anywhere;
+}
+.saved-feedback {
+  margin: 0 0 8px;
+  color: #78d5c2;
 }
 .add-tools select {
   width: 100%;

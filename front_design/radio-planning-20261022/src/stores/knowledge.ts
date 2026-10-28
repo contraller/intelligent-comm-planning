@@ -64,7 +64,7 @@ export const useKnowledgeStore = defineStore('knowledge',() => {
   async function allowLeave(executingRollback = false,deferDiscard=false) {
     if (locked.value) { error.value='操作未完成，请稍候'; return false; }
     if (dirtyDraft.value) {
-      const choice = await ask({title:'未保存的知识草稿',message:'保存当前草稿后继续，或放弃本次未保存输入？已保存版本和审核记录会保留。',saveLabel:'保存草稿后继续',discardLabel:'放弃输入',cancelLabel:'继续编辑'});
+      const choice = await ask({title:'未保存的知识草稿',message:'保存当前草稿后继续，或放弃本次未保存输入？已保存版本和审核记录会保留。关闭此提示仅取消离开；保存失败时会保留输入并显示原因。',saveLabel:'保存草稿后继续',discardLabel:'放弃输入',cancelLabel:'继续编辑'});
       if (choice === 'cancel' || (choice === 'save' && !(await saveDraft()))) return false;
       if (choice === 'discard'&&!deferDiscard) setDraft(baseline.value);
     }
@@ -240,7 +240,9 @@ export const useKnowledgeStore = defineStore('knowledge',() => {
       editBase.value=base;selectedChange.value=null;changeId.value='';receiptChangeId.value='';setDraft({summary:'',baseVersionId:id,entities:entity?[knowledgeClone(entity)]:[],relations:relation?[knowledgeClone(relation)]:[]});drawerOpen.value=true;error.value='';
     }catch(e){if(token===detailSerial&&session===auth.generation)report(e);}finally{if(token===detailSerial)loading.value=false;}
   }
-  async function closeDrawer() { if (await allowLeave()) {const reread=receiptPending.value;drawerOpen.value=false;selectedChange.value=null;editBase.value=null;changeId.value='';receiptChangeId.value='';setDraft(null);if(reread)await refreshTab();} }
+  async function closeDrawer() { if (await allowLeave()) {const reread=receiptPending.value;drawerOpen.value=false;selectedChange.value=null;editBase.value=null;changeId.value='';receiptChangeId.value='';setDraft(null);
+    // 用户已完成保存或明确放弃本次输入，关闭后不再显示该表单的旧校验错误。
+    if(!reread)error.value='';if(reread)await refreshTab();} }
   function request(kind:string,payload:unknown): KnowledgeMutation {
     const signature=knowledgeSignature({kind,payload,actorId:actorId.value,revision:workspace.value?.revision??null});
     if (!pending || pending.signature!==signature) pending={signature,request:{actorId:actorId.value,baseRevision:workspace.value?.revision??null,requestId:randomUuid()}};
