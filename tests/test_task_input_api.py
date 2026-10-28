@@ -69,6 +69,35 @@ def counts(factory: sessionmaker[Session]) -> tuple[int, int, int]:
         ))
 
 
+@pytest.mark.parametrize("solution_count", [1, 40])
+def test_save_accepts_current_solution_count_limits(api, solution_count):
+    client, _factory = api
+    body = request("save-limited")
+    body["input"]["deploymentSolve"] = {"mode": "MIN_COUNT", "fixedCount": None, "solutionCount": solution_count}
+    assert save(client, body).status_code == 200
+
+
+def test_excess_solution_count_rejected_without_writing(api, monkeypatch):
+    client, factory = api
+    body = request("save-over-limit")
+    body["input"]["deploymentSolve"] = {"mode": "MIN_COUNT", "fixedCount": None, "solutionCount": 41}
+    reply = save(client, body)
+    assert reply.status_code == 422
+    assert reply.json()["code"] == 1001
+    assert reply.json()["data"][0]["field"] == "deploymentSolve.solutionCount"
+    assert counts(factory) == (0, 0, 0)
+    monkeypatch.setattr(frontend_integration, "resource_revision", lambda: "r1")
+    monkeypatch.setattr(frontend_integration, "task_reference_catalog", lambda: {
+        "node_ids": {"N1", "N2"}, "devices": {
+            "E1": {"node_id": "N1", "device_class": "HF"},
+            "E2": {"node_id": "N2", "device_class": "HF"}}})
+    check = client.post("/api/v1/task-inputs/validate", json={key: value for key, value in body.items() if key != "request_id"})
+    assert check.status_code == 200
+    assert check.json()["data"]["valid"] is False
+    assert any(row["field"] == "deploymentSolve.solutionCount" for row in check.json()["data"]["issues"])
+    assert counts(factory) == (0, 0, 0)
+
+
 def test_create_update_and_name_only_keeps_condition_version(api):
     client, factory = api
     first = save(client, request("save-1"))

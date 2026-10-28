@@ -164,7 +164,7 @@
             :value="numberText('fixedCount', modelValue.deploymentSolve.fixedCount)"
             v-on="{ input: inputAction(controls.count, 'fixedCount') }"
           /><small
-            >填写本次新增的部署单元数，不是全网已有台站总数；例如 3 表示新增 3 个部署单元。单位：个；整数闭区间 [0, 9007199254740991]；0 表示不新增，本模式不可留空。</small
+            >填写本次新增的部署单元数，不是全网已有台站总数；例如 3 表示新增 3 个部署单元。单位：个；须为非负整数，上限为本次筛选后可用的不同物理位置数；超额时服务说明实际可用数量，不进入部署求解。0 表示不新增，本模式不可留空。</small
           ><small
             v-if="inlineIssues && fieldIssueMessage(issues, 'deploymentSolve.fixedCount')"
             class="field-error"
@@ -179,7 +179,7 @@
             :value="numberText('solutionCount', modelValue.deploymentSolve.solutionCount)"
             v-on="{ input: inputAction(controls.count, 'solutionCount') }"
           /><small
-            >希望生成多少份部署备选，例如 2 表示请求两份用于比较，不是新增两个台站。单位：份；整数闭区间 [1, 9007199254740991]；不可留空。</small
+            >希望生成多少份部署备选，例如 2 表示请求两份用于比较，不是新增两个台站。单位：份；整数范围 1–{{ MAX_PLANNING_SOLUTIONS }}，不可留空。上限来自当前搜索的完整校验预算，不保证一定找到请求数量。</small
           ><small
             v-if="inlineIssues && fieldIssueMessage(issues, 'deploymentSolve.solutionCount')"
             class="field-error"
@@ -233,7 +233,7 @@
 import { computed, onBeforeUnmount, ref, toRaw, watch } from 'vue';
 import type { PlanningInput } from '../types/planning';
 import type { PlanningFrequencyResource } from '../types/planning-options';
-import { planningOptionIssues } from '../services/planning-options';
+import { MAX_PLANNING_SOLUTIONS, planningOptionIssues } from '../services/planning-options';
 import { fieldIssueMessage } from '../services/planning-issue-display';
 type Options = Pick<PlanningInput, 'frequencyConstraints' | 'deploymentSolve'>;
 const props = defineProps<{

@@ -2,6 +2,7 @@
 import copy
 import itertools
 import time
+from input_limits import MAX_COMPLETE_CHECKS
 
 import frequency as FQ
 import interference as IF
@@ -426,7 +427,7 @@ class ChannelSearch:
 
     def begin_check(self, estimate=0.0, *, allow_initial=False):
         ready = self.checkpoint()
-        if self.complete_checks >= 40:
+        if self.complete_checks >= MAX_COMPLETE_CHECKS:
             return False
         if not (allow_initial and self.complete_checks == 0) and (
                 not ready or time.monotonic() + estimate >= self.deadline):

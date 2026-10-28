@@ -3,6 +3,20 @@ import type { Coordinate } from '../types/domain';
 import type { PlanningIssue } from '../types/planning';
 
 export const deploymentLimits = { points: 100, polygons: 20, coordinates: 2000 };
+export const MAX_DEPLOYMENT_GRID_POINTS = 100000;
+
+// 与后端网格行列数同式预检，只计算规模，不生成格点或申请大数组。
+export function deploymentScaleIssues(bbox: readonly number[], value?: DeploymentConstraints | null): PlanningIssue[] {
+  const step = value?.gridStepM;
+  if (step == null || !Number.isFinite(step) || step <= 0 || bbox.length !== 4 || !bbox.every(Number.isFinite)) return [];
+  const [west, south, east, north] = bbox;
+  if (!(west >= -180 && west < east && east <= 180 && south >= -90 && south < north && north <= 90)) return [];
+  const columns = (east - west) / (step / (111320 * Math.cos(((south + north) / 2) * Math.PI / 180)));
+  const rows = (north - south) / (step / 111320);
+  if (!Number.isFinite(columns) || !Number.isFinite(rows) || (Math.floor(columns) + 1) * (Math.floor(rows) + 1) > MAX_DEPLOYMENT_GRID_POINTS)
+    return [{ objectId: 'TASK', field: 'deploymentConstraints.gridStepM', message: `当前任务范围与网格间距超过${MAX_DEPLOYMENT_GRID_POINTS}点扫描上限；请增大网格间距或缩小任务范围` }];
+  return [];
+}
 export const deploymentFields = ['maxSlopeDeg', 'elevationRangeM', 'allowedLandcover', 'roadMaxDistanceM',
   'minSiteSpacingM', 'losRequiredNodeIds', 'gridStepM', 'forcedInclude', 'forcedExcludePolygons'] as const;
 export const deploymentLabels: Record<typeof deploymentFields[number], string> = {

@@ -11,10 +11,10 @@ import echelon as E
 from candidate_sites import (PositionIndex, grid_layout, grid_points, in_exclusion_polygon,
                              same_position, thin_by_spacing, validate_exclusion_polygon)
 from terrain import haversine_m, los_clearance
+from input_limits import MAX_GRID_POINTS
 
 ROOT = Path(__file__).resolve().parents[2]
-# 同时保留逐点筛选证据；上限允许120km范围内约500m网格，拒绝细网格耗尽内存。
-MAX_GRID_POINTS = 100_000
+# 网格规模上限与输入预检共用；道路距离场单独限额。
 MAX_ROAD_FIELD_CELLS = 1_000_000
 INPUT_BUDGET_S = 300.0
 REJECT_KEYS = ("outside_bbox", "source_rule", "elevation", "slope", "landcover", "road",
@@ -429,6 +429,17 @@ def physical_count(sites, *, checkpoint=None):
     if checkpoint:
         checkpoint()
     return count
+
+
+def validate_fixed_capacity(planning_input, candidates, *, checkpoint=None):
+    """新增数量以本次筛选的不同物理位置为上限，在构造链路矩阵前拒绝超额。"""
+    solve = (planning_input or {}).get("deploymentSolve") or {}
+    if solve.get("mode") != "FIXED_COUNT":
+        return
+    limit = physical_count(candidates, checkpoint=checkpoint)
+    requested = solve["fixedCount"]
+    if requested > limit:
+        raise ValueError(f"指定新增部署数量{requested}超过本次筛选后可用的{limit}个不同物理位置；请减小数量或调整筛选条件")
 
 
 def final_issues(sites, planning_input, candidates, *, nodes=(), params=None, terrain=None, checkpoint=None):
