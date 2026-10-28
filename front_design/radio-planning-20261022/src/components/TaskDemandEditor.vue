@@ -2,7 +2,7 @@
   <AppDrawer
     :visible="visible"
     title="编辑通联需求"
-    subtitle="需求线表示任务要求，规划结果由服务端返回。"
+    subtitle="先选择两个不同的参与节点，再填写业务要求；应用到草稿后，还需在任务面板保存。"
     @update:visible="!$event && close()"
   >
     <div
@@ -34,6 +34,7 @@
           :disabled="!task.editable"
           ><option value="station">节点</option
           ><option value="device">设备</option></select
+        ><small v-if="isPlanning" class="muted">选择“节点”表示提出站点间通联要求；选择“设备”还需指定两端节点下的具体电台。</small
         ><small
           v-for="issue in messages('endpointMode')"
           :key="issue.field + issue.message"
@@ -203,6 +204,7 @@
           ><option>P1</option
           ><option>P2</option
           ><option>P3</option></select
+        ><small v-if="isPlanning" class="muted">P1 优先于 P2、P3。优先级表示处理顺序；是否必须连通由下方“必要通联”单独设置。</small
         ><small
           v-for="issue in messages('priority')"
           :key="issue.field + issue.message"
@@ -226,7 +228,7 @@
                 ? null
                 : Number(($event.target as HTMLInputElement).value)
           "
-        /><small
+        /><small v-if="isPlanning" class="muted">选填，填写本条需求计划传输的总数据量；单位 MB，允许 0。例如 10 表示 10 MB，不是传输速率。</small><small
           v-for="issue in messages('dataVolumeMb')"
           :key="issue.field + issue.message"
           class="field-error"
@@ -243,7 +245,7 @@
           type="number"
           min="0"
           :disabled="!task.editable"
-        /><small
+        /><small v-if="isPlanning" class="muted">填写所需传输速率，须大于 0；单位 kbps。例如 64 表示 64 kbps，1 Mbps 应填 1000。</small><small
           v-for="issue in messages('requiredRateKbps')"
           :key="issue.field + issue.message"
           class="field-error"
@@ -259,7 +261,7 @@
           type="number"
           min="0"
           :disabled="!task.editable"
-        /><small
+        /><small v-if="isPlanning" class="muted">填写可接受的最大端到端时延，须大于 0；单位 ms。例如 100 表示 0.1 秒，数值越小要求越严格。</small><small
           v-for="issue in messages('maxDelayMs')"
           :key="issue.field + issue.message"
           class="field-error"
@@ -277,7 +279,7 @@
           max="1"
           step="0.01"
           :disabled="!task.editable"
-        /><small
+        /><small v-if="isPlanning" class="muted">填写 0–1 的数值，例如 0.95 表示 95%，不要填 95。此项是通联可靠性要求，与网络抗毁性分别检查。</small><small
           v-for="issue in messages('minReliability')"
           :key="issue.field + issue.message"
           class="field-error"
@@ -295,6 +297,7 @@
           ><option :value="null">未指定</option
           ><option>HF</option
           ><option>VUHF</option></select
+        ><small v-if="isPlanning" class="muted">HF 表示短波，VUHF 表示超短波；按任务需要选择，无明确要求可保留“未指定”。</small
         ><small
           v-for="issue in messages('preferredClass')"
           :key="issue.field + issue.message"
@@ -317,6 +320,7 @@
           >{{ issue.message }}</small
         ></label
       >
+      <p v-if="isPlanning" class="muted">勾选“必要通联”表示必须满足的端到端通联要求；取消勾选后仍保留这条需求，但不纳入必要通联全部连通的硬约束。</p>
       <!-- 仅规划收起可选选路条件，编辑器始终挂载以保留未指定和非法原文。 -->
       <details
         v-if="isPlanning"
@@ -598,6 +602,13 @@ onBeforeUnmount(() => {
 .demand-fields .check {
   flex-direction: row;
   align-items: center;
+}
+/* 必要通联说明属于整组输入，避免落入半宽字段列。 */
+.demand-fields > p.muted {
+  grid-column: 1 / -1;
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.7;
 }
 .check input {
   width: auto;

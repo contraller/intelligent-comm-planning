@@ -16,10 +16,10 @@
     <p
       v-if="!modelValue"
       class="muted"
-      >未设置；不会根据预设补填旧任务。</p
+      >未设置额外筛选。首次试用可保留未勾选；有选址限制时再启用，不会自动补填旧任务。</p
     >
     <template v-else>
-      <p class="muted">留空表示未指定。条件由服务处理；这里仅校验格式。改动只写入任务草稿。</p>
+      <p class="muted">用于筛选候选位置和新增部署，已有台站不会被自动搬移。各条件需要同时满足；留空表示不额外指定该项，改动需保存任务后提交规划。</p>
       <label
         v-for="key in scalarKeys"
         :key="key"
@@ -45,7 +45,7 @@
         tabindex="-1"
         ><legend>海拔范围 / m</legend
         ><p class="muted"
-          >可填有限数值，无固定上下限；上下界须同时填写，且下界≤上界；均留空表示未指定。</p
+          >限制候选位置的地面海拔，不是天线挂高。单位 m；例如下界 200、上界 1500 表示保留海拔 200–1500 m 的位置。上下界须同时填写且下界≤上界；可填有限数值，无固定上下限，均留空表示未指定。</p
         ><label
           v-for="(label, index) in ['下界', '上界']"
           :key="label"
@@ -70,7 +70,7 @@
           :value="modelValue.allowedLandcover?.join(';') ?? ''"
           placeholder="草地;耕地;林地;建成区"
           v-on="{ input: inputAction(controls.covers) }"
-        /><small
+        /><small class="muted">只保留所填地物类型，名称应与资源数据一致；多个名称用英文分号 ; 分隔。留空表示不按地物类型额外筛选。</small><small
           v-if="inlineIssues && fieldIssueMessage(issues, 'deploymentConstraints.allowedLandcover')"
           class="field-error"
           role="alert"
@@ -82,7 +82,7 @@
         class="los-nodes"
         tabindex="-1"
         ><legend>要求全部通视的节点</legend
-        ><p class="muted">可选择未参与任务的已保存节点；不自动增加通联需求。</p>
+        ><p class="muted">候选位置必须与全部勾选节点满足地形通视，勾选越多条件越严格。可选择未参与任务的已保存节点；不自动增加通联需求，无此要求可不选。</p>
         <label
           v-for="node in nodes"
           :key="node.id"
@@ -121,6 +121,7 @@
         <p class="muted"
           >0–{{ deploymentLimits.points }} 个点；经度 -180°～180°，纬度 -90°～90°（含边界），均须填有限数值。</p
         >
+        <p class="muted">填写必须纳入新增部署的坐标，经度在前、纬度在后；坐标仍须位于任务及地形范围内，并通过坡度、禁区等条件。无固定位置要求时不增加点。</p>
         <div
           v-for="(point, index) in modelValue.forcedInclude"
           :key="index"
@@ -166,6 +167,7 @@
         <p class="muted"
           >每个禁区至少一个环；每环至少三个不同顶点、四个坐标，首尾坐标相同。环不得自交或相交；内环须位于外环内部且不得嵌套。</p
         >
+        <p class="muted">用于排除不能新增部署的区域。按边界顺序填写顶点，最后重复第一个坐标闭合；无禁部署区时不增加多边形。</p>
         <fieldset
           v-for="(polygon, p) in modelValue.forcedExcludePolygons"
           :key="p"
@@ -333,12 +335,12 @@ onBeforeUnmount(() => {
   emit('pending', false);
 });
 const scalarKeys = ['maxSlopeDeg', 'roadMaxDistanceM', 'minSiteSpacingM', 'gridStepM'] as const;
-// 只说明现有校验边界，不额外限制填写范围。
+// 示例仅解释参数含义，不写入草稿或额外限制取值范围。
 const scalarHints = {
-  maxSlopeDeg: '可填 0–90°（含边界）。',
-  roadMaxDistanceM: '可填 ≥0 m 的有限数值，无固定上限。',
-  minSiteSpacingM: '可填 ≥0 m 的有限数值，无固定上限。',
-  gridStepM: '可填 >0 m 的有限数值，无固定上限；单次网格扫描最多 100000 点。',
+  maxSlopeDeg: '允许的最大地面坡度，填 10 表示保留坡度不超过 10° 的位置；越小越严格。可填 0–90°（含边界），留空表示未指定。',
+  roadMaxDistanceM: '候选位置到道路的最大距离，填 1000 表示距道路不超过 1 km；表示距离条件，不代表车辆一定能够通行。可填 ≥0 m 的有限数值，无固定上限，留空表示未指定。',
+  minSiteSpacingM: '新增部署位置之间的最小距离，填 500 表示至少相隔 500 m；数值越大，位置越分散。可填 ≥0 m 的有限数值，无固定上限，留空表示未指定。',
+  gridStepM: '生成候选网格时的采样间距，填 1000 表示按 1 km 间距采样；越小候选越密、计算量越大。留空沿用已有候选表。可填 >0 m 的有限数值，无固定上限；单次网格扫描最多 100000 点。',
 };
 const numberText = (key: string, value: number | null | undefined) =>
   raw.value[key] ?? (value == null || !Number.isFinite(value) ? '' : String(value));

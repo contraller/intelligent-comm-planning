@@ -76,6 +76,7 @@
       >
       <details class="preset-entry"
         ><summary>从整套任务预设开始 <small>替换节点、需求与条件</small></summary
+        ><p class="muted">第一次使用可先选一套预设，再修改任务。载入整套任务会替换当前草稿的参与节点、通联需求及条件；载入后还需保存任务、提交规划。</p
         ><div class="toolbar section-gap">
           <select
             v-model="presetId"

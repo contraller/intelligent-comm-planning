@@ -8,6 +8,7 @@
     <p class="muted"
       >条件随任务保存，由服务进行分配和求解；未启用表示未设置，留空规则见各项提示。新增部署单元由位置与设备类型组成，数量不等于设备实例数量。</p
     >
+    <p class="muted">HF 为短波，VUHF 为超短波。所有频率均以 kHz 填写：7 MHz 应填 7000，50 MHz 应填 50000。筛选只会缩小当前资源池，不会生成新的可用频点。</p>
     <fieldset
       v-for="kind in ['HF', 'VUHF'] as const"
       :key="kind"
@@ -21,7 +22,7 @@
           v-on="{ change: checkAction(controls.enable, kind) }"
         />设置 {{ kind }} 条件</label
       >
-      <small>每类最多一组条件；启用后须填写完整频率范围或至少一个排除频点。</small>
+      <small>只在需要限制该频段时启用；每类最多一组条件，启用后须填写完整频率范围或至少一个排除频点。未启用的频段不会因此被禁用。</small>
       <template v-if="filter(kind)"
         ><div
           class="range"
@@ -153,7 +154,7 @@
             ><option value="MIN_COUNT">尽量少新增部署</option
             ><option value="FIXED_COUNT">指定新增部署数量</option></select
           ><small
-            >“尽量少新增部署”：由系统确定新增数量；“指定新增部署数量”：须填写新增部署单元数，允许为 0。</small
+            >“尽量少新增部署”：由系统搜索可行的新增数量，不表示已证明全局最少；“指定新增部署数量”：按你给定的数量计算位置，允许为 0，资源或条件不满足时可无解。</small
           ></label
         >
         <label v-if="modelValue.deploymentSolve.mode === 'FIXED_COUNT'"
@@ -163,7 +164,7 @@
             :value="numberText('fixedCount', modelValue.deploymentSolve.fixedCount)"
             v-on="{ input: inputAction(controls.count, 'fixedCount') }"
           /><small
-            >单位：个；整数闭区间 [0, 9007199254740991]；0 表示不新增部署，本模式不可留空。</small
+            >填写本次新增的部署单元数，不是全网已有台站总数；例如 3 表示新增 3 个部署单元。单位：个；整数闭区间 [0, 9007199254740991]；0 表示不新增，本模式不可留空。</small
           ><small
             v-if="inlineIssues && fieldIssueMessage(issues, 'deploymentSolve.fixedCount')"
             class="field-error"
@@ -178,7 +179,7 @@
             :value="numberText('solutionCount', modelValue.deploymentSolve.solutionCount)"
             v-on="{ input: inputAction(controls.count, 'solutionCount') }"
           /><small
-            >单位：份；整数闭区间 [1, 9007199254740991]；不可留空。</small
+            >希望生成多少份部署备选，例如 2 表示请求两份用于比较，不是新增两个台站。单位：份；整数闭区间 [1, 9007199254740991]；不可留空。</small
           ><small
             v-if="inlineIssues && fieldIssueMessage(issues, 'deploymentSolve.solutionCount')"
             class="field-error"
