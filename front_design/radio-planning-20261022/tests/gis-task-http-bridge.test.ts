@@ -4,6 +4,7 @@ import { h, nextTick, ssrContextKey, type App } from 'vue';
 import { disposePinia } from 'pinia';
 import { createMemoryHistory, createRouter } from 'vue-router';
 import GisTaskPanel from '../src/components/GisTaskPanel.vue';
+import GisTaskPlanVersions from '../src/components/GisTaskPlanVersions.vue';
 import { useGisTaskSelection, type GisTaskSelectionController } from '../src/composables/useGisTaskSelection';
 import { previewService } from '../src/services';
 import { ApiError } from '../src/services/types';
@@ -18,6 +19,7 @@ vi.mock('../src/services/http', async original => {
   return { ...actual, collaborationHttp: { ...actual.collaborationHttp, gisTasks: snapshotHttp } };
 });
 await clientTemplate(GisTaskPanel, 'src/components/GisTaskPanel.vue', 'gis-task-panel-render.ts');
+await clientTemplate(GisTaskPlanVersions, 'src/components/GisTaskPlanVersions.vue', 'gis-task-plan-versions-render.ts');
 
 let app: App | undefined, dispose: (() => void) | undefined;
 afterEach(() => { app?.unmount(); app = undefined; dispose?.(); dispose = undefined; snapshotHttp.getSnapshot.mockReset(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });

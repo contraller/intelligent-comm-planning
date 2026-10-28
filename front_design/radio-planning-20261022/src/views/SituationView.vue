@@ -498,10 +498,12 @@
           :controller="task"
           :stations="taskStations"
           :selected-demand-id="selectedDemand"
+          :session-generation="auth.generation"
           @locate-node="locateTaskNode"
           @locate-demand="locateTaskDemand"
           @edit-task="editSelectedTask"
           @view-task="viewTaskOnMap"
+          @open-plan="openTaskPlan"
         />
         <div
           v-if="!fault.active.value && sideTab === '图层管理'"
@@ -1289,7 +1291,12 @@ const editor = useResourceEditStore();
 const frozenView = ref(false), httpMode = env.mode === 'http';
 const frozenInitialTab = ref<'devices' | 'interference'>('devices');
 const frozenPanel = ref<InstanceType<typeof GisFrozenPlanPanel>>();
-const frozenServices = { plans: collaborationHttp.gisPlans, queryPlans: previewService.querySavedPlanningPlans, getPlan: previewService.getPlanningPlan };
+const openingTaskPlan = ref(false);
+const frozenServices = {
+  plans: collaborationHttp.gisPlans, queryPlans: previewService.querySavedPlanningPlans,
+  // 正式方案详情由规划接口提供；页面另行要求GIS及规划的双重读取权限。
+  getPlan: (input: Parameters<typeof previewService.getPlanningPlan>[0]) => previewService.getPlanningPlan({ ...input, context: 'planning' }),
+};
 const frozenOperationServices = { deviceStatuses: collaborationHttp.deviceStatuses, deviceConfigurations: collaborationHttp.deviceConfigurations, observations: collaborationHttp.observations,
   interferenceWorkbench: collaborationHttp.interferenceWorkbench, interferenceScenes: collaborationHttp.interferenceScenes };
 // 公共权限目录由总集成接线；GIS入口不借用宽泛的资源编辑权限。
@@ -1299,6 +1306,18 @@ async function toggleFrozenPlans() {
   if (!httpMode || !auth.can('planning.view') || fault.active.value) return;
   if (!(await configurationAction(() => gis.leave()))) return;
   editor.clearSession(); frozenInitialTab.value = 'devices'; frozenView.value = true;
+}
+async function openTaskPlan(target: { taskId: string; planId: string }) {
+  const owner = auth.generation;
+  if (openingTaskPlan.value || !task.readable || target.taskId !== task.taskId || frozenView.value || fault.active.value) return;
+  openingTaskPlan.value = true;
+  try {
+    await toggleFrozenPlans();
+    await nextTick();
+    // 复用冻结网络入口与离开保护，不把任务参与节点当作完整规划网络。
+    if (owner === auth.generation && task.readable && frozenView.value && target.taskId === task.taskId)
+      await frozenPanel.value?.openIdentity(target);
+  } finally { openingTaskPlan.value = false; }
 }
 watch(() => auth.generation, () => { frozenView.value = false; });
 onBeforeRouteLeave(async () => !frozenView.value || !frozenPanel.value || await frozenPanel.value.requestLeave());
