@@ -10,7 +10,7 @@ from sqlalchemy.exc import ArgumentError, IntegrityError, OperationalError, SQLA
 
 from .database import DatabaseConfigurationError, get_session_factory
 from . import interference_frontend_service as scenes, resource_dataset_service as resources
-from .interference_analysis_engine import AnalysisCancelled, AnalysisInputError, FrozenInterferenceEngine, digest, runtime_path
+from .interference_analysis_engine import AnalysisCancelled, AnalysisInputError, InterferenceParameterError, FrozenInterferenceEngine, digest, runtime_path
 from .interference_frontend_models import InterferenceScene, InterferenceSceneVersion
 from .interference_workbench_models import InterferenceWorkbenchAdoption as Adoption
 from .interference_workbench_models import InterferenceWorkbenchOperation as Operation
@@ -148,6 +148,11 @@ class InterferenceWorkbenchService:
         self._require_current(session, source)
         try:
             self.engine.validate_source(source)
+            if hasattr(self.engine, "freeze_parameters"):
+                # 有效参数单独冻结并纳入运行摘要，不回写资源或已保存场景。
+                source["analysis_parameters"] = self.engine.freeze_parameters(source)
+        except InterferenceParameterError as exc:
+            raise WorkbenchError(str(exc), 1001, 422) from exc
         except (AnalysisInputError, KeyError, TypeError, ValueError) as exc:
             raise WorkbenchError(str(exc), 1203, 409) from exc
         return source
@@ -282,6 +287,7 @@ class InterferenceWorkbenchService:
                     item["enabled"] = False
                     item["reasons"] = [*item["reasons"], *source_state["reasons"]]
             return {**self._progress(session, run), "source": deepcopy(run.source_snapshot["scene"]),
+                "analysis_parameters": deepcopy(run.source_snapshot.get("analysis_parameters")),
                 "result": result, "result_hash": run.result_hash,
                 "adoptions": [self.replanner.dto(session, row) for row in adoptions],
                 "adoption_capabilities": capabilities}

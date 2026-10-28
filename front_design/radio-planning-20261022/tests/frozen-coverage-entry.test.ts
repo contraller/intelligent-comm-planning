@@ -98,8 +98,8 @@ describe('冻结覆盖正式入口',()=>{
   it('两个正式宿主接同一共享客户端，地图仅绘制显式冻结覆盖',()=>{
     const read=(path:string)=>readFileSync(new URL('../src/'+path,import.meta.url),'utf8');
     const planning=read('views/PlanningApiView.vue'),gis=read('views/SituationView.vue'),frozen=read('components/GisFrozenPlanPanel.vue'),map=read('components/MapCanvas.vue');
-    expect(planning).toContain(':services="collaborationHttp.frozenCoverage"');expect(gis).toContain(':coverage-services="collaborationHttp.frozenCoverage"');
-    expect(frozen).toContain('FrozenCoveragePanel');expect(frozen).toMatch(/context:\s*'gis'/);expect(map).toContain('frozenCoverageLayer(');
+    expect(planning).toContain(':services="collaborationHttp.frozenCoverage"');expect(gis).not.toContain(':coverage-services="collaborationHttp.frozenCoverage"');
+    expect(frozen).not.toContain('FrozenCoveragePanel');expect(frozen).toContain('model.surface?.coverage');expect(map).toContain('frozenCoverageLayer(');
     expect(map).toContain('props.frozenNetwork?.identity.plan_id');expect(map).toContain('watch(()=>props.frozenCoverage,paint)');
     expect(map.replace(/\s/g,'')).toContain('if(frozenLayer&&frozenCoverageRender)layers.push(frozenLayer,frozenCoverageRender.deviceLayer)');
     expect(planning).not.toContain('createFrozenCoverageHttp(');expect(gis).not.toContain('createFrozenCoverageHttp(');

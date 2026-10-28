@@ -86,19 +86,39 @@ class Jammer:
                  "kind", "pattern", "az", "duty", "active")
 
     def __init__(self, row):
+        def number(field, default=None):
+            value = row.get(field)
+            if value is None or isinstance(value, str) and not value.strip():
+                if default is None:
+                    raise ValueError("干扰源缺少有效参数：" + str(row.get("interference_id")) + "." + field)
+                return default
+            if isinstance(value, bool):
+                raise ValueError("干扰源数值无效：" + field)
+            result = float(value)
+            if not math.isfinite(result):
+                raise ValueError("干扰源数值无效：" + field)
+            return result
+
         self.jid = row["interference_id"]
         self.name = row.get("name", self.jid)
-        self.lon, self.lat = float(row["lon"]), float(row["lat"])
-        self.h = float(row.get("antenna_height_m") or 10.0)
-        self.f = float(row["center_freq_khz"])
-        self.bw = max(float(row.get("bandwidth_khz") or 1.0), 1e-3)
-        self.p = float(row["tx_power_dbm"])
-        self.g = float(row.get("antenna_gain_dbi") or 0.0)
-        self.kind = row.get("interference_type", "NOISE")
+        self.lon, self.lat = number("lon"), number("lat")
+        self.h = number("antenna_height_m")
+        self.f = number("center_freq_khz")
+        self.bw = number("bandwidth_khz")
+        self.p = number("tx_power_dbm")
+        self.g = number("antenna_gain_dbi")
+        self.kind = row.get("interference_type")
         self.pattern = row.get("pattern_type", "OMNI") or "OMNI"
-        self.az = float(row.get("azimuth_deg") or 0.0)
-        self.duty = min(1.0, max(float(row.get("duty_cycle") or 1.0), 1e-3))
-        self.active = str(row.get("active", "true")).lower() == "true"
+        # 全向不消费方位角；合法的零挂高和零占空比不能被默认值或钳位改写。
+        self.az = number("azimuth_deg") if self.pattern == "DIRECTIONAL" else None
+        self.duty = number("duty_cycle", 1.0)
+        if (abs(self.lon) > 180 or abs(self.lat) > 90 or self.h < 0 or self.f <= 0 or self.bw <= 0
+                or not 0 <= self.duty <= 1 or self.pattern not in ("OMNI", "DIRECTIONAL")
+                or self.az is not None and not 0 <= self.az < 360
+                or self.kind not in ("NARROWBAND", "BROADBAND", "SWEEP", "PULSE", "NOISE")
+                or str(row.get("active")).lower() not in ("true", "false")):
+            raise ValueError("干扰源参数范围无效：" + self.jid)
+        self.active = str(row.get("active")).lower() == "true"
 
     @property
     def band(self):
@@ -208,7 +228,7 @@ class Scenario:
         self.stations = {s.sid: s for s in stations}
         self.links = links                     # [VictimLink]
         self.terrain = terrain
-        self.jammers = [j for j in jammers if j.active]
+        self.jammers = [j for j in jammers if j.active and j.duty > 0]
         self.hour = hour
         self.cache = _PLCache(terrain, hour, checkpoint=checkpoint)
         self.pos = {s.sid: (s.lon, s.lat) for s in stations}

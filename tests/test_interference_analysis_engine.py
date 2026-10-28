@@ -8,7 +8,77 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "algorithm-service"))
 from app import resource_dataset_service as resources
-from app.interference_analysis_engine import AnalysisCancelled, AnalysisInputError, FrozenInterferenceEngine, _modules, digest
+from app.interference_analysis_engine import AnalysisCancelled, AnalysisInputError, FrozenInterferenceEngine, _modules, digest, normalize_interference_sources
+
+
+def jammer_row(**changes):
+    return {"interference_id": "MANUAL-J", "name": "我的干扰源", "lon": "114.005", "lat": "38.001",
+        "elevation_m": "", "antenna_height_m": "20", "center_freq_khz": "400", "bandwidth_khz": "50",
+        "tx_power_dbm": "60", "antenna_gain_dbi": "0", "interference_type": "NOISE", "pattern_type": "OMNI",
+        "azimuth_deg": "", "duty_cycle": "0.5", "active": "true", **changes}
+
+
+@pytest.mark.parametrize("value", [None, "", "   "])
+def test_missing_gain_has_no_unsupported_default_and_names_source(value):
+    row = jammer_row(antenna_gain_dbi=value)
+    before = deepcopy(row)
+    with pytest.raises(AnalysisInputError) as caught:
+        normalize_interference_sources([row])
+    assert all(word in str(caught.value) for word in ("我的干扰源", "天线增益", "MANUAL-J", "antenna_gain_dbi", "MISSING_PARAMETER"))
+    assert row == before
+
+
+@pytest.mark.parametrize("gain", ["0", 0, "-12.5", -12.5])
+def test_explicit_gain_and_zero_values_remain_exact(gain):
+    row = jammer_row(antenna_gain_dbi=gain, antenna_height_m=0, duty_cycle=0)
+    result = normalize_interference_sources([row])[0]
+    assert result["parameters"]["antenna_gain_dbi"] == float(gain)
+    assert result["parameters"]["antenna_height_m"] == result["parameters"]["duty_cycle"] == 0
+    assert result["parameters"]["elevation_m"] is None
+    assert "DEM" in result["sources"]["elevation_m"]
+
+
+@pytest.mark.parametrize("pattern,duty", [(None, None), ("", ""), ("   ", "   ")])
+def test_existing_model_defaults_are_explicit_and_do_not_change_resource(pattern, duty):
+    row = jammer_row(pattern_type=pattern, duty_cycle=duty, azimuth_deg="无关旧数据")
+    original = deepcopy(row)
+    normalized = normalize_interference_sources([row])[0]
+    assert normalized["parameters"]["pattern_type"] == "OMNI" and normalized["parameters"]["duty_cycle"] == 1
+    assert normalized["parameters"]["azimuth_deg"] is None
+    assert "缺省" in normalized["sources"]["pattern_type"] and "缺省" in normalized["sources"]["duty_cycle"]
+    assert row == original
+
+
+@pytest.mark.parametrize("field,value", [("lon", "181"), ("lat", "-91"), ("center_freq_khz", "0"),
+    ("bandwidth_khz", "-1"), ("antenna_height_m", "-1"), ("tx_power_dbm", "NaN"),
+    ("antenna_gain_dbi", True), ("antenna_gain_dbi", "inf"), ("elevation_m", "坏值"),
+    ("duty_cycle", "-0.1"), ("duty_cycle", "1.1"), ("pattern_type", "NVIS"),
+    ("interference_type", "UNKNOWN"), ("active", None)])
+def test_invalid_source_fields_are_not_silently_zeroed(field, value):
+    with pytest.raises(AnalysisInputError, match=field):
+        normalize_interference_sources([jammer_row(**{field: value})])
+
+
+@pytest.mark.parametrize("azimuth", [None, "", "360", "-1", "NaN"])
+def test_directional_requires_azimuth_in_existing_resource_range(azimuth):
+    with pytest.raises(AnalysisInputError, match="方位角"):
+        normalize_interference_sources([jammer_row(pattern_type="DIRECTIONAL", azimuth_deg=azimuth)])
+
+
+def test_source_errors_aggregate_across_fields_and_sources():
+    with pytest.raises(AnalysisInputError) as caught:
+        normalize_interference_sources([jammer_row(antenna_gain_dbi="", bandwidth_khz="0"),
+            jammer_row(interference_id="OTHER-J", name="另一个干扰源", pattern_type="DIRECTIONAL", azimuth_deg="")])
+    message = str(caught.value)
+    assert all(word in message for word in ("我的干扰源", "天线增益", "带宽", "另一个干扰源", "OTHER-J", "方位角"))
+
+
+def test_model_rejects_missing_gain_and_preserves_small_bandwidth_and_duty():
+    model = _modules()["interference"]
+    with pytest.raises(ValueError, match="antenna_gain_dbi"):
+        model.Jammer(jammer_row(antenna_gain_dbi=""))
+    jammer = model.Jammer(jammer_row(antenna_height_m=0, bandwidth_khz="0.0001", duty_cycle="0.00001"))
+    assert jammer.h == 0 and jammer.bw == .0001 and jammer.duty == .00001
 
 
 @pytest.fixture(scope="module")
@@ -52,6 +122,30 @@ def test_native_zero_source_does_not_load_defaults_or_mutate(frozen_sample):
     assert output["summary"]["affected_links"] == 0 and output["summary"]["affected_nodes"] == 0
     assert output["measures"] == [] and output["affected_area"]["features"] == []
     assert digest(source) == before
+
+
+def test_native_optional_parameters_and_zero_duty_use_frozen_source(frozen_sample):
+    engine, frozen, frequency = frozen_sample
+    source = deepcopy(frozen)
+    source["scene"]["interference_sources"] = [{"source_row": jammer_row(center_freq_khz=str(frequency),
+        antenna_gain_dbi="-2", antenna_height_m="0", pattern_type="", duty_cycle="", azimuth_deg="旧方位角") }]
+    source["resource"]["tables"]["candidate_site.csv"] = []
+    # 场景保存后，即使同ID资源行有不同值，算法也只能消费场景行生成的冻结副本。
+    source["resource"]["tables"]["interference_source.csv"] = [jammer_row(antenna_gain_dbi="99", duty_cycle="0")]
+    source["analysis_parameters"] = engine.freeze_parameters(source)
+    before = digest(source)
+    _, scenario, *_ = engine._build(source)
+    assert scenario.jammers[0].g == -2 and scenario.jammers[0].h == 0
+    assert scenario.jammers[0].duty == 1 and scenario.jammers[0].az is None
+    assert digest(source) == before
+    source["analysis_parameters"][0]["parameters"]["antenna_gain_dbi"] = 99
+    with pytest.raises(AnalysisInputError, match="冻结场景不一致"):
+        engine.validate_source(source)
+    source.pop("analysis_parameters")
+    source["scene"]["interference_sources"][0]["source_row"]["duty_cycle"] = "0"
+    output = engine.analyze(source, lambda *args: None, lambda: False)
+    assert output["summary"]["jammers"] == 0 and output["affected_links"] == []
+    assert output["affected_area"]["features"] == []
 
 
 @pytest.mark.parametrize("count", [1, 2])

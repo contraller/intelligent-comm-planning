@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from typing import Annotated, Literal
 
-from pydantic import Field, StrictStr, field_validator, model_validator
+from pydantic import Field, StrictBool, StrictStr, field_validator, model_validator
 
 from .task_input_schemas import Identifier, InputModel
 
@@ -39,6 +39,8 @@ class PlanningPlanConfirmRequest(InputModel):
     request_id: Identifier
     task_id: Identifier
     expected_revision: Identifier
+    # 只确认质量风险，不豁免来源、权限或冻结结果完整性校验。
+    accept_quality_risk: StrictBool = False
 
 
 class PlanningPlanCompareRequest(InputModel):

@@ -134,6 +134,38 @@ describe('规划作业与方案状态',()=>{
     const action = planning.confirm();planning.selectedPlan = apiPlan('P-2');task.answer('save');await action;
     expect(request).not.toHaveBeenCalled();expect(planning.selectedPlan.id).toBe('P-2');
   });
+  it('未达标方案一次列出全部检查与缺口，取消不提交，确认显式携带风险授权', async () => {
+    const { planning, task } = await setup();
+    const reference = { ...apiPlan(), state: 'REFERENCE' as const, outcome: { code: 3001, message: '硬约束未满足', suggestions: [], gap: [{ objectId: 'D1', field: 'connectivity', message: '需求一未连通' }, { objectId: 'L1', field: 'frequency', message: '链路存在频率冲突' }] } };
+    reference.result.checks = reference.result.checks.map(check => ({ ...check, passed: false, detail: `${check.label}未达到阈值` }));
+    planning.selectedPlan = reference;
+    const request = vi.spyOn(previewService, 'confirmPlanningPlan').mockResolvedValue({ ...reference, state: 'CONFIRMED', current: true, confirmedAt: '2026-10-05T01:00:00Z', qualityRiskConfirmation: { accepted: true, planId: reference.id, revision: reference.revision, snapshotId: reference.result.snapshotId, confirmedAt: '2026-10-05T01:00:00Z', requestId: 'risk-confirm', outcomeCode: 3001 } });
+    expect(planning.canConfirm).toBe(true);
+    const cancelled = planning.confirm();
+    for (const check of reference.result.checks) expect(task.decision!.message).toContain(check.detail);
+    expect(task.decision!.message).toContain('需求一未连通'); expect(task.decision!.message).toContain('链路存在频率冲突');
+    expect(task.decision!.message).toContain('是否确认转正');
+    task.answer('cancel'); await cancelled; expect(request).not.toHaveBeenCalled();
+    const accepted = planning.confirm(); task.answer('save'); await accepted;
+    expect(request).toHaveBeenCalledOnce(); expect(request).toHaveBeenCalledWith(expect.objectContaining({ acceptQualityRisk: true, planId: reference.id, revision: reference.revision }));
+    expect(planning.selectedPlan!.outcome.code).toBe(3001); expect(planning.selectedPlan!.result.checks.every(check => check.passed === false)).toBe(true);
+  });
+  it('风险弹窗期间同一快照的质量清单变化，不沿用先前确认', async () => {
+    const { planning, task } = await setup(); planning.selectedPlan = apiPlan();
+    const request = vi.spyOn(previewService, 'confirmPlanningReceipt');
+    const action = planning.confirm(); planning.selectedPlan.result.checks[0].passed = false;
+    task.answer('save'); await action; expect(request).not.toHaveBeenCalled();
+  });
+  it('未达标转正缺少风险回读证明时保留原质量结果和原请求待核实', async () => {
+    const { planning, task } = await setup(); const reference = apiPlan();
+    reference.state = 'REFERENCE'; reference.outcome.code = 3001; reference.result.checks[0].passed = false;
+    planning.selectedPlan = reference;
+    vi.spyOn(previewService, 'confirmPlanningPlan').mockResolvedValue({ ...reference, state: 'CONFIRMED', current: true, confirmedAt: '2026-10-05T01:00:00Z' });
+    const action = planning.confirm(); task.answer('save'); await action;
+    expect(planning.selectedPlan).toMatchObject({ state: 'REFERENCE', outcome: { code: 3001 } });
+    expect(planning.pending).toMatchObject({ kind: 'confirm', planId: reference.id, qualitySnapshot: { outcome: { code: 3001 } } });
+    expect(planning.error).toContain('明确确认记录');
+  });
   it('转正回执返回另一方案时保留原请求待核实', async () => {
     const { planning, task } = await setup();planning.selectedPlan = apiPlan('P-1');
     vi.spyOn(previewService, 'confirmPlanningReceipt').mockResolvedValue({ objectId: 'P-2', taskId: task.taskId, revision: 'p2', changed: true });
@@ -269,8 +301,8 @@ describe('规划作业与方案状态',()=>{
   it('取消返回成功终态时保留服务端结果，不强行改成已取消',async()=>{
     const {task,planning}=await setup();planning.job={...apiJob(),state:'RUNNING',result:null};vi.spyOn(previewService,'cancelPlanningTask').mockResolvedValue(apiJob());const call=planning.cancel();task.answer('save');await call;expect(planning.job!.state).toBe('SUCCESS');expect(planning.result!.snapshotId).toBe('S1');
   });
-  it('参考版本可保存但不可确认，成功保存后刷新失败仍保留保存事实',async()=>{
-    const {planning}=await setup();planning.job=apiJob();const reference={...apiPlan(),state:'REFERENCE' as const};vi.spyOn(previewService,'savePlanningPlan').mockResolvedValue(reference);vi.mocked(previewService.queryPlanningPlans).mockRejectedValue(new ApiError('列表离线','NETWORK_ERROR'));expect(await planning.savePlan('参考','')).toBe(true);expect(planning.selectedPlan!.state).toBe('REFERENCE');expect(planning.job!.savedPlanId).toBe(reference.id);expect(planning.canConfirm).toBe(false);expect(planning.error).toContain('列表离线');
+  it('完整参考版本可保存并进入显式转正确认，刷新失败仍保留保存事实',async()=>{
+    const {planning}=await setup();planning.job=apiJob();const reference={...apiPlan(),state:'REFERENCE' as const};vi.spyOn(previewService,'savePlanningPlan').mockResolvedValue(reference);vi.mocked(previewService.queryPlanningPlans).mockRejectedValue(new ApiError('列表离线','NETWORK_ERROR'));expect(await planning.savePlan('参考','')).toBe(true);expect(planning.selectedPlan!.state).toBe('REFERENCE');expect(planning.job!.savedPlanId).toBe(reference.id);expect(planning.canConfirm).toBe(true);expect(planning.error).toContain('列表离线');
   });
   it('保存请求超时按回执恢复，禁止重复新建版本',async()=>{
     const {planning}=await setup();planning.job=apiJob();const save=vi.spyOn(previewService,'savePlanningPlan').mockRejectedValue(new ApiError('超时','REQUEST_TIMEOUT'));await planning.savePlan('版本','');expect(planning.pending!.kind).toBe('savePlan');await planning.savePlan('版本','');expect(save).toHaveBeenCalledTimes(1);

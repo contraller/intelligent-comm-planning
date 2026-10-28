@@ -46,6 +46,7 @@ export interface PlanningConfirmedConfiguration {
   confirmedAt: string; configuration: PlanningConfiguration;
 }
 export interface ApiPlan {
+  qualityRiskConfirmation?: { accepted: true; planId: string; revision: string; snapshotId: string; confirmedAt: string; requestId: string; outcomeCode: number };
   confirmedConfiguration?: PlanningConfirmedConfiguration | null;
   solutionId?: string;
   solutionLabel?: string;
@@ -95,7 +96,7 @@ export interface PlanningApiServices {
   queryPlanningPlans(input: ApiPageQuery & { taskId: string }): Promise<ApiPage<ApiPlan>>;
   getPlanningPlan(input: TaskApiOptions & { planId: string; taskId: string }): Promise<ApiPlan>;
   savePlanningPlan(input: PlanningApiMutation & { jobId: string; name: string; note: string; solutionId?: string; snapshotId?: string }): Promise<ApiPlan>;
-  confirmPlanningPlan(input: PlanningApiMutation & { planId: string }): Promise<ApiPlan>;
+  confirmPlanningPlan(input: PlanningApiMutation & { planId: string; acceptQualityRisk?: boolean }): Promise<ApiPlan>;
   comparePlanningPlans(input: TaskApiOptions & { taskId: string; planIds: string[] }): Promise<ApiPlan[]>;
   exportPlanningPlan(input: TaskApiOptions & { planId: string; taskId: string; format: 'json' | 'xlsx' }): Promise<ResourceFile>;
   getPlanningCoverageImage(input: TaskApiOptions & { snapshotId: string; raster: CoverageRaster }): Promise<Blob>;

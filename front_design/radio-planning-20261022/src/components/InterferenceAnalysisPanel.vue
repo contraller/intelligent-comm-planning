@@ -34,7 +34,9 @@
       </div>
       <p v-if="store.dirty" role="status">场景草稿未保存，不能提交分析。</p>
       <p v-if="store.scene?.sourceState.state !== 'CURRENT' && store.scene">{{ store.scene.sourceState.reasons.join('；') }}。保留冻结历史。</p>
-      <button class="btn primary" :disabled="!store.canAnalyze || store.locked" @click="store.submitAnalysis()"><i class="pi pi-play" aria-hidden="true" /> 提交干扰分析</button>
+      <section v-if="parameterIssues.length" aria-label="干扰源参数问题"><p>请在主资源中补充或修正以下参数，再重新保存场景版本。</p><ul><li v-for="issue in parameterIssues" :key="issue.interferenceId + issue.field">{{ issue.message }}</li></ul></section>
+      <p v-if="store.scene">天线增益须明确填写，0 和负增益均可；空方向图按全向、空占空比按连续发射计算。高程由冻结地形模型处理。</p>
+      <button class="btn primary" :disabled="!store.canAnalyze || store.locked || parameterIssues.length > 0" @click="store.submitAnalysis()"><i class="pi pi-play" aria-hidden="true" /> 提交干扰分析</button>
       <section v-if="store.taskContext && store.context?.active_run_ids.length" aria-label="活动分析"><p>已有活动分析</p><button v-for="id in store.context.active_run_ids" :key="id" class="text-link" :disabled="store.locked" @click="store.selectRun(id)">查看 {{ id }}</button></section>
       <section v-if="store.pendingWrites.length" aria-label="待核实写入">
         <div v-for="row in store.pendingWrites" :key="row.request_id"><p>受理状态待核实 · {{ row.request_id }}</p>
@@ -50,6 +52,10 @@
         <p>{{ store.selected.phase }} · {{ store.selected.progress }}%</p><progress max="100" :value="store.selected.progress" />
         <p class="muted">{{ store.selected.run_id }} · {{ store.selected.data_origin }}</p>
         <p>冻结场景 {{ store.selected.source.name }} · v{{ store.selected.source.versionNo }}</p>
+        <details v-if="store.selected.analysis_parameters" aria-label="分析有效参数及来源"><summary>分析有效参数及来源</summary>
+          <section v-for="row in store.selected.analysis_parameters" :key="row.interference_id"><h4>{{ row.name }} · {{ row.interference_id }}</h4><dl><template v-for="(value, field) in row.parameters" :key="field"><dt>{{ interferenceParameterLabels[field] || field }}</dt><dd>{{ value === null ? '不适用或未提供' : value }} · {{ row.sources[field] }}</dd></template></dl></section>
+        </details>
+        <p v-else>历史运行未记录标准化参数来源，保留原冻结快照。</p>
         <p v-if="store.selected.source_state.state !== 'CURRENT'" role="status">{{ store.selected.source_state.reasons.join('；') }}</p>
         <p v-if="store.selected.error" role="alert">{{ store.selected.error }}</p>
         <button v-if="['PENDING', 'RUNNING'].includes(store.selected.state)" class="btn" :disabled="!store.executable || store.locked" @click="store.cancelAnalysis()"><i class="pi pi-stop" aria-hidden="true" /> 请求取消分析</button>
@@ -88,6 +94,7 @@ import InterferenceSceneDrawer from './InterferenceSceneDrawer.vue';
 import type { InterferenceSource } from '../types/domain';
 import type { InterferenceTargetEntry } from '../composables/useInterferenceTargetNavigation';
 import type { TaskContext } from '../types/interference-workbench';
+import { interferenceParameterIssues, interferenceParameterLabels } from '../services/interference-workbench-validation';
 const props = defineProps<{ source?: InterferenceSource; sourceEditable: boolean; selectedNodeId: string; selectedLinkId: string;
   measureTargets?: InterferenceTargetEntry[]; targetNotice?: string; taskContext?: TaskContext | null }>();
 const emit = defineEmits<{ selectSource: [id: string]; editSource: [id: string]; analyzeSource: [id: string]; selectNode: [id: string]; selectLink: [id: string] }>();
@@ -95,6 +102,8 @@ const store = useInterferenceStore();
 // 已有运行/场景只列其冻结选源；空选源不能回退成当前资源目录。
 const sourceRows = computed(() => store.selected ? store.selected.source.interferenceSources.map(row => row.sourceRow)
   : store.scene ? store.scene.version.interferenceSources.map(row => row.sourceRow) : store.context?.interference_sources ?? []);
+// 提交只校验当前已保存场景，查看历史运行时不把历史错误阻断新的场景。
+const parameterIssues = computed(() => interferenceParameterIssues(store.scene?.version.interferenceSources.map(row => row.sourceRow) ?? []));
 function canLocate(row: Record<string, string>) {
   if (!row.lon?.trim() || !row.lat?.trim()) return false;
   const lon = Number(row.lon), lat = Number(row.lat);

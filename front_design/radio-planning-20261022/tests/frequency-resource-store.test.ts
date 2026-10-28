@@ -119,10 +119,10 @@ describe('规划频点独立工作区', () => {
     store.stopReading(); expect(store.phase).toBe('RESULT_UNKNOWN'); expect(store.pending).not.toBeNull();
     saving.resolve(receipt()); await pending; expect(store.pending).not.toBeNull();
   });
-  it('本地选择可放弃；未知请求离开后仍保留，不物理清理', async () => {
+  it('普通选择可直接离开；未知请求经确认离开后仍保留', async () => {
     const { store, services } = await fixture();
-    store.select('FQ-0001', true); const leave = store.requestLeave(); await store.answer('discard');
-    expect(await leave).toBe(true); expect(store.selectedIds).toEqual([]);
+    store.select('FQ-0001', true); expect(await store.requestLeave()).toBe(true);
+    expect(store.decision).toBeNull();
     services.disableFrequencyResources.mockRejectedValueOnce(new ApiError('断线', 'REQUEST_TIMEOUT'));
     store.select('FQ-0001', true); await store.prepareDisable(); await store.answer('save');
     const unknownLeave = store.requestLeave(); await store.answer('discard');
@@ -142,13 +142,12 @@ describe('规划频点独立工作区', () => {
     store.selectPage(true); expect(store.selectedIds).toEqual([]);
     await store.refresh(); expect(store.listFailed).toBe(false);
   });
-  it('离开时取消尚在途的只读预检，晚响应不能覆盖离开决定', async () => {
+  it('离开时取消尚在途的只读预检，晚响应不能恢复停用确认', async () => {
     const { store, services } = await fixture();
     const validation = deferred<FrequencyDisableValidation>(); services.validateFrequencyDisable.mockReturnValueOnce(validation.promise);
     store.select('FQ-0001', true); const pending = store.prepareDisable();
-    const leave = store.requestLeave(); validation.resolve(preview()); await pending;
-    expect(store.decision?.title).toBe('离开规划频点'); await store.answer('discard');
-    expect(await leave).toBe(true); expect(services.disableFrequencyResources).not.toHaveBeenCalled();
+    expect(await store.requestLeave()).toBe(true); validation.resolve(preview()); await pending;
+    expect(store.decision).toBeNull(); expect(services.disableFrequencyResources).not.toHaveBeenCalled();
   });
   it('共享宿主通知失败不把已确认提交误判为结果未知', async () => {
     const { store, options } = await fixture();

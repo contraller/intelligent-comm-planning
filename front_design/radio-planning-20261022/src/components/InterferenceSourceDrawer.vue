@@ -7,6 +7,8 @@
     @update:visible="!$event && close()"
     ><template v-if="editing && editor.form"
       ><p class="readonly-note">稳定 ID：{{ editor.form.id }}</p
+      ><p class="readonly-note">天线增益必须明确填写，可填写 0 或负值；系统没有可代用的统一默认增益。高程可空，资源高程不参与当前传播计算，地面高程按冻结地形模型处理。</p
+      ><p class="readonly-note">空方向图按全向 OMNI、空占空比按连续发射 1 计算；有效值及来源保存在分析运行快照中。全向不使用方位角，切换为定向时必须填写方位角。</p
       ><button
         class="btn small"
         :disabled="!editor.canEdit || editor.busy"
@@ -44,7 +46,8 @@
             :data-validation-field="key"
             :id="'interference-' + key"
             v-model="editor.form.fields[key]"
-            :disabled="!editor.canEdit || editor.busy"
+            :disabled="!editor.canEdit || editor.busy || key === 'azimuthDeg' && editor.form.fields.patternType !== 'DIRECTIONAL'"
+            :required="['name', 'longitude', 'latitude', 'antennaHeightM', 'centerFreqKhz', 'bandwidthKhz', 'txPowerDbm', 'antennaGainDbi'].includes(key) || key === 'azimuthDeg' && editor.form.fields.patternType === 'DIRECTIONAL'"
             :inputmode="key === 'name' ? 'text' : 'decimal'" /></label
         ><button
           class="btn primary"
@@ -68,6 +71,7 @@
           ><!-- 保留泛型中的空格，避免格式器将类型参数误判为 HTML 标签。 --><!-- prettier-ignore --><dd>{{ (source as unknown as Record< string, unknown>)[key] ?? '—' }}</dd></template
         ></template
       ></dl
+    ><p v-if="!editing && source?.antennaGainDbi === null" class="readonly-note" role="status">此历史干扰源缺少天线增益。请编辑资源补充有效增益并保存，再重新保存场景后分析。</p
     ><button
       v-if="!editing && source && editor.context === 'gis'"
       class="btn"
@@ -148,11 +152,11 @@ const labels: Record<string, string> = {
   centerFreqKhz: '中心频率 / kHz',
   bandwidthKhz: '带宽 / kHz',
   txPowerDbm: '功率 / dBm',
-  antennaGainDbi: '增益 / dBi（可空）',
+  antennaGainDbi: '天线增益 / dBi（必填，0 和负值有效）',
   interferenceType: '干扰类型',
-  patternType: '方向图（可空）',
+  patternType: '方向图（可空，分析按 OMNI）',
   azimuthDeg: '方位角 / °（定向必填）',
-  dutyCycle: '占空比 0–1（可空）',
+  dutyCycle: '占空比 0–1（可空，分析按 1）',
   active: '是否生效',
 };
 const options: Record<string, string[]> = {

@@ -3,6 +3,7 @@ import type { AuthenticatedRequest } from '../src/services/auth-http';
 import { createInterferenceWorkbenchHttp } from '../src/services/interference-workbench-http';
 import { ApiError } from '../src/services/types';
 import type { MeasurePreview, Operation, RunProgress, WorkbenchContext, WriteReceipt } from '../src/types/interference-workbench';
+import { interferenceParameterIssues } from '../src/services/interference-workbench-validation';
 
 const hash = 'a'.repeat(64), stamp = '2026-10-23T08:00:00Z';
 const body = () => ({ request_id: 'R1', task_id: 'T1', plan_id: 'P1', plan_version: 'V1', resource_revision: 'resource-1', scene_id: 'SC1', scene_version_id: 'SV1', snapshot_hash: hash });
@@ -16,6 +17,43 @@ const context = (): WorkbenchContext => ({ task_id: 'T1', resource_revision: 're
 const preview = (): MeasurePreview => ({ run_id: 'RUN1', measure_id: 'CM1', run_version: 2, source_hash: hash, preview_hash: hash, before_configuration: {}, proposed_changes: {}, impact_after: null, metrics: null, available: true, unavailable_reasons: [] });
 function deferred() { let resolve!: (value: unknown) => void; const promise = new Promise<unknown>(done => { resolve = done; }); return { promise, resolve }; }
 function setup(result: unknown) { const transport = vi.fn(async (_path: string, _init?: RequestInit) => result); return { transport, api: createInterferenceWorkbenchHttp(transport as AuthenticatedRequest) }; }
+
+const sourceRow = (changes: Record<string, unknown> = {}) => ({ interference_id: 'MANUAL-J', name: '我的干扰源',
+  lon: '114', lat: '37', elevation_m: '', antenna_height_m: '20', center_freq_khz: '400', bandwidth_khz: '50',
+  tx_power_dbm: '60', antenna_gain_dbi: '0', interference_type: 'NOISE', pattern_type: 'OMNI', azimuth_deg: '',
+  duty_cycle: '0.5', active: 'true', ...changes });
+
+describe('干扰源空值与条件参数契约', () => {
+  it.each([null, '', '   '])('没有有据默认增益时明确提示 %j', gain => {
+    const issues = interferenceParameterIssues([sourceRow({ antenna_gain_dbi: gain })]);
+    expect(issues).toHaveLength(1);
+    expect(issues[0]).toMatchObject({ name: '我的干扰源', interferenceId: 'MANUAL-J', field: 'antenna_gain_dbi', code: 'MISSING_PARAMETER' });
+    expect(issues[0]!.message).toContain('天线增益缺失');
+  });
+  it.each([0, '0', -12.5, '-12.5'])('零和负增益保留，零占空比和挂高合法 %j', gain => {
+    expect(interferenceParameterIssues([sourceRow({ antenna_gain_dbi: gain, antenna_height_m: 0, duty_cycle: 0 })])).toEqual([]);
+  });
+  it('可空高程、默认全向和连续发射不修改原始数据，全向不使用旧方位角', () => {
+    const row = sourceRow({ pattern_type: null, duty_cycle: null, azimuth_deg: '无关旧值' });
+    const before = structuredClone(row);
+    expect(interferenceParameterIssues([row])).toEqual([]); expect(row).toEqual(before);
+  });
+  it.each([['lon', 181], ['lat', -91], ['center_freq_khz', 0], ['bandwidth_khz', ''], ['tx_power_dbm', Infinity],
+    ['antenna_gain_dbi', false], ['antenna_gain_dbi', 'NaN'], ['elevation_m', '坏值'], ['antenna_height_m', -1],
+    ['duty_cycle', -0.1], ['duty_cycle', 1.1], ['pattern_type', 'NVIS'], ['interference_type', 'UNKNOWN'], ['active', null]])('有限数、边界和枚举不被默认为零 %s %j', (field, value) => {
+    expect(interferenceParameterIssues([sourceRow({ [field as string]: value })]).some(issue => issue.field === field)).toBe(true);
+  });
+  it.each([null, '', -1, 360, NaN])('定向方位角必须位于0至小于360 %j', azimuth => {
+    expect(interferenceParameterIssues([sourceRow({ pattern_type: 'DIRECTIONAL', azimuth_deg: azimuth })])).toEqual([expect.objectContaining({ field: 'azimuth_deg' })]);
+  });
+  it('多源多字段错误聚合并保留可读名称和详细定位信息', () => {
+    const issues = interferenceParameterIssues([sourceRow({ antenna_gain_dbi: '', bandwidth_khz: 0 }),
+      sourceRow({ interference_id: 'OTHER-J', name: '第二个源', pattern_type: 'DIRECTIONAL', azimuth_deg: '' })]);
+    expect(issues).toHaveLength(3);
+    expect(issues[2]!.message).toContain('第二个源'); expect(issues[2]!.message).toContain('OTHER-J');
+    expect(issues[2]!.message).toContain('azimuth_deg');
+  });
+});
 
 describe('干扰工作流真实HTTP专用工厂', () => {
   it('提交受理不等于分析成功，发起body和核验共用副本', async () => {

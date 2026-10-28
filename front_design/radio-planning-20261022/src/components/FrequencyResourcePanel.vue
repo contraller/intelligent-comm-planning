@@ -17,6 +17,7 @@
     <p v-if="store.page" class="frequency-source">{{ store.page.source }} · 版本 {{ store.page.revision }}</p>
     <p v-if="store.error" role="alert" class="frequency-error">{{ store.error }}</p>
     <p v-if="store.notice" role="status" class="notice">{{ store.notice }}</p>
+    <p v-if="store.loading.context || store.loading.list" role="status">正在读取规划频点，可切换页面；读取完成前不能维护。</p>
     <p v-if="store.stale" role="alert">当前保留旧版内容，刷新后才能继续选择和停用。</p>
     <p v-else-if="store.listFailed && store.page" role="alert">当前显示上次成功列表，重新读取成功前不能停用。</p>
     <form class="frequency-filters" @submit.prevent="applyFilters">
@@ -151,8 +152,9 @@ function changePage(value: { first: number; rows: number }) {
 function changeHistoryPage(value: { first: number; rows: number }) {
   void store.loadHistory({ page: Math.floor(value.first / value.rows) + 1, pageSize: value.rows as 5 | 10 | 20 | 50 });
 }
-watch(() => [props.active, props.session.accountId, props.session.generation, props.session.readable,
-  props.session.canDisable, props.session.canMaintain, props.services, props.loadContext], () => {
+// 会话校验可替换同值身份对象；逐项比较，避免离页校验无端重读并清除草稿。
+watch([() => props.active, () => props.session.accountId, () => props.session.generation, () => props.session.readable,
+  () => props.session.canDisable, () => props.session.canMaintain, () => props.services, () => props.loadContext], () => {
   const restoreFilters = !initialized || store.session?.accountId !== props.session.accountId
     || store.session?.generation !== props.session.generation;
   store.configure({ services: props.services, loadContext: props.loadContext, session: props.session,

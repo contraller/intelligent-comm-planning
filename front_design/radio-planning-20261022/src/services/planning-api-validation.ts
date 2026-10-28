@@ -209,11 +209,30 @@ export function planPasses(result: ApiPlanningResult): boolean {
   return ['connectivity', 'survivability', 'relay', 'frequency'].every(id => result.checks.find(c => c.id === id)?.passed === true)
     && result.metrics.connectivityPercent !== null && result.metrics.survivabilityPercent !== null && result.metrics.totalRadiatedPowerW !== null;
 }
+// 缺少质量数据属于不完整结果，不能用风险确认替代；明确未通过的检查可交由用户确认。
+export function planQualityComplete(result: ApiPlanningResult): boolean {
+  return ['connectivity', 'survivability', 'relay', 'frequency'].every(id => typeof result.checks.find(c => c.id === id)?.passed === 'boolean')
+    && [result.metrics.connectivityPercent, result.metrics.survivabilityPercent, result.metrics.totalRadiatedPowerW].every(value => typeof value === 'number' && Number.isFinite(value));
+}
+export function planQualityWarnings(plan: ApiPlan): string[] {
+  const warnings = plan.result.checks.filter(check => check.passed !== true).map(check => `${check.label}：${check.detail || (check.passed === false ? '未达到要求' : '未提供校验结论')}`);
+  for (const gap of plan.outcome.gap) warnings.push(`${gap.objectId} · ${gap.field}：${gap.message}`);
+  if (plan.outcome.code !== 0) warnings.push(plan.outcome.message);
+  return [...new Set(warnings)];
+}
 export function readApiPlan(value: unknown, expected: { taskId: string; planId?: string }): ApiPlan {
   const v = apiRecord(value), id = apiId(v.plan_id), taskId = apiId(v.task_id), input = readResponseTaskInput(v.input), result = readPlanningResult(v.result, input);
   if (taskId !== expected.taskId || expected.planId && id !== expected.planId) invalidApi('plan owner'); assertResultInput(result, input);
   const state = apiChoice(v.state, ['SAVED', 'REFERENCE', 'CONFIRMED'], 'state'), current = apiBool(v.current, 'current'), sourceChanged = apiBool(v.source_changed, 'source_changed'), outcome = readOutcome(v.outcome);
-  if (current && (state !== 'CONFIRMED' || sourceChanged) || state === 'CONFIRMED' && !v.confirmed_at || state !== 'REFERENCE' && (!planPasses(result) || outcome.code !== 0)) invalidApi('plan state');
+  let qualityRiskConfirmation: ApiPlan['qualityRiskConfirmation'];
+  if (v.quality_risk_confirmation !== undefined) {
+    const proof = apiRecord(v.quality_risk_confirmation);
+    if (proof.accepted !== true) invalidApi('quality risk acceptance');
+    qualityRiskConfirmation = { accepted: true, planId: apiId(proof.plan_id), revision: apiId(proof.revision), snapshotId: apiId(proof.snapshot_id), confirmedAt: apiDate(proof.confirmed_at, 'quality confirmation time'), requestId: apiId(proof.request_id), outcomeCode: apiNumber(proof.outcome_code, 'quality outcome code') };
+    if (state !== 'CONFIRMED' || qualityRiskConfirmation.planId !== id || qualityRiskConfirmation.revision !== v.revision || qualityRiskConfirmation.snapshotId !== result.snapshotId || qualityRiskConfirmation.confirmedAt !== v.confirmed_at || qualityRiskConfirmation.outcomeCode !== outcome.code || ![0, 3001, 3002].includes(outcome.code)) invalidApi('quality confirmation owner');
+  }
+  if (current && (state !== 'CONFIRMED' || sourceChanged) || state === 'CONFIRMED' && !v.confirmed_at
+    || state !== 'REFERENCE' && (!planPasses(result) || outcome.code !== 0) && !(state === 'CONFIRMED' && qualityRiskConfirmation && planQualityComplete(result))) invalidApi('plan state');
   const adjustment = readAdjustmentEcho(v, input, result);
   const interferenceOrigin = v.interference_origin === undefined ? undefined : readInterferenceOrigin(v.interference_origin);
   const jobId = nullableId(v.job_id);
@@ -232,7 +251,7 @@ export function readApiPlan(value: unknown, expected: { taskId: string; planId?:
     if (state !== 'CONFIRMED' || confirmedConfiguration.sourcePlanId !== id || confirmedConfiguration.sourcePlanVersion !== version || confirmedConfiguration.sourceSnapshotId !== result.snapshotId || confirmedConfiguration.confirmedAt !== confirmedAt) invalidApi('confirmed configuration owner');
     assertConfiguration(confirmedConfiguration.configuration, result);
   }
-  return { id, taskId, jobId, revision: apiId(v.revision), version, name: apiText(v.name, 'name'), note: apiText(v.note, 'note', true), inputVersion: nullableId(v.input_version), conditionVersion: apiId(v.condition_version), resourceRevision: nullableId(v.resource_revision), input, parentPlanId: nullableId(v.parent_plan_id), state, current, sourceChanged, savedAt: apiDate(v.saved_at, 'saved_at'), confirmedAt, source: apiText(v.source, 'source'), result, outcome, ...origin, ...(v.confirmed_configuration === undefined ? {} : { confirmedConfiguration: confirmedConfiguration ?? null }), ...(interferenceOrigin === undefined ? {} : { interferenceOrigin }), ...(adjustment === undefined ? {} : { adjustment }) };
+  return { id, taskId, jobId, revision: apiId(v.revision), version, name: apiText(v.name, 'name'), note: apiText(v.note, 'note', true), inputVersion: nullableId(v.input_version), conditionVersion: apiId(v.condition_version), resourceRevision: nullableId(v.resource_revision), input, parentPlanId: nullableId(v.parent_plan_id), state, current, sourceChanged, savedAt: apiDate(v.saved_at, 'saved_at'), confirmedAt, source: apiText(v.source, 'source'), result, outcome, ...origin, ...(qualityRiskConfirmation ? { qualityRiskConfirmation } : {}), ...(v.confirmed_configuration === undefined ? {} : { confirmedConfiguration: confirmedConfiguration ?? null }), ...(interferenceOrigin === undefined ? {} : { interferenceOrigin }), ...(adjustment === undefined ? {} : { adjustment }) };
 }
 export function readPlanningCatalog(presetValue: unknown, frequencyValue: unknown): PlanningCatalog {
   const p = apiRecord(presetValue), f = apiRecord(frequencyValue), revision = apiId(p.revision);

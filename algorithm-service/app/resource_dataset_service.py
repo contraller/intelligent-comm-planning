@@ -185,6 +185,26 @@ def current(factory=None):
     return result
 
 
+def at_revision(revision, factory=None):
+    """只读校验不可变历史资源，不切换当前指针或回退到不同版文件。"""
+    if not database_mode():
+        current_revision, snapshot = capture_files()
+        if current_revision != revision:
+            raise ResourceDatasetError("任务引用的历史资源未保留，不能用当前坐标替代", 2004, 404)
+        return {"revision": revision, "content_hash": content_hash(snapshot),
+                "source": SOURCE, "data_origin": ORIGIN, **snapshot}
+    try:
+        with (factory or get_session_factory())() as session:
+            row = session.get(ResourceDatasetVersion, revision)
+            if row is None:
+                raise ResourceDatasetError("任务引用的历史资源快照不存在，不能用当前坐标替代", 2004, 404)
+            return _decode(row)
+    except DatabaseConfigurationError as exc:
+        raise ResourceDatasetError("DATABASE_URL 未配置", 5001) from exc
+    except SQLAlchemyError as exc:
+        raise ResourceDatasetError("历史资源读取失败，未使用当前资源替代") from exc
+
+
 def algorithm_tables(expected_revision):
     snapshot = current()
     if snapshot["revision"] != expected_revision:

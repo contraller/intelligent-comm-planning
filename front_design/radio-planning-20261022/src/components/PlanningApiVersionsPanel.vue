@@ -105,6 +105,8 @@
           v-if="planning.selectedPlan.confirmedAt"
           class="muted"
           >转正时间：{{ planning.selectedPlan.confirmedAt }}</p
+        ><p v-if="planning.selectedPlan.qualityRiskConfirmation" class="warn" role="status"
+          >此版本经用户明确确认质量风险后转正，未达标指标保留。确认请求：{{ planning.selectedPlan.qualityRiskConfirmation.requestId }}</p
         ><p
           v-if="
             planning.selectedPlan.state === 'CONFIRMED' &&
@@ -321,7 +323,7 @@ const confirmHint = computed(() =>
       : planning.sourceChanged
         ? '方案来源已变化，仅供历史参考。'
         : planning.selectedPlan?.state === 'REFERENCE'
-          ? '此版本为参考方案，不能设为当前方案。'
+          ? '完整参考方案可在核对全部未达标指标并确认风险后转正；数据缺失时请重新规划。'
           : planning.busy
             ? '请等待当前操作完成。'
             : '此版本暂不可选用，请查看约束结论与版本状态。',

@@ -238,6 +238,14 @@ def apply_changes(snapshot, changes, planning_bounds=_CURRENT_BOUNDS):
                 touched.append((kind, identifier, creating))
         if not values:
             continue
+        if kind == "interference_sources":
+            from .interference_analysis_engine import InterferenceParameterError, normalize_interference_sources
+            # 只校验本次新增或实际改变的源；未编辑历史空值仍可读，不阻断无关资源保存。
+            changed_sources = [row for row in values if row != originals.get(row["interference_id"])]
+            try:
+                normalize_interference_sources(changed_sources)
+            except InterferenceParameterError as exc:
+                fail(str(exc), 1001, 422)
         output = StringIO(newline="")
         writer = csv.DictWriter(output, fieldnames=HEADERS[kind], extrasaction="ignore", lineterminator="\n")
         writer.writeheader()

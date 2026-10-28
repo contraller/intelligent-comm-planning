@@ -26,6 +26,7 @@ from .resource_workspace_router import router as resource_workspace_router
 from .task_file_router import create_task_file_router
 from .resource_reset_router import router as resource_reset_router
 from .gis_plan_router import router as gis_plan_router
+from .task_gis_router import router as task_gis_router
 from .frozen_coverage_router import create_frozen_coverage_router
 from .interference_frontend_router import router as interference_frontend_router
 from .interference_workbench_router import router as interference_workbench_router
@@ -198,6 +199,7 @@ app.include_router(resource_reset_router)
 app.include_router(create_task_file_router(integration_identity.require))
 # 并行模块在此统一挂载；各模块保留自己的严格契约和错误包络。
 app.include_router(gis_plan_router)
+app.include_router(task_gis_router)
 app.include_router(create_frozen_coverage_router(integration_identity.require))
 app.include_router(interference_frontend_router)
 app.include_router(interference_workbench_router)

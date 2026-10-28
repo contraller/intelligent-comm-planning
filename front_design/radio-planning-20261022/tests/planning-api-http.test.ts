@@ -204,6 +204,27 @@ describe('网络规划 HTTP 契约',()=>{
     const f=httpFixture(()=>response(dto));expect((await createPlanningHttp(f.request,()=>'/api/v1').savePlanningPlan({...options,jobId:'J1',revision:'j1',requestId:'save',name:'参考',note:''})).state).toBe('REFERENCE');
     dto.state='CONFIRMED';dto.confirmed_at='2026-10-05T01:00:00Z';expect(()=>readApiPlan(dto,options)).toThrow('plan state');
   });
+  it('显式风险确认走真实HTTP契约并保留未达标结论，旧请求不追加授权', async () => {
+    const dto = { ...planDto(), state: 'CONFIRMED', current: true, confirmed_at: '2026-10-05T01:00:00Z', quality_risk_confirmation: { accepted: true, plan_id: 'P-1', revision: 'p1', snapshot_id: 'S1', confirmed_at: '2026-10-05T01:00:00Z', request_id: 'risk-confirm', outcome_code: 3001 } };
+    dto.outcome.code = 3001; dto.result.checks[0].passed = false;
+    const f = httpFixture(() => response(dto)), service = createPlanningHttp(f.request, () => '/api/v1');
+    const plan = await service.confirmPlanningPlan({ ...options, planId: 'P-1', revision: 'p1', requestId: 'risk-confirm', acceptQualityRisk: true });
+    expect(JSON.parse(String(f.calls.at(-1)!.init.body))).toMatchObject({ accept_quality_risk: true, request_id: 'risk-confirm' });
+    expect(plan.qualityRiskConfirmation).toMatchObject({ accepted: true, requestId: 'risk-confirm' });
+    expect(plan.outcome.code).toBe(3001); expect(plan.result.checks[0].passed).toBe(false);
+    dto.outcome.code = 0; dto.result.checks[0].passed = true;
+    const ordinary = httpFixture(() => response({ ...dto, quality_risk_confirmation: undefined }));
+    await createPlanningHttp(ordinary.request, () => '/api/v1').confirmPlanningPlan({ ...options, planId: 'P-1', revision: 'p1', requestId: 'old-confirm' });
+    expect(JSON.parse(String(ordinary.calls.at(-1)!.init.body))).not.toHaveProperty('accept_quality_risk');
+  });
+  it.each(['plan_id', 'revision', 'snapshot_id', 'confirmed_at', 'outcome_code', 'accepted'] as const)('风险确认凭据 %s 不匹配时拒绝伪造转正', field => {
+    const proof: Record<string, unknown> = { accepted: true, plan_id: 'P-1', revision: 'p1', snapshot_id: 'S1', confirmed_at: '2026-10-05T01:00:00Z', request_id: 'risk-confirm', outcome_code: 3001 };
+    const dto = { ...planDto(), state: 'CONFIRMED', confirmed_at: '2026-10-05T01:00:00Z', quality_risk_confirmation: proof };
+    dto.outcome.code = 3001; dto.result.checks[0].passed = false;
+    expect(readApiPlan(dto, options).state).toBe('CONFIRMED');
+    proof[field] = field === 'accepted' ? false : field === 'outcome_code' ? 0 : field === 'confirmed_at' ? '2026-10-06T01:00:00Z' : 'OTHER';
+    expect(() => readApiPlan(dto, options)).toThrow();
+  });
   it('保存、确认使用版本和幂等标识；对比保持所选顺序与同任务归属',async()=>{
     const f=httpFixture(path=>response(path.endsWith('/compare')?[planDto('B'),planDto('A')]:path.endsWith('/confirm')?{...planDto(),state:'CONFIRMED',current:true,confirmed_at:'2026-10-05T01:00:00Z'}:{...planDto(),name:'方案',note:'说明'})),service=createPlanningHttp(f.request,()=>'/api/v1');
     await service.savePlanningPlan({...options,jobId:'J1',revision:'j1',requestId:'save',name:'方案',note:'说明'});expect(JSON.parse(String(f.calls.at(-1)!.init.body))).toMatchObject({expected_revision:'j1',request_id:'save'});

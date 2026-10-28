@@ -7,6 +7,14 @@ export type Operation = 'SUBMIT_ANALYSIS' | 'CANCEL_ANALYSIS' | 'ADOPT_MEASURE' 
 export interface TaskContext { taskId: string; planId: string; planVersion: string }
 export interface Capability { enabled: boolean; reasons: string[] }
 export interface SourceState { state: 'CURRENT' | 'HISTORICAL' | 'UNKNOWN'; reasons: string[] }
+export interface InterferenceParameterIssue {
+  interferenceId: string; name: string; field: string; code: string; message: string;
+}
+export interface InterferenceAnalysisParameters {
+  interference_id: string; name: string;
+  parameters: Record<string, number | string | boolean | null>;
+  sources: Record<string, string>;
+}
 export interface SourceOption {
   task_id: string; plan_id: string; plan_version: string; input_version: string; condition_version: string;
   resource_revision: string; source: string; data_origin: string | null; name: string;
@@ -69,6 +77,7 @@ export interface AdoptionDetail {
 }
 export interface RunDetail extends RunProgress {
   source: InterferenceSceneVersion; result: AnalysisResult | null; result_hash: string | null;
+  analysis_parameters?: InterferenceAnalysisParameters[] | null;
   adoptions: AdoptionDetail[]; adoption_capabilities: Record<MeasureType, Capability>;
 }
 export interface MeasurePreview {

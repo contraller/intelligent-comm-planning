@@ -130,7 +130,6 @@
             :frozen-network="model.network"
             :frozen-device-status="deviceStatus"
             :planning-overlay="coverageOverlay"
-            :frozen-coverage="frozenCoverage"
             :show-coverage="showCoverage"
             :coverage-display="coverageDisplay"
             :terrain-basemap="basemap"
@@ -153,8 +152,6 @@
             </select>
             <span v-if="model.surface?.coverage_notice" class="muted">{{ model.surface.coverage_notice }}</span>
           </div>
-          <FrozenCoveragePanel :query="{planId:model.network.identity.plan_id,taskId:model.network.identity.task_id,snapshotId:model.network.identity.snapshot_id,resourceRevision:model.network.identity.resource_revision,context:'gis'}"
-            :services="coverageServices" @overlay="frozenCoverage=$event" />
           <div class="toolbar"
             ><strong
               >{{ model.network.nodes.length }} 节点 / {{ model.network.links.length }} 链路</strong
@@ -253,8 +250,6 @@
 import { computed, onBeforeUnmount, reactive, ref, shallowRef, watch } from 'vue';
 import MapCanvas from './MapCanvas.vue';
 import GisPlanOperations from './GisPlanOperations.vue';
-import FrozenCoveragePanel from './FrozenCoveragePanel.vue';
-import type { FrozenCoverageClient,FrozenCoverageOverlay } from '../types/frozen-coverage';
 import {
   createGisFrozenPlanWorkspace,
   type GisFrozenPlanServices,
@@ -265,10 +260,9 @@ import type { CoverageDisplay } from '../types/coverage';
 import type { GisPlanOperationServices } from '../types/gis-plan';
 import type { PlanningPlanSummary } from '../types/planning-api';
 import { gisDeviceStatusKey, type GisDeviceStatusOverlay, type GisDeviceStatusRender } from '../maps/gis-device-status-layer';
-const props = defineProps<{ services: GisFrozenPlanServices; sessionGeneration: number; operations?: GisPlanOperationServices; coverageServices?:FrozenCoverageClient; currentResourceRevision?: string; initialTab?: 'devices' | 'interference' }>();
+const props = defineProps<{ services: GisFrozenPlanServices; sessionGeneration: number; operations?: GisPlanOperationServices; currentResourceRevision?: string; initialTab?: 'devices' | 'interference' }>();
 const emit = defineEmits<{ openPlan: [value: { taskId: string; planId: string }]; openJob: [value: { taskId: string; jobId: string }] }>();
 const analysisMap = ref(false);
-const frozenCoverage=shallowRef<FrozenCoverageOverlay|null>(null);
 const deviceStatus = shallowRef<GisDeviceStatusOverlay | null>(null);
 const statusRender = shallowRef<GisDeviceStatusRender | null>(null);
 function acceptStatusRender(value: GisDeviceStatusRender) {
@@ -287,7 +281,7 @@ const searchText = ref(''),
   state = ref<ApiPlan['state'] | ''>(''),
   page = ref(1);
 const showCoverage = ref(true), coverageDisplay = ref<CoverageDisplay>('auto');
-// 栅格复用既有安全下载；计划点线只由frozenNetwork绘制，不重复创建节点标签。
+// GIS 仅显示已有冻结覆盖；配置与计算保留在规划页，栅格沿用既有安全下载。
 const coverageOverlay = computed(() => model.surface?.coverage ? { nodes: [], coverage: model.surface.coverage, snapshotId: model.surface.identity.snapshot_id } : null);
 const labels = { SAVED: '已保存', REFERENCE: '参考方案', CONFIRMED: '已确认' };
 const node = computed(() => model.network?.nodes.find((row) => row.id === model.selectedNodeId));
@@ -317,7 +311,7 @@ async function requestLeave() { return operationPanel.value ? operationPanel.val
 async function openPlan(row: PlanningPlanSummary) { if (await requestLeave()) await model.openPlan(row); }
 async function closeNetwork() { if (await requestLeave()) model.closeNetwork(); }
 async function openIdentity(input: { taskId: string; planId: string }) { return await requestLeave() && await model.openIdentity(input); }
-watch(() => model.network, () => { analysisMap.value = false; frozenCoverage.value=null; deviceStatus.value = null; }, { flush: 'sync' });
+watch(() => model.network, () => { analysisMap.value = false; deviceStatus.value = null; }, { flush: 'sync' });
 function changePage(delta: number) {
   page.value += delta;
   return load();

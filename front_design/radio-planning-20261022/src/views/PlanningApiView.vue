@@ -225,7 +225,7 @@
           <p
             v-if="planning.selectedPlan?.state === 'REFERENCE'"
             class="warn"
-            >参考方案保留用于查看、对比和符合条件的干扰分析。</p
+            >参考方案可查看、对比和用于符合条件的干扰分析；完整方案可在核对全部未达标指标并确认风险后转正。</p
           >
         </div>
         <div
@@ -445,6 +445,7 @@
       ></AppDrawer
     >
     <DecisionDialog
+      class="planning-decision"
       :request="task.decision"
       @answer="task.answer"
     />
@@ -783,7 +784,7 @@ const workflowHint = computed(() =>
       : planning.sourceChanged
         ? '来源已变化，当前内容仅供回看；如需新方案，请返回任务输入核对条件后重新规划。'
         : planning.selectedPlan?.state === 'REFERENCE'
-          ? '参考方案可查看、比较；确认用于分析后，可进入干扰分析。'
+          ? '参考方案可查看、比较；完整方案可核对未达标指标后确认转正，也可确认用于干扰分析。'
           : planning.selectedPlan?.current
             ? '此版本已是当前方案。可返回查看结果，或按需调整；无需重复确认。'
             : planning.selectedPlan
@@ -1198,6 +1199,9 @@ onBeforeUnmount(() => {
 });
 </script>
 <style scoped>
+:global(.planning-decision .decision-message) {
+  white-space: pre-line;
+}
 .analysis-entry p {
   margin: 6px 0;
   color: var(--muted);
