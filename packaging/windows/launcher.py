@@ -5,9 +5,11 @@ import argparse
 import base64
 import ctypes
 import hmac
+from html.parser import HTMLParser
 import json
 import os
 from pathlib import Path
+import re
 import secrets
 import socket
 import subprocess
@@ -16,13 +18,123 @@ import threading
 import time
 import urllib.error
 import urllib.request
-from urllib.parse import quote
+from urllib.parse import quote, unquote, urlsplit
 
 ROOT = Path(__file__).resolve().parent
 APP = ROOT / "app"
 # 沿用后端现有运行目录校验，不放宽安全边界或修改业务代码。
 DATA = APP / "data/runtime"
 STATE = DATA / "service.json"
+
+
+_JS_TOKENS = re.compile(
+    r"(?P<comment>//[^\r\n]*|/\*[\s\S]*?\*/)"
+    r"|(?P<string>\"(?:\\[\s\S]|[^\"\\])*\"|'(?:\\[\s\S]|[^'\\])*'|`(?:\\[\s\S]|[^`\\])*`)"
+    r"|(?P<word>[A-Za-z_$][\w$]*)|(?P<symbol>=>|\?\.|[^\s])"
+)
+_JS_REGEXP = re.compile(r"/(?:\\.|\[(?:\\.|[^\]\\\r\n])*\]|[^/\\\[\r\n])+/[a-z]*")
+_VITE_DEPENDENCIES = re.compile(r"\bconst\s+__vite__mapDeps\s*=[^;]*?\.f\s*=\s*(\[[^\]]*\])")
+_CSS_REFERENCES = re.compile(
+    r"/\*[\s\S]*?\*/|(?:url\(\s*|@import\s+)(?:\"(?P<double>[^\"]*)\"|'(?P<single>[^']*)'|(?P<bare>[^)\s\"']+))"
+    r"|\"(?:\\.|[^\"\\])*\"|'(?:\\.|[^'\\])*'", re.IGNORECASE
+)
+
+
+def javascript_asset_references(source):
+    """读取构建产物的 import/from、字面量 import() 及 Vite 预加载表，不执行 JS。"""
+    def literal(value):
+        def escaped(match):
+            value = match.group(1)
+            if value.startswith(("u", "x")) and len(value) > 1:
+                return chr(int(value[1:].strip("{}"), 16))
+            return {"n": "\n", "r": "\r", "t": "\t", "\n": "", "\r\n": ""}.get(value, value)
+        return re.sub(r"\\(u\{[0-9a-fA-F]+\}|u[0-9a-fA-F]{4}|x[0-9a-fA-F]{2}|\r\n|[\s\S])", escaped, value[1:-1])
+
+    previous, pending, candidate, position = None, None, None, 0
+    while token := _JS_TOKENS.search(source, position):
+        position = token.end()
+        if token.lastgroup == "comment":
+            continue
+        value, kind = token.group(), token.lastgroup
+        # 正则表达式中的 import 字样不是模块依赖；除法不能吞掉后面的真实导入。
+        if value == "/" and (previous is None or previous in ("=", "(", "[", "{", ",", ":", ";", "!", "?", "return", "throw", "=>")):
+            regexp = _JS_REGEXP.match(source, token.start())
+            if regexp:
+                position = regexp.end()
+                previous, pending = "regexp", None
+                continue
+        if candidate is not None:
+            if value in (")", ","):
+                yield candidate
+            candidate = None
+        if kind == "string" and pending in ("import", "from", "dynamic"):
+            if not (value.startswith("`") and "${" in value):
+                if pending == "dynamic":
+                    candidate = literal(value)
+                else:
+                    yield literal(value)
+            pending = None
+        elif value == "(" and pending == "import":
+            pending = "dynamic"
+        else:
+            pending = value if kind == "word" and value in ("import", "from") and previous not in (".", "?.") else None
+        previous = value if kind != "string" else "string"
+    for mapping in _VITE_DEPENDENCIES.finditer(source):
+        for token in _JS_TOKENS.finditer(mapping.group(1)):
+            if token.lastgroup == "string":
+                yield literal(token.group())
+
+
+class _FrontendHTML(HTMLParser):
+    def __init__(self):
+        super().__init__()
+        self.references = []
+
+    def handle_starttag(self, tag, attributes):
+        values = dict(attributes)
+        if values.get("src"):
+            self.references.append(values["src"])
+        if tag == "link" and values.get("href") and set(values.get("rel", "").lower().split()) & {
+            "stylesheet", "modulepreload", "preload", "icon", "manifest",
+        }:
+            self.references.append(values["href"])
+
+
+def check_frontend_assets(dist=None):
+    """启动前只读检查首页及其 JS 依赖闭包；不读写运行数据、不计算整包哈希。"""
+    dist = Path(dist).resolve() if dist is not None else (APP / "front_design/radio-planning-20261022/dist").resolve()
+    pending = [(dist / "index.html", "./index.html")]
+    visited = set()
+    while pending:
+        parent, reference = pending.pop()
+        url = urlsplit(reference.replace("\\", "/"))
+        if url.scheme or url.netloc or not url.path:
+            continue  # 外部地址、内嵌数据和页内锚点不访问网络。
+        path = unquote(url.path)
+        asset = (dist / path.lstrip("/") if path.startswith("/") else parent.parent / path).resolve()
+        origin = parent.relative_to(dist).as_posix()
+        if not asset.is_relative_to(dist):
+            raise RuntimeError("前端资源引用越界：" + reference + "（引用来源：" + origin + "）")
+        relative = asset.relative_to(dist).as_posix()
+        if not asset.is_file():
+            raise RuntimeError("前端资源缺失：" + relative + "（引用来源：" + origin + "）；请恢复同一版本的完整前端文件后重试")
+        if asset in visited:
+            continue
+        visited.add(asset)
+        if asset.suffix.lower() not in (".html", ".js", ".mjs", ".css"):
+            continue
+        source = asset.read_text(encoding="utf-8-sig")
+        if asset.suffix.lower() == ".html":
+            html = _FrontendHTML()
+            html.feed(source)
+            references = html.references
+        elif asset.suffix.lower() == ".css":
+            references = (next(value for value in match.groups() if value is not None)
+                          for match in _CSS_REFERENCES.finditer(source) if any(value is not None for value in match.groups()))
+        else:
+            references = javascript_asset_references(source)
+        pending.extend((asset, value) for value in references)
+    return tuple(sorted(visited))
 
 
 def secure_data_directory():
@@ -226,6 +338,7 @@ def bind_listener(preferred=18480):
 
 
 def serve():
+    check_frontend_assets()
     import msvcrt
     secure_data_directory()
     with (DATA / "service.lock").open("a+b") as lock:
@@ -307,6 +420,7 @@ def active_algorithm_threads():
 
 
 def start(open_browser=True, timeout=180):
+    check_frontend_assets()
     secure_data_directory()
     current = available_state()
     if not current:
