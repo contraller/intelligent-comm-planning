@@ -1,0 +1,128 @@
+{
+  "origin": "http://127.0.0.1:18480",
+  "taskId": "DEMO-20261028-QUALIFY-baseline",
+  "planId": "PLAN-8654a33bfe7a48988da7242d4c8f6248",
+  "planName": "演示01 已校验的规划网络",
+  "state": "CONFIRMED",
+  "current": true,
+  "metrics": {
+    "connectivityPercent": 98.29,
+    "totalRadiatedPowerW": 16301.6,
+    "survivabilityPercent": 91.01,
+    "coveragePercent": null,
+    "delayMs": 25.01
+  },
+  "checks": [
+    {
+      "id": "connectivity",
+      "label": "必要通联连通率",
+      "passed": true,
+      "detail": "必要需求已生成主路由 1/1 条；算法值 1.0"
+    },
+    {
+      "id": "survivability",
+      "label": "抗毁性",
+      "passed": true,
+      "detail": "算法值 0.9101，要求 0.9"
+    },
+    {
+      "id": "relay",
+      "label": "中继约束",
+      "passed": true,
+      "detail": "算法值 0.0，要求不超过 2.0"
+    },
+    {
+      "id": "frequency",
+      "label": "频率冲突",
+      "passed": true,
+      "detail": "检测到 0 处频率冲突"
+    }
+  ],
+  "diagnoses": [
+    {
+      "runId": "FR-fb67197914d945348041",
+      "scenarioId": "FS-2AC4E32593B14454",
+      "name": "构造演示：短波设备功放故障",
+      "state": "SUCCESS",
+      "diagnosisReady": true,
+      "impactReady": true,
+      "rootCause": "功放模块输出级晶体管击穿",
+      "needManualReview": true
+    },
+    {
+      "runId": "FR-57e284eb06ed4c1f811e",
+      "scenarioId": "FS-87198F015AD44562",
+      "name": "构造演示：超短波链路中断",
+      "state": "SUCCESS",
+      "diagnosisReady": true,
+      "impactReady": true,
+      "rootCause": "天线指向偏离",
+      "needManualReview": true
+    },
+    {
+      "runId": "FR-7919cec3db704ef38ee7",
+      "scenarioId": "FS-46502D60A2644534",
+      "name": "构造演示：超短波频率配置不一致",
+      "state": "SUCCESS",
+      "diagnosisReady": true,
+      "impactReady": true,
+      "rootCause": "工作频率配置与对端不一致",
+      "needManualReview": true
+    }
+  ],
+  "noBusinessCodeChanges": true,
+  "dataSource": "人工构造演示，非生产、非实测；诊断建议待现场人工复核，ML未启用",
+  "knowledge": {
+    "changeId": "CR-C7C2886590C54393",
+    "versionId": "KGV-2",
+    "caseName": "DF-A4391718CC7C-01",
+    "entityId": "E-01836",
+    "state": "PUBLISHED",
+    "relationCount": 11,
+    "provenanceVerified": true
+  },
+  "independentEdgeDeletion": {
+    "method": "INDEPENDENT_EDGE_DELETION_BFS",
+    "mandatoryCount": 89,
+    "initiallyLost": [],
+    "worstLink": {
+      "id": "OL-0015",
+      "a": "ND-0067",
+      "b": "ND-0039",
+      "deviceA": "DV-0295",
+      "deviceB": "DV-0221",
+      "state": "WARNING",
+      "deviceClass": "VUHF",
+      "frequencyKhz": 498489.6,
+      "backup": false
+    },
+    "lostDemandIds": [
+      "CD-0145",
+      "CD-0157",
+      "CD-0162",
+      "CD-0181",
+      "CD-0231",
+      "CD-0249",
+      "CD-0254",
+      "CD-0305"
+    ],
+    "retainedCount": 81,
+    "survivability": 0.9101123595505618
+  },
+  "browser": {
+    "planVisible": true,
+    "diagnosisRootVisible": true,
+    "publishedCaseVisible": true,
+    "pageErrors": [],
+    "businessWrites": []
+  },
+  "csvDataRows": {
+    "01_task_scenarios.csv": 1,
+    "02_task_links.csv": 1,
+    "05_故障场景_三类示例.csv": 3
+  },
+  "sameFrozenInputAfterNullNormalization": true,
+  "fullChainComplete": true,
+  "coverageComputed": false,
+  "oldReferencePlanUnchanged": "PLAN-1cef1d183be2456dbb2969020320dd6e"
+}

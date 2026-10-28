@@ -1,0 +1,469 @@
+{
+  "changeId": "CR-C7C2886590C54393",
+  "published": {
+    "objectId": "CR-C7C2886590C54393",
+    "entityId": "CR-C7C2886590C54393",
+    "changed": true,
+    "revision": "KG-6",
+    "currentVersionId": "KGV-2",
+    "change": {
+      "id": "CR-C7C2886590C54393",
+      "authorId": "ACC-596dc07169c04b4988042fba6a7fdec1",
+      "state": "PUBLISHED",
+      "revision": 1,
+      "content": {
+        "summary": "诊断反馈 DF-A4391718CC7C-01",
+        "baseVersionId": "KGV-1",
+        "entities": [
+          {
+            "id": "E-01836",
+            "name": "DF-A4391718CC7C-01",
+            "category": "故障运维知识",
+            "type": "Fault",
+            "description": "",
+            "keywords": [],
+            "source": "来源未提供",
+            "attributes": [],
+            "modelIds": []
+          },
+          {
+            "id": "E-01837",
+            "name": "DF-A4391718CC7C-01",
+            "category": "故障运维知识",
+            "type": "Case",
+            "description": "",
+            "keywords": [],
+            "source": "来源未提供",
+            "attributes": [],
+            "modelIds": []
+          },
+          {
+            "id": "E-01838",
+            "name": "【人工构造演示，待现场复核】按通联计划重新下发频率配置",
+            "category": "故障运维知识",
+            "type": "Solution",
+            "description": "",
+            "keywords": [],
+            "source": "来源未提供",
+            "attributes": [],
+            "modelIds": []
+          },
+          {
+            "id": "E-01839",
+            "name": "01:仅对照本次构造场景及冻结网络核对观察现象：频率配置与对端不一致",
+            "category": "故障运维知识",
+            "type": "DiagnosisStep",
+            "description": "",
+            "keywords": [],
+            "source": "来源未提供",
+            "attributes": [],
+            "modelIds": []
+          },
+          {
+            "id": "E-01840",
+            "name": "02:检查报告返回的RULE-0078部分匹配及FC-0121图谱来源",
+            "category": "故障运维知识",
+            "type": "DiagnosisStep",
+            "description": "",
+            "keywords": [],
+            "source": "来源未提供",
+            "attributes": [],
+            "modelIds": []
+          },
+          {
+            "id": "E-01841",
+            "name": "03:本次未读取真实设备自检码，未执行实际配置下发或现场维修",
+            "category": "故障运维知识",
+            "type": "DiagnosisStep",
+            "description": "",
+            "keywords": [],
+            "source": "来源未提供",
+            "attributes": [],
+            "modelIds": []
+          },
+          {
+            "id": "E-01842",
+            "name": "04:保留需人工复核标记；此反馈仅用于构造知识维护流程演示，不作为实测根因或训练验证",
+            "category": "故障运维知识",
+            "type": "DiagnosisStep",
+            "description": "",
+            "keywords": [],
+            "source": "来源未提供",
+            "attributes": [],
+            "modelIds": []
+          }
+        ],
+        "relations": [
+          {
+            "id": "KG-05854",
+            "head": "E-01836",
+            "tail": "E-01834",
+            "type": "instanceOf",
+            "weight": 1,
+            "source": "diagnosis_feedback#DF-A4391718CC7C-01 by ACC-596dc07169c04b4988042fba6a7fdec1 [INTEGRATION_CONFIRMED_CONSTRUCTED]"
+          },
+          {
+            "id": "KG-05855",
+            "head": "E-01836",
+            "tail": "E-01831",
+            "type": "occursOn",
+            "weight": 1,
+            "source": "diagnosis_feedback#DF-A4391718CC7C-01 by ACC-596dc07169c04b4988042fba6a7fdec1 [INTEGRATION_CONFIRMED_CONSTRUCTED]"
+          },
+          {
+            "id": "KG-05856",
+            "head": "E-01836",
+            "tail": "E-01837",
+            "type": "recordedIn",
+            "weight": 1,
+            "source": "diagnosis_feedback#DF-A4391718CC7C-01 by ACC-596dc07169c04b4988042fba6a7fdec1 [INTEGRATION_CONFIRMED_CONSTRUCTED]"
+          },
+          {
+            "id": "KG-05857",
+            "head": "E-01836",
+            "tail": "E-01439",
+            "type": "causedBy",
+            "weight": 1,
+            "source": "diagnosis_feedback#DF-A4391718CC7C-01 by ACC-596dc07169c04b4988042fba6a7fdec1 [INTEGRATION_CONFIRMED_CONSTRUCTED]"
+          },
+          {
+            "id": "KG-05858",
+            "head": "E-01836",
+            "tail": "E-01838",
+            "type": "resolvedBy",
+            "weight": 1,
+            "source": "diagnosis_feedback#DF-A4391718CC7C-01 by ACC-596dc07169c04b4988042fba6a7fdec1 [INTEGRATION_CONFIRMED_CONSTRUCTED]"
+          },
+          {
+            "id": "KG-05859",
+            "head": "E-01836",
+            "tail": "E-01440",
+            "type": "locatedAt",
+            "weight": 1,
+            "source": "diagnosis_feedback#DF-A4391718CC7C-01 by ACC-596dc07169c04b4988042fba6a7fdec1 [INTEGRATION_CONFIRMED_CONSTRUCTED]"
+          },
+          {
+            "id": "KG-05860",
+            "head": "E-01836",
+            "tail": "E-01438",
+            "type": "hasSymptom",
+            "weight": 1,
+            "source": "diagnosis_feedback#DF-A4391718CC7C-01 by ACC-596dc07169c04b4988042fba6a7fdec1 [INTEGRATION_CONFIRMED_CONSTRUCTED]"
+          },
+          {
+            "id": "KG-05861",
+            "head": "E-01836",
+            "tail": "E-01839",
+            "type": "diagnosedBy",
+            "weight": 1,
+            "source": "diagnosis_feedback#DF-A4391718CC7C-01 by ACC-596dc07169c04b4988042fba6a7fdec1 [INTEGRATION_CONFIRMED_CONSTRUCTED]"
+          },
+          {
+            "id": "KG-05862",
+            "head": "E-01836",
+            "tail": "E-01840",
+            "type": "diagnosedBy",
+            "weight": 1,
+            "source": "diagnosis_feedback#DF-A4391718CC7C-01 by ACC-596dc07169c04b4988042fba6a7fdec1 [INTEGRATION_CONFIRMED_CONSTRUCTED]"
+          },
+          {
+            "id": "KG-05863",
+            "head": "E-01836",
+            "tail": "E-01841",
+            "type": "diagnosedBy",
+            "weight": 1,
+            "source": "diagnosis_feedback#DF-A4391718CC7C-01 by ACC-596dc07169c04b4988042fba6a7fdec1 [INTEGRATION_CONFIRMED_CONSTRUCTED]"
+          },
+          {
+            "id": "KG-05864",
+            "head": "E-01836",
+            "tail": "E-01842",
+            "type": "diagnosedBy",
+            "weight": 1,
+            "source": "diagnosis_feedback#DF-A4391718CC7C-01 by ACC-596dc07169c04b4988042fba6a7fdec1 [INTEGRATION_CONFIRMED_CONSTRUCTED]"
+          }
+        ]
+      },
+      "createdAt": "2026-10-28T05:27:38.490350+00:00",
+      "updatedAt": "2026-10-28T05:27:44.503983+00:00",
+      "submissions": [
+        {
+          "number": 1,
+          "revision": 1,
+          "actorId": "ACC-596dc07169c04b4988042fba6a7fdec1",
+          "time": "2026-10-28T05:27:39.574905+00:00",
+          "content": {
+            "summary": "诊断反馈 DF-A4391718CC7C-01",
+            "baseVersionId": "KGV-1",
+            "entities": [
+              {
+                "id": "E-01836",
+                "name": "DF-A4391718CC7C-01",
+                "category": "故障运维知识",
+                "type": "Fault",
+                "description": "",
+                "keywords": [],
+                "source": "来源未提供",
+                "attributes": [],
+                "modelIds": []
+              },
+              {
+                "id": "E-01837",
+                "name": "DF-A4391718CC7C-01",
+                "category": "故障运维知识",
+                "type": "Case",
+                "description": "",
+                "keywords": [],
+                "source": "来源未提供",
+                "attributes": [],
+                "modelIds": []
+              },
+              {
+                "id": "E-01838",
+                "name": "【人工构造演示，待现场复核】按通联计划重新下发频率配置",
+                "category": "故障运维知识",
+                "type": "Solution",
+                "description": "",
+                "keywords": [],
+                "source": "来源未提供",
+                "attributes": [],
+                "modelIds": []
+              },
+              {
+                "id": "E-01839",
+                "name": "01:仅对照本次构造场景及冻结网络核对观察现象：频率配置与对端不一致",
+                "category": "故障运维知识",
+                "type": "DiagnosisStep",
+                "description": "",
+                "keywords": [],
+                "source": "来源未提供",
+                "attributes": [],
+                "modelIds": []
+              },
+              {
+                "id": "E-01840",
+                "name": "02:检查报告返回的RULE-0078部分匹配及FC-0121图谱来源",
+                "category": "故障运维知识",
+                "type": "DiagnosisStep",
+                "description": "",
+                "keywords": [],
+                "source": "来源未提供",
+                "attributes": [],
+                "modelIds": []
+              },
+              {
+                "id": "E-01841",
+                "name": "03:本次未读取真实设备自检码，未执行实际配置下发或现场维修",
+                "category": "故障运维知识",
+                "type": "DiagnosisStep",
+                "description": "",
+                "keywords": [],
+                "source": "来源未提供",
+                "attributes": [],
+                "modelIds": []
+              },
+              {
+                "id": "E-01842",
+                "name": "04:保留需人工复核标记；此反馈仅用于构造知识维护流程演示，不作为实测根因或训练验证",
+                "category": "故障运维知识",
+                "type": "DiagnosisStep",
+                "description": "",
+                "keywords": [],
+                "source": "来源未提供",
+                "attributes": [],
+                "modelIds": []
+              }
+            ],
+            "relations": [
+              {
+                "id": "KG-05854",
+                "head": "E-01836",
+                "tail": "E-01834",
+                "type": "instanceOf",
+                "weight": 1,
+                "source": "diagnosis_feedback#DF-A4391718CC7C-01 by ACC-596dc07169c04b4988042fba6a7fdec1 [INTEGRATION_CONFIRMED_CONSTRUCTED]"
+              },
+              {
+                "id": "KG-05855",
+                "head": "E-01836",
+                "tail": "E-01831",
+                "type": "occursOn",
+                "weight": 1,
+                "source": "diagnosis_feedback#DF-A4391718CC7C-01 by ACC-596dc07169c04b4988042fba6a7fdec1 [INTEGRATION_CONFIRMED_CONSTRUCTED]"
+              },
+              {
+                "id": "KG-05856",
+                "head": "E-01836",
+                "tail": "E-01837",
+                "type": "recordedIn",
+                "weight": 1,
+                "source": "diagnosis_feedback#DF-A4391718CC7C-01 by ACC-596dc07169c04b4988042fba6a7fdec1 [INTEGRATION_CONFIRMED_CONSTRUCTED]"
+              },
+              {
+                "id": "KG-05857",
+                "head": "E-01836",
+                "tail": "E-01439",
+                "type": "causedBy",
+                "weight": 1,
+                "source": "diagnosis_feedback#DF-A4391718CC7C-01 by ACC-596dc07169c04b4988042fba6a7fdec1 [INTEGRATION_CONFIRMED_CONSTRUCTED]"
+              },
+              {
+                "id": "KG-05858",
+                "head": "E-01836",
+                "tail": "E-01838",
+                "type": "resolvedBy",
+                "weight": 1,
+                "source": "diagnosis_feedback#DF-A4391718CC7C-01 by ACC-596dc07169c04b4988042fba6a7fdec1 [INTEGRATION_CONFIRMED_CONSTRUCTED]"
+              },
+              {
+                "id": "KG-05859",
+                "head": "E-01836",
+                "tail": "E-01440",
+                "type": "locatedAt",
+                "weight": 1,
+                "source": "diagnosis_feedback#DF-A4391718CC7C-01 by ACC-596dc07169c04b4988042fba6a7fdec1 [INTEGRATION_CONFIRMED_CONSTRUCTED]"
+              },
+              {
+                "id": "KG-05860",
+                "head": "E-01836",
+                "tail": "E-01438",
+                "type": "hasSymptom",
+                "weight": 1,
+                "source": "diagnosis_feedback#DF-A4391718CC7C-01 by ACC-596dc07169c04b4988042fba6a7fdec1 [INTEGRATION_CONFIRMED_CONSTRUCTED]"
+              },
+              {
+                "id": "KG-05861",
+                "head": "E-01836",
+                "tail": "E-01839",
+                "type": "diagnosedBy",
+                "weight": 1,
+                "source": "diagnosis_feedback#DF-A4391718CC7C-01 by ACC-596dc07169c04b4988042fba6a7fdec1 [INTEGRATION_CONFIRMED_CONSTRUCTED]"
+              },
+              {
+                "id": "KG-05862",
+                "head": "E-01836",
+                "tail": "E-01840",
+                "type": "diagnosedBy",
+                "weight": 1,
+                "source": "diagnosis_feedback#DF-A4391718CC7C-01 by ACC-596dc07169c04b4988042fba6a7fdec1 [INTEGRATION_CONFIRMED_CONSTRUCTED]"
+              },
+              {
+                "id": "KG-05863",
+                "head": "E-01836",
+                "tail": "E-01841",
+                "type": "diagnosedBy",
+                "weight": 1,
+                "source": "diagnosis_feedback#DF-A4391718CC7C-01 by ACC-596dc07169c04b4988042fba6a7fdec1 [INTEGRATION_CONFIRMED_CONSTRUCTED]"
+              },
+              {
+                "id": "KG-05864",
+                "head": "E-01836",
+                "tail": "E-01842",
+                "type": "diagnosedBy",
+                "weight": 1,
+                "source": "diagnosis_feedback#DF-A4391718CC7C-01 by ACC-596dc07169c04b4988042fba6a7fdec1 [INTEGRATION_CONFIRMED_CONSTRUCTED]"
+              }
+            ]
+          },
+          "outcome": "APPROVED",
+          "review": {
+            "actorId": "ACC-be303434749847258e21c7fd0d4ec034",
+            "time": "2026-10-28T05:27:42.545512+00:00",
+            "opinion": "仅演示知识审核流程：核对本次冻结场景、返回的RULE-0078/FC-0121来源及构造标识，保留待现场复核。此次审批不表示真实设备根因、维修效果或ML准确率已获验证。"
+          }
+        }
+      ],
+      "publishedVersionId": "KGV-2"
+    }
+  },
+  "currentVersionId": "KGV-2",
+  "search": "工作频率配置与对端不一致",
+  "result": {
+    "versionId": "KGV-2",
+    "items": [
+      {
+        "id": "E-01439",
+        "name": "工作频率配置与对端不一致",
+        "category": "故障运维知识",
+        "type": "Cause"
+      },
+      {
+        "id": "E-01710",
+        "name": "FC-0121",
+        "category": "故障运维知识",
+        "type": "Case"
+      },
+      {
+        "id": "E-01715",
+        "name": "FC-0126",
+        "category": "故障运维知识",
+        "type": "Case"
+      },
+      {
+        "id": "E-01720",
+        "name": "FC-0131",
+        "category": "故障运维知识",
+        "type": "Case"
+      },
+      {
+        "id": "E-01725",
+        "name": "FC-0136",
+        "category": "故障运维知识",
+        "type": "Case"
+      },
+      {
+        "id": "E-01730",
+        "name": "FC-0141",
+        "category": "故障运维知识",
+        "type": "Case"
+      },
+      {
+        "id": "E-01735",
+        "name": "FC-0146",
+        "category": "故障运维知识",
+        "type": "Case"
+      },
+      {
+        "id": "E-01740",
+        "name": "FC-0151",
+        "category": "故障运维知识",
+        "type": "Case"
+      },
+      {
+        "id": "E-01745",
+        "name": "FC-0156",
+        "category": "故障运维知识",
+        "type": "Case"
+      },
+      {
+        "id": "E-01750",
+        "name": "FC-0161",
+        "category": "故障运维知识",
+        "type": "Case"
+      },
+      {
+        "id": "E-01755",
+        "name": "FC-0166",
+        "category": "故障运维知识",
+        "type": "Case"
+      },
+      {
+        "id": "E-01760",
+        "name": "FC-0171",
+        "category": "故障运维知识",
+        "type": "Case"
+      },
+      {
+        "id": "E-01765",
+        "name": "FC-0176",
+        "category": "故障运维知识",
+        "type": "Case"
+      }
+    ],
+    "total": 13,
+    "pageNum": 1,
+    "pageSize": 20,
+    "similar": [],
+    "code": 0
+  }
+}
