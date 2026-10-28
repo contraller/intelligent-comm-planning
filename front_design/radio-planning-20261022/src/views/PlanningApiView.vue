@@ -1271,7 +1271,9 @@ onBeforeUnmount(() => {
   align-items: stretch;
 }
 .planning-layout.results {
-  grid-template-columns: minmax(280px, 1fr) minmax(720px, 72%);
+  /* 沿用原左右栏宽度；纵向工作区从 480px 扩为两倍，不放大文字或行距。 */
+  flex-basis: 960px;
+  min-height: 960px;
 }
 .plan-management, .coverage-summary { padding: 12px; background: #14273b; border: 1px solid var(--line); }
 .plan-management h2 { margin: 0 0 8px; font-size: 16px; }
@@ -1345,8 +1347,9 @@ onBeforeUnmount(() => {
   gap: 8px;
 }
 .results-column .result-content > :deep(.result-panel) {
-  flex: 1 0 440px;
-  min-height: 440px;
+  /* 明细面板原最小高度为 440px，增加纵向展示空间到两倍。 */
+  flex: 1 0 880px;
+  min-height: 880px;
 }
 .results-column .result-details {
   padding: 4px 0;
@@ -1360,6 +1363,10 @@ onBeforeUnmount(() => {
 }
 .planning-layout.collapsed {
   grid-template-columns: minmax(0, 1fr);
+}
+.planning-layout.results.collapsed {
+  flex-basis: 480px;
+  min-height: 480px;
 }
 .map-tools {
   position: absolute;
@@ -1435,16 +1442,20 @@ onBeforeUnmount(() => {
   border-bottom: 1px solid var(--line);
 }
 @media (max-width: 1250px) {
-  .planning-layout.results { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(300px, 40vh) minmax(440px, auto); }
-  .planning-layout.results .map-panel { min-height: 300px; }
-  .planning-layout.results .result-column { overflow: visible; }
-  .planning-layout.results .result-content { overflow: visible; }
+  .planning-layout.results:not(.collapsed) {
+    grid-template-columns: minmax(360px, 1fr) minmax(360px, 36%);
+  }
   .planning-layout,
   .planning-layout.input {
     grid-template-columns: 360px minmax(360px, 1fr);
   }
 }
 @media (max-width: 950px) {
+  /* 小屏上下排列仍给结果完整纵向空间，不把加高面板裁进半屏容器。 */
+  .planning-layout.results:not(.collapsed) {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: 480px minmax(960px, auto);
+  }
   .planning-api-page {
     height: auto;
   }
