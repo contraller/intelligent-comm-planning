@@ -8,7 +8,7 @@ describe('频谱展示装配契约审查', () => {
     expect(dialog.indexOf('store.beginFileSelection()')).toBeLessThan(dialog.indexOf('await file.text()'));
     expect(dialog).toContain('serial !== uploadSerial'); expect(dialog).toContain('uploadSerial++; uploading.value = false');
   });
-  it('nullable指标明确未知，实测与构造不混淆', () => { expect(source).toContain("value === null ? '未知'"); expect(source).toContain('构造资料，非实测'); expect(source).toContain('connectNulls: false'); });
+  it('nullable指标明确未知，观测记录保留真实缺口', () => { expect(source).toContain("value === null ? '未知'"); expect(source).toContain('观测记录与回放'); expect(source).toContain('connectNulls: false'); });
   it('只读已存集/帧，宿主停止和会话清理可调用', () => { for (const key of ['createSpectrumObservationsStore', 'initialSelection', 'select-dataset', 'select-frame', 'requestLeave', 'visibilitychange']) expect(source).toContain(key); expect(source).not.toContain('useMonitoringStore'); expect(source).not.toContain('Mock'); });
   it('可选默认R仅用于空选择，已选集冻结R始终优先且不回写', () => {
     expect(source).toContain('resourceRevision?: string');

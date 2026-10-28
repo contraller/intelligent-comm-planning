@@ -51,6 +51,11 @@ def first_use_source(tmp_path, monkeypatch):
         manual = tmp_path / ("docs/output/短波超短波智能规划系统用户手册_V1.0_20261028." + suffix)
         manual.parent.mkdir(parents=True, exist_ok=True)
         manual.write_bytes(b"public-manual-fixture")
+        record = tmp_path / ("docs/output/测试用例_实际结果_逐项对应版_20261028." + suffix)
+        record.write_bytes(b"public-acceptance-fixture")
+    evidence = tmp_path / "docs/review/验收测试记录证据索引_20261028.json"
+    evidence.parent.mkdir(parents=True, exist_ok=True)
+    evidence.write_text("{}", encoding="utf-8")
     (examples / "private-settings.json").write_text('{"password":"must-not-copy"}', encoding="utf-8")
     return builder, examples
 
@@ -61,7 +66,10 @@ def test_first_use_materials_include_only_public_examples_and_manuals(first_use_
     copied = builder.copy_first_use_materials(target)
     assert "首次使用演示.html" in copied
     assert "用户手册/用户手册.pdf" in copied
-    assert len(copied) == 7
+    assert "验收测试/验收测试记录.docx" in copied
+    assert "验收测试/验收测试记录.pdf" in copied
+    assert "验收测试/证据索引.json" in copied
+    assert len(copied) == 10
     assert not list(target.rglob("*private*"))
     assert not (target / "app/data/runtime").exists()
 

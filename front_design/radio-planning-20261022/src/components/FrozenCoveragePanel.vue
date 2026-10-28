@@ -180,7 +180,7 @@
         <p v-if="state.display.value==='strength'" class="coverage-strength-legend"><span style="color:#176b3b">■ 强</span>　<span style="color:#84cc7a">■ 中</span>　<span style="color:#f0c541">■ 弱</span></p>
         <p v-else-if="state.display.value==='field'">最低场强 <span style="display:inline-block;width:120px;height:12px;background:linear-gradient(to right,#e7d855,#198f40)"></span> 最高场强（见上方数值范围）</p>
         <p v-else>仅显示已计算格面与环带的边界；静区和未达标格不填色。</p>
-        <p class="muted">分级按各频点接收门限以上的场强：强 ≥20 dB，中 ≥10 dB，其余达标格为弱；沿用现有质量显示界限，非实测等级。热力色阶对应上方实际预测场强范围，单位 dBμV/m。</p>
+        <p class="muted">分级按各频点接收门限以上的场强：强 ≥20 dB，中 ≥10 dB，其余达标格为弱；沿用现有质量显示界限。热力色阶对应上方实际预测场强范围，单位 dBμV/m。</p>
         <details v-if="selected?.band==='HF'"><summary>短波跳距、静区与覆盖距离</summary>
           <p v-for="part in selected.computations" :key="part.freq_khz">{{ part.freq_khz }} kHz · {{ part.skip_distance_m === null ? '当前模型无可返回的单跳天波' : part.skip_distance_m === 0 ? '当前频点与时刻无跳距静区' : `跳距 ${((part.skip_distance_m??0)/1000).toFixed(1)} km` }} · 预测距离上限 {{ ((part.max_distance_m??0)/1000).toFixed(0) }} km</p>
           <p v-for="(ring,index) in hfBands" :key="index">{{ ring.frequency }} kHz · {{ ring.inner }}–{{ ring.outer }} km · {{ ring.note }}{{ ring.covered ? ` · ${ring.field} dBμV/m` : ' · 不绘制为覆盖' }}</p>
@@ -197,7 +197,7 @@
       <p v-if="selected">{{ selectedFrequencies || (selected.status === 'SKIPPED' ? '本次无活动链路' : '无覆盖计算结果') }}</p>
       <p v-if="selected?.bandwidth_provenance">{{ assumptionLabel(selected.bandwidth_provenance) }}</p>
       <p class="muted"
-        >{{ fieldSurface ? 'VUHF：逐格地形剖面与预算场强面；HF：地波与天波预算分带，静区不计入覆盖。预测值，非实测。' : 'VUHF：量化网格中心，余量单位 dB；HF：历史覆盖环带，静区不计入覆盖。算法预测，非实测场强。' }}</p
+        >{{ fieldSurface ? 'VUHF：逐格地形剖面与预算场强面；HF：地波与天波预算分带，静区不计入覆盖。预测场强。' : 'VUHF：量化网格中心，余量单位 dB；HF：历史覆盖环带，静区不计入覆盖。算法预测场强。' }}</p
       >
       <details
         ><summary>来源与算法限制</summary

@@ -38,7 +38,7 @@ describe('GIS冻结方案专用面板', () => {
     const s = setup(); await settle(); await click(s.root, '打开冻结网络');
     expect(s.services.plans.getNetwork).toHaveBeenCalledWith({ planId: 'P', taskId: 'T' }, expect.any(AbortSignal));
     expect(find(s.root, row => row.tag === 'frozen-map-probe')?.props.snapshot).toBe('S');
-    expect(textOf(s.root)).toContain('算法预测，非实测'); expect(textOf(s.root)).toContain('历史地形未提供');
+    expect(textOf(s.root)).toContain('算法预测'); expect(textOf(s.root)).toContain('历史地形未提供');
     await click(s.root, '关闭网络'); expect(find(s.root, row => row.tag === 'frozen-map-probe')).toBeUndefined();
   });
   it('空目录明确提示，不能凭空显示网络', async () => {

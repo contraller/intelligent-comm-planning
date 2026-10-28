@@ -37,10 +37,14 @@ def first_use_materials(root=None):
     for suffix in ("docx", "pdf"):
         materials.append((root / ("docs/output/短波超短波智能规划系统用户手册_V1.0_20261028." + suffix),
                           "用户手册/用户手册." + suffix))
+        # 验收记录与手册共同装配，避免源码已更新而便携包仍带旧文档。
+        materials.append((root / ("docs/output/测试用例_实际结果_逐项对应版_20261028." + suffix),
+                          "验收测试/验收测试记录." + suffix))
+    materials.append((root / "docs/review/验收测试记录证据索引_20261028.json", "验收测试/证据索引.json"))
     # 先检查全部必需文件，出错时不生成缺少资料的交付目录。
     for source, _destination in materials:
         if not source.is_file() or source.is_symlink() or not source.resolve().is_relative_to(root):
-            raise RuntimeError("首次使用例程或用户手册缺失/越界：" + str(source.relative_to(root)))
+            raise RuntimeError("首次使用例程或公开文档缺失/越界：" + str(source.relative_to(root)))
     def rows(relative):
         source = examples / relative
         raw = source.read_bytes()

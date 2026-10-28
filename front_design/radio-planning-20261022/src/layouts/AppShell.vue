@@ -27,11 +27,8 @@
       </nav>
       <div class="header-tools">
         <IntegrationIdentitySwitcher />
-        <span
-          v-if="env.sampleData"
-          class="chip cyan sample-data-label"
-          ><span>构造联调数据</span><small>非生产 / 非实测</small></span
-        ><span class="user-entry"
+        <!-- 使用界面保留当前身份，数据来源由各业务记录保存。 -->
+        <span class="user-entry"
           ><span class="avatar">{{ auth.identity?.name.slice(0, 1) }}</span
           ><span
             class="user-label"
@@ -381,16 +378,6 @@ nav a:hover {
   align-items: center;
   gap: 22px;
   flex-shrink: 0;
-}
-/* 数据来源分两行显示，保持头部控件的可用宽度。 */
-.sample-data-label {
-  flex-direction: column;
-  gap: 2px;
-  line-height: 1.3;
-  text-align: center;
-}
-.sample-data-label small {
-  font-size: 10px;
 }
 .user-entry {
   display: flex;

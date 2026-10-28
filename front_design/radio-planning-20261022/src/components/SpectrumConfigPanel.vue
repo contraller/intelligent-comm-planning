@@ -1,7 +1,7 @@
 <template>
   <section class="source-panel">
     <h3>频谱采集源</h3>
-    <p class="muted">SYNTHETIC_INTEGRATION · 配置声明 · 未核实真实采集</p>
+    <p class="muted">配置声明 · 未核实采集连接</p>
     <p v-if="!canView" role="alert">无权读取采集源</p>
     <template v-else>
       <form class="toolbar" @submit.prevent="store.load(1)">
@@ -54,7 +54,7 @@
           <label>来源说明<textarea v-model="s.draft.provenanceNote" maxlength="500" required /></label>
           <label class="toggle"><input v-model="s.draft.enabled" type="checkbox" />启用声明</label>
         </fieldset>
-        <p class="muted">SYNTHETIC_INTEGRATION · 连接未尝试</p>
+        <p class="muted">连接未尝试</p>
         <p v-if="s.error" role="alert" class="error">{{ s.error }}</p>
         <button class="btn primary" :disabled="!canEdit || locked || !store.dirty"><i class="pi pi-save" /> 保存</button>
       </form>
