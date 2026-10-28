@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import argparse
+import csv
+from io import StringIO
 import hashlib
 from importlib.metadata import distributions
 import json
@@ -18,6 +20,59 @@ ROOT = Path(__file__).resolve().parents[2]
 TEMPLATES = ROOT / "packaging/windows"
 EMBED_SHA256 = "15fea3c9367653a85086fe37216b4d1a1c78688fa5e1587e1db0b0f658856564"
 EMBED_URL = "https://www.python.org/ftp/python/3.12.4/python-3.12.4-embed-amd64.zip"
+
+
+def first_use_materials(root=None):
+    """首次例程使用明确文件清单，拒绝漏包或开发库专用频点引用。"""
+    root = Path(root or ROOT).resolve()
+    examples = root / "演示资料/便携版首次使用"
+    names = (
+        ("首次使用演示.html", "首次使用演示.html"),
+        ("演示步骤.txt", "首次使用演示/演示步骤.txt"),
+        ("01_规划任务导入/01_task_scenarios.csv", "首次使用演示/01_规划任务导入/01_task_scenarios.csv"),
+        ("01_规划任务导入/02_task_links.csv", "首次使用演示/01_规划任务导入/02_task_links.csv"),
+        ("02_故障场景导入/05_故障场景_三类示例.csv", "首次使用演示/02_故障场景导入/05_故障场景_三类示例.csv"),
+    )
+    materials = [(examples / source, destination) for source, destination in names]
+    for suffix in ("docx", "pdf"):
+        materials.append((root / ("docs/output/短波超短波智能规划系统用户手册_V1.0_20261028." + suffix),
+                          "用户手册/用户手册." + suffix))
+    # 先检查全部必需文件，出错时不生成缺少资料的交付目录。
+    for source, _destination in materials:
+        if not source.is_file() or source.is_symlink() or not source.resolve().is_relative_to(root):
+            raise RuntimeError("首次使用例程或用户手册缺失/越界：" + str(source.relative_to(root)))
+    def rows(relative):
+        source = examples / relative
+        raw = source.read_bytes()
+        if raw.startswith(b"\xef\xbb\xbf"):
+            raise RuntimeError("首次使用例程应为无BOM的UTF-8：" + relative)
+        return list(csv.DictReader(StringIO(raw.decode("utf-8"))))
+    scenarios = rows(names[2][0])
+    demands = rows(names[3][0])
+    faults = rows(names[4][0])
+    if len(scenarios) != 1 or not demands or len(faults) != 3:
+        raise RuntimeError("首次使用例程须包含一项任务、通联需求及三类故障场景")
+    scenario = scenarios[0]
+    if any(scenario.get(field, "").strip() for field in ("hf_exclude_freq_ids", "vuhf_exclude_freq_ids")):
+        raise RuntimeError("首次使用例程不能依赖开发库额外频点编号，请使用包内初始频池")
+    if not scenario.get("task_id") or any(row.get("task_id") != scenario["task_id"] for row in demands):
+        raise RuntimeError("首次使用例程的两份任务CSV编号不一致")
+    if any(not row.get("object_id") or "__" in row["object_id"] for row in faults):
+        raise RuntimeError("首次使用故障例程仍包含未填写的对象编号")
+    return materials
+
+
+def copy_first_use_materials(target, materials=None):
+    """只复制例程和公开手册，不复制开发数据库、历史方案或身份文件。"""
+    materials = first_use_materials() if materials is None else materials
+    target = Path(target).resolve()
+    copied = []
+    for source, name in materials:
+        destination = target / name
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(source, destination)
+        copied.append(name)
+    return copied
 
 
 def digest(path):
@@ -104,6 +159,7 @@ def build(args):
         raise RuntimeError("Python 官方嵌入包 SHA256 不匹配")
     if target.is_relative_to(ROOT / "front_design"):
         raise RuntimeError("不能把输出放在前端源目录")
+    materials = first_use_materials()
     target.mkdir(parents=True)
     canonical_frontend = ROOT / "front_design/radio-planning-20261022"
     frontend = args.frontend_source.resolve() if args.frontend_source else canonical_frontend
@@ -143,6 +199,7 @@ def build(args):
     for source, name in (("launcher.py", "launcher.py"), ("启动系统.cmd", "启动系统.cmd"),
                          ("停止系统.cmd", "停止系统.cmd"), ("使用说明.txt", "使用说明.txt")):
         shutil.copy2(TEMPLATES / source, target / name)
+    example_files = copy_first_use_materials(target, materials)
     licenses = target / "licenses"
     licenses.mkdir()
     shutil.copy2(runtime / "LICENSE.txt", licenses / "Python-LICENSE.txt")
@@ -173,6 +230,8 @@ def build(args):
     manifest = {"schema": 1, "platform": "Windows 10/11 x64", "source_commit": subprocess.check_output(
         ["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip(), "python": {"version": "3.12.4", "url": EMBED_URL, "sha256": EMBED_SHA256},
         "database": "FIRST_START_NEW_DATABASE_NO_DEVELOPER_HISTORY", "data_origin": "SYNTHETIC_INTEGRATION",
+        "first_use_examples": {"entry": "首次使用演示.html", "files": example_files,
+                               "policy": "IMPORT_AND_COMPUTE_ON_FRESH_DATABASE"},
         "dependencies": dependencies, "files": files}
     (target / "package-manifest.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
     output_zip = target.with_suffix(".zip")

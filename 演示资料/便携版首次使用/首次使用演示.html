@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>首次使用例程｜通信规划与故障诊断</title>
+<style>
+:root{color-scheme:light;font-family:"Microsoft YaHei","Segoe UI",sans-serif;color:#1c2938;background:#f4f6f8}
+*{box-sizing:border-box}body{margin:0;line-height:1.75}main{max-width:900px;margin:0 auto;padding:30px 20px 50px}
+h1{font-size:27px;line-height:1.4;margin:0 0 12px}h2{font-size:20px;line-height:1.5;margin:0 0 12px}
+p{margin:10px 0}header{margin-bottom:24px}section{background:#fff;border:1px solid #d9e1e8;border-radius:8px;padding:22px;margin:16px 0}
+a{color:#085b9d;text-underline-offset:3px;overflow-wrap:anywhere}a:focus-visible{outline:3px solid #a64e00;outline-offset:4px}
+.actions{display:flex;flex-wrap:wrap;gap:10px;margin:16px 0}.button{display:inline-block;padding:9px 14px;border:1px solid #146399;border-radius:5px;text-decoration:none;background:#f0f7fd;color:#084a7a}
+.note{border-left:4px solid #a65b12;background:#fff7e9;padding:12px 16px}.small{font-size:14px;color:#46576a}
+code{font-family:Consolas,"Microsoft YaHei",monospace;overflow-wrap:anywhere}ul,ol{padding-left:24px}li{margin:7px 0}
+table{width:100%;border-collapse:collapse;margin:12px 0}th,td{text-align:left;vertical-align:top;border-bottom:1px solid #d9e1e8;padding:9px 8px}
+th{background:#f4f7fa}footer{margin-top:24px;color:#46576a}@media(max-width:600px){main{padding:20px 14px}section{padding:17px}h1{font-size:24px}th,td{padding:8px 5px}}
+@media print{body{background:white}main{max-width:none;padding:0}section{break-inside:avoid}.button{border-color:#555}}
+</style>
+</head>
+<body>
+<main>
+<header>
+<h1>首次使用例程<br>通信规划与故障诊断</h1>
+<p>从导入输入开始：实际计算并确认方案，完成三例诊断与影响分析，再走知识反馈、独立审核和发布。</p>
+<p class="note"><strong>先说明范围：</strong>全部数据为人工构造、非现场实测；候选根因与建议需人工复核。ML未启用，没有真实设备下发。<strong>首次运行按步骤生成本机结果，是否达标以本次作业为准。</strong></p>
+<div class="actions">
+<a class="button" href="首次使用演示/演示步骤.txt">打开可照读讲稿</a>
+<a class="button" href="用户手册/用户手册.pdf">阅读手册 PDF</a>
+<a class="button" href="用户手册/用户手册.docx">打开手册 Word</a>
+</div>
+<p class="small">本页可离线阅读。请在实际系统网页中操作；CSV是输入文件，解压和导入不等于已经完成计算。</p>
+</header>
+
+<section aria-labelledby="step1">
+<h2 id="step1">1．启动、登录并改密</h2>
+<p>运行包内启动入口，等待自动打开系统网页。没有自动打开时，按 <a href="app/data/runtime/访问地址.txt">app/data/runtime/访问地址.txt</a> 中的实际地址访问，端口以该文件及自动打开的网页为准。</p>
+<p>首次登录先在本机查看 <a href="app/data/runtime/首次登录账号.txt">app/data/runtime/首次登录账号.txt</a>，使用分配账号登录并修改初始密码。后面的审核账号也须完成首次登录改密；不要把账号文件或密码放进报告、截图或知识内容。</p>
+</section>
+
+<section aria-labelledby="step2">
+<h2 id="step2">2．两份任务文件一起选 → 预检 → 应用 → 保存</h2>
+<div class="actions"><a class="button" href="首次使用演示/01_规划任务导入/">打开规划导入文件夹</a></div>
+<p>系统中打开<strong>网络规划 → 第1步“任务与约束输入” → 导入</strong>。在文件选择框内按住 <strong>Ctrl，同时选中以下两份CSV</strong>，一次打开，不能分两次上传。</p>
+<ul>
+<li><a href="首次使用演示/01_规划任务导入/01_task_scenarios.csv">01_task_scenarios.csv</a>：任务条件。</li>
+<li><a href="首次使用演示/01_规划任务导入/02_task_links.csv">02_task_links.csv</a>：通联需求。</li>
+</ul>
+<p>确认页面列出两个文件 → <strong>解析并校验</strong> → 查看预览、差异及问题列表 → 无问题后<strong>确认替换当前草稿</strong>（应用） → 回到表单核对 → <strong>保存任务</strong>，等待保存回执。</p>
+<p>任务应为 <code>DEMO-FIRST-PLAN</code>，名称“首次使用例程 通信规划与故障诊断”；3个参与节点、1条需求 <code>DEMO-FIRST-D01</code>。通联为 <code>ND-0001 → ND-0002</code>，64 kbps、100 ms、最低可靠性0.95、<code>MAX_RELIABILITY</code>、备份true、<code>balanced</code>预设。</p>
+<p class="small">其余参数保留官方输入：必要通联true、P1、数据量10 MB、数据业务、station端点模式、available-hf。短波与超短波排除频点均为空，沿用包内原频池，无需扩频。预检报错先停下核对；不要换预设或修改条件来绕过问题。若提示已有同编号任务，先确认是否继续前次输入。</p>
+</section>
+
+<section aria-labelledby="step3">
+<h2 id="step3">3．提交规划 → 等进度 → 核验原门槛</h2>
+<p>保存成功后点一次<strong>提交规划</strong>，观察“2 · 规划计算与结果”的进度，等待本次作业完成。记录本次作业编号；查询中断用页面重试入口，避免重复提交。</p>
+<p>展开<strong>查看约束依据</strong>，查看路由、频率及完整配置，按本次实际结果核对：</p>
+<table>
+<thead><tr><th scope="col">检查项</th><th scope="col">继续条件</th></tr></thead>
+<tbody>
+<tr><th scope="row">必要通联</th><td>100%</td></tr>
+<tr><th scope="row">抗毁性</th><td>≥90%</td></tr>
+<tr><th scope="row">中继</th><td>≤2跳</td></tr>
+<tr><th scope="row">频率冲突</th><td>0处</td></tr>
+</tbody>
+</table>
+<p><strong>对应检查全部通过且配置完整，才进入下一步。</strong>必要通联与全体通联分开读取；业务可靠性0.95与网络抗毁性分别检查。覆盖率若显示“未计算”，不能称覆盖达标。</p>
+<p class="note">未通过就保留本次编号、实际指标与缺口，停止本例后续确认链路并交维护人员核对。最新版允许完整未达标方案经显式风险确认转正；本例只走全部通过分支，风险转正不等于达标。此前构造参考抗毁性91.01%仅供了解，不能照抄为本次结果。首次运行按步骤生成本机结果，是否达标以本次作业为准。</p>
+</section>
+
+<section aria-labelledby="step4">
+<h2 id="step4">4．保存，再确认本次方案</h2>
+<p>全部通过后：<strong>下一步：保存或调整方案 → 保存方案</strong> → 填写含“首次使用例程”和本次时间的名称、注明人工构造与待复核 → <strong>保存为方案</strong>。</p>
+<p>记录本次方案编号，再点<strong>转正并设为当前方案 → 核对弹窗 → 确认转正</strong>，核对“已转正 · 当前方案”。保存与确认是两次操作，均以本次回执为准。</p>
+<p>到GIS的“查看已保存方案”，按本次编号<strong>打开冻结网络</strong>。任务态势只展示输入，不能代替冻结结果。确认方案没有向真实设备下发。</p>
+</section>
+
+<section aria-labelledby="step5">
+<h2 id="step5">5．故障导入：先选新确认网络，再核对对象</h2>
+<div class="actions"><a class="button" href="首次使用演示/02_故障场景导入/">打开故障导入文件夹</a></div>
+<p>进入<strong>故障诊断</strong>，必要时点“重新加载”。点<strong>导入场景</strong>，在“绑定当前有效方案”中明确选择第4步<strong>本次新确认方案</strong>，再选择 <a href="首次使用演示/02_故障场景导入/05_故障场景_三类示例.csv">05_故障场景_三类示例.csv</a>。</p>
+<p>选文件后自动读取、预检，无需另找“解析/预检”按钮。先核对这三例：</p>
+<ul>
+<li>短波功放：DEVICE <code>DV-0214</code>；驻波比告警、功率接近零。</li>
+<li>超短波链路中断：LINK <code>OL-0001</code>；对端失联、握手超时。</li>
+<li>超短波配置不一致：DEVICE <code>DV-0279</code>；频率配置与对端不一致。</li>
+</ul>
+<p><strong>对象编号按配套示例提供，导入前须在本次冻结网络中核对。</strong>必须核对新网络中的对象类别、设备归属与链路两端；编号存在本身不足以证明适用。无问题后点<strong>整批导入</strong>，记录本次场景编号；导入尚未启动诊断。</p>
+<p class="small">对象缺失、类型或端点不符、预检报错时先停止，交维护人员按新网络调整CSV后重新预检。不要盲绑其他对象或旧网络。</p>
+</section>
+
+<section aria-labelledby="step6">
+<h2 id="step6">6．三例分别诊断 → 等影响分析 → 看报告</h2>
+<p>逐个选择新导入场景，核对本次网络，点一次<strong>开始诊断</strong>。保持页面打开和执行权限；当前前端会在诊断就绪后<strong>自动衔接提交影响分析</strong>，不用另找提交按钮，也不是点“影响”标签才开始计算。</p>
+<p>每例都查看<strong>依据 → 根因 → 影响 → 建议</strong>，等诊断与影响两个阶段均就绪，再点<strong>预览与下载完整报告</strong>。查询失败用“重试查询”；只有根因而影响未完成时不能称两阶段完成。</p>
+<p>核对报告属于本次方案、场景和运行，记录三例各自新编号。根因、置信度及影响按本次返回讲解，保留证据缺项和人工复核提示，不把候选原因讲成已测实或已修复。</p>
+</section>
+
+<section aria-labelledby="step7">
+<h2 id="step7">7．知识反馈草稿 → 送审 → 不同账号审核 → 发布</h2>
+<ol>
+<li>建议选择第三例本次运行，点<strong>知识反馈</strong>。按实际结果填写故障类型、根因、部件、处置建议及诊断步骤，注明“人工构造、非实测、待现场复核、未执行下发或维修”。</li>
+<li>点<strong>提交知识草稿</strong>，等待“知识草稿已保存”，记录<strong>本次新案例号和变更单编号</strong>。草稿尚未发布。</li>
+<li>到<strong>知识图谱 → 知识维护</strong>，打开本次变更单，核对来源、实体关系和基线；修改后先保存，再<strong>提交审核 → 确认送审</strong>。</li>
+<li>退出作者账号，使用<strong>不同于作者、具审核权限的账号</strong>登录，首次登录先改密。核对本单内容与构造边界，填写审核意见，符合范围后<strong>审核通过</strong>。</li>
+<li>再由有发布权限的账号点<strong>发布已审核内容 → 核对本单 → 确认发布</strong>，确认“已发布”。审核通过与发布是两个动作。</li>
+</ol>
+<p class="small">无独立审核账号或权限不足，就停在实际状态；基线过期按页面提示核对和重新送审，内容有误则驳回修订。知识发布不表示现场验证完成，也没有训练ML模型。</p>
+</section>
+
+<section aria-labelledby="step8">
+<h2 id="step8">8．搜索本次新案例号</h2>
+<p>先在<strong>版本记录 → 本次新版本“快照与差异” → 审核来源</strong>核对本次变更单及独立审核记录。</p>
+<p>再到<strong>图谱浏览</strong>，勾“故障运维知识”，类型选“故障”，在“检索已发布知识”输入第7步返回的<strong>本次新案例号</strong> → 检索 → 选本次实体 → 展开选中实体一跳。</p>
+<p>核对本次任务输入、作业、确认方案、三例场景与运行、反馈变更单和发布版本能逐项对应。未完成就记录未完成，检索不到就保留实际结果排查。<a href="首次使用演示/演示步骤.txt">讲稿末尾提供本次记录栏</a>。</p>
+</section>
+
+<footer>
+<p>操作到哪一步，就按本次证据说明到哪一步。此例只展示构造数据流程；非现场实测、需人工复核、ML未启用、无真实设备下发。</p>
+<p class="small">此页和配套CSV为2026-10-28准备版本；按钮以安装版本实际页面为准。文件夹按钮用于显示导入资料，真正导入须在系统内完成。</p>
+</footer>
+</main>
+</body>
+</html>
