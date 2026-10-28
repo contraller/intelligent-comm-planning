@@ -1,11 +1,29 @@
 import { describe,expect,it } from 'vitest';
 import { planningOptionIssues,planningOptionsSignature,readPlanningOption,readFrequencyResources } from '../src/services/planning-options';
 import { inputSignature } from '../src/services/planning-validation';
-import { readResponseTaskInput } from '../src/services/task-api-validation';
+import { readResponseTaskInput, taskInputIssues } from '../src/services/task-api-validation';
+import { emptyDeploymentConstraints, deploymentScaleIssues } from '../src/services/deployment-constraints';
 import { optionsPlanningPresets } from '../src/mocks/planning-options-presets';
 import { input } from './fixtures/planning-api';
 const options=()=>structuredClone(optionsPlanningPresets[0].input);
 describe('频率与部署输入边界',()=>{
+  it('备选上限40仅约束新输入，历史快照仍可读且不会被改成40',()=>{
+    const value=options();value.deploymentSolve={mode:'MIN_COUNT',fixedCount:null,solutionCount:40};
+    expect(planningOptionIssues(value)).toEqual([]);
+    value.deploymentSolve.solutionCount=41;
+    expect(planningOptionIssues(value).some(x=>x.field==='deploymentSolve.solutionCount')).toBe(true);
+    expect(readResponseTaskInput(value).deploymentSolve!.solutionCount).toBe(41);
+    expect(taskInputIssues(value).some(x=>x.field==='deploymentSolve.solutionCount')).toBe(true);
+  });
+  it('稠密网格在任务校验时拒绝；粗网格通过且历史快照保留原间距',()=>{
+    const value=options();value.bbox=[113,37,114.35,38.08];value.deploymentConstraints=emptyDeploymentConstraints();
+    value.deploymentConstraints.gridStepM=1;
+    expect(deploymentScaleIssues(value.bbox,value.deploymentConstraints)[0].field).toBe('deploymentConstraints.gridStepM');
+    expect(taskInputIssues(value).some(x=>x.field==='deploymentConstraints.gridStepM')).toBe(true);
+    expect(readResponseTaskInput(value).deploymentConstraints!.gridStepM).toBe(1);
+    value.deploymentConstraints.gridStepM=500;
+    expect(deploymentScaleIssues(value.bbox,value.deploymentConstraints)).toEqual([]);
+  });
   it.each([0,1,200])('指定新增部署 %i 合法，类别相等边界合法',count=>{const value=options();value.deploymentSolve={mode:'FIXED_COUNT',fixedCount:count,solutionCount:2};value.frequencyConstraints!.filters[0].rangeKhz=[6000,6000];expect(planningOptionIssues(value)).toEqual([]);expect(readResponseTaskInput(value)).toEqual(value);});
   it.each([-1,0.5,NaN,Infinity,Number.MAX_SAFE_INTEGER+1])('非法部署数量 %s 不变成默认值',count=>{expect(planningOptionIssues({deploymentSolve:{mode:'FIXED_COUNT',fixedCount:count,solutionCount:1}})).not.toEqual([]);});
   it.each([0,-1,1.2,NaN])('备选数量 %s 必须是正整数',count=>{expect(planningOptionIssues({deploymentSolve:{mode:'MIN_COUNT',fixedCount:null,solutionCount:count}})).not.toEqual([]);});

@@ -213,6 +213,11 @@ def _dto(job: PlanningJob, revision: PlanningTaskRevision) -> dict[str, Any]:
 def _validate_supported_input(input_data: dict[str, Any]) -> None:
     from .task_input_schemas import DeploymentConstraints, DeploymentSolve
     from pydantic import ValidationError
+    from scripts.planning.input_limits import input_limit_issues
+
+    limit_issues = input_limit_issues(input_data)
+    if limit_issues:
+        raise PlanningJobError(1001, "输入超过规划计算规模上限", 422, limit_issues)
 
     for key, model in (("deploymentSolve", DeploymentSolve),
                        ("deploymentConstraints", DeploymentConstraints)):

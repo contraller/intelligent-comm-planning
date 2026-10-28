@@ -2,11 +2,13 @@ import type { PlanningInput, PlanningIssue } from '../types/planning';
 import type { PlanningDeploymentSolve, PlanningFrequencyConstraints, PlanningFrequencyResource } from '../types/planning-options';
 
 export const planningOptionKeys = ['frequencyConstraints', 'deploymentSolve'] as const;
+// 与服务端实际频点搜索的完整校验预算一致，不使用整数存储上限代替业务上限。
+export const MAX_PLANNING_SOLUTIONS = 40;
 const record = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
 const finite = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
 const id = (v: unknown): v is string => typeof v === 'string' && v.length > 0 && v.length <= 120 && !/[\s;\u0000-\u001f\u007f]/.test(v);
 const shape = (v: Record<string, unknown>, keys: string[]) => keys.every(k => Object.hasOwn(v, k)) && Object.keys(v).every(k => keys.includes(k));
-export function planningOptionIssues(input: { frequencyConstraints?: unknown; deploymentSolve?: unknown }): PlanningIssue[] {
+export function planningOptionIssues(input: { frequencyConstraints?: unknown; deploymentSolve?: unknown }, executionLimits = true): PlanningIssue[] {
   const issues: PlanningIssue[] = [];
   const add = (field: string, message: string) => issues.push({ objectId: 'TASK', field, message });
   const frequency = input.frequencyConstraints;
@@ -39,12 +41,14 @@ export function planningOptionIssues(input: { frequencyConstraints?: unknown; de
         add('deploymentSolve.fixedCount', '最少部署模式数量应留空；指定数量须为非负整数，0表示不新增');
       if (!Number.isSafeInteger(solve.solutionCount) || Number(solve.solutionCount) < 1)
         add('deploymentSolve.solutionCount', '期望备选数量须为正整数，实际数量由服务返回');
+      else if (executionLimits && Number(solve.solutionCount) > MAX_PLANNING_SOLUTIONS)
+        add('deploymentSolve.solutionCount', `期望备选数量最多${MAX_PLANNING_SOLUTIONS}份，实际数量由可行方案和搜索预算决定`);
     }
   }
   return issues;
 }
 export function readPlanningOption<K extends typeof planningOptionKeys[number]>(key: K, value: unknown): PlanningInput[K] {
-  if (value === undefined || planningOptionIssues({ [key]: value }).length) throw new Error('规划条件格式无效：' + key);
+  if (value === undefined || planningOptionIssues({ [key]: value }, false).length) throw new Error('规划条件格式无效：' + key);
   return structuredClone(value) as PlanningInput[K];
 }
 // 集合只在比较副本排序；始终输出扩展键，旧预设不能忽略新增条件。

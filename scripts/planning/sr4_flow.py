@@ -32,6 +32,7 @@ import plan_check
 import multi_objective as MO
 import interference as IF
 import deployment_inputs as DI
+from input_limits import input_limit_issues
 from plan_pipeline import (topology_from_deployment, alternative_parent_solutions,
                            _representative_device)
 
@@ -814,6 +815,9 @@ def run(task_id=None, preset="TERRAIN", strategy="MAX_RELIABILITY",
     monotonic_start = time.monotonic()
     deployment_checkpoint, progress = _runtime_callbacks(monotonic_start, progress)
     deployment_checkpoint()
+    input_issues = input_limit_issues((resource_rows or {}).get("planning_input") or {})
+    if input_issues:
+        raise ValueError("；".join(row["message"] for row in input_issues))
     read = _resource_reader(resource_rows)
 
     # ── 1 任务条件输入 ──
@@ -859,6 +863,7 @@ def run(task_id=None, preset="TERRAIN", strategy="MAX_RELIABILITY",
 
     cand_rows, candidate_filter = DI.prepare_candidates(
         cand_rows, planning_input, terrain, nodes, stations, checkpoint=deployment_checkpoint)
+    DI.validate_fixed_capacity(planning_input, cand_rows, checkpoint=deployment_checkpoint)
     solve_options = (planning_input or {}).get("deploymentSolve") or {}
     requested_solutions = solve_options.get("solutionCount", 1)
     problem_options = ({"candidate_relays": 0} if solve_options.get("mode") == "FIXED_COUNT" else {})

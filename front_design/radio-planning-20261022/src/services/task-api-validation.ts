@@ -3,7 +3,7 @@ import type { ApiPage, ApiPageQuery, ApiReceipt, ApiTask, TaskApiOptions, TaskVa
 import { ApiError } from './types';
 import { validPageQuery } from './data-access';
 import { TASK_MAX_DEMANDS } from '../config/demo';
-import { deploymentConstraintIssues, readDeploymentConstraints } from './deployment-constraints';
+import { deploymentConstraintIssues, deploymentScaleIssues, readDeploymentConstraints } from './deployment-constraints';
 import { planningOptionIssues, planningOptionKeys, readPlanningOption } from './planning-options';
 import { readRouting, routingIssues } from './planning-routing';
 
@@ -44,11 +44,12 @@ export function readIssue(value: unknown): PlanningIssue {
 export function validTaskBounds(bbox: number[]): boolean {
   return bbox.length === 4 && bbox.every(Number.isFinite) && bbox[0] < bbox[2] && bbox[1] < bbox[3] && Math.abs(bbox[0]) <= 180 && Math.abs(bbox[2]) <= 180 && Math.abs(bbox[1]) <= 90 && Math.abs(bbox[3]) <= 90;
 }
-export function taskInputIssues(input: PlanningInput): PlanningIssue[] {
+export function taskInputIssues(input: PlanningInput, executionLimits = true): PlanningIssue[] {
   const issues: PlanningIssue[] = [], add = (field: string, message: string, objectId = '') => issues.push({ field, message, objectId });
   // 本地只检查输入结构，通视节点存在性及可行性由保存服务核验。
   issues.push(...deploymentConstraintIssues(input.deploymentConstraints));
-  issues.push(...planningOptionIssues(input));
+  issues.push(...planningOptionIssues(input, executionLimits));
+  if (executionLimits) issues.push(...deploymentScaleIssues(input.bbox, input.deploymentConstraints));
   if (!input.name.trim() || input.name.length > 60) add('name', '任务名称为 1–60 字');
   if (input.description.length > 500) add('description', '任务说明不超过 500 字');
   if (input.stationIds.length < 2 || new Set(input.stationIds).size !== input.stationIds.length) add('stationIds', '至少选择两个不同节点');
@@ -75,7 +76,7 @@ export function taskInputIssues(input: PlanningInput): PlanningIssue[] {
   }
   return issues;
 }
-export function readTaskInput(value: unknown): PlanningInput {
+export function readTaskInput(value: unknown, executionLimits = true): PlanningInput {
   const v = apiRecord(value), constraints = apiRecord(v.constraints);
   const input: PlanningInput = {
     name: apiText(v.name, 'name'), description: apiText(v.description, 'description', true),
@@ -101,12 +102,13 @@ export function readTaskInput(value: unknown): PlanningInput {
     try { input.deploymentConstraints = readDeploymentConstraints(v.deploymentConstraints); }
     catch { invalidApi('deploymentConstraints'); }
   }
-  const issues = taskInputIssues(input); if (issues.length) throw new ApiError('任务输入校验失败', 'VALIDATION_ERROR', issues);
+  const issues = taskInputIssues(input, executionLimits); if (issues.length) throw new ApiError('任务输入校验失败', 'VALIDATION_ERROR', issues);
   return input;
 }
 // 服务器返回的坏输入属于响应不确定，不能误判为写入前本地校验失败。
 export function readResponseTaskInput(value: unknown): PlanningInput {
-  try { return readTaskInput(value); }
+  // 旧任务只读仍保留原输入；再次保存/执行时才按当前计算规模校验。
+  try { return readTaskInput(value, false); }
   catch (error) { if (error instanceof ApiError && error.code === 'VALIDATION_ERROR') invalidApi('response input'); throw error; }
 }
 export function readApiTask(value: unknown, expectedId?: string): ApiTask {

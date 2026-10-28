@@ -20,6 +20,7 @@ from .planning_operation_service import _append_owner, _business_context, _requi
 from .task_input_models import PlanningOperationReceipt, PlanningTask, PlanningTaskRevision
 from .task_input_schemas import (PlanningInput, TaskListQuery, TaskSaveRequest,
                                  TaskValidationRequest)
+from scripts.planning.input_limits import input_limit_issues
 
 if TYPE_CHECKING:
     from .local_business_context import LocalBusinessContext
@@ -219,6 +220,7 @@ def validate_task_input(payload: TaskValidationRequest,
         raise TaskInputError(1205, "资源在校验期间发生变化，请重试", 409)
     node_ids = catalog["node_ids"]
     devices = catalog["devices"]
+    issues.extend(input_limit_issues(data.model_dump(mode="json")))
     issues.extend(availability_issues(data.model_dump(mode="json"), catalog))
     for node_id in data.stationIds:
         if node_id not in node_ids:
@@ -282,6 +284,9 @@ def _save(session: Session, payload: TaskSaveRequest, digest: str, audit_context
             "suggestions": ["重新打开任务"],
         })
     input_data = payload.input.model_dump(mode="json", exclude_unset=True)
+    limit_issues = input_limit_issues(input_data)
+    if limit_issues:
+        raise TaskInputError(1001, "输入超过规划计算规模上限", 422, limit_issues)
     if resource_dataset_service.database_mode():
         if payload.resource_revision != frontend_integration.resource_revision():
             raise TaskInputError(1205, "资源版本已变化，请刷新后重新保存任务", 409)
