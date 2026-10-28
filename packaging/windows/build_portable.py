@@ -12,6 +12,8 @@ import subprocess
 import sys
 import zipfile
 
+from launcher import check_frontend_assets
+
 ROOT = Path(__file__).resolve().parents[2]
 TEMPLATES = ROOT / "packaging/windows"
 EMBED_SHA256 = "15fea3c9367653a85086fe37216b4d1a1c78688fa5e1587e1db0b0f658856564"
@@ -164,6 +166,8 @@ def build(args):
         "import fastapi,sqlalchemy,alembic,psycopg,docx,openpyxl,PIL,reportlab,multipart,uvicorn,pydantic,httpx,ssl,sqlite3; docx.Document(); openpyxl.Workbook(); print('RUNTIME_IMPORT_OK')"],
         cwd=target, check=True, capture_output=True, text=True)
     print(checks.stdout.strip())
+    # 只检查当前首页可达资源，不依赖日志文件大小列或旧 dist 的残留枚举。
+    check_frontend_assets(static)
     # 清单不包含运行时凭据；任何 user_data 都不进入 ZIP。
     files = {path.relative_to(target).as_posix(): digest(path) for path in sorted(target.rglob("*")) if path.is_file()}
     manifest = {"schema": 1, "platform": "Windows 10/11 x64", "source_commit": subprocess.check_output(
