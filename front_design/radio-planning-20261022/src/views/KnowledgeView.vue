@@ -344,6 +344,13 @@
             ><option value="PUBLISHED">已发布</option></select
           ></div
         >
+        <p
+          v-if="store.openingChangeId"
+          class="panel-body muted"
+          role="status"
+          aria-live="polite"
+          >{{ store.openingChangeStage === 'base' ? '正在读取对照版本…' : '正在读取变更内容…' }}</p
+        >
         <AppTable
           :rows="changes"
           :paginator="false"
@@ -357,8 +364,9 @@
           ><template #actions="{ row }"
             ><button
               class="text-link"
+              :disabled="store.locked"
               @click.stop="store.openChange(row)"
-              >查看 / 处理</button
+              >{{ store.openingChangeId === row.id ? '正在打开…' : '查看 / 处理' }}</button
             ></template
           ></AppTable
         >

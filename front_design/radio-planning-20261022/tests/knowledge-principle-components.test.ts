@@ -4,6 +4,7 @@ import { createPinia, disposePinia, setActivePinia } from 'pinia';
 import KnowledgePrincipleFlow from '../src/components/KnowledgePrincipleFlow.vue';
 import KnowledgePrincipleEditor from '../src/components/KnowledgePrincipleEditor.vue';
 import KnowledgeChangeDrawer from '../src/components/KnowledgeChangeDrawer.vue';
+import KnowledgeEndpointSelect from '../src/components/KnowledgeEndpointSelect.vue';
 import KnowledgeVersionDrawer from '../src/components/KnowledgeVersionDrawer.vue';
 import { initialKnowledgeWorkspace } from '../src/mocks/knowledge-presets';
 import { resolveKnowledgePrinciple } from '../src/services/knowledge-principle';
@@ -39,6 +40,7 @@ await Promise.all([
   clientTemplate(KnowledgePrincipleFlow, 'src/components/KnowledgePrincipleFlow.vue', 'device-detail-render.ts'),
   clientTemplate(KnowledgePrincipleEditor, 'src/components/KnowledgePrincipleEditor.vue', 'device-detail-render.ts'),
   clientTemplate(KnowledgeChangeDrawer, 'src/components/KnowledgeChangeDrawer.vue', 'device-detail-render.ts'),
+  clientTemplate(KnowledgeEndpointSelect, 'src/components/KnowledgeEndpointSelect.vue', 'device-detail-render.ts'),
   clientTemplate(KnowledgeVersionDrawer, 'src/components/KnowledgeVersionDrawer.vue', 'device-detail-render.ts'),
 ]);
 
