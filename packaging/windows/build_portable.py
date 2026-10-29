@@ -38,9 +38,11 @@ def first_use_materials(root=None):
         materials.append((root / ("docs/output/短波超短波智能规划系统用户手册_V1.0_20261028." + suffix),
                           "用户手册/用户手册." + suffix))
         # 验收记录与手册共同装配，避免源码已更新而便携包仍带旧文档。
-        materials.append((root / ("docs/output/测试用例_实际结果_逐项对应版_20261028." + suffix),
+        materials.append((root / ("docs/output/测试用例_实际结果_逐项对应版_20261029." + suffix),
                           "验收测试/验收测试记录." + suffix))
-    materials.append((root / "docs/review/验收测试记录证据索引_20261028.json", "验收测试/证据索引.json"))
+    materials.append((root / "docs/review/验收测试记录证据索引_20261029.json", "验收测试/证据索引.json"))
+    # 公共照填指引随验收记录提供，不携带账号、口令或运行库。
+    materials.append((root / "演示资料/04_知识库更新测试/测试参数与操作步骤.txt", "验收测试/知识库更新测试步骤.txt"))
     # 先检查全部必需文件，出错时不生成缺少资料的交付目录。
     for source, _destination in materials:
         if not source.is_file() or source.is_symlink() or not source.resolve().is_relative_to(root):

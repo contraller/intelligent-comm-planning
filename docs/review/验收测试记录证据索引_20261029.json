@@ -1,6 +1,6 @@
 {
-  "record_date": "2026-10-28",
-  "runtime_baseline_commit": "195b443a979a2cc482119b5781e9fc47933aa460",
+  "record_date": "2026-10-29",
+  "runtime_baseline_commit": "2eafb90f82947c99f28032e533e573e4672a8939",
   "original_source_sha256": "4e825ce70ba54d867b431bc4a0553f5b7f2c56d83461128fa050d1c39cfa2aed",
   "original_cases": 43,
   "expected_subitems": 189,
@@ -453,6 +453,21 @@
           ],
           "kind": "新实跑与本轮修复报告确认的行为边界"
         }
+      ],
+      "actual_supplement_20261029": "补充核对 2026-10-29：E42记录6ab2ee8安装版只读打开同一任务V1/V2，各自146节点/159链路与所选冻结网络API计数一致，输入参与节点为3。仅证明目录、版本选择及计数，不是新保存、多指标横向对比或逐字段一致性；不覆盖旧142节点/460设备实例。E43为98项前端测试。回调待核、NOT_DISPATCHED及下发执行缺口保留，整项仍不满足。",
+      "supplement_verified_scope": [
+        "已安装6ab2ee8版本、实际只读API＋浏览器：同一任务V1/V2目录版本号、分别打开对应冻结方案、快照身份、146节点/159链路显示计数、返回版本列表；零业务写入及零页面异常。",
+        "输入参与节点3与完整网络146是不同对象集合，展示记录未把输入节点数当作完整方案节点数。",
+        "GIS定向测试tests-final.log为7文件98项通过；bridge-final.log另为12项同类文件记录，12项已包含在98项中，不能相加计作110项或浏览器步骤。"
+      ],
+      "supplement_still_unverified": [
+        "原预期4：当前最终环境实际新建并保存多套规划方案，再逐指标横向对比；已有两版的目录与分别打开不能替代保存动作及横向对比。",
+        "原预期2：规划与全局台账的同源性逐字段核对，含节点、设备、坐标、主备链路、参数及输入/资源revision；页面计数与API一致仅验证计数和选择上下文，不证明每个对象正确。",
+        "原步骤7、预期3：异步结果回调专项；已有作业标识、轮询和最终SUCCESS不作为服务端回调通过。",
+        "原预期5仍为已确认不满足：当前转正只更新正式版本/当前指针，NOT_DISPATCHED不等于设备下发执行；需接通实际下发、执行与回执并验收，不能因GIS切换成功改判。",
+        "原步骤1—6未被本次只读多版本展示完整重跑：参数校验、部署规划、路由/频率/功率、人工微调/覆盖预览及多维评估仍沿用原证据边界。",
+        "GIS版本目录同名不合并、超过10项分页、权限失效/迟到响应/错误上下文及历史资源变化等分支没有本次已安装浏览器的完整操作证据；98项测试或台账实现描述不能替代。",
+        "2eafb90最终知识维护包没有本轮全43用例或GIS全流程新回归证据；6ab2ee8已安装GIS记录保留其原版本和日期。"
       ]
     },
     {
@@ -741,7 +756,20 @@
         "E34",
         "E21"
       ],
-      "confirmed_gaps": []
+      "confirmed_gaps": [],
+      "actual_supplement_20261029": "补充核对 2026-10-29：E39在18585独立库验证空摘要/无实际修改422、错误可见、一个原因实体保存及送审200、成功后关闭退出。未执行该单审核发布。E41为2eafb90安装版只读关闭，业务写入0；E40为128项前端测试，含53项关闭回归，不能相加。既有诊断反馈发布证据保留原版本；三类知识完整性、相似推荐、驳回和回滚仍待核。仍为部分验证。",
+      "supplement_verified_scope": [
+        "真实浏览器＋真实HTTP＋隔离库：空摘要和无实际变更的两种422拒绝；摘要错误在当前滚动区域可见；抽屉X与确认框X含义区分；一个新建Cause实体保存200、送审200及送审后关闭退出。",
+        "已安装2eafb90版本只读浏览器：原账号登录、原发布知识读取、空白新建抽屉X直接关闭、确认框X保留输入、底部关闭后明确放弃且不重复弹窗；零知识业务写入、零页面异常。",
+        "targeted-final.log为5文件128项前端定向测试通过，其中保存离开回归文件53项；覆盖HTTP传输桩、Mock、组件与路由，不是128次真实浏览器或真实后端操作。"
+      ],
+      "supplement_still_unverified": [
+        "原步骤1—5：按当前发布版本逐域核对查询与推理正确性、完整权限矩阵、接口全字段、错误分支、操作日志和版本记录；单个Cause保存送审不足以完成这些步骤。",
+        "原步骤6：当前版本重新构造查询无匹配场景并核对相似推荐，不能以2026-10-26“暂无相似推荐”的历史记录代替。",
+        "原步骤7：通用编辑表单的有效变更在同一环境完成送审、审核拒绝或批准、正式发布、查询生效及回滚；保留旧版、当前版锚点冲突和审计。新增浏览器仅执行到送审。",
+        "通用表单其他实体、关系、属性及原理/规则字段逐项回读；DeviceModel→Manufacturer的producedBy有效关系；事务提交后回执/详情失败、unit/weight缺省或null、未知写结果同号核实等契约边界仍需真实HTTP专项。contract-audit.md中的方案未执行，不登记通过。",
+        "最终安装环境的实际保存、送审、权限变化、慢读及失败恢复写路径仍未由browser-installed.json验证；不同环境知识版本不得拼为同一闭环。"
+      ]
     },
     {
       "id": "GN-06-002",
@@ -757,7 +785,19 @@
         "E37",
         "E14"
       ],
-      "confirmed_gaps": []
+      "confirmed_gaps": [],
+      "actual_supplement_20261029": "补充核对 2026-10-29：E39只验证共用抽屉及一个原因实体保存送审；加入原样设备实体被422拒绝不等于设备有效更新成功。E41只读关闭不证明设备字段完整。设备属性/结构/功能/参数、原理及操作正文、设备域有效增量审核发布仍须专项实跑。共用交互修复不改变整项部分验证。",
+      "supplement_verified_scope": [
+        "共用维护抽屉：真实浏览器验证空摘要拒绝、未改已有实体拒绝、错误可见、取消/放弃含义，以及Cause实体保存送审后的关闭；不包含设备域有效修改。",
+        "已安装版原发布知识页面可读取、关闭交互无页面异常且零业务写入；没有指定设备内容完整性断言。",
+        "128项前端定向测试包含知识原理组件等测试文件，但属于内存宿主/组件与桩验证，未形成设备域全流程浏览器证据。"
+      ],
+      "supplement_still_unverified": [
+        "原步骤1—5：指定设备查询、结构化结果、设备名称/型号/类别/厂家、结构/功能/参数及原理/操作正文逐字段核对，并检查结构关系语义正确性。",
+        "原步骤6—7：设备模糊检索及关联节点跳转的当前版本连续操作。",
+        "原预期5：设备域真实增量修改、有效保存、送审、审核发布、当前版查询及旧版本回读；不得使用Cause或诊断反馈发布替代。",
+        "通用设备表单的属性、来源、关系端点、producedBy、unit与weight等字段及边界的真实HTTP回读，contract-audit.md中的DeviceModel/Manufacturer样例尚不能记为实跑通过。"
+      ]
     },
     {
       "id": "GN-06-003",
@@ -772,7 +812,18 @@
         "E07",
         "E14"
       ],
-      "confirmed_gaps": []
+      "confirmed_gaps": [],
+      "actual_supplement_20261029": "补充核对 2026-10-29：E39未修改或发布网络阈值，E42为冻结规划网络查看，均不证明信噪比、误码率、丢包率、时延、吞吐率输入与四级判级、原因和处置推理。本次未重跑此业务链，仍为未验证；未验证不据此判失败或通过。",
+      "supplement_verified_scope": [
+        "仅有跨用例相关的共用知识维护和冻结方案展示证据；没有新增可闭合GN-06-003原业务步骤的浏览器执行记录。",
+        "GIS任务DEMO-20261028-PLAN-05的V1/V2冻结快照可分别打开，节点/链路计数与冻结网络API一致；该断言的对象是规划方案，不是网络知识推理。"
+      ],
+      "supplement_still_unverified": [
+        "原步骤1—4：将信噪比、误码率、丢包率、时延、吞吐率送入知识推理，分别核对阈值两侧与边界、优秀/良好/预警/故障等级、分析结论及知识依据。",
+        "原步骤5—6：态势模块消费同源推理结果并展示告警；异常场景输出原因与处置知识；冻结方案可见不能替代。",
+        "原预期2、5：核对拓扑、节点属性、组网规则、运行规律内容；网络规则/阈值编辑、审核发布、即时评估变化及回滚恢复仍需当前环境实跑。",
+        "实时网络状态数据接入前置条件和真实采集来源未由上述维护/冻结展示记录验证；2026-10-26构造输入历史不冒充本次实测。"
+      ]
     },
     {
       "id": "GN-06-004",
@@ -801,6 +852,18 @@
           ],
           "kind": "用户确认的当前核验结论＋已检查人工审核流程"
         }
+      ],
+      "actual_supplement_20261029": "补充核对 2026-10-29：E39一个原因节点保存送审不等于完整故障案例、发布后诊断复用或训练；E41为安装只读。既有人工反馈审核发布沿用旧证据。240条构造案例及ML停用边界未改变；原步骤7新增案例自动学习与优化推理规则仍不满足，不能由人工发布替代。整项仍不满足。",
+      "supplement_verified_scope": [
+        "既有诊断反馈构造案例人工审核发布和来源追踪仍按原索引限定，不扩展为真实故障处置有效性或自动学习证据。",
+        "新增真实浏览器只证明一个Cause实体的通用表单保存、送审及关闭退出；与既有诊断反馈发布属于不同实例和环境，不能拼接成同一条已发布知识链。",
+        "53项保存离开回归属于128项前端定向测试子集；已安装版只读关闭另有浏览器证据，均未执行机器学习训练或规则优化。"
+      ],
+      "supplement_still_unverified": [
+        "原步骤1—6及预期1—3、5：扩展故障类型和生命周期知识链，核对根因、影响、方案、知识来源、推理接口错误/空匹配及权限边界；构造三例不能替代全部场景。",
+        "原预期4：反馈审核后的后续推理可用性、案例字段与训练来源适用性仍须专项；新增Cause送审未证明发布后诊断会使用它。",
+        "原步骤7为已确认不满足，而非仅待执行：需补齐新增故障案例触发自动学习和推理规则优化的能力，再执行新增案例→自动学习/规则变化→推理效果对照；人工审核发布不能替代，不能仅凭本次维护修复降为一般待确认。",
+        "最终安装版通用故障知识表单实际写入、审核发布、回滚及后续推理的连续验证仍未由零业务写入检查覆盖。"
       ]
     }
   ],
@@ -917,7 +980,9 @@
       "id": "E19",
       "path": "front_design/radio-planning-20261022/src/views/SituationView.vue",
       "sha256": "9b0b762a0682d277883307011c3962695907b6414f6bb747864c636437c910a5",
-      "class": "源码"
+      "class": "源码 旧摘要保留 文件后续已更新",
+      "current_file_sha256_20261029": "b15846c9256549afc1a544b722ebdbc03fa4b690206f814b254cbd1c84f8f45f",
+      "historical_digest_retained": true
     },
     {
       "id": "E20",
@@ -1032,6 +1097,36 @@
       "path": "data/runtime/showcase-20261028/knowledge-publish-receipt.json",
       "sha256": "50f0c8001b767d00f638638c28933d9c6f815aeaebdfa3cdb92cd5e4b6e7e0c7",
       "class": "实跑或定向验证记录"
+    },
+    {
+      "id": "E39",
+      "path": "data/runtime/kg-save-exit-20261028/browser-after.json",
+      "sha256": "bb3f16b0a6e13d602cc8724db76a5ae61e2e2d986235abeb2453c4c51f215acd",
+      "class": "隔离库真实浏览器与HTTP 保存送审 不含审核发布"
+    },
+    {
+      "id": "E40",
+      "path": "data/runtime/kg-save-exit-20261028/targeted-final.log",
+      "sha256": "15d7b3d8c4e6c671c3e3a2f842617f71b1f35f33812754f3fa6fb1037a49d397",
+      "class": "前端定向测试128项 含53项关闭回归 非真实HTTP"
+    },
+    {
+      "id": "E41",
+      "path": "data/runtime/kg-save-exit-release-20261028/browser-installed.json",
+      "sha256": "f6690ff4d0b8f0a6d1b98993c2354bb4d6bf99f1506a75018c234d67ece0ff30",
+      "class": "2eafb90安装浏览器只读检查 业务写入0"
+    },
+    {
+      "id": "E42",
+      "path": "data/runtime/gis-versions-20261028/browser-installed.json",
+      "sha256": "7da07fe67950c0030bb822786cfb65d1980a4deb2ba730c6625ea654b23d1d82",
+      "class": "6ab2ee8安装浏览器 两版本只读查看"
+    },
+    {
+      "id": "E43",
+      "path": "data/runtime/gis-versions-20261028/tests-final.log",
+      "sha256": "3c89095a004f303d7b017b5c82ea9f379fe7d35c46515ef8acac1a647b1c3da1",
+      "class": "前端定向测试98项 非浏览器"
     }
   ],
   "supplementary": [
@@ -1177,5 +1272,449 @@
       ]
     }
   ],
-  "scope": "既有分层证据的核对回填，不是本次全43用例逐项重跑或正式验收签认"
+  "scope": "文档核对及补充人工复测清单；未新跑原43条、补充10项或全仓回归。旧证据保留其实际日期版本，不同环境与实例不拼接。",
+  "previous_runtime_baseline_commit": "195b443a979a2cc482119b5781e9fc47933aa460",
+  "supplementary_20261029": [
+    {
+      "id": "SUP-KG-001",
+      "title": "照填最小 Cause 实体并保存草稿",
+      "preconditions": [
+        "全清单为补充手工复测，不修改原 GN 编号、原步骤和原预期，不增加原 43 条用例通过数；本次仅静态编写，未执行所列新增示例。",
+        "后续由负责人在指定测试环境执行；使用已有知识查看、编辑权限的测试身份 E，记录实际源码或安装版本、当前发布版本及执行时间，不记录账号口令。",
+        "先检索示例名称确认未使用；重复执行统一替换名称末尾批次号及摘要，不覆盖既有知识。"
+      ],
+      "input": {
+        "变更摘要": "手工复测：新增原因节点 20261029-01",
+        "名称": "手工复测原因-20261029-01",
+        "类型 / 图谱": "故障运维知识 · 原因（Cause）",
+        "描述": "人工构造的原因节点，用于验证知识录入、保存和发布检索流程，不代表已确认的设备故障。",
+        "关键词（逗号分隔，最多 10 项）": "手工复测,原因节点,20261029",
+        "来源说明": "2026-10-29 手工复测构造数据，非实测",
+        "其他": "不新增属性、关系或步骤；适用设备型号留空；实体及变更单编号由系统处理，不手填。"
+      },
+      "steps": [
+        "进入“知识图谱”，点击“新增知识变更”，填写变更摘要，点击“新增实体”。",
+        "按 input 填写名称、类型、描述、关键词和来源说明，确认预览只有本次新增实体。",
+        "点击“保存草稿”，等待处理和详情读取结束，记录变更单编号、修订、状态及截图；该单供 SUP-KG-002 继续使用。"
+      ],
+      "expected": [
+        "保存受理后显示草稿和已保存提示；重读同一变更单，各字段与照填值一致，关键词解析为三项。",
+        "保存草稿不等于发布；当前已发布知识检索尚不出现本次唯一名称。",
+        "一个 Cause 是原因节点，不是完整故障案例；不得据此认定案例检索、诊断复用或 ML 验收通过。"
+      ],
+      "evidence_status": "待执行：这组最小 Cause 照填数据尚未真实运行。历史 browser-after.json 证明其他输入的真实 HTTP 保存/送审成功，不证明本示例成功；targeted-final.log 为 128 项 Mock/HTTP传输桩/组件等定向测试结果；2eafb90 安装浏览器业务写入为 0。",
+      "existing_evidence": [
+        "front_design/radio-planning-20261022/src/components/KnowledgeChangeDrawer.vue",
+        "front_design/radio-planning-20261022/src/stores/knowledge.ts",
+        "front_design/radio-planning-20261022/src/services/knowledge-display.ts",
+        "data/runtime/kg-save-exit-20261028/browser-after.json",
+        "data/runtime/kg-save-exit-20261028/targeted-final.log",
+        "data/runtime/kg-save-exit-release-20261028/browser-installed.json"
+      ],
+      "remaining": [
+        "在指定测试环境照填执行，保存脱敏后的 HTTP 回执、同单重读、版本号及页面截图；不得用测试源码或历史日志替代本次执行记录。"
+      ]
+    },
+    {
+      "id": "SUP-KG-002",
+      "title": "独立身份送审、审核、发布并检索新增原因",
+      "preconditions": [
+        "SUP-KG-001 已实际保存成功，持有该单真实编号；基线仍为当前发布版本。",
+        "E 为作者；另一独立身份 R 具备知识查看、审核权限，发布身份 P 具备发布权限，P 可与 R 为同一人但不得用 E 冒充独立审核人；仅记录身份代号和审计记录。",
+        "在负责人指定的测试环境执行，发布会改变该测试库当前版本；不以 Mock 切换角色代替真实登录身份。"
+      ],
+      "input": {
+        "变更单": "使用 SUP-KG-001 实际生成的编号",
+        "审核意见": "已核对本单原因节点的名称、描述、关键词和构造数据来源，仅用于录入流程复测。",
+        "检索词": "手工复测原因-20261029-01；若 001 改批次号，此处同步修改"
+      },
+      "steps": [
+        "E 打开该草稿，点击“提交审核”并“确认送审”，记录待审核状态，然后关闭并退出账号。",
+        "R 登录，打开同一待审核单，核对冻结内容与作者身份，填写意见并点击“审核通过”；在发布前检索本次唯一名称。",
+        "由 P 打开该审核通过单，点击“发布已审核内容”并“确认发布”，记录新发布版本。",
+        "在“检索已发布知识”输入完整名称并点击“检索”，打开命中详情，核对类型、描述、关键词、来源及发布版本；查看送审、审核和发布记录。"
+      ],
+      "expected": [
+        "状态依次为 DRAFT、PENDING、APPROVED、PUBLISHED；待审核内容不可直接编辑；作者和审核人不同。",
+        "审核通过但未发布时，当前发布库不包含本次新节点；单独发布后才能在新版本检索命中。",
+        "详情和审计记录指向同一变更、实际身份和新版本，原版本仍可追溯；这只证明原因节点发布检索，不证明完整案例推理。",
+        "本项独立于原 GN 验收统计，不能将历史成功记录计作本示例本轮通过。"
+      ],
+      "evidence_status": "待执行。审核发布沿用旧空库实跑证据：portable-first-use-20261028 的 195b443 版本通过实际 HTTP 生成反馈并由不同身份审核发布，CR-55F959AC5F1645D3 / KGV-2，浏览器只读确认发布可见。该旧例不是本次 Cause 数据，也不是 2eafb90 新执行；2eafb90 安装浏览器仅只读、businessWrites=0；kg-save-exit 的真实 HTTP 只到保存/送审，不包含审核发布。",
+      "existing_evidence": [
+        "front_design/radio-planning-20261022/src/stores/knowledge.ts",
+        "front_design/radio-planning-20261022/src/components/KnowledgeChangeDrawer.vue",
+        "data/runtime/portable-first-use-20261028/fresh-acceptance.json",
+        "data/runtime/portable-first-use-20261028/fresh-run/fresh-example-verified.json",
+        "docs/design/12_后端接口实施进度.md",
+        "data/runtime/kg-save-exit-20261028/browser-after.json",
+        "data/runtime/kg-save-exit-release-20261028/browser-installed.json"
+      ],
+      "remaining": [
+        "在记录清楚版本的测试环境，用本次新单完成真实独立身份审核、发布和检索，保存各阶段回执、审计及截图。",
+        "基线过期则记录阻断并基于当前版本新建；不回写旧单、不把旧空库发布记录写成当前版本重跑。"
+      ]
+    },
+    {
+      "id": "SUP-KG-003",
+      "title": "空摘要保存拒绝且长表单错误可见",
+      "preconditions": [
+        "E 在指定测试环境新建独立变更，未保存；不要改动 SUP-KG-001 的留用草稿。"
+      ],
+      "input": {
+        "实体": "照 SUP-KG-001 填写，名称批次改为 20261029-03",
+        "变更摘要": "留空"
+      },
+      "steps": [
+        "新增并填好实体，摘要保持空白，滚动到底部后点击“保存草稿”。",
+        "查看固定底部失败提示及顶部错误；点击“查看问题”核对定位，然后尝试“提交审核”。",
+        "点击“关闭”，在未保存提示中选择“继续编辑”，核对实体输入仍保留。"
+      ],
+      "expected": [
+        "保存失败，错误可见且可定位；真实 HTTP 应记录 422 / code=1001，已有实跑消息为“变更说明需为 1 至 500 字”；不得把 Mock 的 1–120 字校验提示当作 HTTP 返回。",
+        "失败后保留输入，不出现已保存成功提示，不产生成功保存回执或送审；点击提交审核若先保存失败，不继续送审。",
+        "取消离开保留输入；未保存保护仍生效。"
+      ],
+      "evidence_status": "待执行本批数据；历史真实 HTTP 已覆盖空摘要 422、错误位于可视滚动区，见 browser-after.json。targeted-final.log 的 Mock/传输桩回归与真实 HTTP 分列，不冒充本次手工测试。",
+      "existing_evidence": [
+        "data/runtime/kg-save-exit-20261028/browser-after.json",
+        "data/runtime/kg-save-exit-20261028/after-invalid-save.png",
+        "data/runtime/kg-save-exit-20261028/targeted-final.log",
+        "front_design/radio-planning-20261022/src/components/KnowledgeChangeDrawer.vue",
+        "front_design/radio-planning-20261022/src/stores/knowledge.ts"
+      ],
+      "remaining": [
+        "留存本次空摘要真实请求、错误定位和输入保留截图；失败不计作成功保存。"
+      ]
+    },
+    {
+      "id": "SUP-KG-004",
+      "title": "仅加入已有实体且只填摘要不能形成实际知识变更",
+      "preconditions": [
+        "当前发布库至少有一条可加入编辑的实体；E 新建独立变更，记录该实体原始值和当前发布版本。"
+      ],
+      "input": {
+        "变更摘要": "手工复测：仅加入已有实体而不修改知识内容",
+        "实体": "从“修改已有实体…”选择一条当前已发布实体；所有实体字段保持原值"
+      },
+      "steps": [
+        "新建变更、填写摘要、加入已有实体，不改名称、描述、关键词、来源、属性或步骤。",
+        "点击“保存草稿”，查看错误，再尝试“提交审核”。",
+        "点击“关闭”后选择“继续编辑”，核对原字段仍保留。"
+      ],
+      "expected": [
+        "仅摘要或选择行不构成知识变更；真实 HTTP 拒绝保存，已有证据为 422 / code=1001“没有可保存的知识变更”。",
+        "不产生成功变更单、成功回执、修订递增或送审记录，不显示保存成功；原发布内容保持不变。",
+        "未保存输入保留；Mock 提示“没有相对已发布基线的实际修改”属于另一实现的测试证据，不能据此修改 HTTP 预期。"
+      ],
+      "evidence_status": "待执行本批步骤；browser-after.json 已有真实 HTTP 无实际改动 422；targeted-final.log 包含 Mock/HTTP传输桩回归，不能当作真实服务执行。",
+      "existing_evidence": [
+        "data/runtime/kg-save-exit-20261028/browser-after.json",
+        "data/runtime/kg-save-exit-20261028/targeted-final.log",
+        "front_design/radio-planning-20261022/tests/knowledge-save-leave-regression.test.ts",
+        "front_design/radio-planning-20261022/src/stores/knowledge.ts"
+      ],
+      "remaining": [
+        "记录实际实体编号、原值、失败响应及无送审证据；不以页面文字相同替代底层内容未变的核对。"
+      ]
+    },
+    {
+      "id": "SUP-KG-005",
+      "title": "保存或送审成功后直接关闭并退出",
+      "preconditions": [
+        "E 使用独立测试单；等待保存、送审及详情读取全部结束后再检查关闭行为。"
+      ],
+      "input": {
+        "数据": "使用 SUP-KG-001 照填值，名称及摘要批次改为 20261029-05",
+        "留存信息": "实际变更单编号、保存修订和送审修订"
+      },
+      "steps": [
+        "保存有效草稿，等到“当前内容已保存，可直接关闭。”后点击底部“关闭”，重开同一单。",
+        "点击“提交审核”并“确认送审”，等到“已提交审核，内容已保存，可直接关闭或退出账号。”后点击抽屉右上 X。",
+        "切换到其他页面并退出账号，再由 E 登录重开原单核对状态和字段。"
+      ],
+      "expected": [
+        "成功保存后未再修改时，底部关闭、抽屉 X、路由离开和退出账号不重复弹出未保存确认。",
+        "关闭或退出不额外触发保存/送审，不产生重复业务回执；原单内容和待审核状态可重读。",
+        "若显示“保存已受理，但详情尚未核实”，应单独登记受理待核实，按提示重新读取，不重复提交，也不把它记为详情核实成功。"
+      ],
+      "evidence_status": "待执行本批示例；历史 browser-after.json 有真实 HTTP 保存/送审 200 与关闭退出验证；128 项定向测试包括 Mock/传输桩的关闭、路由和退出分支；2eafb90 安装浏览器未执行业务保存/送审。",
+      "existing_evidence": [
+        "data/runtime/kg-save-exit-20261028/browser-after.json",
+        "data/runtime/kg-save-exit-20261028/targeted-final.log",
+        "data/runtime/kg-save-exit-release-20261028/browser-installed.json",
+        "front_design/radio-planning-20261022/src/stores/knowledge.ts",
+        "front_design/radio-planning-20261022/src/composables/useKnowledgeLeaveGuard.ts"
+      ],
+      "remaining": [
+        "在本次记录版本下核对实际关闭、路由、退出与重读，保存业务请求次数和提示截图。"
+      ]
+    },
+    {
+      "id": "SUP-KG-006",
+      "title": "保存忙态下 X、Esc 和底部关闭同步受限",
+      "preconditions": [
+        "E 已填写可保存的独立草稿；使用真实 HTTP 和实际安装浏览器，由执行人选择可观察忙态的网络限速，不拦截或伪造响应。",
+        "若请求过快未捕获忙态，登记本项待执行，不以处理完成后点击 X 代替忙态测试。"
+      ],
+      "input": {
+        "数据": "使用 SUP-KG-001 照填值，名称及摘要批次改为 20261029-06",
+        "触发": "保存处理期间或受理后详情仍在读取期间"
+      },
+      "steps": [
+        "点击“保存草稿”，观察“正在处理，请稍候…”及待完成请求。",
+        "处理未结束时依次尝试抽屉右上 X、Esc 和底部“关闭”，记录按钮状态与抽屉是否保留。",
+        "等待成功并完成详情读取，再用 X 或底部“关闭”退出，恢复执行前的网络条件。"
+      ],
+      "expected": [
+        "知识变更抽屉在 locked 期间 X、底部关闭不可用，Esc 不关闭抽屉；输入与处理上下文保留，不弹出可绕过忙态的离开流程。",
+        "处理结束解除忙态；成功后可直接关闭，不因之前点击生成重复保存请求。"
+      ],
+      "evidence_status": "待执行实际浏览器忙态复测。最新组件明确绑定 close-button-props、close-on-escape、dismissable；targeted-final.log 中 Mock/HTTP传输桩组件测试覆盖 X/底部锁定，未据此声称真实浏览器 Esc 已验证。browser-after.json 与 2eafb90 browser-installed.json 均未单列忙态 Esc 结果。",
+      "existing_evidence": [
+        "front_design/radio-planning-20261022/src/components/KnowledgeChangeDrawer.vue",
+        "front_design/radio-planning-20261022/tests/knowledge-save-leave-regression.test.ts",
+        "data/runtime/kg-save-exit-20261028/targeted-final.log",
+        "data/runtime/kg-save-exit-20261028/browser-after.json",
+        "data/runtime/kg-save-exit-release-20261028/browser-installed.json"
+      ],
+      "remaining": [
+        "捕获真实在途请求期间的 X、Esc、底部关闭操作证据；分别登记组件桩结果和实际安装浏览器结果。"
+      ]
+    },
+    {
+      "id": "SUP-KG-007",
+      "title": "抽屉 X 发起离开，确认框 X 取消，明确放弃才退出",
+      "preconditions": [
+        "E 在新建知识变更中输入本项摘要，尚未保存且没有在途操作。"
+      ],
+      "input": {
+        "变更摘要": "手工复测：两个 X 的不同作用 20261029-07"
+      },
+      "steps": [
+        "点击知识变更抽屉右上 X，确认出现“未保存的知识草稿”。",
+        "点击该确认对话框自己的右上 X，核对原抽屉及摘要保留。",
+        "再次点击抽屉 X，选择“继续编辑”，核对仍保留输入。",
+        "点击底部“关闭”，在确认框选择“放弃输入”，核对退出；重新新建检查旧输入不残留。"
+      ],
+      "expected": [
+        "抽屉 X 发起离开保护；确认框 X 等同取消离开，不等同放弃，也不等同保存。",
+        "确认框 X 和“继续编辑”均保留原输入，再次退出仍需确认。",
+        "只有明确“放弃输入”才丢弃本次未保存输入并退出，不二次弹窗、不触发知识写入；既有已保存单和版本仍保留。"
+      ],
+      "evidence_status": "待执行本批输入；历史隔离真实 HTTP 浏览器已验证两个 X；2eafb90 实际安装浏览器已验证确认框 X 保留输入及底部明确放弃关闭，businessWrites=0、staticRoutingInterception=false；另有 Mock/传输桩定向回归，三类证据分别引用。",
+      "existing_evidence": [
+        "data/runtime/kg-save-exit-20261028/browser-after.json",
+        "data/runtime/kg-save-exit-release-20261028/browser-installed.json",
+        "data/runtime/kg-save-exit-20261028/targeted-final.log",
+        "front_design/radio-planning-20261022/src/stores/knowledge.ts"
+      ],
+      "remaining": [
+        "记录两个关闭控件所在层级、取消后输入和明确放弃后的零知识写入；不把再次退出需要确认登记为重复弹窗故障。"
+      ]
+    },
+    {
+      "id": "SUP-KG-008",
+      "title": "诊断反馈生成完整案例，与单个 Cause 节点区分",
+      "preconditions": [
+        "指定测试环境已有一条完成且尚未提交知识反馈的设备硬件故障诊断，冻结输入至少包含一个已观察现象；记录真实运行编号、结论、现象及来源版本。",
+        "E 具备诊断查看和知识编辑权限；后续审核发布使用 SUP-KG-002 的独立身份规则。选择与下述构造输入相符的测试诊断，不把示例文本当作现场故障事实。"
+      ],
+      "input": {
+        "诊断结论": "选择上述实际完成的设备硬件故障结论，不手填运行编号",
+        "人工确认故障类型": "硬件故障（HW_FAILURE）",
+        "根因": "手工复测-20261029-08：构造的功放模块输出异常原因",
+        "故障部件": "功放模块（构造）",
+        "处置方案": "构造处置：由人员复核供电与模块检测记录，按维护规程处理并记录复核结果。",
+        "诊断步骤": "核对冻结场景中的已观察现象\n记录构造的部件检测结论\n复核处置记录并保留来源版本",
+        "现象来源": "从所选诊断的冻结输入继承；反馈抽屉没有新增观察现象字段，不在根因文本中替代现象。"
+      },
+      "steps": [
+        "打开该诊断的“诊断知识反馈”，选定结论，按 input 填写类型、根因、部件、处置及三行步骤。",
+        "点击“提交知识草稿”，记录成功提示返回的实际变更单号，再进入“查看知识维护”打开该单。",
+        "核对草稿包含故障/案例、类型、对象、已观察现象、根因、部件、处置及有序步骤的关联；先确认当前发布库尚未出现该新案例。",
+        "按 SUP-KG-002 完成送审、独立审核和单独发布，在新发布版本检索实际案例名称并展开关联；回读原诊断核对冻结输入和结果未被此次发布改写。"
+      ],
+      "expected": [
+        "提交知识草稿只生成待维护草稿，不自动等同送审、审核或发布；提交成功后同一抽屉不可重复点击提交。",
+        "完整案例通过 instanceOf、occursOn、recordedIn、hasSymptom、causedBy、locatedAt、resolvedBy、diagnosedBy 关联对应对象；步骤保持填写次序，现象来自该运行冻结输入。",
+        "发布后案例与其关联可追溯到诊断反馈来源及发布版本；单独新增 Cause 仅增加原因节点，不能替代这个完整案例。",
+        "保留构造数据和需人工复核的性质，不据此宣称实测故障准确率、ML 能力或原 43 条全部通过；不要求旧诊断自动重算。"
+      ],
+      "evidence_status": "待执行本批完整反馈输入。旧空库 195b443 实际 HTTP 曾完成反馈、不同身份审核发布，CR-55F959AC5F1645D3 / KGV-2，随后浏览器只读确认可见；这是历史流程证据，不是 2eafb90 新执行。当前反馈抽屉、stores 与后端只作静态对照，测试桩不等同实际反馈 HTTP。",
+      "existing_evidence": [
+        "front_design/radio-planning-20261022/src/components/DiagnosisFeedbackDrawer.vue",
+        "front_design/radio-planning-20261022/src/stores/diagnosis.ts",
+        "front_design/radio-planning-20261022/src/stores/knowledge.ts",
+        "algorithm-service/app/fault.py",
+        "data/runtime/portable-first-use-20261028/fresh-acceptance.json",
+        "data/runtime/portable-first-use-20261028/fresh-run/fresh-example-verified.json",
+        "data/runtime/kg-save-exit-release-20261028/browser-installed.json"
+      ],
+      "remaining": [
+        "指定未反馈的真实测试运行后执行，留存反馈回执、完整草稿关联、独立审核发布记录和新版本案例详情。",
+        "核对原诊断冻结输入和结论内容保持；若无可用测试运行，标记前置条件未满足，不另造已完成运行或真实故障结论。"
+      ]
+    },
+    {
+      "id": "SUP-KG-009",
+      "title": "缺少冻结观察现象时不能提交可复用诊断案例",
+      "preconditions": [
+        "指定测试环境已有可打开的历史完成诊断，其所选结论冻结现象列表为空；仅复用指定记录，不修改运行库或历史冻结数据来制造条件。",
+        "E 有查看及知识编辑权限；若没有该类记录，记为待执行。"
+      ],
+      "input": {
+        "诊断结论": "选择已有的空现象结论",
+        "根因": "手工复测-20261029-09：构造根因",
+        "处置方案": "仅用于验证缺少观察现象的提交拦截。",
+        "诊断步骤": "核对冻结输入的观察现象是否为空"
+      },
+      "steps": [
+        "打开“诊断知识反馈”，选择空现象结论，填写 input 中非空根因、处置和步骤。",
+        "查看现象缺失提示及“提交知识草稿”状态；点击关闭并选择“继续填写”核对输入保留。",
+        "再次关闭，明确“放弃输入”，核对没有新增知识反馈请求或草稿。"
+      ],
+      "expected": [
+        "显示“此冻结场景未记录观察现象，不能提交可复用故障案例。”，提交按钮不可用；补根因和处置不能补足冻结现象。",
+        "不自动补造现象、不以单个 Cause 节点冒充案例；如需补现象，应在另行安排的场景维护和新诊断流程中处理。",
+        "未提交反馈关闭时有“未提交的诊断知识反馈”保护；继续填写保留输入，明确放弃才退出，已保存草稿不被删除。"
+      ],
+      "evidence_status": "待执行本条反馈抽屉操作。现有 diagnosis-feedback-1792977861656 浏览器证据覆盖旧空现象提示、无提交及后来补现象重新诊断的相关流程，不等于本条填写/关闭步骤已跑；diagnosis-feedback.test.ts 使用组件服务桩，仅作静态参考，本次未运行。",
+      "existing_evidence": [
+        "front_design/radio-planning-20261022/src/components/DiagnosisFeedbackDrawer.vue",
+        "front_design/radio-planning-20261022/src/stores/diagnosis.ts",
+        "front_design/radio-planning-20261022/tests/diagnosis-feedback.test.ts",
+        "data/runtime/r2/r4-f79ea5c1b6c54e38ae495d840c142013/browser/diagnosis-feedback-1792977861656/results.json"
+      ],
+      "remaining": [
+        "核对可用历史记录与当前页面兼容性，保存禁用状态、关闭保护及零反馈写入证据；无可用记录时保留待执行状态。"
+      ]
+    },
+    {
+      "id": "SUP-GIS-010",
+      "title": "可选：GIS 中只读查看同一任务的两个方案版本",
+      "preconditions": [
+        "可选补充项，指定测试环境已有同一任务下至少两个真实已保存方案版本；查看身份具备 GIS 及规划读取权限。",
+        "不新建任务、不求解、不转正方案、不编辑资源；选择已有版本并记录任务、方案、版本及快照标识。"
+      ],
+      "input": {
+        "任务": "选择测试环境实际存在且包含至少两个已保存方案版本的同一任务",
+        "版本": "分别选择目录中实际返回的两个版本，版本号和快照不手填或猜测",
+        "历史参照": "旧安装浏览器曾查看 DEMO-20261028-PLAN-05 的 V1/V2；该记录只供对照，不要求本轮存在相同对象或固定数量。"
+      },
+      "steps": [
+        "进入“GIS态势”的“任务查看”，选择任务并“查看任务态势”，记录参与节点及任务版本。",
+        "在任务关联的已保存方案目录选择第一个版本，点击“查看方案完整网络”，核对任务、方案版本、节点/链路数量及冻结快照。",
+        "返回该任务版本列表，打开另一个版本，核对地图及详情均切换到对应方案；最后返回任务查看。"
+      ],
+      "expected": [
+        "同一任务的不同版本独立显示；地图完整网络来自所选方案冻结快照，任务输入参与节点不冒充完整规划网络。",
+        "切换版本不残留上一个方案的节点、链路或详情；数量与该版本实际冻结网络响应相符，不硬编码历史 146 节点/159 链路。",
+        "任务及方案查看保持只读，不产生业务写入，不改当前方案指针、转正状态或算法结果；此项不增加原 43 条通过数。"
+      ],
+      "evidence_status": "可选待执行；gis-versions-20261028/browser-installed.json 是历史实际安装浏览器只读证据，V1/V2 各有 146 节点/159 链路、businessWrites=[]，不作为本轮重新执行或当前环境固定预期。",
+      "existing_evidence": [
+        "front_design/radio-planning-20261022/src/views/SituationView.vue",
+        "front_design/radio-planning-20261022/src/stores/gis-frozen-plan.ts",
+        "front_design/radio-planning-20261022/src/stores/gis-workspace.ts",
+        "data/runtime/gis-versions-20261028/browser-installed.json"
+      ],
+      "remaining": [
+        "如纳入本轮补充复测，留存两个版本各自网络与身份标识、返回列表截图及零业务写入证据；未执行则保留可选待执行，不影响知识复测统计。"
+      ]
+    }
+  ],
+  "evidence_distinctions_20261029": [
+    {
+      "topic": "本次产出与状态边界",
+      "distinction": "本次仅只读核对已有日志、JSON、脚本和记录，唯一写入为data/runtime/test-docs-20261029/case-updates.json；未编辑正式文档、代码或数据库，未复制环境，未启动浏览器、服务或测试。updates是原43条中5条实际结果的追加建议，不替换步骤、预期或原结果，不增加原43条通过数。GN-06-001/002保留部分验证，GN-06-003保留未验证，GN-06-004及GN-04-001保留不满足；正式验收勾选和签认不变。共享checkout无临时副本，无需清理，回收空间0。",
+      "evidence": [
+        "docs/review/验收测试记录证据索引_20261028.json",
+        "docs/output/测试用例_实际结果_逐项对应版_20261028.docx"
+      ]
+    },
+    {
+      "topic": "诊断反馈发布与通用编辑字段",
+      "distinction": "showcase中的KGV-2/CR-C7C2886590C54393/11关系是诊断反馈的人工审核发布路线，来源INTEGRATION_CONFIRMED_CONSTRUCTED；不能写为通用编辑表单所有字段已通过。新增通用表单真实浏览器有效写入只涉及一个Cause实体及摘要/类型/名称/描述/来源，结束于送审，未走审核发布。不同库、不同实例不拼接为一次完整流程；2026-10-26另一环境KGV-3不当作当前环境版本。",
+      "evidence": [
+        "data/runtime/showcase-20261028/qualified-final-verification.json",
+        "data/runtime/showcase-20261028/knowledge-publish-receipt.json",
+        "data/runtime/kg-save-exit-20261028/browser.cjs",
+        "data/runtime/kg-save-exit-20261028/browser-after.json",
+        "docs/review/验收测试记录证据索引_20261028.json"
+      ]
+    },
+    {
+      "topic": "53项与128项不是浏览器数，也不相加",
+      "distinction": "targeted-final.log记录5文件128项通过，其中knowledge-save-leave-regression.test.ts为53项，另外32、10、15、18项。保存离开测试使用内存宿主、PrimeVue外壳替身、vi.fn fetcher的HTTP契约传输桩及Mock；测试名含http不代表真实后端HTTP或真实浏览器。128包含53，不能计为181项或当作原43条验收通过。日志中的Vue渲染警告也不能省略成真实浏览器零异常；浏览器零pageErrors仅引用相应浏览器JSON。",
+      "evidence": [
+        "data/runtime/kg-save-exit-20261028/targeted-final.log",
+        "front_design/radio-planning-20261022/tests/knowledge-save-leave-regression.test.ts",
+        "data/runtime/kg-save-exit-20261028/browser-after.json"
+      ]
+    },
+    {
+      "topic": "真实HTTP隔离写入与最终安装只读分开",
+      "distinction": "kg-save-exit/browser-after.json对应18585新隔离库，包含save 422、save 422、save 200、submit 200和关闭退出。kg-save-exit-release/browser-installed.json对应已安装2eafb90程序，只有登录、读取及关闭/放弃交互，businessWrites=0、staticRoutingInterception=false。不能把隔离库写入成功登记为原用户库或最终安装版写入成功；也不能把零写入记录当保存失败。",
+      "evidence": [
+        "data/runtime/kg-save-exit-20261028/browser-after.json",
+        "data/runtime/kg-save-exit-20261028/browser.cjs",
+        "data/runtime/kg-save-exit-release-20261028/browser-installed.json",
+        "data/runtime/kg-save-exit-release-20261028/browser-installed.cjs"
+      ]
+    },
+    {
+      "topic": "基线失败、后续修复与仅建议的样例",
+      "distinction": "browser-before-partial.json保留空摘要错误在滚动区外的基线，errorTop约-5938px；browser-before.json的visibleInScrollArea=true不能抹去该局部失败。regression-final.log虽名含final，实际是5失败/46通过（51项）；后续targeted-final.log才是53项回归在内的128项通过。contract-audit.md明确是静态审查，DeviceModel/Manufacturer、默认字段、回执组装失败等“待执行”样例不能登记通过，也不能把代码风险推断写成已证实现场故障。",
+      "evidence": [
+        "data/runtime/kg-save-exit-20261028/browser-before-partial.json",
+        "data/runtime/kg-save-exit-20261028/browser-before.json",
+        "data/runtime/kg-save-exit-20261028/browser-after.json",
+        "data/runtime/kg-save-exit-20261028/regression-final.log",
+        "data/runtime/kg-save-exit-20261028/targeted-final.log",
+        "data/runtime/kg-save-exit-20261028/contract-audit.md"
+      ]
+    },
+    {
+      "topic": "GIS安装验证、构建预览与98项测试",
+      "distinction": "gis-versions/browser-installed.json的installed=true，结合installed.json标识6ab2ee8安装版本；browser.json为installed=false的构建预览，不混作安装验证。browser-check.cjs在非安装模式会替换静态资源，安装模式跳过该替换；两者使用只读业务API。tests-final.log的7文件98项是前端定向测试，bridge-final.log的12项已含在98项内，不能当98次浏览器测试或相加为110项。",
+      "evidence": [
+        "data/runtime/gis-versions-20261028/browser-installed.json",
+        "data/runtime/gis-versions-20261028/browser.json",
+        "data/runtime/gis-versions-20261028/browser-check.cjs",
+        "data/runtime/gis-versions-20261028/installed.json",
+        "data/runtime/gis-versions-20261028/tests-final.log",
+        "data/runtime/gis-versions-20261028/bridge-final.log"
+      ]
+    },
+    {
+      "topic": "已有版本查看与规划完整能力",
+      "distinction": "V1/V2为同一任务已有参考方案，浏览器只读打开并核对各自快照及146节点/159链路计数，没有创建/保存新版本，没有逐字段横向比较，也没有重算、转正、结果回调或设备下发。3个任务输入参与节点与146个冻结网络节点属不同集合；另一任务142节点/460设备不改写为146。冻结网络展示不能替代网络态势五指标推理或设备真实采集。",
+      "evidence": [
+        "data/runtime/gis-versions-20261028/browser-installed.json",
+        "data/runtime/gis-versions-20261028/browser-check.cjs",
+        "docs/review/验收测试记录证据索引_20261028.json"
+      ]
+    },
+    {
+      "topic": "已有2eaf交付包不等于新全回归",
+      "distinction": "release.json中2eafb90f82947c99f28032e533e573e4672a8939以6ab2ee8为base_commit，包SHA256为31608fcaba96d719c27960270ff1794fe848717f47badccb27abea555a2e2cf5；这是已有交付及装配元数据。文件闭包、资源一致、安装、匿名下载核验及知识只读关闭检查不能证明全仓回归、全43用例、GIS全流程、算法重算或外场验收新执行。本次未生成、安装、发布或重验该包。",
+      "evidence": [
+        "data/runtime/kg-save-exit-release-20261028/release.json",
+        "data/runtime/kg-save-exit-release-20261028/browser-installed.json",
+        "data/runtime/gis-versions-20261028/installed.json",
+        "docs/design/12_后端接口实施进度.md"
+      ]
+    },
+    {
+      "topic": "局部修复不消除已确认不满足",
+      "distinction": "GN-06-004原步骤7自动学习/优化推理规则已确认不满足，人工增量发布与保存送审关闭不改变该结论；GN-04-001原预期5转正并下发执行已确认不满足，版本目录与当前指针不等于设备执行。其余未验证内容保留待核，不能据缺少新证据推定失败，也不能据一处成功推定整项通过。",
+      "evidence": [
+        "docs/review/验收测试记录证据索引_20261028.json",
+        "data/runtime/showcase-20261028/qualified-final-verification.json",
+        "data/runtime/kg-save-exit-20261028/browser-after.json",
+        "data/runtime/gis-versions-20261028/browser-installed.json"
+      ]
+    }
+  ]
 }
