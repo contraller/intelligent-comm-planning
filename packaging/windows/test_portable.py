@@ -42,6 +42,8 @@ def first_use_source(tmp_path, monkeypatch):
         "01_规划任务导入/01_task_scenarios.csv": "task_id,hf_exclude_freq_ids,vuhf_exclude_freq_ids\nDEMO-FIRST-PLAN,,\n",
         "01_规划任务导入/02_task_links.csv": "task_id,demand_id\nDEMO-FIRST-PLAN,DEMO-FIRST-D01\n",
         "02_故障场景导入/05_故障场景_三类示例.csv": "object_id\nDV-0001\nOL-0001\nDV-0002\n",
+        "03_知识变更示例/知识变更填写示例.txt": "知识图谱新增知识变更照填，不是导入文件。",
+        "03_知识变更示例/知识变更字段对照_仅供照填.json": '{"usage":"MANUAL_COPY_ONLY"}',
     }
     for name, text in values.items():
         path = examples / name
@@ -73,7 +75,9 @@ def test_first_use_materials_include_only_public_examples_and_manuals(first_use_
     assert "验收测试/验收测试记录.pdf" in copied
     assert "验收测试/证据索引.json" in copied
     assert "验收测试/知识库更新测试步骤.txt" in copied
-    assert len(copied) == 11
+    assert "首次使用演示/03_知识变更示例/知识变更填写示例.txt" in copied
+    assert "首次使用演示/03_知识变更示例/知识变更字段对照_仅供照填.json" in copied
+    assert len(copied) == 13
     assert not list(target.rglob("*private*"))
     assert not (target / "app/data/runtime").exists()
 

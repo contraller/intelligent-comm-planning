@@ -1,0 +1,59 @@
+{
+  "format": "knowledge-change-form-example-v1",
+  "usage": "MANUAL_COPY_ONLY",
+  "instructions": "在知识图谱的新增知识变更抽屉照填；本文件不是可导入格式。key仅供对应关系，不是实体编号。",
+  "summary": "首次使用例程：新增功放异常知识链-01",
+  "entities": [
+    {
+      "key": "fault",
+      "name": "例程-功放输出异常-01",
+      "category": "故障运维知识",
+      "type": "Fault",
+      "description": "演示用的功放输出异常知识条目，用于展示现象、原因和处置方式之间的关联。",
+      "keywords": ["首次使用", "功放", "输出异常"],
+      "source": "首次使用演示例程，人工编写，用于知识维护流程演示。",
+      "attributes": [],
+      "modelIds": []
+    },
+    {
+      "key": "symptom",
+      "name": "例程-发射功率读数偏低-01",
+      "category": "故障运维知识",
+      "type": "Symptom",
+      "description": "示例现象：设备发射功率读数低于预期；这里只录入知识描述，不代表已接入实时测量。",
+      "keywords": ["首次使用", "发射功率", "现象"],
+      "source": "首次使用演示例程，人工编写，用于知识维护流程演示。",
+      "attributes": [],
+      "modelIds": []
+    },
+    {
+      "key": "cause",
+      "name": "例程-功放模块连接异常-01",
+      "category": "故障运维知识",
+      "type": "Cause",
+      "description": "演示候选原因：功放模块连接异常；实际原因需结合检测记录由人员复核。",
+      "keywords": ["首次使用", "功放模块", "候选原因"],
+      "source": "首次使用演示例程，人工编写，用于知识维护流程演示。",
+      "attributes": [],
+      "modelIds": []
+    },
+    {
+      "key": "solution",
+      "name": "例程-核对供电与连接-01",
+      "category": "故障运维知识",
+      "type": "Solution",
+      "description": "演示处置建议：由维护人员依据设备维护规程核对供电与连接情况，记录检查和复核结果。",
+      "keywords": ["首次使用", "处置建议", "人工复核"],
+      "source": "首次使用演示例程，人工编写，用于知识维护流程演示。",
+      "attributes": [],
+      "modelIds": []
+    }
+  ],
+  "relations": [
+    {"headKey": "fault", "tailKey": "symptom", "type": "hasSymptom", "displayType": "具有现象", "weight": null, "source": "首次使用演示例程，人工编写，用于知识维护流程演示。"},
+    {"headKey": "fault", "tailKey": "cause", "type": "causedBy", "displayType": "原因是", "weight": null, "source": "首次使用演示例程，人工编写，用于知识维护流程演示。"},
+    {"headKey": "fault", "tailKey": "solution", "type": "resolvedBy", "displayType": "处置方式", "weight": null, "source": "首次使用演示例程，人工编写，用于知识维护流程演示。"}
+  ],
+  "reviewOpinion": "已核对本单实体、关系及来源，仅用于知识维护流程演示。",
+  "verificationSearch": "例程-功放输出异常-01"
+}

@@ -32,6 +32,9 @@ def first_use_materials(root=None):
         ("01_规划任务导入/01_task_scenarios.csv", "首次使用演示/01_规划任务导入/01_task_scenarios.csv"),
         ("01_规划任务导入/02_task_links.csv", "首次使用演示/01_规划任务导入/02_task_links.csv"),
         ("02_故障场景导入/05_故障场景_三类示例.csv", "首次使用演示/02_故障场景导入/05_故障场景_三类示例.csv"),
+        # 知识维护沿用手工录入，随包提供照填资料而不新增导入接口。
+        ("03_知识变更示例/知识变更填写示例.txt", "首次使用演示/03_知识变更示例/知识变更填写示例.txt"),
+        ("03_知识变更示例/知识变更字段对照_仅供照填.json", "首次使用演示/03_知识变更示例/知识变更字段对照_仅供照填.json"),
     )
     materials = [(examples / source, destination) for source, destination in names]
     for suffix in ("docx", "pdf"):
