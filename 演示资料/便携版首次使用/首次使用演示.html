@@ -29,6 +29,7 @@ th{background:#f4f7fa}footer{margin-top:24px;color:#46576a}@media(max-width:600p
 <a class="button" href="用户手册/用户手册.pdf">阅读手册 PDF</a>
 <a class="button" href="用户手册/用户手册.docx">打开手册 Word</a>
 <a class="button" href="验收测试/知识库更新测试步骤.txt">知识库更新测试步骤</a>
+<a class="button" href="#manual-knowledge">直接演示新增知识变更</a>
 </div>
 <p class="small">本页可离线阅读。请在实际系统网页中操作；CSV是输入文件，解压和导入不等于已经完成计算。</p>
 </header>
@@ -116,9 +117,26 @@ th{background:#f4f7fa}footer{margin-top:24px;color:#46576a}@media(max-width:600p
 <p>核对本次任务输入、作业、确认方案、三例场景与运行、反馈变更单和发布版本能逐项对应。未完成就记录未完成，检索不到就保留实际结果排查。<a href="首次使用演示/演示步骤.txt">讲稿末尾提供本次记录栏</a>。</p>
 </section>
 
+<section aria-labelledby="manual-knowledge">
+<h2 id="manual-knowledge">独立例程．新增知识变更（不需要先跑规划）</h2>
+<p>你已打开<strong>知识图谱 → 新增知识变更</strong>时，请使用这一套照填示例，而不是前面的任务或故障CSV。</p>
+<div class="actions"><a class="button" href="首次使用演示/03_知识变更示例/知识变更填写示例.txt">打开知识变更填写示例</a><a class="button" href="首次使用演示/03_知识变更示例/">打开知识示例文件夹</a></div>
+<p class="note"><strong>当前抽屉是手工录入，没有文件上传入口。</strong>TXT提供逐字段内容和按钮顺序；同目录JSON仅供字段对照，不是可导入格式。不要把它们上传到资源、任务或故障导入窗口。</p>
+<p>快速试用可只新增一条“原因”知识；完整演示推荐填<strong>四个实体、三条关系</strong>，在同一变更单中保存：</p>
+<table><thead><tr><th scope="col">新增实体</th><th scope="col">类型 / 图谱</th></tr></thead><tbody>
+<tr><td>例程-功放输出异常-01</td><td>故障运维知识 · 故障</td></tr>
+<tr><td>例程-发射功率读数偏低-01</td><td>故障运维知识 · 现象</td></tr>
+<tr><td>例程-功放模块连接异常-01</td><td>故障运维知识 · 原因</td></tr>
+<tr><td>例程-核对供电与连接-01</td><td>故障运维知识 · 处置方案</td></tr>
+</tbody></table>
+<p>以故障为头实体，分别新增<strong>具有现象 → 现象、原因是 → 原因、处置方式 → 处置方案</strong>。每条实体和关系都填来源；权重可空，编号由系统分配。具体摘要、描述、关键词和来源全文见照填文件。</p>
+<p><strong>保存草稿 → 提交审核并确认送审 → 不同账号审核通过 → 发布已审核内容并确认 → 图谱浏览检索新名称 → 展开一跳</strong>。发布版本与变更单编号按本次回执记录；不要照填其他电脑的编号。只有草稿时，已发布检索中看不到新名称属于正常情况。</p>
+<p class="small">本例录入的是演示知识，不会自动改变旧诊断、训练模型或向设备发命令。重复演示请统一更换名称和摘要末尾批次。</p>
+</section>
+
 <footer>
 <p>操作到哪一步，就按本次证据说明到哪一步。此例只展示构造数据流程；非现场实测、需人工复核、ML未启用、无真实设备下发。</p>
-<p class="small">此页和配套CSV为2026-10-28准备版本；按钮以安装版本实际页面为准。文件夹按钮用于显示导入资料，真正导入须在系统内完成。</p>
+<p class="small">任务和故障CSV准备于2026-10-28，独立知识变更示例补充于2026-10-29；按钮以安装版本实际页面为准。文件夹按钮用于查看资料；只有标明可导入的文件才在对应导入入口使用。</p>
 </footer>
 </main>
 </body>
