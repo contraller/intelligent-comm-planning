@@ -51,11 +51,14 @@ def first_use_source(tmp_path, monkeypatch):
         manual = tmp_path / ("docs/output/短波超短波智能规划系统用户手册_V1.0_20261028." + suffix)
         manual.parent.mkdir(parents=True, exist_ok=True)
         manual.write_bytes(b"public-manual-fixture")
-        record = tmp_path / ("docs/output/测试用例_实际结果_逐项对应版_20261028." + suffix)
+        record = tmp_path / ("docs/output/测试用例_实际结果_逐项对应版_20261029." + suffix)
         record.write_bytes(b"public-acceptance-fixture")
-    evidence = tmp_path / "docs/review/验收测试记录证据索引_20261028.json"
+    evidence = tmp_path / "docs/review/验收测试记录证据索引_20261029.json"
     evidence.parent.mkdir(parents=True, exist_ok=True)
     evidence.write_text("{}", encoding="utf-8")
+    guide = tmp_path / "演示资料/04_知识库更新测试/测试参数与操作步骤.txt"
+    guide.parent.mkdir(parents=True, exist_ok=True)
+    guide.write_text("人工构造的照填样例，待执行，不含口令。", encoding="utf-8")
     (examples / "private-settings.json").write_text('{"password":"must-not-copy"}', encoding="utf-8")
     return builder, examples
 
@@ -69,7 +72,8 @@ def test_first_use_materials_include_only_public_examples_and_manuals(first_use_
     assert "验收测试/验收测试记录.docx" in copied
     assert "验收测试/验收测试记录.pdf" in copied
     assert "验收测试/证据索引.json" in copied
-    assert len(copied) == 10
+    assert "验收测试/知识库更新测试步骤.txt" in copied
+    assert len(copied) == 11
     assert not list(target.rglob("*private*"))
     assert not (target / "app/data/runtime").exists()
 
