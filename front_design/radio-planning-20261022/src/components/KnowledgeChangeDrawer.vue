@@ -69,34 +69,31 @@
           >新增关系</button
         >
         <select
+          v-memo="[availableEntities, addEntityId, store.locked]"
           v-model="addEntityId"
           aria-label="选择已有实体加入编辑"
           :disabled="store.locked"
           @change="editExisting('entities', addEntityId)"
           ><option value="">修改已有实体…</option
           ><option
-            v-for="e in store.base?.entities.filter(
-              (e) => !store.draft!.entities.some((x) => x.id === e.id),
-            )"
+            v-for="e in availableEntities"
             :key="e.id"
             :value="e.id"
-            >{{ knowledgeEntityName(e) }}</option
+            >{{ e.label }}</option
           ></select
         >
         <select
+          v-memo="[availableRelations, addRelationId, store.locked]"
           v-model="addRelationId"
           aria-label="选择已有关系加入编辑"
           :disabled="store.locked"
           @change="editExisting('relations', addRelationId)"
           ><option value="">修改已有关系…</option
           ><option
-            v-for="r in store.base?.relations.filter(
-              (r) => !store.draft!.relations.some((x) => x.id === r.id),
-            )"
+            v-for="r in availableRelations"
             :key="r.id"
             :value="r.id"
-            >{{ r.id }} ·
-            {{ knowledgeRelationName(r.type, store.catalog.relationTypes.find((t) => t.id === r.type)?.name) }}</option
+            >{{ r.label }}</option
           ></select
         >
       </div>
@@ -258,18 +255,11 @@
         <summary>关系 {{ i + 1 }} · {{ r.id.startsWith('new:') ? '待保存' : r.id }}</summary>
         <div class="form-grid section-gap">
           <label class="full"
-            >头实体<select
+            >头实体<KnowledgeEndpointSelect
               v-model="r.head"
+              :options="endpoints"
               :disabled="locked"
-              ><option value="">请选择</option
-              ><option
-                v-for="e in endpoints"
-                :key="e.id"
-                :value="e.id"
-                >{{ knowledgeEntityName(e) || '未命名实体' }} ·
-                {{ e.id.startsWith('new:') ? '本单新增' : e.id }}</option
-              ></select
-            ></label
+            /></label
           >
           <label class="full"
             >关系类型<select
@@ -284,18 +274,11 @@
             ></label
           >
           <label class="full"
-            >尾实体<select
+            >尾实体<KnowledgeEndpointSelect
               v-model="r.tail"
+              :options="endpoints"
               :disabled="locked"
-              ><option value="">请选择</option
-              ><option
-                v-for="e in endpoints"
-                :key="e.id"
-                :value="e.id"
-                >{{ knowledgeEntityName(e) || '未命名实体' }} ·
-                {{ e.id.startsWith('new:') ? '本单新增' : e.id }}</option
-              ></select
-            ></label
+            /></label
           >
           <label
             >权重（可空）<input
@@ -456,11 +439,8 @@ import { useAuthStore } from '../stores/auth';
 const auth = useAuthStore();
 import { computed, nextTick, ref, watch } from 'vue';
 import { useKnowledgeStore } from '../stores/knowledge';
-import {
-  applyKnowledgeDraft,
-  knowledgeClone,
-  knowledgeDiff,
-} from '../services/knowledge-validation';
+import { knowledgeClone } from '../services/knowledge-validation';
+import { knowledgeEditDifferences, knowledgeEditIndex } from '../services/knowledge-edit-preview';
 import type { KnowledgeEntity } from '../types/knowledge';
 import {
   describeKnowledge as describe,
@@ -476,6 +456,7 @@ import AppDrawer from './AppDrawer.vue';
 import KnowledgeStateBadge from './KnowledgeStateBadge.vue';
 import KnowledgePrincipleEditor from './KnowledgePrincipleEditor.vue';
 import KnowledgeNetworkRuleEditor from './KnowledgeNetworkRuleEditor.vue';
+import KnowledgeEndpointSelect from './KnowledgeEndpointSelect.vue';
 import { env } from '../config/env';
 import { canSelfReviewKnowledge } from '../services/knowledge-identity';
 const store = useKnowledgeStore();
@@ -519,14 +500,35 @@ const canReview = computed(
 );
 const addEntityId = ref(''),
   addRelationId = ref('');
+// 基线名称与选项列表缓存，描述、来源等输入不重建数千个option节点。
+const entityOptions = computed(() =>
+  (store.base?.entities ?? []).map((e) => ({ id: e.id, label: knowledgeEntityName(e) })),
+);
+const relationOptions = computed(() => {
+  const names = new Map(store.catalog.relationTypes.map((t) => [t.id, t.name]));
+  return (store.base?.relations ?? []).map((r) => ({
+    id: r.id, label: r.id + ' · ' + knowledgeRelationName(r.type, names.get(r.type)),
+  }));
+});
+const availableEntities = computed(() => {
+  const ids = new Set(store.draft?.entities.map((e) => e.id));
+  return entityOptions.value.filter((e) => !ids.has(e.id));
+});
+const availableRelations = computed(() => {
+  const ids = new Set(store.draft?.relations.map((r) => r.id));
+  return relationOptions.value.filter((r) => !ids.has(r.id));
+});
 const endpoints = computed(() => [
   ...new Map(
-    [...(store.base?.entities ?? []), ...(store.draft?.entities ?? [])].map((e) => [e.id, e]),
+    [...entityOptions.value, ...(store.draft?.entities ?? []).map((e) => ({
+      id: e.id, label: knowledgeEntityName(e),
+    }))].map((e) => [e.id, e]),
   ).values(),
 ]);
+const editIndex = computed(() => store.base ? knowledgeEditIndex(store.base) : null);
 const differences = computed(() =>
-  store.base && store.draft
-    ? knowledgeDiff(store.base, applyKnowledgeDraft(store.base, store.draft))
+  editIndex.value && store.draft
+    ? knowledgeEditDifferences(editIndex.value, store.draft)
     : [],
 );
 const locked = computed(() => !store.canEdit || store.locked);

@@ -4,6 +4,7 @@ import { createRenderer, h, nextTick, ssrContextKey, type App } from 'vue';
 import { createMemoryHistory, createRouter, RouterView } from 'vue-router';
 import KnowledgeView from '../src/views/KnowledgeView.vue';
 import KnowledgeChangeDrawer from '../src/components/KnowledgeChangeDrawer.vue';
+import KnowledgeEndpointSelect from '../src/components/KnowledgeEndpointSelect.vue';
 import AppDrawer from '../src/components/AppDrawer.vue';
 import DecisionDialog from '../src/components/DecisionDialog.vue';
 import RequestState from '../src/components/RequestState.vue';
@@ -56,6 +57,7 @@ vi.mock('../src/components/AppTable.vue', () => ({ default: { render: () => null
 beforeAll(async () => {
   for (const [component, filename] of [
     [KnowledgeView, 'views/KnowledgeView.vue'], [KnowledgeChangeDrawer, 'components/KnowledgeChangeDrawer.vue'],
+    [KnowledgeEndpointSelect, 'components/KnowledgeEndpointSelect.vue'],
     [AppDrawer, 'components/AppDrawer.vue'], [DecisionDialog, 'components/DecisionDialog.vue'],
     [RequestState, 'components/RequestState.vue'], [KnowledgeStateBadge, 'components/KnowledgeStateBadge.vue'],
     [KnowledgePrincipleEditor, 'components/KnowledgePrincipleEditor.vue'], [KnowledgePrincipleFlow, 'components/KnowledgePrincipleFlow.vue'],

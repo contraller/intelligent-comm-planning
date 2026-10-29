@@ -5,6 +5,7 @@ import { createRouter, createMemoryHistory, RouterView } from 'vue-router';
 import KnowledgeNetworkRulePanel from '../src/components/KnowledgeNetworkRulePanel.vue';
 import KnowledgeNetworkRuleEditor from '../src/components/KnowledgeNetworkRuleEditor.vue';
 import KnowledgeChangeDrawer from '../src/components/KnowledgeChangeDrawer.vue';
+import KnowledgeEndpointSelect from '../src/components/KnowledgeEndpointSelect.vue';
 import KnowledgeVersionDrawer from '../src/components/KnowledgeVersionDrawer.vue';
 import KnowledgeView from '../src/views/KnowledgeView.vue';
 import { networkRuleSeed, knowledgeNetworkRule } from '../src/mocks/knowledge-network-rules';
@@ -42,6 +43,7 @@ await Promise.all([
   clientTemplate(KnowledgeNetworkRulePanel,'src/components/KnowledgeNetworkRulePanel.vue', 'knowledge-rule-render.ts'),
   clientTemplate(KnowledgeNetworkRuleEditor,'src/components/KnowledgeNetworkRuleEditor.vue', 'knowledge-rule-render.ts'),
   clientTemplate(KnowledgeChangeDrawer,'src/components/KnowledgeChangeDrawer.vue', 'knowledge-rule-render.ts'),
+  clientTemplate(KnowledgeEndpointSelect,'src/components/KnowledgeEndpointSelect.vue', 'knowledge-rule-render.ts'),
   clientTemplate(KnowledgeVersionDrawer,'src/components/KnowledgeVersionDrawer.vue', 'knowledge-rule-render.ts'),
   clientTemplate(KnowledgeView,'src/views/KnowledgeView.vue', 'knowledge-rule-render.ts'),
 ]);

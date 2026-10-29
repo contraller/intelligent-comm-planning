@@ -23,6 +23,8 @@ export const useKnowledgeStore = defineStore('knowledge',() => {
   const catalog = ref<KnowledgeCatalog>({actors:[],types:[],relationTypes:[],models:[]});
   const actorId = computed(()=>auth.identity?.id??''), loading = ref(false), busy = ref(false), loadError = ref(''), error = ref(''), notice = ref('');
   const draft = ref<KnowledgeDraft | null>(null), baseline = ref<KnowledgeDraft | null>(null), changeId = ref(''), drawerOpen = ref(false), opinion = ref('');
+  // 打开详情分两步读取；重复点击复用当前读取，不把正常等待显示为操作失败。
+  const openingChangeId = ref(''), openingChangeStage = ref<'detail' | 'base' | ''>('');
   const issues = ref<KnowledgeIssue[]>([]), decision = ref<DecisionRequest | null>(null);
   const categories = ref<KnowledgeCategory[]>(['设备知识','网络态势知识','故障运维知识']), query = ref(''), type = ref(''), page = ref(1);
   const selectedId = ref(''), relationId = ref(''), focusId = ref(''), expandedIds = ref<string[]>([]);
@@ -194,7 +196,7 @@ export const useKnowledgeStore = defineStore('knowledge',() => {
     if(retry&&retry.versionId===current.value?.id&&retry.session===auth.generation)return selectEntity(retry.id,retry.revealCategory,retry.keepGraph);
     retrySelection=null;await refreshBrowse();
   }
-  function stopQueries() { requests.stop();logSerial++;historySerial++;detailSerial++;selectionSerial++;queryGeneration++;autoFocusPending=false;retrySelection=null;loadGeneration++;loadFlight=null;loading.value=false;querying.value=false;answer('cancel'); }
+  function stopQueries() { requests.stop();logSerial++;historySerial++;detailSerial++;selectionSerial++;queryGeneration++;autoFocusPending=false;retrySelection=null;loadGeneration++;loadFlight=null;loading.value=false;openingChangeId.value='';openingChangeStage.value='';querying.value=false;answer('cancel'); }
   async function selectEntity(id:string,revealCategory=false,keepGraph=false) {
     // 定向入口的前置详情与后续检索共用“最新意图优先”，迟到成功和失败均不得回写。
     const token=++selectionSerial,session=auth.generation,versionId=current.value?.id;
@@ -228,10 +230,14 @@ export const useKnowledgeStore = defineStore('knowledge',() => {
     if(relationId.value&&!graph.value.relations.some(r=>r.id===relationId.value))relationId.value='';
   }
   async function openChange(c:Pick<KnowledgeChange,'id'>) {
-    if(!(await allowLeave()))return;const token=++detailSerial,session=auth.generation;loading.value=true;
-    try{const detail=await previewService.getKnowledgeChange({id:c.id,signal:requests.signal('change')}),base=await previewService.getKnowledgeVersion({id:detail.content.baseVersionId,signal:requests.signal('edit-base')});
+    if(locked.value||!(await allowLeave())||locked.value)return;
+    const token=++detailSerial,session=auth.generation;loading.value=true;openingChangeId.value=c.id;openingChangeStage.value='detail';error.value='';
+    try{const detail=await previewService.getKnowledgeChange({id:c.id,signal:requests.signal('change')});
+      if(token!==detailSerial||session!==auth.generation)return;
+      openingChangeStage.value='base';
+      const base=await previewService.getKnowledgeVersion({id:detail.content.baseVersionId,signal:requests.signal('edit-base')});
       if(token!==detailSerial||session!==auth.generation)return;selectedChange.value=detail;editBase.value=base;changeId.value=detail.id;receiptChangeId.value='';setDraft(detail.content);drawerOpen.value=true;error.value='';
-    }catch(e){if(token===detailSerial&&session===auth.generation)report(e);}finally{if(token===detailSerial)loading.value=false;}
+    }catch(e){if(token===detailSerial&&session===auth.generation)report(e);}finally{if(token===detailSerial){loading.value=false;openingChangeId.value='';openingChangeStage.value='';}}
   }
   async function newChange(entity?:KnowledgeEntity,relation?:KnowledgeRelation) {
     if(!current.value||actor.value?.role!=='EDITOR'||!(await allowLeave()))return;
@@ -334,5 +340,5 @@ export const useKnowledgeStore = defineStore('knowledge',() => {
   async function closeVersion(){if(await allowLeave()){historyVersionId.value='';versionDetail.value=null;historyParent.value=null;versionChange.value=null;}}
 
   function clearForSession(){mutationSerial++;busy.value=false;browseVersionId='';stopQueries();logKey='';logPage.value=1;logTotal.value=0;selectedChange.value=null;editBase.value=null;versionDetail.value=null;historyParent.value=null;versionChange.value=null;receiptChangeId.value='';activeTab.value='browse';historyPage.value=1;historyTotal.value=0;changeState.value=undefined;searchKey='';graphKey='';detailKey='';workspace.value=null;catalog.value={actors:[],types:[],relationTypes:[],models:[]};draft.value=null;baseline.value=null;changeId.value='';drawerOpen.value=false;opinion.value='';issues.value=[];categories.value=['设备知识','网络态势知识','故障运维知识'];query.value='';type.value='';page.value=1;selectedId.value='';relationId.value='';focusId.value='';expandedIds.value=[];search.value=null;graph.value=null;detail.value=null;queryError.value='';historyVersionId.value='';rollbackReason.value='';loadError.value='';error.value='';notice.value='';pending=null;highlightMatches.value=false;}
-  return {historyChange,logPage,logTotal,queryLogs,ensureMetadata,counts,activeTab,historyPage,historyTotal,changeState,changeTab,refreshTab,historyParent,versionChange,receiptPending,clearForSession,actorName,workspace,catalog,actorId,actor,loading,busy,loadError,error,notice,draft,baseline,changeId,change,drawerOpen,opinion,issues,decision,categories,query,type,page,selectedId,relationId,focusId,expandedIds,matchedIds,search,graph,detail,queryError,querying,current,historyVersionId,historyVersion,rollbackReason,dirtyDraft,dirty,locked,stale,canEdit,base,ask,answer,allowLeave,load,applyFilters,refreshBrowse,retryBrowse,stopQueries,selectEntity,selectRelation,resetGraph,expand,collapse,openChange,newChange,closeDrawer,saveDraft,submit,withdraw,review,publish,rollback,reset,showVersion,closeVersion};
+  return {openingChangeId,openingChangeStage,historyChange,logPage,logTotal,queryLogs,ensureMetadata,counts,activeTab,historyPage,historyTotal,changeState,changeTab,refreshTab,historyParent,versionChange,receiptPending,clearForSession,actorName,workspace,catalog,actorId,actor,loading,busy,loadError,error,notice,draft,baseline,changeId,change,drawerOpen,opinion,issues,decision,categories,query,type,page,selectedId,relationId,focusId,expandedIds,matchedIds,search,graph,detail,queryError,querying,current,historyVersionId,historyVersion,rollbackReason,dirtyDraft,dirty,locked,stale,canEdit,base,ask,answer,allowLeave,load,applyFilters,refreshBrowse,retryBrowse,stopQueries,selectEntity,selectRelation,resetGraph,expand,collapse,openChange,newChange,closeDrawer,saveDraft,submit,withdraw,review,publish,rollback,reset,showVersion,closeVersion};
 });

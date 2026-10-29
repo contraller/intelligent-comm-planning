@@ -23,6 +23,7 @@ vi.mock('primevue/dialog', async () => {
 vi.mock('../src/components/KnowledgeStateBadge.vue', () => ({ default: { render: () => null } }));
 
 import KnowledgeChangeDrawer from '../src/components/KnowledgeChangeDrawer.vue';
+import KnowledgeEndpointSelect from '../src/components/KnowledgeEndpointSelect.vue';
 import KnowledgeVersionDrawer from '../src/components/KnowledgeVersionDrawer.vue';
 import DeviceKnowledgePanel from '../src/components/DeviceKnowledgePanel.vue';
 import KnowledgePrincipleFlow from '../src/components/KnowledgePrincipleFlow.vue';
@@ -43,6 +44,7 @@ let pinia: ReturnType<typeof createPinia>, app: App | undefined;
 beforeAll(async () => {
   for (const [component, name] of [
     [KnowledgeChangeDrawer, 'KnowledgeChangeDrawer'], [KnowledgeVersionDrawer, 'KnowledgeVersionDrawer'],
+    [KnowledgeEndpointSelect, 'KnowledgeEndpointSelect'],
     [DeviceKnowledgePanel, 'DeviceKnowledgePanel'], [KnowledgePrincipleFlow, 'KnowledgePrincipleFlow'],
     [KnowledgeNetworkRulePanel, 'KnowledgeNetworkRulePanel'],
     [KnowledgePrincipleEditor, 'KnowledgePrincipleEditor'], [KnowledgeNetworkRuleEditor, 'KnowledgeNetworkRuleEditor'],
@@ -130,6 +132,39 @@ async function expand(root: HostNode, name: string) {
 }
 
 describe('知识面板中文纯显示', () => {
+  it('缓存选项仍跟随增删、重命名、多个关系端点和忙态更新', async () => {
+    const { store, version, item, link } = fixture();
+    const spare = { ...entity(), id: 'SPARE', name: '备用实体' };
+    version.entities.push(spare);
+    store.draft!.relations.push({ ...knowledgeClone(link), id: 'new:second', head: 'SPARE', tail: item.id });
+    const root = await mount(KnowledgeChangeDrawer);
+    const choices = () => all(labelled(root, '选择已有实体加入编辑'), n => n.tag === 'option');
+    expect(choices().some(n => n.props.value === 'SPARE')).toBe(true);
+    store.draft!.entities.push(knowledgeClone(spare)); await settle();
+    expect(choices().some(n => n.props.value === 'SPARE')).toBe(false);
+    store.draft!.entities[1]!.name = '新名称'; await settle();
+    const cards = () => all(root, n => n.tag === 'details' && String(n.props.id).startsWith('knowledge-row-') && String(n.props.id).includes('new:second'));
+    const second = cards()[0]!;
+    expect(field(second, '头实体').props.value).toBe('SPARE');
+    expect(field(second, '尾实体').props.value).toBe(item.id);
+    (field(second, '头实体').props.onChange as (event: unknown) => void)({ target: { value: item.id } });
+    (field(second, '尾实体').props.onChange as (event: unknown) => void)({ target: { value: 'SPARE' } });
+    await settle();
+    expect(store.draft!.relations[1]!.head).toBe(item.id);
+    expect(store.draft!.relations[1]!.tail).toBe('SPARE');
+    expect(store.draft!.relations[0]!.head).toBe(link.head);
+    expect(store.draft!.relations[0]!.tail).toBe(link.tail);
+    expect(textOf(field(second, '头实体'))).toContain('新名称');
+    store.draft!.relations[1]!.head = item.id; await settle();
+    expect(store.draft!.relations[1]!.head).toBe(item.id);
+    store.draft!.entities.pop(); await settle();
+    expect(choices().some(n => n.props.value === 'SPARE')).toBe(true);
+    expect(textOf(field(cards()[0]!, '头实体'))).toContain('备用实体');
+    store.busy = true; await settle();
+    expect(labelled(root, '选择已有实体加入编辑').props.disabled).toBe(true);
+    expect(field(cards()[0]!, '头实体').props.disabled).toBe(true);
+  });
+
   it('两种抽屉的历史署名翻译受控回退词，保留事件姓名快照与身份原值', async () => {
     const { store, version } = fixture(), content = knowledgeClone(store.draft!), time = version.time;
     const change: KnowledgeChange = { id: 'KGC-ATTRIBUTION', authorId: 'baseline', state: 'PUBLISHED', revision: 1,
