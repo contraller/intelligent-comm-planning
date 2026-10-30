@@ -8,7 +8,7 @@ const strings=(v:unknown):string[]=>Array.isArray(v)?v.map(text):fail();
 const hash=(v:unknown):string=>typeof v==='string'&&/^[a-f0-9]{64}$/.test(v)?v:fail();
 const equal=(a:unknown,b:unknown)=>JSON.stringify(a)===JSON.stringify(b);
 const keys=(row:Record<string,unknown>,expected:readonly string[])=>Object.keys(row).length===expected.length&&expected.every(key=>Object.hasOwn(row,key));
-const engines=['V01-2','V01-3','V01-4','V01-5'];
+const engines=['V01-2','V01-3','V01-4','V01-5','V01-6'];
 function bandwidthProvenance(value:unknown) {
   if(value===null)return null;
   const row=object(value);
@@ -80,8 +80,8 @@ export function readFrozenBandwidthSelection(value:unknown,query:FrozenCoverageQ
 }
 export function readFrozenBandwidthOptions(value:unknown,query:FrozenCoverageQuery):FrozenCoverageBandwidthOptions {
   const row=object(value),bound=anchor(row.anchor,query);
-  const v4=['V01-4','V01-5'].includes(bound.engine_version);
-  if(Object.keys(row).length!==3||!['V01-3','V01-4','V01-5'].includes(bound.engine_version)||!Array.isArray(row.devices)||row.devices.length>1024)return fail();
+  const v4=['V01-4','V01-5','V01-6'].includes(bound.engine_version);
+  if(Object.keys(row).length!==3||!['V01-3','V01-4','V01-5','V01-6'].includes(bound.engine_version)||!Array.isArray(row.devices)||row.devices.length>1024)return fail();
   const ids=new Set<string>(),options=new Map<string,number[]|null>();
   for(const value of row.devices){const device=object(value),id=text(device.device_id);
     const expected=['device_id','node_id','model_id','band','model_bandwidth_khz','options_khz','state','reason_code','reason',...v4?['bandwidth_provenance']:[]];
@@ -131,6 +131,21 @@ function feature(value:unknown,device:string,node:string,frequency:number):Froze
     }else return fail();
   }
   return row as unknown as FrozenCoverageFeature;
+}
+// 格面代表中心预测；仅允许完整格位于DEM包围盒内，中心不超出局地计算半径。
+export function isLocalTerrainCell(feature:FrozenCoverageFeature,device:{lon:number;lat:number;band?:string|null},options:FrozenCoverageParameters,box:readonly number[]):boolean {
+  if(feature.geometry?.type!=='Polygon'||feature.properties.surface_kind!=='TERRAIN_CELL'||box.length!==4)return false;
+  const points=feature.geometry.coordinates.flat();if(!points.length)return false;
+  let west=Infinity,south=Infinity,east=-Infinity,north=-Infinity;
+  for(const [lon,lat] of points){
+    if(!Number.isFinite(lon)||!Number.isFinite(lat)||lon<box[0]!-1e-9||lon>box[2]!+1e-9||lat<box[1]!-1e-9||lat>box[3]!+1e-9)return false;
+    west=Math.min(west,lon);east=Math.max(east,lon);south=Math.min(south,lat);north=Math.max(north,lat);
+  }
+  const radians=Math.PI/180,lat=(south+north)/2,lon=(west+east)/2;
+  const a=Math.sin((lat-device.lat)*radians/2)**2+Math.cos(device.lat*radians)*Math.cos(lat*radians)*Math.sin((lon-device.lon)*radians/2)**2;
+  const distance=2*6371000*Math.asin(Math.sqrt(Math.max(0,Math.min(1,a))));
+  const radius=device.band==='HF'?Math.min(options.radius_m,options.hf_max_km*1000):options.radius_m;
+  return Number.isFinite(distance)&&distance<=radius+1e-5;
 }
 function frozenNumber(row:Record<string,unknown>,key:string,lo:number,hi:number):number|undefined {
   const raw=row[key];if(raw===undefined||raw===null||raw==='')return undefined;
@@ -194,7 +209,7 @@ function v4Device(device:Record<string,unknown>) {
 }
 function result(value:unknown,bound:FrozenCoverageAnchor,options:FrozenCoverageParameters,query:FrozenCoverageQuery):FrozenCoverageResult {
   const row=object(value),provenance=object(row.provenance);
-  const v4=['V01-4','V01-5'].includes(bound.engine_version),v5=bound.engine_version==='V01-5';
+  const v4=['V01-4','V01-5','V01-6'].includes(bound.engine_version),v5=bound.engine_version==='V01-5',v6=bound.engine_version==='V01-6';
   if(row.schema_version!==(v4?2:1)||row.solution_id!==bound.snapshot_id.slice(4)||![...(v4?['NOT_APPLICABLE']:[]),'COMPLETE','PARTIAL','UNAVAILABLE'].includes(String(row.status)))return fail();
   if(!v4&&Object.hasOwn(row,'summary'))return fail();
   for(const key of ['raw_snapshot_sha256','frozen_tables_sha256','terrain_fingerprint','engine_version'])if(provenance[key]!==bound[key as keyof FrozenCoverageAnchor])return fail();
@@ -204,10 +219,10 @@ function result(value:unknown,bound:FrozenCoverageAnchor,options:FrozenCoverageP
   if(!ref&&selected.length)return fail();
   const selectedById=new Map(selected.map(row=>[row.device_id,row.rx_bandwidth_khz]));
   const units=object(provenance.units);if(units.margin_db!=='dB'||units.frequency!=='kHz'||units.ring_radius!=='m')return fail();
-  if(v5){const field=object(provenance.field_strength);
+  if(v5||v6){const field=object(provenance.field_strength);
     if(units.field_strength!=='dBuV/m'||field.kind!=='PREDICTED_FIELD_STRENGTH'||field.unit!=='dBuV/m'
       ||field.receiver_gain_dbi!==0||field.conversion!=='E=Pr+20log10(f_MHz)+77.21'||field.grading_basis!=='RECEIVER_THRESHOLD_MARGIN'
-      ||field.medium_margin_db!==10||field.strong_margin_db!==20||field.hf_geometry!=='P368_P533_RADIAL_BUDGET'||field.vuhf_geometry!=='P1812_TERRAIN_GRID')return fail();
+      ||field.medium_margin_db!==10||field.strong_margin_db!==20||field.hf_geometry!==(v6?'P368_P533_LOCAL_TERRAIN_GRID':'P368_P533_RADIAL_BUDGET')||field.vuhf_geometry!=='P1812_TERRAIN_GRID')return fail();
     text(field.grading_note);
   }
   strings(provenance.limitations);
@@ -233,16 +248,23 @@ function result(value:unknown,bound:FrozenCoverageAnchor,options:FrozenCoverageP
     if(v4)v4Device(device);
     for(const computation of device.computations){const part=object(computation),frequency=number(part.freq_khz),geo=object(part.geojson);
       if(frequency<=0||!['CELLS','RINGS'].includes(String(part.shape))||!strings(part.link_ids).length||geo.type!=='FeatureCollection'||!Array.isArray(geo.features))return fail();
+      if(v5&&part.shape!==(device.band==='HF'?'RINGS':'CELLS'))return fail();
+      if(v6&&part.shape!=='CELLS')return fail();
       count+=geo.features.length;if(count>300000)return fail();geo.features.forEach(value=>{
         const decoded=feature(value,id,nid,frequency);
-        if(v5){
+        if(v5||v6){
           const p=decoded.properties,radio=object(device.radio_parameters);
           const rx=number(p.rx_power_dbm),loss=number(p.path_loss_db),field=number(p.field_strength_dbuvm),margin=number(p.margin_db),required=number(p.required_field_dbuvm);
           if(decoded.geometry!==null&&decoded.geometry.type!=='Polygon'||!['TERRAIN_CELL','GROUND','SKYWAVE','SKIP_ZONE','BELOW_THRESHOLD'].includes(String(p.surface_kind))
             ||Math.abs(rx-(number(radio.tx_dbm)+number(radio.gain)-loss))>1e-7
             ||Math.abs(field-(rx+20*Math.log10(frequency/1000)+77.21))>1e-7||Math.abs(field-required-margin)>1e-7
             ||p.strength_class!==(margin>=20?'STRONG':margin>=10?'MEDIUM':'WEAK')||p.is_coverage!==(margin>=options.margin_min_db))return fail();
-          if(device.band==='VUHF'&&p.surface_kind!=='TERRAIN_CELL'||device.band==='HF'&&p.surface_kind==='TERRAIN_CELL')return fail();
+          if(v5&&(device.band==='VUHF'&&p.surface_kind!=='TERRAIN_CELL'||device.band==='HF'&&p.surface_kind==='TERRAIN_CELL'))return fail();
+          if(v6){
+            if(!isLocalTerrainCell(decoded,{lon:number(device.lon),lat:number(device.lat),band:String(device.band)},options,box as number[]))return fail();
+            if(p.terrain_loss_db!==undefined&&number(p.terrain_loss_db)<0)return fail();
+            if(p.propagation_mode!==undefined&&!text(p.propagation_mode).trim())return fail();
+          }
         }
       });
     }
@@ -267,6 +289,7 @@ export function readFrozenCoverageCache(value:unknown,query:FrozenCoverageQuery,
 }
 export function readFrozenCoverageJob(value:unknown,query:FrozenCoverageQuery,input?:FrozenCoverageInput):FrozenCoverageJob {
   const row=object(value),bound=anchor(row.anchor,query);selectionBinding(row,bound,query);
+  if(query.engineVersion!==undefined&&bound.engine_version!==query.engineVersion)return fail();
   if(!/^FCJ-[a-f0-9]{32}$/.test(text(row.job_id))||!text(row.request_id)||!/^FCC-[a-f0-9]{64}$/.test(text(row.cache_key)))return fail();
   if(!['PENDING','RUNNING','SUCCESS','FAILED','CANCELLED','INTERRUPTED'].includes(String(row.state)))return fail();
   const progress=number(row.progress);if(progress<0||progress>1||typeof row.from_cache!=='boolean'||typeof row.cancel_requested!=='boolean')return fail();

@@ -18,12 +18,13 @@ QUERY = {"plan_id": "P1", "task_id": "T1", "snapshot_id": "SNP-PL-UNIT", "actor_
 
 
 def synthetic_result(raw, tables, **kwargs):
-    from app.coverage_field_surface import metadata
+    from app.coverage_terrain_surface import metadata
     selection = kwargs.get("bandwidth_selection")
     return {"schema_version": 2, "solution_id": raw["solution_id"], "status": "NOT_APPLICABLE", "devices": [],
             "summary": dict(total=0, eligible=0, complete=0, unavailable=0, skipped=0),
             "provenance": {"raw_snapshot_sha256": algorithm._digest(raw), "frozen_tables_sha256": algorithm._digest(tables),
                 "terrain_fingerprint": raw["terrain_fingerprint"], "engine_version": module.ENGINE_VERSION,
+                "dem_bbox": list(kwargs["terrain"]().bbox),
                 "bandwidth_selection_id": selection["selection_id"] if selection else None,
                 "bandwidth_selection_hash": selection["selection_hash"] if selection else None,
                 "bandwidth_choices": deepcopy(selection["choices"]) if selection else [],
@@ -616,7 +617,7 @@ def test_v4_inconsistent_engine_result_never_publishes(context, change):
     assert service.cache("P1", "T1", "SNP-PL-UNIT", SMALL)["state"] == "MISS"
 
 
-@pytest.mark.parametrize("version", ["", "V01-6", 4, True])
+@pytest.mark.parametrize("version", ["", "V01-7", 4, True])
 def test_v4_cache_unknown_version_rejected_without_runtime_write(context, version):
     service = context.make()
     with pytest.raises(module.CoverageServiceError) as error:
