@@ -40,7 +40,7 @@ export function useFrozenCoverage(options:{query:()=>FrozenCoverageQuery|null;pa
   function rememberJob(id:string){const name='frozen-coverage.job:'+key();knownJobId.value=id;knownJobs.set(name,id);try{storage()?.setItem(name,id);}catch{ /* 已确认作业仍可在本标签回读。 */ }}
   function recallJob(){const name='frozen-coverage.job:'+key();let id=knownJobs.get(name);try{id??=storage()?.getItem(name)??undefined;}catch{ /* 不用其他身份或来源的记录回填。 */ }return id&&/^FCJ-[a-f0-9]{32}$/.test(id)?id:'';}
   function cancelRead(){serial++;control?.abort();control=null;clearTimeout(timer);timer=undefined;busy.value=false;}
-  const overlay=computed<FrozenCoverageOverlay|null>(()=>visible.value&&cache.value?.state==='HIT'&&cache.value.result&&selectedDeviceId.value?{anchor:cache.value.anchor,result:cache.value.result,deviceId:selectedDeviceId.value,...cache.value.anchor.engine_version==='V01-5'?{display:display.value}:{},...cache.value.bandwidth_selection_id&&cache.value.bandwidth_selection_hash?{bandwidthSelection:{selectionId:cache.value.bandwidth_selection_id,selectionHash:cache.value.bandwidth_selection_hash}}:{}}:null);
+  const overlay=computed<FrozenCoverageOverlay|null>(()=>visible.value&&cache.value?.state==='HIT'&&cache.value.result&&selectedDeviceId.value?{anchor:cache.value.anchor,result:cache.value.result,deviceId:selectedDeviceId.value,...['V01-5','V01-6'].includes(cache.value.anchor.engine_version)?{display:display.value}:{},...cache.value.bandwidth_selection_id&&cache.value.bandwidth_selection_hash?{bandwidthSelection:{selectionId:cache.value.bandwidth_selection_id,selectionHash:cache.value.bandwidth_selection_hash}}:{}}:null);
   const devices=computed(()=>cache.value?.result?.devices??[]);
   async function run(action:(client:FrozenCoverageClient,query:FrozenCoverageQuery,signal:AbortSignal,current:()=>boolean)=>Promise<void>){
     const client=options.client(),source=query();if(disposed||busy.value||!client||!source)return;
@@ -62,6 +62,7 @@ export function useFrozenCoverage(options:{query:()=>FrozenCoverageQuery|null;pa
   }
   async function write(cancel=false){
     if(busy.value||bandwidthSaving.value||bandwidthLoading.value||bandwidthPending.value||!options.canWrite()||query()?.context!=='planning'||!cancel&&!bandwidthReady.value)return;
+    if(!cancel&&query()?.engineVersion&&query()!.engineVersion!=='V01-6')return;
     try{coverageParameters(options.parameters());}catch(reason){error.value=reason instanceof Error?reason.message:'覆盖参数无效';return;}
     if(!pending.value){const source=query();if(!source||cancel&&!job.value)return;remember({requestId:options.requestId?.()??crypto.randomUUID(),query:structuredClone(source),parameters:{...options.parameters()},jobId:cancel?job.value!.job_id:null});}
     const request=pending.value!;
@@ -95,6 +96,7 @@ export function useFrozenCoverage(options:{query:()=>FrozenCoverageQuery|null;pa
   async function saveBandwidthSelection(choices?:FrozenCoverageBandwidthChoice[]){
     const client=options.client(),source=options.query(),catalog=bandwidthOptions.value;
     if(disposed||!client||!source||source.context!=='planning'||!options.canWrite()||bandwidthSaving.value||bandwidthLoading.value||busy.value||active(job.value)||pending.value)return;
+    if(source.engineVersion&&source.engineVersion!=='V01-6')return;
     const owner=baseKey();
     if(!bandwidthPending.value){
       if(!catalog||!bandwidthReady.value||!choices)return;

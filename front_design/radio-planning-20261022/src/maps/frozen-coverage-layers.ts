@@ -5,6 +5,7 @@ import { Circle,Fill,Stroke,Style,Text } from 'ol/style';
 import Feature from 'ol/Feature';
 import Point from 'ol/geom/Point';
 import { projectCoordinate } from './layers';
+import { isLocalTerrainCell } from '../services/frozen-coverage-decode';
 import type { FrozenCoverageOverlay,FrozenCoverageFeature } from '../types/frozen-coverage';
 
 // 消去相邻格/色带的共享边，保留盲区内孔；不使用凸包或圆形补面。
@@ -31,12 +32,12 @@ export function coverageOutline(features:readonly FrozenCoverageFeature[]){
 // 原生采样点不是等值面；HF静区和不可显示几何均不当成覆盖填色。
 function selectedCoverageDevice(overlay:FrozenCoverageOverlay,snapshotId:string,planId?:string) {
   const provenance=overlay.result.provenance,selection=overlay.bandwidthSelection;
-  const selectionMatches=['V01-3','V01-4','V01-5'].includes(overlay.anchor.engine_version)
+  const selectionMatches=['V01-3','V01-4','V01-5','V01-6'].includes(overlay.anchor.engine_version)
     ?provenance.bandwidth_selection_id===(selection?.selectionId??null)&&provenance.bandwidth_selection_hash===(selection?.selectionHash??null)
     :!selection;
   return overlay.anchor.snapshot_id===snapshotId&&(!planId||overlay.anchor.plan_id===planId)
     &&overlay.result.solution_id===snapshotId.slice(4)&&provenance.engine_version===overlay.anchor.engine_version
-    &&overlay.result.schema_version===(['V01-4','V01-5'].includes(overlay.anchor.engine_version)?2:1)&&selectionMatches
+    &&overlay.result.schema_version===(['V01-4','V01-5','V01-6'].includes(overlay.anchor.engine_version)?2:1)&&selectionMatches
     ?overlay.result.devices.find(row=>row.device_id===overlay.deviceId&&row.status==='COMPLETE'):undefined;
 }
 
@@ -53,8 +54,10 @@ export function frozenCoverageDeviceLayer(overlay:FrozenCoverageOverlay,snapshot
 }
 
 export function frozenCoverageLayer(overlay:FrozenCoverageOverlay,snapshotId:string,planId?:string) {
-  const modern=overlay.anchor.engine_version==='V01-5';
-  const features=selectedCoverageDevice(overlay,snapshotId,planId)?.computations.flatMap(part=>part.geojson.features.filter(feature=>feature.geometry&&feature.properties.is_coverage))??[];
+  const modern=['V01-5','V01-6'].includes(overlay.anchor.engine_version),local=overlay.anchor.engine_version==='V01-6';
+  const device=selectedCoverageDevice(overlay,snapshotId,planId),provenance=overlay.result.provenance;
+  const features=device?.computations.flatMap(part=>local&&part.shape!=='CELLS'?[]:part.geojson.features.filter(feature=>feature.geometry&&feature.properties.is_coverage
+    &&(!local||isLocalTerrainCell(feature,device,provenance.parameters,provenance.dem_bbox))))??[];
   const drawable=modern&&overlay.display==='boundary'?coverageOutline(features):features;
   const source=new VectorSource({features:new GeoJSON().readFeatures({type:'FeatureCollection',features:drawable},{dataProjection:'EPSG:4326',featureProjection:'EPSG:3857'})});
   let fieldMin=Infinity,fieldMax=-Infinity;
@@ -66,8 +69,8 @@ export function frozenCoverageLayer(overlay:FrozenCoverageOverlay,snapshotId:str
       const field=feature.get('field_strength_dbuvm');
       // 热力图按绝对预测场强的本设备显示范围着色，与余量分级视图区分。
       const ramp=typeof field==='number'&&fieldMax>fieldMin?Math.max(0,Math.min(1,(field-fieldMin)/(fieldMax-fieldMin))):0.5;
-      const color=mode==='field'?`hsla(${Math.round(50+90*ramp)},75%,${Math.round(62-30*ramp)}%,0.65)`
-        :({STRONG:'#176b3b',MEDIUM:'#84cc7a',WEAK:'#f0c541'}[grade]??'#f0c541');
+      const color=mode==='field'?`hsla(${Math.round(28+112*ramp)},75%,${Math.round(62-30*ramp)}%,0.65)`
+        :({STRONG:'#22a05a',MEDIUM:'#f0c541',WEAK:'#ee8735'}[grade]??'#ee8735');
       const key=`${mode}:${color}`;let style=styles.get(key);
       if(!style){style=new Style({fill:mode==='boundary'?undefined:new Fill({color:color.startsWith('#')?color+'99':color}),
         stroke:mode==='boundary'||feature.get('surface_kind')!=='TERRAIN_CELL'?new Stroke({color:mode==='boundary'?'#9be5af':color,width:mode==='boundary'?1.5:0.6}):undefined});styles.set(key,style);}

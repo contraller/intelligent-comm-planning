@@ -7,11 +7,11 @@
     <p v-if="readonly" role="status">只读查看当前方案的已有覆盖；需要生成或调整覆盖时，请进入“调整方案”工作区。</p>
     <p v-if="query.planId.startsWith('PREVIEW-')" role="status">当前覆盖绑定候选作业快照 {{ query.planId.slice(8) }} · {{ query.snapshotId }}；方案保存状态以当前版本信息为准，不会修改基准方案。</p>
     <p class="muted">接收带宽仅用于本次覆盖预测，不改变设备参数或父方案路由指标。</p>
-    <label>结果版本<select v-model="coverageVersion" aria-label="覆盖结果版本" :disabled="state.running.value || hasProtectedSelection()">
-      <option value="V01-5">预测场强与地形覆盖面</option><option value="V01-4">历史余量采样与环带（只读）</option>
+    <label>结果版本<select v-model="coverageVersion" aria-label="覆盖结果版本" :disabled="state.running.value || !!state.pending.value || latestReading || hasProtectedSelection()">
+      <option value="V01-6">局地地形预测场强（V6）</option><option value="V01-5">历史场强与径向预算环带（V5，只读）</option><option value="V01-4">历史余量采样与环带（V4，只读）</option>
     </select></label>
     <p v-if="query.context==='gis'" class="muted">GIS只读。尚无新版缓存时，请在网络规划中打开同一方案生成新版覆盖结果。</p>
-    <p v-if="coverageVersion==='V01-4'" class="muted">历史版本仅回读，不修改带宽或重新计算；切换到“预测场强与地形覆盖面”后可在规划页发起新版计算。</p>
+    <p v-if="coverageVersion!=='V01-6'" class="muted">历史版本仅回读，不修改带宽或重新计算；切换到“局地地形预测场强（V6）”后可在规划页发起新版计算。</p>
     <p v-if="!active || !currentBinding" role="status">来源或身份已变化，原输入只读保留，请先处理原选择。</p>
     <div v-if="!readonly" class="toolbar">
       <button class="btn small" :disabled="!readable || (!!retainedSelection && !selectionConfirmed) || (bandwidthDirty && !state.bandwidthReceipt.value) || state.bandwidthLoading.value || state.bandwidthSaving.value || !!state.bandwidthPending.value" @click="state.loadBandwidthOptions">刷新带宽选项与选择</button>
@@ -35,7 +35,7 @@
     />
     <div v-if="!readonly" class="toolbar parameters">
       <label
-        >超短波半径（km）<input
+        >{{ coverageVersion==='V01-6' ? '局地地形半径（HF / VUHF，km）' : '历史超短波半径（km）' }}<input
           v-model.number="radiusKm"
           type="number"
           min="0.25"
@@ -74,8 +74,8 @@
           :disabled="inputLocked"
       /></label>
     </div>
-    <label v-if="!readonly">短波最远预测（km）<input v-model.number="hfMaxKm" type="number" min="1" max="900" step="1" :disabled="inputLocked" /></label>
-    <p class="muted">超短波按网格计算地形遮蔽；短波使用独立距离范围。方位步长仅用于匹配历史缓存，新版逐格计算不按射线连成圆。覆盖结果为传播模型预测。</p>
+    <label v-if="!readonly">短波最远预测预算（km）<input v-model.number="hfMaxKm" type="number" min="1" max="900" step="1" :disabled="inputLocked" /></label>
+    <p class="muted">V6短波与超短波仅在已核验DEM和局地半径内绘制计算格面；短波地形修正为局地近似，DEM外不推算。短波最远900 km的径向预算仅供解释，不绘制远域地形覆盖或默认同心圆。方位步长用于匹配历史缓存。覆盖结果为预测场强，非实测。</p>
     <div class="toolbar">
       <button
         class="btn small"
@@ -176,12 +176,16 @@
         </select></label>
       </div>
       <template v-if="fieldSurface">
-        <p>预测场强 {{ fieldRange }} dBμV/m · 分辨率：VUHF {{ cellM }} m / HF 1 km。点击地图“全域”查看所选设备的全部覆盖。</p>
-        <p v-if="state.display.value==='strength'" class="coverage-strength-legend"><span style="color:#176b3b">■ 强</span>　<span style="color:#84cc7a">■ 中</span>　<span style="color:#f0c541">■ 弱</span></p>
-        <p v-else-if="state.display.value==='field'">最低场强 <span style="display:inline-block;width:120px;height:12px;background:linear-gradient(to right,#e7d855,#198f40)"></span> 最高场强（见上方数值范围）</p>
-        <p v-else>仅显示已计算格面与环带的边界；静区和未达标格不填色。</p>
+        <p>预测场强 {{ fieldRange }} dBμV/m · {{ localTerrain ? `HF / VUHF格面分辨率 ${state.cache.value.parameters.cell_m} m；格面代表中心预测，边界误差受网格分辨率限制` : `历史分辨率：VUHF ${state.cache.value.parameters.cell_m} m / HF径向预算1 km` }}。点击地图“全域”查看所选设备的全部覆盖。</p>
+        <p v-if="state.display.value==='strength'" class="coverage-strength-legend"><span style="color:#22a05a">■ 强</span>　<span style="color:#f0c541">■ 中</span>　<span style="color:#ee8735">■ 弱</span></p>
+        <p v-else-if="state.display.value==='field'">最低场强 <span style="display:inline-block;width:120px;height:12px;background:linear-gradient(to right,hsl(28,75%,62%),hsl(84,75%,47%),hsl(140,75%,32%))"></span> 最高场强（见上方数值范围）</p>
+        <p v-else>{{ localTerrain ? '仅显示已计算局地地形格面的边界；盲区和未达标格不填色。' : '仅显示历史计算格面与径向预算环带的边界；静区和未达标格不填色。' }}</p>
         <p class="muted">分级按各频点接收门限以上的场强：强 ≥20 dB，中 ≥10 dB，其余达标格为弱；沿用现有质量显示界限。热力色阶对应上方实际预测场强范围，单位 dBμV/m。</p>
-        <details v-if="selected?.band==='HF'"><summary>短波跳距、静区与覆盖距离</summary>
+        <details v-if="selected?.band==='HF' && localTerrain"><summary>短波局地地形与径向预算说明</summary>
+          <p>地图仅显示真实DEM内、局地半径 {{ state.cache.value.parameters.radius_m/1000 }} km内的达标格面。地形损耗修正为局地近似，不能据此认定远域逐方向覆盖；DEM外不推算。</p>
+          <p v-for="part in selected.computations" :key="part.freq_khz">{{ part.freq_khz }} kHz · {{ part.skip_distance_m === null ? '径向模型无可返回的单跳天波' : part.skip_distance_m === undefined ? '径向跳距未提供' : part.skip_distance_m === 0 ? '径向预算无跳距静区' : `径向预算跳距 ${(part.skip_distance_m/1000).toFixed(1)} km` }} · 原径向预算上限 {{ part.max_distance_m === undefined ? '未提供' : `${(part.max_distance_m/1000).toFixed(0)} km` }}（仅供解释，不作远域DEM格面绘制）</p>
+        </details>
+        <details v-else-if="selected?.band==='HF'"><summary>历史短波跳距、静区与径向预算距离</summary>
           <p v-for="part in selected.computations" :key="part.freq_khz">{{ part.freq_khz }} kHz · {{ part.skip_distance_m === null ? '当前模型无可返回的单跳天波' : part.skip_distance_m === 0 ? '当前频点与时刻无跳距静区' : `跳距 ${((part.skip_distance_m??0)/1000).toFixed(1)} km` }} · 预测距离上限 {{ ((part.max_distance_m??0)/1000).toFixed(0) }} km</p>
           <p v-for="(ring,index) in hfBands" :key="index">{{ ring.frequency }} kHz · {{ ring.inner }}–{{ ring.outer }} km · {{ ring.note }}{{ ring.covered ? ` · ${ring.field} dBμV/m` : ' · 不绘制为覆盖' }}</p>
           <p>无静区时可呈连续覆盖圆盘；不人为挖孔。环带为假设电离层下的距离预测，不代表远域逐方向地形或实测。</p>
@@ -197,7 +201,7 @@
       <p v-if="selected">{{ selectedFrequencies || (selected.status === 'SKIPPED' ? '本次无活动链路' : '无覆盖计算结果') }}</p>
       <p v-if="selected?.bandwidth_provenance">{{ assumptionLabel(selected.bandwidth_provenance) }}</p>
       <p class="muted"
-        >{{ fieldSurface ? 'VUHF：逐格地形剖面与预算场强面；HF：地波与天波预算分带，静区不计入覆盖。预测场强。' : 'VUHF：量化网格中心，余量单位 dB；HF：历史覆盖环带，静区不计入覆盖。算法预测场强。' }}</p
+        >{{ localTerrain ? 'HF / VUHF：局地地形格面与预测场强，保留遮蔽和盲区。HF为局地近似；DEM外不推算。' : fieldSurface ? '历史V5：VUHF为逐格地形剖面；HF为地波与天波径向预算分带，非远域地形格面。预测场强。' : 'VUHF：量化网格中心，余量单位 dB；HF：历史覆盖环带，静区不计入覆盖。算法预测场强。' }}</p
       >
       <details
         ><summary>来源与算法限制</summary
@@ -244,7 +248,7 @@ const auth = useAuthStore(),
   azStep = ref(10),
   hour = ref(12);
 const hfMaxKm=ref(900);
-const coverageVersion=ref<'V01-4'|'V01-5'>('V01-5');
+const coverageVersion=ref<'V01-4'|'V01-5'|'V01-6'>('V01-6');
 const bandwidthDirty=ref(false),bandwidthLocalError=ref(''),latestReading=ref(false);
 const bandwidthEditor=ref<InstanceType<typeof FrozenCoverageBandwidthEditor>>();
 const actor=()=>JSON.stringify([auth.identity?.id,auth.identity?.sessionId,auth.generation]);
@@ -261,7 +265,7 @@ const readable = computed(
     (props.query.context !== 'gis' || auth.can('situation.view')),
 );
 const canWrite = computed(
-  () => readable.value && !props.readonly && props.query.context === 'planning' && auth.can('planning.execute') && coverageVersion.value==='V01-5',
+  () => readable.value && !props.readonly && props.query.context === 'planning' && auth.can('planning.execute') && coverageVersion.value==='V01-6',
 );
 const guardedClient=computed<FrozenCoverageClient|undefined>(()=>{
   const client=props.services;if(!client)return undefined;
@@ -399,7 +403,7 @@ const bandwidthRows=computed<CoverageBandwidthRow[]>(()=>{
   return catalog?.devices.map(row=>{
     // SINGLE_VALUE由服务端明确认证为冻结型号标量，不是从多选项中取第一值。
     const fixed=row.state==='SINGLE_VALUE'?row.options_khz![0]:null,explicit=chosen.has(row.device_id);
-    const skipped=catalog!.anchor.engine_version==='V01-4'&&row.state==='NO_ASSIGNED_FREQUENCY';
+    const skipped=['V01-4','V01-5','V01-6'].includes(catalog!.anchor.engine_version)&&row.state==='NO_ASSIGNED_FREQUENCY';
     const source=explicit?`人工冻结 v${selection!.version_no} · ${selection!.selection_id}`:fixed!==null?'冻结型号单值':row.options_khz?'冻结型号选项；人工未选':'冻结型号无带宽资料';
     return {deviceId:row.device_id,modelId:row.model_id,modelName:row.model_id,optionsKhz:row.options_khz,
       frozenKhz:chosen.get(row.device_id)??fixed,
@@ -423,7 +427,8 @@ const inputLocked = computed(() => locked.value || state.running.value);
 const selected = computed(() =>
   state.devices.value.find((row) => row.device_id === state.selectedDeviceId.value),
 );
-const fieldSurface=computed(()=>state.cache.value?.anchor.engine_version==='V01-5');
+const localTerrain=computed(()=>state.cache.value?.anchor.engine_version==='V01-6');
+const fieldSurface=computed(()=>['V01-5','V01-6'].includes(state.cache.value?.anchor.engine_version??''));
 const selectedFeatures=computed(()=>selected.value?.computations.flatMap(part=>part.geojson.features)??[]);
 const fieldRange=computed(()=>{
   const values=selectedFeatures.value.filter(row=>row.geometry&&row.properties.is_coverage).map(row=>row.properties.field_strength_dbuvm).filter((v):v is number=>typeof v==='number'&&Number.isFinite(v));
@@ -431,7 +436,7 @@ const fieldRange=computed(()=>{
   let lo=Infinity,hi=-Infinity;for(const value of values){lo=Math.min(lo,value);hi=Math.max(hi,value);}
   return `${lo.toFixed(1)}–${hi.toFixed(1)}`;
 });
-const hfBands=computed(()=>selectedFeatures.value.map(row=>({frequency:row.properties.freq_khz,
+const hfBands=computed(()=>selectedFeatures.value.filter(row=>row.properties.surface_kind!=='TERRAIN_CELL').map(row=>({frequency:row.properties.freq_khz,
   inner:((row.properties.inner_m??0)/1000).toFixed(0),outer:((row.properties.outer_m??0)/1000).toFixed(0),
   note:row.properties.note??'',covered:row.properties.is_coverage,field:row.properties.field_strength_dbuvm?.toFixed(1)??'未提供'})));
 const completedDevices = computed(() => state.devices.value.filter(row => row.status === 'COMPLETE').length);

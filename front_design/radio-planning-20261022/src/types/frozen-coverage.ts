@@ -1,4 +1,4 @@
-export type FrozenCoverageEngineVersion='V01-2'|'V01-3'|'V01-4'|'V01-5';
+export type FrozenCoverageEngineVersion='V01-2'|'V01-3'|'V01-4'|'V01-5'|'V01-6';
 export interface FrozenCoverageQuery { planId:string;taskId:string;snapshotId:string;resourceRevision:string;context:'planning'|'gis';bandwidthSelection?:FrozenCoverageSelectionRef;engineVersion?:FrozenCoverageEngineVersion }
 export interface FrozenCoverageSelectionRef { selectionId:string;selectionHash:string }
 export interface FrozenCoverageBandwidthChoice { device_id:string;rx_bandwidth_khz:number }
@@ -34,7 +34,7 @@ export interface FrozenCoverageFeature {
   type:'Feature';geometry:{type:'Point';coordinates:[number,number]}|{type:'Polygon';coordinates:[number,number][][]}|null;
   properties:{device_id:string;node_id:string;freq_khz:number;is_coverage:boolean;margin_db?:number;note?:string;inner_m?:number;outer_m?:number;
     field_strength_dbuvm?:number;required_field_dbuvm?:number;rx_power_dbm?:number;path_loss_db?:number;
-    strength_class?:'STRONG'|'MEDIUM'|'WEAK';surface_kind?:string};
+    strength_class?:'STRONG'|'MEDIUM'|'WEAK';surface_kind?:string;terrain_loss_db?:number;propagation_mode?:string};
 }
 export interface FrozenCoverageDevice {
   device_id:string;node_id:string;model_id:string;antenna_id:string;lon:number;lat:number;band:string|null;

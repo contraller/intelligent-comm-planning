@@ -534,7 +534,7 @@ def compute_frozen_coverage(raw_snapshot: dict, frozen_tables: dict, *,
                             params: dict | None = None, cancelled: Callable[[], bool] | None = None,
                             progress: Callable[[float, str], None] | None = None,
                             bandwidth_selection: dict | None = None,
-                            _field_surface: bool = False) -> dict:
+                            _field_surface: bool = False, _terrain_surface: bool = False) -> dict:
     """计算冻结物理设备覆盖。调用方负责权限、任务、原子缓存与终态。"""
     def check():
         if cancelled is not None and cancelled():
@@ -670,13 +670,21 @@ def compute_frozen_coverage(raw_snapshot: dict, frozen_tables: dict, *,
                 _fail("冻结计划频率超出本设备型号范围：" + did)
             try:
                 if _field_surface:
-                    from . import coverage_field_surface as surface
+                    if _terrain_surface:
+                        from . import coverage_terrain_surface as surface
+                    else:
+                        from . import coverage_field_surface as surface
                     field_item = dict(item, frequency=freq)
                     if item["band"] == "VUHF":
                         result = surface.vuhf_surface(checked, field_item, options, check, MAX_CELLS - cell_count)
                         cell_count += len(result["cells"])
                     else:
-                        result = surface.hf_surface(checked, field_item, options, check, _circle)
+                        if _terrain_surface:
+                            result = surface.hf_surface(checked, field_item, options, check, _circle,
+                                                        limit=MAX_CELLS - cell_count)
+                            cell_count += len(result["cells"])
+                        else:
+                            result = surface.hf_surface(checked, field_item, options, check, _circle)
                 elif item["band"] == "VUHF":
                     native = viewshed.vuhf_coverage(checked, station, radius_m=options["radius_m"],
                         cell_m=options["cell_m"], az_step=options["az_step_deg"], margin_min=options["margin_min_db"],
@@ -729,7 +737,10 @@ def compute_frozen_coverage(raw_snapshot: dict, frozen_tables: dict, *,
                       "hf_max_km仅限制地波距离搜索，原生天波环半径保留，不构造全域覆盖率"]}}
     validate_v4_result(result)
     if _field_surface:
-        from . import coverage_field_surface as surface
+        if _terrain_surface:
+            from . import coverage_terrain_surface as surface
+        else:
+            from . import coverage_field_surface as surface
         result["provenance"].update(engine_version=surface.VERSION, field_strength=surface.metadata(),
             algorithms=["propagation.vuhf_path_loss/P1812", "propagation.hf_ground_wave_loss/P368", "prop.p533.path_loss"],
             sampling={"vuhf":"DEM内逐格中心地形剖面与接收预算；仅染色达标格面，不插值跨越盲区",
@@ -743,7 +754,14 @@ def compute_frozen_coverage(raw_snapshot: dict, frozen_tables: dict, *,
                 "接收带宽选择仅用于覆盖，不回写父方案；无活动链路设备不绘制",
                 "方向图、方位与倾角资料未纳入；联合优化及其验收尚待完成"])
         result["provenance"]["units"]["field_strength"] = "dBuV/m"
-        validate_field_result(result)
+        if _terrain_surface:
+            result["provenance"]["algorithms"].append("propagation.knife_edge_loss_db/P526_SINGLE_EDGE_APPROXIMATION")
+            result["provenance"]["sampling"]["hf"] = "局地网格距离预算与16段DEM剖面遮挡近似；径向天波预算仅供解释，不绘制远域假地形"
+            result["provenance"]["limitations"][2] = "HF地波按局地DEM单刃遮挡近似，天波仅修正收发端低仰角遮挡；只绘制DEM及radius_m内格面，远域预算非精细地形预测"
+        if _terrain_surface:
+            validate_terrain_result(result)
+        else:
+            validate_field_result(result)
     _json(result, "COVERAGE_RESULT")
     tick(1, "冻结覆盖计算完成，待调用方原子发布")
     verify()
@@ -755,9 +773,17 @@ def compute_frozen_field_coverage(*args, **kwargs):
     return compute_frozen_coverage(*args, **kwargs, _field_surface=True)
 
 
+def compute_frozen_terrain_coverage(*args, **kwargs):
+    """V6局地地形预览；独立版本，旧V4/V5结果不重标或改写。"""
+    return compute_frozen_coverage(*args, **kwargs, _field_surface=True, _terrain_surface=True)
+
+
 def validate_field_result(result):
     """V5严格检查预算场强，不允许把历史余量或采样点当作新覆盖面。"""
-    from . import coverage_field_surface as surface
+    if result.get("provenance", {}).get("engine_version") == "V01-6":
+        from . import coverage_terrain_surface as surface
+    else:
+        from . import coverage_field_surface as surface
     validate_v4_result(result)
     provenance = result.get("provenance", {})
     if (provenance.get("engine_version") != surface.VERSION
@@ -786,3 +812,148 @@ def validate_field_result(result):
                 geometry = feature.get("geometry")
                 if geometry is not None and geometry.get("type") != "Polygon":
                     _fail("V5覆盖必须为计算格面或环带", "COVERAGE_RESULT")
+
+
+def validate_terrain_result(result):
+    """校验V6完整持久结果；服务裁减后的GIS投影不进入本函数。"""
+    from .coverage_field_surface import signal_values
+
+    def invalid(message):
+        _fail(message, "COVERAGE_RESULT")
+
+    def number(value, field, **bounds):
+        if type(value) not in (int, float):
+            invalid("地形预览数值类型无效：" + field)
+        return _number(value, field, code="COVERAGE_RESULT", **bounds)
+
+    def point(value):
+        if not isinstance(value, list) or len(value) != 2:
+            invalid("地形预览坐标必须为二维数值")
+        return (number(value[0], "longitude", lo=-180, hi=180),
+                number(value[1], "latitude", lo=-90, hi=90))
+
+    def close_point(left, right):
+        return all(math.isclose(a, b, rel_tol=0, abs_tol=1e-10) for a, b in zip(left, right))
+
+    def grid_key(row):
+        if not isinstance(row, dict) or any(type(row.get(key)) is not int for key in ("gx", "gy")):
+            invalid("地形预览格索引必须为整数")
+        return row["gx"], row["gy"]
+
+    def distance_m(origin, lon, lat):
+        p0, p1 = math.radians(origin[1]), math.radians(lat)
+        a = (math.sin((p1-p0)/2) ** 2
+             + math.cos(p0) * math.cos(p1) * math.sin(math.radians(lon-origin[0])/2) ** 2)
+        return 2 * 6371008.8 * math.asin(math.sqrt(min(1, a)))
+
+    try:
+        if not isinstance(result, dict) or result.get("provenance", {}).get("engine_version") != "V01-6":
+            invalid("地形预览版本无效")
+        # 仅回读持久缓存时也须装载预算依赖，不依赖本进程此前已运行过计算。
+        _modules()
+        validate_field_result(result)
+        provenance = result["provenance"]
+        west, south, east, north = _bbox(provenance["dem_bbox"], "result.dem_bbox")
+        parameters = provenance["parameters"]
+        cell = number(parameters["cell_m"], "cell_m", lo=RANGES["cell_m"][0], hi=RANGES["cell_m"][1])
+        maximum = number(parameters["radius_m"], "radius_m", lo=cell, hi=RANGES["radius_m"][1])
+        minimum = number(parameters["margin_min_db"], "margin_min_db", lo=-100, hi=100)
+        total = 0
+        for device in result["devices"]:
+            if not device["computations"]:
+                continue
+            origin = (number(device["lon"], "device.lon", lo=-180, hi=180),
+                      number(device["lat"], "device.lat", lo=-85, hi=85))
+            dx, dy = cell / (111320 * math.cos(math.radians(origin[1]))), cell / 111320
+            band = device["band"]
+            if band not in ("HF", "VUHF"):
+                invalid("地形预览频段无效")
+            radius = min(maximum, number(parameters["hf_max_km"], "hf_max_km", lo=1, hi=900) * 1000) if band == "HF" else maximum
+            for part in device["computations"]:
+                if (part.get("shape") != "CELLS" or not close_point(point(part["origin"]), origin)
+                        or number(part["cell_m"], "part.cell_m") != cell
+                        or number(part["radius_m"], "part.radius_m") != radius):
+                    invalid("地形预览格网与冻结参数不一致")
+                raw_cells = part.get("cells")
+                collection = part["geojson"]
+                if (not isinstance(raw_cells, list) or not isinstance(collection, dict)
+                        or collection.get("type") != "FeatureCollection"
+                        or not isinstance(collection.get("features"), list)):
+                    invalid("地形预览缺少完整原始格网或格面集合")
+                total += len(raw_cells)
+                if total > MAX_CELLS:
+                    invalid("地形预览原始格网超过采样限额")
+                if type(part.get("evaluated_samples")) is not int or part["evaluated_samples"] != len(raw_cells):
+                    invalid("地形预览采样计数不一致")
+                indexed, covered = {}, set()
+                for row in raw_cells:
+                    key = grid_key(row)
+                    if key in indexed:
+                        invalid("地形预览存在重复原始格")
+                    lon, lat = origin[0] + key[0] * dx, origin[1] + key[1] * dy
+                    if (distance_m(origin, lon, lat) > radius + 1e-6
+                            or not (west <= lon-dx/2 and lon+dx/2 < east
+                                    and south < lat-dy/2 and lat+dy/2 <= north)):
+                        invalid("地形预览格心超出半径或完整格面越出核验DEM")
+                    expected = signal_values(device["radio_parameters"], number(row["path_loss_db"], "path_loss_db"),
+                                             part["freq_khz"], "话音" if band == "HF" else "数据", minimum)
+                    for field, value in expected.items():
+                        if type(value) is bool:
+                            valid = type(row.get(field)) is bool and row[field] == value
+                        elif isinstance(value, str):
+                            valid = row.get(field) == value
+                        else:
+                            valid = math.isclose(number(row.get(field), field), value, rel_tol=0, abs_tol=1e-7)
+                        if not valid:
+                            invalid("地形预览原始格预算不一致：" + field)
+                    if type(row.get("los")) is not bool:
+                        invalid("地形预览视距标识无效")
+                    number(row["clearance_m"], "clearance_m")
+                    if band == "HF":
+                        number(row["terrain_loss_db"], "terrain_loss_db", lo=0)
+                        if row.get("propagation_mode") not in ("GROUND", "SKYWAVE"):
+                            invalid("地形预览传播方式无效")
+                    indexed[key] = row
+                    if row["is_coverage"]:
+                        covered.add(key)
+                painted = set()
+                for feature in collection["features"]:
+                    props, geometry = feature["properties"], feature["geometry"]
+                    key = grid_key(props)
+                    if feature.get("type") != "Feature" or key in painted or key not in covered:
+                        invalid("地形预览格面重复、无对应原始格或未达接收门限")
+                    row = indexed[key]
+                    if (props.get("surface_kind") != "TERRAIN_CELL"
+                            or set(props) != set(row) | {"device_id", "node_id", "freq_khz", "surface_kind"}
+                            or any(type(props[field]) is not type(value) or props[field] != value
+                                   for field, value in row.items())):
+                        invalid("地形预览格面字段与原始格不一致")
+                    if not isinstance(geometry, dict) or geometry.get("type") != "Polygon":
+                        invalid("地形预览必须为Polygon格面")
+                    coordinates = geometry.get("coordinates")
+                    if not isinstance(coordinates, list) or len(coordinates) != 1:
+                        invalid("地形预览格面必须为单个无孔矩形")
+                    ring = coordinates[0]
+                    if not isinstance(ring, list) or len(ring) != 5 or ring[0] != ring[-1]:
+                        invalid("地形预览矩形必须包含四角并显式闭合")
+                    points = [point(value) for value in ring]
+                    lon, lat = origin[0] + key[0] * dx, origin[1] + key[1] * dy
+                    expected_corners = ((lon-dx/2, lat-dy/2), (lon+dx/2, lat-dy/2),
+                                        (lon+dx/2, lat+dy/2), (lon-dx/2, lat+dy/2))
+                    start = next((i for i, value in enumerate(expected_corners) if close_point(points[0], value)), None)
+                    if start is None:
+                        invalid("地形预览矩形与对应格位置不一致")
+                    step = 1 if close_point(points[1], expected_corners[(start+1) % 4]) else -1
+                    if not all(close_point(value, expected_corners[(start+step*i) % 4]) for i, value in enumerate(points[:4])):
+                        invalid("地形预览矩形退化、自交或与对应格尺寸不一致")
+                    if any(not (west <= lon <= east and south <= lat <= north) for lon, lat in points):
+                        invalid("地形预览越出核验DEM")
+                    painted.add(key)
+                if painted != covered:
+                    invalid("地形预览缺少已达接收门限的格面")
+    except FrozenCoverageError as exc:
+        if exc.code == "COVERAGE_RESULT":
+            raise
+        raise FrozenCoverageError("COVERAGE_RESULT", "地形预览完整结果无法核验") from exc
+    except (ArithmeticError, AttributeError, IndexError, KeyError, TypeError, ValueError) as exc:
+        raise FrozenCoverageError("COVERAGE_RESULT", "地形预览完整结果结构无效") from exc

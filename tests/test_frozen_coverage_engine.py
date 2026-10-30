@@ -635,7 +635,7 @@ def test_legacy_v4_engine_and_new_v5_cache_are_separate(scenario, tmp_path, monk
     fake_cells(monkeypatch)
     result = compute(scenario)
     assert result["provenance"]["engine_version"] == "V01-4"
-    assert service_module.ENGINE_VERSION == "V01-5"
+    assert service_module.ENGINE_VERSION == "V01-6"
     assert result["schema_version"] == 2
     source = {"plan_id": "P1", "task_id": "T1", "snapshot_id": "SNP-PL-UNIT", "input_version": "TV1",
         "condition_version": "TC1", "resource_revision": "UNIT-RES", "resource_content_hash": "b" * 64,
