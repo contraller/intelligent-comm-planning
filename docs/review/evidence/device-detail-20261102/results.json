@@ -1,0 +1,93 @@
+{
+  "schema_version": 1,
+  "testcase": "GN-01-007",
+  "tested_at": "2026-11-02T10:18:26.851000+08:00",
+  "timezone": "Asia/Shanghai",
+  "source_commit": "deb18389b1eaf089ac78f0922c07c3860d8b6563",
+  "browser": "Microsoft Edge",
+  "data_origin": "SYNTHETIC_INTEGRATION",
+  "resource_revision": "resource-a2736f3fe68c66b4",
+  "scope": "GN-01-007功能存在性及设备详情基本查看；不包含其他用例",
+  "samples": [
+    {
+      "band": "HF",
+      "device_id": "DV-0001",
+      "model_id": "DM-0004",
+      "model": "Barrett 4050 HF SDR",
+      "node_id": "ND-0001",
+      "detail_opened": true,
+      "basic_info_viewed": true,
+      "parameters_viewed": true,
+      "tx_power_display": "51.8 dBm",
+      "antenna_height_display": "16.6 m",
+      "knowledge_viewed": true,
+      "knowledge_version": "KGV-1"
+    },
+    {
+      "band": "VUHF",
+      "device_id": "DV-0033",
+      "model_id": "DM-0013",
+      "model": "IC-F5061D/IC-F6061D",
+      "node_id": "ND-0003",
+      "detail_opened": true,
+      "basic_info_viewed": true,
+      "parameters_viewed": true,
+      "tx_power_display": "47 dBm",
+      "antenna_height_display": "17.3 m",
+      "knowledge_viewed": true,
+      "knowledge_version": "KGV-1"
+    }
+  ],
+  "expected_results": [
+    {
+      "item": 1,
+      "result": "PASS",
+      "observation": "短波、超短波设备均从台账的查看详情入口打开设备实例详情面板。"
+    },
+    {
+      "item": 2,
+      "result": "PASS",
+      "observation": "两台设备的基础资料、工作参数及按型号关联的已发布运维知识可查看，与选择对象对应。"
+    }
+  ],
+  "result": "PASS",
+  "actual_result_text": [
+    "1) 短波、超短波设备详情面板可正常打开。",
+    "2) 设备基本信息、参数及运维知识可查看，与所选设备一致。"
+  ],
+  "other_cases_retested": false,
+  "document": "docs/output/测试用例_补充设备详情面板_20261102.docx",
+  "document_sha256": "92c2e8874f26a905f4cda1ac39752d1c05bb29283ce42a76d2942289877c15d9",
+  "screenshots": [
+    {
+      "file": "01-hf-basic.jpg",
+      "bytes": 93647,
+      "sha256": "5d357a4c051404383549b2ab563a0c17576a75244a4e0fc3c246c9780b5708bc"
+    },
+    {
+      "file": "02-hf-parameters.jpg",
+      "bytes": 91914,
+      "sha256": "4542ceb9f05eba09a7d4482e30b129c0b2960ee083bc3bab27d34c31d1868ce4"
+    },
+    {
+      "file": "03-hf-knowledge.jpg",
+      "bytes": 90909,
+      "sha256": "a34d8346b2ccee94bb0423fca43700c815200442b1bf1f4ee06d9d1454a978d8"
+    },
+    {
+      "file": "04-vuhf-basic.jpg",
+      "bytes": 95430,
+      "sha256": "0e8da31a865c67d17c54586c18714a70d25cdd4137d924a3fa15a59a4cc60fc7"
+    },
+    {
+      "file": "05-vuhf-parameters.jpg",
+      "bytes": 94313,
+      "sha256": "2390104f25cc25c568cf2283746ebf17b65d0a4d0f604d85cce07258a8bfb2e9"
+    },
+    {
+      "file": "06-vuhf-knowledge.jpg",
+      "bytes": 91243,
+      "sha256": "2b45609341f0f8d5e991be972fd31519a16b216a74a8be5fb7154ca1cd228de3"
+    }
+  ]
+}

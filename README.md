@@ -18,6 +18,7 @@
 | --- | --- |
 | 运行与升级 | [交付运行入口说明](docs/design/交付运行入口说明.md) |
 | 用户操作 | [用户手册](docs/output/短波超短波智能规划系统用户手册_V1.0_20261028.docx) |
+| 近期专项验证 | [设备详情面板实测记录](docs/review/设备详情面板实测记录_20261102.md) |
 | 演示与导入 | [演示讲稿和操作步骤](演示资料/00_演示讲稿与操作步骤.txt) |
 | 接口契约 | [接口文档](docs/design/03_接口文档.md)、[页面接口矩阵](docs/design/13_新版前端接口对照矩阵.md) |
 | 后端与前端开发 | [后端说明](algorithm-service/README.md)、[前端说明](front_design/radio-planning-20261022/README.integration.md) |
