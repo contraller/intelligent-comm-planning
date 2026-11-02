@@ -1,0 +1,4 @@
+interface:
+  display_name: "子 Agent 空间回收"
+  short_description: "在子 agent 完成后保留成果并回收临时项目副本与 worktree 占用"
+  default_prompt: "使用 $subagent-cleanup 管理本次子 agent 的临时副本，并在成果回收后释放占用。"

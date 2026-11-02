@@ -20,7 +20,8 @@
 | --- | --- |
 | 当前需求对照 | [无线需规v3(3).docx](<无线需规v3(3).docx>)、[原测试用例](测试用例.doc) |
 | 接口与页面契约 | [接口文档](docs/design/03_接口文档.md)、[页面接口矩阵](docs/design/13_新版前端接口对照矩阵.md) |
-| 实施与验证记录 | [后端接口实施进度](docs/design/12_后端接口实施进度.md) |
+| 实施与验证记录 | [后端接口实施进度](docs/design/12_后端接口实施进度.md)、[设备详情实测](docs/review/设备详情面板实测记录_20261102.md) |
+| 开发接手 | [START_HERE.md](START_HERE.md) |
 | 后端与算法 | [algorithm-service](algorithm-service/README.md)、`scripts/` |
 | 当前前端 | [前端开发说明](front_design/radio-planning-20261022/README.integration.md) |
 | 数据来源与结构 | [data](data/README.md)、[原始需求资料](docs/input/README.md) |

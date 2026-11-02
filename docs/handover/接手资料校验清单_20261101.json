@@ -1,0 +1,126 @@
+{
+  "date": "2026-11-01",
+  "files": {
+    "START_HERE.md": {
+      "bytes": 2696,
+      "sha256": "538ab3a8f2d25ca6382219b5bfe4ed03b7fe28a135fe0171112c0fc3df96d80d"
+    },
+    "AGENTS.md": {
+      "bytes": 7256,
+      "sha256": "0d60a68768444aabe80266a7ca2d2740832cef1bd450c2728ca0fc69c03c3dd0"
+    },
+    "PROJECT_RULES.md": {
+      "bytes": 3682,
+      "sha256": "d03a651e8e8d32f538c60163c2708cf293067b82f20b6900b278461a89c523a8"
+    },
+    "README.md": {
+      "bytes": 18605,
+      "sha256": "095ac36f0b397d3251ea022f2fd6d971555753b04972b2f10561af0a0301b8ca"
+    },
+    "GLOSSARY.md": {
+      "bytes": 1715,
+      "sha256": "c203ce419c59151acb2e01564b613f790d7301fc037d72d093c6a50136684e53"
+    },
+    "工作交接.md": {
+      "bytes": 160668,
+      "sha256": "6b2d084298959c7548f1d3933a22fefabde4880328e9d11ae534792ac8910cc2"
+    },
+    "待办事项.md": {
+      "bytes": 25152,
+      "sha256": "2cd53f47a2f9cd3807c189dd945cd09397252d574974a606ceb6c0cc035ca505"
+    },
+    "docs/design/01_数据字典.md": {
+      "bytes": 45094,
+      "sha256": "8f6de76ec3fa642853a11a32f841c1ee8fa8fa25071b6c9171c3f503e72eb615"
+    },
+    "docs/design/03_接口文档.md": {
+      "bytes": 139604,
+      "sha256": "078c67940105a59e50112f74bba8b2e2c8dad6d581b1e09e8c141bd89f8b6a50"
+    },
+    "docs/design/12_后端接口实施进度.md": {
+      "bytes": 242208,
+      "sha256": "f3ba073d489ee65ac129b60a888b430804e9bebb4388484e2003c6943d462268"
+    },
+    "docs/design/13_新版前端接口对照矩阵.md": {
+      "bytes": 22836,
+      "sha256": "fe2e65962941a70668ed75fc4ceeffb9c4541756b38af1eb2d7ae404f57c5d39"
+    },
+    "docs/design/16_页面闭环并行实施与验收.md": {
+      "bytes": 32914,
+      "sha256": "71d42dbbca1dde39111fc91b2758cb3d626a0cb7089180796abcd928bae59186"
+    },
+    "docs/design/交付运行入口说明.md": {
+      "bytes": 5607,
+      "sha256": "57df1234c3aa6b248b264a043dd66e1697d25e61178ebcd7199f7fc8dbd06626"
+    },
+    "docs/handover/README.md": {
+      "bytes": 1255,
+      "sha256": "c3c51e0fa07171fb79aa08a5aa4c123dac2ac5d2e4992261452ba6b61b25854a"
+    },
+    "docs/handover/skills_backup/domain-modeling/ADR-FORMAT.md": {
+      "bytes": 2780,
+      "sha256": "b7021c31a1c2485b07356a8110fd1fd1ae4facbab3e210983789f425f867d95b"
+    },
+    "docs/handover/skills_backup/domain-modeling/agents/openai.yaml": {
+      "bytes": 104,
+      "sha256": "ce496c77c77a090877bff10f198c9770fb52e23088351350ea0826380f948ff8"
+    },
+    "docs/handover/skills_backup/domain-modeling/GLOSSARY-FORMAT.md": {
+      "bytes": 2360,
+      "sha256": "61fa9f6f9231070461dd4f7d4cfad377c33013c1e5668e1e6c0a8e4500944b3b"
+    },
+    "docs/handover/skills_backup/domain-modeling/SKILL.md": {
+      "bytes": 3420,
+      "sha256": "b62d997256cc073e123d4303da8e9db00db0e28de9739660ca3e55ab76e09cdb"
+    },
+    "docs/handover/skills_backup/grill-with-docs/agents/openai.yaml": {
+      "bytes": 150,
+      "sha256": "81e6af95559517a292767439da8f46a468b4d88a6773a3316d511a428eb16ff3"
+    },
+    "docs/handover/skills_backup/grill-with-docs/SKILL.md": {
+      "bytes": 254,
+      "sha256": "abc0fa7948db18b5fb0e1cc1c522ac5ff47d874e2da1e5df60619d79be11f38b"
+    },
+    "docs/handover/skills_backup/grilling/agents/openai.yaml": {
+      "bytes": 116,
+      "sha256": "ad75163922ff8263acdd25ebc37420e8fcf1fccb93483fd5742e9bd26f5c45f6"
+    },
+    "docs/handover/skills_backup/grilling/SKILL.md": {
+      "bytes": 2079,
+      "sha256": "26d225ea8a36f4acacbe267e789cfb97d73964412f4243dd4b65b6cb806ddebc"
+    },
+    "docs/handover/skills_backup/README.md": {
+      "bytes": 2209,
+      "sha256": "bec840a1be0d4e1b1b313121aa694d810849257f9cbfc4731bbc2508ea061695"
+    },
+    "docs/handover/skills_backup/subagent-cleanup/agents/openai.yaml": {
+      "bytes": 282,
+      "sha256": "b5c4f444e96330897535a3e49ef75f048e398a4a1f264366b27f7dbbb4882692"
+    },
+    "docs/handover/skills_backup/subagent-cleanup/scripts/agent_scratch.ps1": {
+      "bytes": 11772,
+      "sha256": "dc44639f6a424736e46b0ae0cef92eb109a0d7320675e53e2474665648734122"
+    },
+    "docs/handover/skills_backup/subagent-cleanup/SKILL.md": {
+      "bytes": 7608,
+      "sha256": "1d35b00f83bb9176a61ac6983a167fb63f9ef9af35171129729d54b3bd2f9faf"
+    },
+    "docs/handover/skills_backup/技能备份清单.json": {
+      "bytes": 3314,
+      "sha256": "778c63167033a8d784d3eea65de72bbbb7643e6fdebc4798ca99335e5d300275"
+    },
+    "docs/handover/新会话接手指令.txt": {
+      "bytes": 3187,
+      "sha256": "401afa16a11c7ca09f2f5f5c479ef9b57d1e822657f98fcaad45d720fbb6ef96"
+    },
+    "docs/handover/项目接手档案_20261101.md": {
+      "bytes": 31469,
+      "sha256": "b06fd02cf215172ff596742465203194643ec478e32c49dab987834fd793689a"
+    },
+    "docs/handover/项目状态快照_20261101.json": {
+      "bytes": 7544,
+      "sha256": "89a54d185b6b4219ac8dd70b09a2bfbccc905c6e9262ab3f2c8ad36683287dc5"
+    }
+  },
+  "archive_policy": "项目接手文本及选定历史资料；不含程序全量、依赖、DEM、业务库、凭据或原始聊天"
+}

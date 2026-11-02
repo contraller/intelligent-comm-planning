@@ -1,0 +1,190 @@
+{
+  "schema": "PROJECT_HANDOFF_V1",
+  "date": "2026-11-01",
+  "timezone": "Asia/Shanghai",
+  "created_at": "2026-11-01T17:30:02.759058+08:00",
+  "workspace": "F:\\work\\project2026-1",
+  "branch": "main",
+  "source_head_before_handoff": "490c03524021a83dc851403151291dadecd44e78",
+  "git_status_at_snapshot": "M AGENTS.md\n M PROJECT_RULES.md\n M README.md\n?? START_HERE.md\n?? docs/handover/\n?? \"docs/output/\\346\\265\\213\\350\\257\\225\\347\\224\\250\\344\\276\\213_20261030.docx\"\n?? \"docs/output/\\346\\265\\213\\350\\257\\225\\347\\224\\250\\344\\276\\213_\\345\\256\\236\\351\\231\\205\\347\\273\\223\\346\\236\\234\\346\\213\\237\\345\\241\\253\\347\\250\\277_\\345\\276\\205\\345\\256\\236\\346\\265\\213_20261030.docx\"\n?? \"docs/output/\\346\\265\\213\\350\\257\\225\\347\\224\\250\\344\\276\\213_\\345\\256\\236\\351\\231\\205\\347\\273\\223\\346\\236\\234\\346\\213\\237\\345\\241\\253\\347\\250\\277_\\345\\276\\205\\345\\256\\236\\346\\265\\213_20261030.md\"\n?? \"docs/output/\\346\\265\\213\\350\\257\\225\\347\\224\\250\\344\\276\\213_\\346\\234\\200\\346\\226\\260\\347\\211\\210\\346\\240\\270\\346\\237\\245\\347\\273\\223\\346\\236\\234_20261030.docx\"",
+  "delivery": {
+    "worktree": "F:\\work\\project2026-1\\data\\runtime\\portable-delivery\\wt",
+    "branch": "codex/delivery",
+    "head": "deb18389b1eaf089ac78f0922c07c3860d8b6563",
+    "status": "",
+    "policy": "对外交付，不同步个人接手记忆/开发台账"
+  },
+  "repository": "https://github.com/contraller/intelligent-comm-planning",
+  "release": {
+    "tag": "windows-x64-20261030-deb1838",
+    "source_commit": "deb18389b1eaf089ac78f0922c07c3860d8b6563",
+    "page": "https://github.com/contraller/intelligent-comm-planning/releases/tag/windows-x64-20261030-deb1838",
+    "local_zip": "F:\\work\\project2026-1\\data\\runtime\\portable-delivery\\current\\RadioPlanning_Windows_x64_portable.zip",
+    "zip_bytes": 140960976,
+    "sha256": "f9004a852795cd156609bbe6fdb558315608b5f58d282679d3582b1586f37b42",
+    "public_metadata_rechecked": true,
+    "local_hash_rechecked": true
+  },
+  "installed": {
+    "path": "C:/Users/y/Desktop/无线网络智能规划系统",
+    "default_url": "http://127.0.0.1:18480/",
+    "account_passwords_exported": false,
+    "live_database_read": false,
+    "last_full_manifest_check": "2026-10-30",
+    "runtime_directory": "app/data/runtime",
+    "database_relative": "app/data/runtime/r2.sqlite"
+  },
+  "service_probes": [
+    {
+      "url": "http://127.0.0.1:18480/health",
+      "reachable": false,
+      "error_type": "URLError"
+    },
+    {
+      "url": "http://127.0.0.24:8124/health",
+      "reachable": false,
+      "error_type": "URLError"
+    },
+    {
+      "url": "http://127.0.0.24:5324/",
+      "reachable": false,
+      "error_type": "URLError"
+    }
+  ],
+  "source_environment": {
+    "python": "3.12.4",
+    "python_executable": "F:\\work\\project2026-1\\.venv\\Scripts\\python.exe",
+    "frontend": "front_design/radio-planning-20261022",
+    "node_required": ">=22.12.0",
+    "source_migration_head": "0023_local_identity_system",
+    "actual_database_migration_not_checked": true
+  },
+  "current_dem": {
+    "crs": "EPSG:4326",
+    "width": 6480,
+    "height": 5213,
+    "bbox": [
+      113.14986111114996,
+      36.27597222221908,
+      114.9498611111502,
+      37.72402777777483
+    ],
+    "planning_bbox": [
+      113.37497663855423,
+      36.461013295002346,
+      114.72474558374593,
+      37.53898670499157
+    ],
+    "source": "太行山东麓_20261009.zip / dem/dem_taihang.tif",
+    "source_sha256": "a42f42e17d38218f539cb04323696cacb296c4bcc11bb50a77cccf927f91bf7f",
+    "data_file": "dem_current.bin.gz"
+  },
+  "preserved_untracked_drafts": [
+    {
+      "path": "docs/output/测试用例_20261030.docx",
+      "bytes": 38111,
+      "sha256": "30c3f13f4e8d6d1ca368ad2c81dfff0a73e0f7537bcb2248340215b37f1e77e8",
+      "tracked": false,
+      "action": "保留；完成状态待用户确认；本次不修改或打入记忆ZIP"
+    },
+    {
+      "path": "docs/output/测试用例_实际结果拟填稿_待实测_20261030.docx",
+      "bytes": 48376,
+      "sha256": "7148c458b9280362fb2d2f2cd3dd038f470516edee75534ebb14fcadd6785ed7",
+      "tracked": false,
+      "action": "保留；完成状态待用户确认；本次不修改或打入记忆ZIP"
+    },
+    {
+      "path": "docs/output/测试用例_实际结果拟填稿_待实测_20261030.md",
+      "bytes": 12601,
+      "sha256": "f6ef048e37952ff940b9a587889506b5df7469d8c62cf1e9ff55fa738325ad0e",
+      "tracked": false,
+      "action": "保留；完成状态待用户确认；本次不修改或打入记忆ZIP"
+    },
+    {
+      "path": "docs/output/测试用例_最新版核查结果_20261030.docx",
+      "bytes": 37305,
+      "sha256": "8717a88ab9bb2406b3684fdee3103519d33e16cd78e1d7b28ac7168aef7ab5e9",
+      "tracked": false,
+      "action": "保留；完成状态待用户确认；本次不修改或打入记忆ZIP"
+    }
+  ],
+  "recent_validation": {
+    "date": "2026-10-30",
+    "backend_tests_deduplicated": 466,
+    "frontend_tests": 274,
+    "typecheck": true,
+    "frontend_build": true,
+    "production_full_flow": false,
+    "new_machine_install": false,
+    "full_repository_regression": false,
+    "executed_again_for_handoff": false,
+    "scope": "构造/真实DEM/冻结网络服务专项及正式组件只读浏览器验证，非现场实测"
+  },
+  "evidence": [
+    {
+      "path": "data/runtime/coverage-terrain-20261030/release.json",
+      "exists": true
+    },
+    {
+      "path": "data/runtime/coverage-terrain-20261030/release-readiness.json",
+      "exists": true
+    },
+    {
+      "path": "data/runtime/coverage-terrain-20261030/github-release.json",
+      "exists": true
+    },
+    {
+      "path": "data/runtime/coverage-terrain-20261030/public-download-verified.json",
+      "exists": true
+    },
+    {
+      "path": "data/runtime/coverage-terrain-20261030/installed-release.json",
+      "exists": true
+    },
+    {
+      "path": "data/runtime/coverage-terrain-20261030/release-boundary-audit.json",
+      "exists": true
+    },
+    {
+      "path": "data/runtime/coverage-terrain-20261030/backend-final.xml",
+      "exists": true
+    },
+    {
+      "path": "data/runtime/coverage-terrain-20261030/backend-startup-final.xml",
+      "exists": true
+    },
+    {
+      "path": "data/runtime/coverage-terrain-20261030/frontend-coverage-final2.json",
+      "exists": true
+    },
+    {
+      "path": "data/runtime/coverage-terrain-20261030/browser-report.json",
+      "exists": true
+    },
+    {
+      "path": "data/runtime/coverage-terrain-20261030/real-frozen-service-summary.json",
+      "exists": true
+    }
+  ],
+  "deferred": [
+    "全仓回归",
+    "新机完整安装验收",
+    "生产全流程/安全/备份恢复验收",
+    "麒麟CPU架构与实机兼容",
+    "真实设备上报和下发协议",
+    "现场实测/真实ML训练及验收边界"
+  ],
+  "skills_backup": {
+    "files": 11,
+    "manifest": "docs/handover/skills_backup/技能备份清单.json"
+  },
+  "security": {
+    "credentials_included": false,
+    "cookies_included": false,
+    "raw_chat_logs_included": false,
+    "auth_files_read": false,
+    "database_files_included": false
+  },
+  "next_step": "由用户新任务驱动；先核对快照是否过时，不自动迁移、清库、重算或启动多套服务"
+}

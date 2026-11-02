@@ -1,0 +1,83 @@
+{
+  "date": "2026-11-01",
+  "files": [
+    {
+      "skill": "grilling",
+      "source": "C:\\Users\\y\\.agents\\skills\\grilling\\agents\\openai.yaml",
+      "backup": "grilling/agents/openai.yaml",
+      "bytes": 116,
+      "sha256": "ad75163922ff8263acdd25ebc37420e8fcf1fccb93483fd5742e9bd26f5c45f6"
+    },
+    {
+      "skill": "grilling",
+      "source": "C:\\Users\\y\\.agents\\skills\\grilling\\SKILL.md",
+      "backup": "grilling/SKILL.md",
+      "bytes": 2079,
+      "sha256": "26d225ea8a36f4acacbe267e789cfb97d73964412f4243dd4b65b6cb806ddebc"
+    },
+    {
+      "skill": "domain-modeling",
+      "source": "C:\\Users\\y\\.agents\\skills\\domain-modeling\\ADR-FORMAT.md",
+      "backup": "domain-modeling/ADR-FORMAT.md",
+      "bytes": 2780,
+      "sha256": "b7021c31a1c2485b07356a8110fd1fd1ae4facbab3e210983789f425f867d95b"
+    },
+    {
+      "skill": "domain-modeling",
+      "source": "C:\\Users\\y\\.agents\\skills\\domain-modeling\\agents\\openai.yaml",
+      "backup": "domain-modeling/agents/openai.yaml",
+      "bytes": 104,
+      "sha256": "ce496c77c77a090877bff10f198c9770fb52e23088351350ea0826380f948ff8"
+    },
+    {
+      "skill": "domain-modeling",
+      "source": "C:\\Users\\y\\.agents\\skills\\domain-modeling\\GLOSSARY-FORMAT.md",
+      "backup": "domain-modeling/GLOSSARY-FORMAT.md",
+      "bytes": 2360,
+      "sha256": "61fa9f6f9231070461dd4f7d4cfad377c33013c1e5668e1e6c0a8e4500944b3b"
+    },
+    {
+      "skill": "domain-modeling",
+      "source": "C:\\Users\\y\\.agents\\skills\\domain-modeling\\SKILL.md",
+      "backup": "domain-modeling/SKILL.md",
+      "bytes": 3420,
+      "sha256": "b62d997256cc073e123d4303da8e9db00db0e28de9739660ca3e55ab76e09cdb"
+    },
+    {
+      "skill": "grill-with-docs",
+      "source": "C:\\Users\\y\\.agents\\skills\\grill-with-docs\\agents\\openai.yaml",
+      "backup": "grill-with-docs/agents/openai.yaml",
+      "bytes": 150,
+      "sha256": "81e6af95559517a292767439da8f46a468b4d88a6773a3316d511a428eb16ff3"
+    },
+    {
+      "skill": "grill-with-docs",
+      "source": "C:\\Users\\y\\.agents\\skills\\grill-with-docs\\SKILL.md",
+      "backup": "grill-with-docs/SKILL.md",
+      "bytes": 254,
+      "sha256": "abc0fa7948db18b5fb0e1cc1c522ac5ff47d874e2da1e5df60619d79be11f38b"
+    },
+    {
+      "skill": "subagent-cleanup",
+      "source": "C:\\Users\\y\\.codex\\skills\\subagent-cleanup\\agents\\openai.yaml",
+      "backup": "subagent-cleanup/agents/openai.yaml",
+      "bytes": 282,
+      "sha256": "b5c4f444e96330897535a3e49ef75f048e398a4a1f264366b27f7dbbb4882692"
+    },
+    {
+      "skill": "subagent-cleanup",
+      "source": "C:\\Users\\y\\.codex\\skills\\subagent-cleanup\\scripts\\agent_scratch.ps1",
+      "backup": "subagent-cleanup/scripts/agent_scratch.ps1",
+      "bytes": 11772,
+      "sha256": "dc44639f6a424736e46b0ae0cef92eb109a0d7320675e53e2474665648734122"
+    },
+    {
+      "skill": "subagent-cleanup",
+      "source": "C:\\Users\\y\\.codex\\skills\\subagent-cleanup\\SKILL.md",
+      "backup": "subagent-cleanup/SKILL.md",
+      "bytes": 7608,
+      "sha256": "1d35b00f83bb9176a61ac6983a167fb63f9ef9af35171129729d54b3bd2f9faf"
+    }
+  ],
+  "policy": "仅技能文本与配套脚本；未复制账号配置、缓存或会话数据库"
+}
