@@ -105,9 +105,9 @@ async function fixture(options: FixtureOptions = {}) {
     ? Promise.resolve(structuredClone(wb.plan)) : readPlan(input));
   waitingFor = '预览读取'; await hostStep('fixture.preview', () => usePreviewStore().load());
   const planning = usePlanningApiStore(), task = useTaskInputStore(), store = useInterferenceStore(), gis = useGisWorkspaceStore(), editor = useResourceEditStore();
-  const router = createRouter({ history: createMemoryHistory(), routes: [{ path: '/planning', component: PlanningApiView }, { path: '/gis-workbench', component: SituationView }, { path: '/elsewhere', component: { render: () => null } }] });
+  const router = createRouter({ history: createMemoryHistory(), routes: [{ path: '/planning', component: PlanningApiView }, { path: '/situation', component: SituationView }, { path: '/elsewhere', component: { render: () => null } }] });
   const planningPath = router.resolve({ path: '/planning', query: { taskId: f.plan.taskId, planId: f.plan.id } }).fullPath;
-  const targetPath = (plan = f.plan) => router.resolve({ path: '/gis-workbench', query: { analysisTaskId: plan.taskId, analysisPlanId: plan.id } }).fullPath;
+  const targetPath = (plan = f.plan) => router.resolve({ path: '/situation', query: { analysisTaskId: plan.taskId, analysisPlanId: plan.id } }).fullPath;
   waitSnapshot = () => ({ route: router.currentRoute.value.fullPath, taskId: task.taskId, savedTaskId: task.saved?.taskId,
     taskLoading: task.loading, taskDirty: task.dirty, taskDecision: task.decision, taskError: task.error,
     taskResource: task.resourceRevision, currentResource: useResourceReadStore().workspace?.revision,
@@ -147,7 +147,7 @@ function pageTests(options: FixtureOptions = {}) {
 const pageIt = pageTests();
 const interferencePageIt = pageTests({ interferenceOnly: true });
 const secondPageIt = pageTests({ second: true });
-const gisPageIt = pageTests({ path: '/gis-workbench' });
+const gisPageIt = pageTests({ path: '/situation' });
 function assertNoBusinessWrite(s: Fixture, writes: number) {
   expect(s.storage.writes).toBe(writes);
   for (const name of ['submitInterferenceReceipt', 'adoptInterferenceReceipt', 'cancelInterferenceReceipt', 'confirmPlanningReceipt', 'commitResources'] as const) expect(previewService[name]).not.toHaveBeenCalled();
@@ -220,7 +220,7 @@ describe('规划到 GIS 干扰分析精确入口', () => {
     if (choice === 'failed-save') s.storage.failWrite = true;
     const pending = button(s.root, '进入干扰分析').props.onClick(); await settle(); expect(s.task.decision).not.toBeNull();
     s.task.answer(choice === 'failed-save' ? 'save' : choice); await pending; await settle();
-    if (choice === 'discard') expect(s.router.currentRoute.value.path).toBe('/gis-workbench');
+    if (choice === 'discard') expect(s.router.currentRoute.value.path).toBe('/situation');
     else { expect(s.router.currentRoute.value.path).toBe('/planning'); expect(s.task.draft!.name).toBe('保留规划输入'); }
   });
   pageIt.for(['selection', 'permission', 'leave', 'unmount'])('%s 后迟到入口资格响应不能导航', async (kind, { page: s }) => {
@@ -231,7 +231,7 @@ describe('规划到 GIS 干扰分析精确入口', () => {
     if (kind === 'permission') s.auth.accept({ ...s.auth.identity!, permissions: s.auth.identity!.permissions.filter(p => p !== 'situation.view') });
     if (kind === 'leave') await s.router.push('/elsewhere');
     if (kind === 'unmount') { app?.unmount(); app = undefined; }
-    late.resolve(response); await pending; await settle(); expect(s.router.currentRoute.value.path).not.toBe('/gis-workbench'); s.wb.assertNoWrites();
+    late.resolve(response); await pending; await settle(); expect(s.router.currentRoute.value.path).not.toBe('/situation'); s.wb.assertNoWrites();
   });
   pageIt('等待规划离页决定期间目标变化，旧导航不能提交放弃决定', async ({ page: s }) => {
     s.task.updateInput({...structuredClone(toRaw(s.task.saved!.input)),name:'等待决定的规划输入'});
@@ -241,8 +241,8 @@ describe('规划到 GIS 干扰分析精确入口', () => {
   });
   gisPageIt.for(['wrong-task', 'missing'])('GIS %s 深链不回落首个方案', async (kind, { page: s }) => {
     const writes = s.storage.writes;
-    await s.router.push({ path: '/gis-workbench', query: { analysisTaskId: kind === 'wrong-task' ? 'other' : s.plan.taskId, analysisPlanId: kind === 'missing' ? 'missing' : s.plan.id } }); await settle();
-    await settleWorkbench(); expect(textOf(s.root)).toContain('方案不存在'); expect(button(s.root, '返回规划方案')).toBeUndefined(); assertNoBusinessWrite(s, writes);
+    await s.router.push({ path: '/situation', query: { analysisTaskId: kind === 'wrong-task' ? 'other' : s.plan.taskId, analysisPlanId: kind === 'missing' ? 'missing' : s.plan.id } }); await settle();
+    await settleWorkbench(); expect(textOf(s.root)).toContain('目标方案不存在或不属于指定任务'); expect(button(s.root, '返回规划方案')).toBeUndefined(); assertNoBusinessWrite(s, writes);
   });
   gisPageIt.for(['cancel', 'failed-save', 'discard'] as const)('GIS 同页深链 %s 保留原资源决定', async (choice, { page: s }) => {
     await useResourceReadStore().activate('gis'); await s.gis.begin(); await s.editor.openForm('station', 'ND-0100');
@@ -256,7 +256,7 @@ describe('规划到 GIS 干扰分析精确入口', () => {
     const response = structuredClone(s.wb.plan), late = deferred<typeof response>();
     vi.mocked(previewService.getPlanningPlan).mockReturnValueOnce(late.promise);
     await s.router.push(s.targetPath()); await settle();
-    if(kind==='route')await s.router.push('/gis-workbench');
+    if(kind==='route')await s.router.push('/situation');
     if(kind==='permission')s.auth.accept({...s.auth.identity!,permissions:s.auth.identity!.permissions.filter(p=>p!=='planning.view')});
     if(kind==='session')s.auth.accept({...s.auth.identity!,sessionId:'changed-session'});
     if(kind==='session')await s.router.push('/elsewhere');
@@ -268,7 +268,7 @@ describe('规划到 GIS 干扰分析精确入口', () => {
     await s.gis.begin();await s.editor.openForm('station','ND-0100');s.editor.form!.fields.name='返回前的资源输入';s.editor.applyForm();
     const pending=button(s.root,'返回规划方案').props.onClick();await settle();expect(s.editor.decision).not.toBeNull();
     s.auth.accept({...s.auth.identity!,sessionId:'other-session'});s.editor.answer('discard');await pending;await settle();
-    expect(s.router.currentRoute.value.path).toBe('/gis-workbench');expect(s.gis.dirty).toBe(true);
+    expect(s.router.currentRoute.value.path).toBe('/situation');expect(s.gis.dirty).toBe(true);
   });
   pageIt('新版冻结工作区场景草稿取消离开时保留输入，不隐式保存或取消运行',async({page:s})=>{
     await click(s.root,'进入干扰分析');await settleWorkbench();
@@ -278,8 +278,6 @@ describe('规划到 GIS 干扰分析精确入口', () => {
   });
   pageIt('分析提交超时保留原号，取消离开不重试/取消，明确离开仍不取消服务器任务',async({page:s})=>{
     await click(s.root,'进入干扰分析');await settleWorkbench();
-    // 此例验证提交回执，先提供满足现有参数校验的显式测试源。
-    Object.assign(s.wb.scene.interferenceSources[0]!.sourceRow, { antenna_height_m:'2', center_freq_khz:'5000', bandwidth_khz:'10', tx_power_dbm:'30', antenna_gain_dbi:'0', interference_type:'NARROWBAND' });
     await s.store.selectScene({sceneId:s.wb.scene.sceneId,versionId:s.wb.scene.versionId});
     s.wb.workbench.submitRun.mockRejectedValueOnce(new Error('传输超时，受理待核实'));
     await clickWorkbench(s.root,'提交干扰分析');expect(s.store.pendingWrites).toHaveLength(1);
@@ -305,7 +303,7 @@ describe('P02 M5 任务编辑返回真实页面命令', () => {
     vi.mocked(previewService.getTaskInput).mockClear();
     vi.mocked(previewService.queryTaskSummaries).mockClear();
     await clickWorkbench(s.root,'保存任务并返回 GIS');
-    expect(s.router.currentRoute.value.path).toBe('/gis-workbench');expect(s.router.currentRoute.value.query).toEqual({taskId});
+    expect(s.router.currentRoute.value.path).toBe('/situation');expect(s.router.currentRoute.value.query).toEqual({taskId});
     expect(previewService.saveTaskInputReceipt).toHaveBeenCalledTimes(1);
     expect(previewService.saveTaskInputReceipt).toHaveBeenCalledWith(expect.objectContaining({context:'planning',taskId,input:expect.objectContaining({name:'GIS 编辑保存回读'})}));
     expect(previewService.queryTaskSummaries).toHaveBeenCalledWith(expect.objectContaining({context:'planning'}));
@@ -338,8 +336,8 @@ describe('P02 M5 任务编辑返回真实页面命令', () => {
 });
 
 describe('分析导航参数白名单', () => {
-  it('仅接受成对分析身份，保留不透明 ID 的编码', () => { expect(safeReturnPath('/gis-workbench?analysisTaskId=task%3A1&analysisPlanId=plan%2F2')).toBe('/gis-workbench?analysisTaskId=task%3A1&analysisPlanId=plan%2F2'); });
-  it.each(['analysisTaskId=T', 'analysisPlanId=P', 'analysisTaskId=T&analysisPlanId=P&taskId=T', 'analysisTaskId=T&analysisPlanId=P&stationId=N', 'analysisTaskId=T&analysisPlanId=P&diagnosisId=D', 'analysisTaskId=T&analysisPlanId=P&faultEdit=1', 'analysisTaskId=T&analysisPlanId=P&analysisPlanId=Q'])('拒绝 %s', query => { expect(safeReturnPath('/gis-workbench?' + query)).toBeNull(); });
+  it('仅接受成对分析身份，保留不透明 ID 的编码', () => { expect(safeReturnPath('/situation?analysisTaskId=task%3A1&analysisPlanId=plan%2F2')).toBe('/situation?analysisTaskId=task%3A1&analysisPlanId=plan%2F2'); });
+  it.each(['analysisTaskId=T', 'analysisPlanId=P', 'analysisTaskId=T&analysisPlanId=P&taskId=T', 'analysisTaskId=T&analysisPlanId=P&stationId=N', 'analysisTaskId=T&analysisPlanId=P&diagnosisId=D', 'analysisTaskId=T&analysisPlanId=P&faultEdit=1', 'analysisTaskId=T&analysisPlanId=P&analysisPlanId=Q'])('拒绝 %s', query => { expect(safeReturnPath('/situation?' + query)).toBeNull(); });
 });
 
 

@@ -1,32 +1,27 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { defineComponent, h, nextTick, reactive, ssrContextKey, type App } from 'vue';
 import GisFrozenPlanPanel from '../src/components/GisFrozenPlanPanel.vue';
-import CoverageLineLegend from '../src/components/CoverageLineLegend.vue';
 import type { GisFrozenPlanServices } from '../src/stores/gis-frozen-plan';
 import type { GisNetwork } from '../src/types/gis-plan';
 import type { PlanningCoverage } from '../src/types/coverage';
 import { gisDeviceStatusKey, type GisDeviceStatusOverlay } from '../src/maps/gis-device-status-layer';
 import { clientTemplate, node, renderer, find, textOf, type HostNode } from './helpers/vue-client';
-import { coverageV5Case } from './helpers/frozen-coverage';
-import type { FrozenCoverageClient } from '../src/types/frozen-coverage';
-const mapCalls=vi.hoisted(()=>({fit:vi.fn(),coverage:vi.fn()}));
-vi.mock('../src/components/MapCanvas.vue', () => ({ default: defineComponent({ name: 'MapCanvas', props: ['frozenNetwork', 'frozenDeviceStatus', 'planningOverlay', 'showCoverage', 'coverageDisplay','frozenCoverage'], emits: ['deviceStatusRendered'], setup(props, { emit,expose }) { expose({fit:mapCalls.fit,fitFrozenCoverage:mapCalls.coverage});return () => h('frozen-map-probe', { snapshot: props.frozenNetwork?.identity.snapshot_id, status: props.frozenDeviceStatus, overlay: props.planningOverlay, frozenCoverage:props.frozenCoverage,showCoverage: props.showCoverage, coverageDisplay: props.coverageDisplay, onDraw: (value: unknown) => emit('deviceStatusRendered', value) }); } }) }));
+vi.mock('../src/components/MapCanvas.vue', () => ({ default: defineComponent({ name: 'MapCanvas', props: ['frozenNetwork', 'frozenDeviceStatus', 'planningOverlay', 'showCoverage', 'coverageDisplay'], emits: ['deviceStatusRendered'], setup(props, { emit }) { return () => h('frozen-map-probe', { snapshot: props.frozenNetwork?.identity.snapshot_id, status: props.frozenDeviceStatus, overlay: props.planningOverlay, showCoverage: props.showCoverage, coverageDisplay: props.coverageDisplay, onDraw: (value: unknown) => emit('deviceStatusRendered', value) }); } }) }));
 // 子组业务组件须在总集成验证；本文件只执行目录/网络宿主，避免把组件桩当真实联调。
 vi.mock('../src/components/GisPlanOperations.vue', () => ({ default: defineComponent({ emits: ['deviceStatus'], setup(_, { emit, expose }) { expose({ requestLeave: async () => true, selectDevice() {} }); return () => h('operations-probe', { onStatus: (value: unknown) => emit('deviceStatus', value) }); } }) }));
 // 重新挂载共享配置组件时探针会出现；不得用隐藏样式代替从 GIS 结构移除。
 vi.mock('../src/components/FrozenCoveragePanel.vue', () => ({ default: defineComponent({ setup() { return () => h('coverage-probe'); } }) }));
-await clientTemplate(CoverageLineLegend, 'src/components/CoverageLineLegend.vue', 'gis-legend-render.ts');
 await clientTemplate(GisFrozenPlanPanel, 'src/components/GisFrozenPlanPanel.vue', 'gis-frozen-plan-render.ts');
 let app: App<HostNode> | undefined;
-afterEach(() => { app?.unmount(); app = undefined;mapCalls.fit.mockClear();mapCalls.coverage.mockClear(); });
+afterEach(() => { app?.unmount(); app = undefined; });
 async function settle() { for (let i = 0; i < 16; i++) await nextTick(); }
-function setup(empty = false, operations = false, coverage: PlanningCoverage | null = null,coverageServices?:Pick<FrozenCoverageClient,'getLatestCache'>) {
+function setup(empty = false, operations = false, coverage: PlanningCoverage | null = null) {
   const network: GisNetwork = { identity: { plan_id: 'P', task_id: 'T', snapshot_id: 'S', input_version: 'I', condition_version: 'C', resource_revision: 'R', state: 'CONFIRMED', source_changed: true, source: 'SR4', data_origin: 'SYNTHETIC_INTEGRATION' },
     nodes: [{ id: 'A', name: '冻结节点A', coordinate: [114, 37], status: null, alert: null }], devices: [], links: [], demands: [], routes: [], paths_state: 'missing', paths_message: '未提供路径' };
   const summary = { id: 'P', taskId: 'T', name: '冻结方案', version: 'V1', state: 'CONFIRMED' as const, current: true, sourceChanged: true, savedAt: '2026-10-23T00:00:00Z' };
   const services: GisFrozenPlanServices = { queryPlans: vi.fn(async input => ({ items: empty ? [] : [summary], total: empty ? 0 : 1, pageNum: input.pageNum, pageSize: input.pageSize })),
     plans: { getNetwork: vi.fn(async () => network), getSurface: vi.fn(async () => ({ identity: network.identity, terrain: null, terrain_notice: '历史地形未提供', coverage, coverage_notice: coverage ? '' : '覆盖未提供' })), getLink: vi.fn(), getPaths: vi.fn() } };
-  const props = reactive({ services, sessionGeneration: 1, coverageReader:coverageServices?.getLatestCache,...(operations ? { operations: {} as import('../src/types/gis-plan').GisPlanOperationServices } : {}) }), root = node('root');
+  const props = reactive({ services, sessionGeneration: 1, ...(operations ? { operations: {} as import('../src/types/gis-plan').GisPlanOperationServices } : {}) }), root = node('root');
   app = renderer.createApp({ render: () => h(GisFrozenPlanPanel, props) }); app.provide(ssrContextKey, {}); app.mount(root);
   return { root, props, services };
 }
@@ -35,29 +30,6 @@ async function click(root: HostNode, label: string) {
   await (button!.props.onClick as () => unknown)(); await settle();
 }
 describe('GIS冻结方案专用面板', () => {
-  it('只读V6按同快照查看与定位，刷新不重置选择，拒绝错源及迟到结果',async()=>{
-    const f=coverageV5Case();Object.assign(f.anchor,{plan_id:'P',task_id:'T',snapshot_id:'S',resource_revision:'R',engine_version:'V01-6'});f.result.solution_id='';f.result.provenance.engine_version='V01-6';
-    const client={getLatestCache:vi.fn().mockResolvedValue(f.cache),compute:vi.fn(),saveBandwidthSelection:vi.fn()};
-    const s=setup(false,true,null,client);await settle();await click(s.root,'打开冻结网络');
-    expect(client.getLatestCache).toHaveBeenCalledWith({planId:'P',taskId:'T',snapshotId:'S',resourceRevision:'R',context:'gis',engineVersion:'V01-6'},expect.any(AbortSignal));
-    const selector=find(s.root,n=>n.props['aria-label']==='覆盖设备')!;(selector.props['onUpdate:modelValue'] as (id:string)=>void)('D1');await (selector.props.onChange as ()=>void)();await settle();
-    const map=()=>find(s.root,n=>n.tag==='frozen-map-probe')!;
-    expect(map().props.frozenCoverage).toMatchObject({deviceId:'D1',frequencyKhz:30000,display:'field',terrainReference:false});expect(mapCalls.coverage).toHaveBeenCalledOnce();
-    expect(textOf(s.root)).toContain('关闭地形影响标记仍保留地形计算');expect(textOf(s.root)).toContain('计算半径不代表最远通信距离');
-    expect(find(s.root,n=>n.tag==='coverage-probe')).toBeUndefined();expect(textOf(s.root)).not.toContain('读取覆盖缓存');
-    await click(s.root,'刷新覆盖');expect(map().props.frozenCoverage).toMatchObject({deviceId:'D1'});expect(mapCalls.coverage).toHaveBeenCalledOnce();
-    const display=find(s.root,n=>n.props['aria-label']==='V6覆盖显示方式')!;(display.props['onUpdate:modelValue'] as Function)('boundary');await settle();
-    await click(s.root,'刷新覆盖');expect(map().props.frozenCoverage).toMatchObject({display:'boundary'});expect(mapCalls.coverage).toHaveBeenCalledOnce();
-    const unavailable=structuredClone(f.cache);Object.assign(unavailable.result!.devices[0]!,{status:'UNAVAILABLE',reasons:['缺少接收带宽'],computations:[]});client.getLatestCache.mockResolvedValueOnce(unavailable);
-    await click(s.root,'刷新覆盖');expect(map().props.frozenCoverage).toBeNull();expect(textOf(s.root)).toContain('不可计算：缺少接收带宽');expect(mapCalls.coverage).toHaveBeenCalledOnce();
-    await click(s.root,'刷新覆盖');expect(map().props.frozenCoverage).toMatchObject({deviceId:'D1',display:'boundary'});expect(mapCalls.coverage).toHaveBeenCalledOnce();
-    await click(s.root,'返回全网');expect(mapCalls.fit).toHaveBeenCalledOnce();
-    client.getLatestCache.mockResolvedValueOnce({...f.cache,anchor:{...f.anchor,snapshot_id:'wrong'}});await click(s.root,'刷新覆盖');expect(textOf(s.root)).toContain('身份不一致');expect(map().props.frozenCoverage).toMatchObject({anchor:{snapshot_id:'S'}});
-    let finish!:(value:typeof f.cache)=>void;client.getLatestCache.mockImplementationOnce(()=>new Promise(resolve=>{finish=resolve;}));const refresh=find(s.root,n=>n.tag==='button'&&textOf(n)==='刷新覆盖')!;
-    const pending=(refresh.props.onClick as ()=>Promise<void>)();await settle();const signal=client.getLatestCache.mock.lastCall![1] as AbortSignal;
-    await click(s.root,'关闭网络');finish(f.cache);await pending;await settle();expect(signal.aborted).toBe(true);expect(find(s.root,n=>n.tag==='frozen-map-probe')).toBeUndefined();
-    expect(client.compute).not.toHaveBeenCalled();expect(client.saveBandwidthSelection).not.toHaveBeenCalled();
-  });
   it('打开目录不默认打开任何网络，显示真实来源和可操作按钮', async () => {
     const s = setup(); await settle(); expect(s.services.queryPlans).toHaveBeenCalledOnce(); expect(s.services.plans.getNetwork).not.toHaveBeenCalled();
     expect(textOf(s.root)).toContain('冻结方案'); expect(textOf(s.root)).toContain('来源已变化，历史保留');

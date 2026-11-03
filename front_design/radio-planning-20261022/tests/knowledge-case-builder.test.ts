@@ -1,45 +1,185 @@
-import { describe,it,expect } from 'vitest';
-import { initialKnowledgeWorkspace,knowledgeCatalog } from '../src/mocks/knowledge-presets';
+import { describe, expect, it } from 'vitest';
+import { Workbook } from 'exceljs';
 import { buildKnowledgeCases } from '../src/services/knowledge-case-builder';
+import {
+  knowledgeCaseTemplate,
+  parseKnowledgeCaseFile,
+} from '../src/services/knowledge-case-files';
+import { initialKnowledgeWorkspace, knowledgeCatalog } from '../src/mocks/knowledge-presets';
+import { applyKnowledgeDraft, validateKnowledgeDraft } from '../src/services/knowledge-validation';
+import { KNOWLEDGE_MAX_OPERATIONS } from '../src/config/demo';
 import type { KnowledgeCaseInput } from '../src/types/knowledge-case';
-const sample=():KnowledgeCaseInput=>({caseId:'FC-TEST-NEW',title:'测试案例',faultType:'HW_FAILURE',objectType:'DEVICE',deviceClass:'',cause:'测试原因',component:'',solution:'测试处置',source:'构造测试资料，不作为现场证据',symptoms:['测试现象'],steps:[{order:2,text:'复核运行状态'},{order:1,text:'检查供电连接'}]});
-const base=()=>structuredClone(initialKnowledgeWorkspace().versions.at(-1)!);
-describe('结构化案例构建的业务保护',()=>{
-  it('生成可追溯案例中心和有序步骤，选填缺失不补虚构部件',()=>{
-    const input=sample(),before=structuredClone(input),result=buildKnowledgeCases([input],base(),knowledgeCatalog());expect(result.issues).toEqual([]);
-    const draft=result.draft!,fault=draft.entities.find(e=>e.type==='Fault')!;
-    expect(draft.relations.filter(r=>r.head===fault.id).map(r=>r.type)).toEqual(expect.arrayContaining(['recordedIn','instanceOf','occursOn','hasSymptom','causedBy','resolvedBy','diagnosedBy']));
-    expect(draft.entities.filter(e=>e.type==='DiagnosisStep').map(e=>e.name)).toEqual(['01:检查供电连接','02:复核运行状态']);
-    expect(draft.entities.some(e=>e.type==='Component')).toBe(false);expect(draft.relations.some(r=>r.type==='constrainedBy')).toBe(false);
-    expect(draft.entities.every(e=>e.source===input.source)).toBe(true);expect(input).toEqual(before);
+
+const base = () => initialKnowledgeWorkspace().versions[1];
+const input = (): KnowledgeCaseInput => ({
+  caseId: 'FC-INPUT-01',
+  title: '离线构建验证案例',
+  faultType: 'HW_FAILURE',
+  objectType: 'DEVICE',
+  deviceClass: 'HF',
+  cause: '供电连接松动',
+  component: '供电接头',
+  solution: '按核准规程恢复连接并复测',
+  source: '本地受控维修规程，测试条目',
+  symptoms: ['供电告警'],
+  steps: [
+    { order: 1, text: '记录告警并按规程检查供电连接' },
+    { order: 2, text: '复核告警与通联状态' },
+  ],
+});
+let count = 0;
+const ids = () => String(++count);
+
+describe('结构化故障知识构建', () => {
+  it('五类明确输入生成完整关系，草稿发布前不修改已发布基线', () => {
+    const source = base(),
+      before = JSON.stringify(source),
+      preview = buildKnowledgeCases([input()], source, knowledgeCatalog(), ids);
+    expect(preview.issues).toEqual([]);
+    expect(preview.draft).not.toBeNull();
+    const draft = preview.draft!;
+    validateKnowledgeDraft(source, draft);
+    for (const type of [
+      'Fault',
+      'Case',
+      'FaultType',
+      'ObjectType',
+      'Symptom',
+      'Cause',
+      'Component',
+      'DiagnosisStep',
+      'Solution',
+    ])
+      expect(draft.entities.some((e) => e.type === type)).toBe(true);
+    expect(new Set(draft.relations.map((r) => r.type))).toEqual(
+      new Set([
+        'recordedIn',
+        'instanceOf',
+        'occursOn',
+        'hasSymptom',
+        'causedBy',
+        'locatedAt',
+        'resolvedBy',
+        'diagnosedBy',
+        'constrainedBy',
+      ]),
+    );
+    expect(draft.entities.filter((e) => e.type === 'DiagnosisStep').map((e) => e.name)).toEqual([
+      '01:记录告警并按规程检查供电连接',
+      '02:复核告警与通联状态',
+    ]);
+    expect(JSON.stringify(source)).toBe(before);
+    expect(draft.entities.length + draft.relations.length).toBeLessThanOrEqual(
+      KNOWLEDGE_MAX_OPERATIONS,
+    );
   });
-  it('一条非法记录使整批无草稿，拒绝错误对象类型和步骤跳号',()=>{
-    const bad={...sample(),caseId:'FC-BAD',faultType:'LINK_DOWN',objectType:'DEVICE',steps:[{order:3,text:'检查'}]};
-    const result=buildKnowledgeCases([sample(),bad],base(),knowledgeCatalog());expect(result.draft).toBeNull();expect(result.issues.map(e=>e.message).join('；')).toContain('搭配无效');expect(result.issues.map(e=>e.message).join('；')).toContain('连续');
+  it('相同已发布案例全部复用，重复导入不产生新变更', () => {
+    const source = base(),
+      first = buildKnowledgeCases([input()], source, knowledgeCatalog(), ids).draft!;
+    const published = { ...source, ...applyKnowledgeDraft(source, first) };
+    const again = buildKnowledgeCases([input()], published, knowledgeCatalog(), ids);
+    expect(again.draft).toBeNull();
+    expect(again.entityCount).toBe(0);
+    expect(again.relationCount).toBe(0);
+    expect(again.issues[0].message).toContain('全部内容已存在');
   });
-  it('精确复用且不覆盖原来源；全重复时不提交空草稿，原案例不同原因拒绝追加',()=>{
-    const published=base(),input=sample(),first=buildKnowledgeCases([input],published,knowledgeCatalog()).draft!;
-    published.entities.push(...first.entities);published.relations.push(...first.relations);const before=structuredClone(published);
-    const duplicate=buildKnowledgeCases([{...input,source:'另一个输入来源'}],published,knowledgeCatalog());expect(duplicate.draft).toBeNull();expect(duplicate.issues[0].message).toContain('无可生成');expect(duplicate.skippedRelations).toBe(first.relations.length);
-    const conflict=buildKnowledgeCases([{...input,cause:'另一个根因'}],published,knowledgeCatalog());expect(conflict.draft).toBeNull();expect(conflict.issues.some(e=>e.message.includes('内容不同'))).toBe(true);expect(published).toEqual(before);
+  it.each(['cause', 'solution', 'component', 'faultType'] as const)(
+    '已有案例的 %s 不同须显式修改，导入不拼接互斥结论',
+    (field) => {
+      const source = base(),
+        first = buildKnowledgeCases([input()], source, knowledgeCatalog(), ids).draft!;
+      const published = { ...source, ...applyKnowledgeDraft(source, first) },
+        changed = input();
+      changed[field] = field === 'faultType' ? 'SW_CONFIG' : '另一条知识';
+      expect(buildKnowledgeCases([changed], published, knowledgeCatalog(), ids).draft).toBeNull();
+    },
+  );
+  it('步骤不连续、重复现象、无来源及超限整批拒绝', () => {
+    const bad = input();
+    bad.steps[1].order = 4;
+    bad.symptoms.push(bad.symptoms[0]);
+    bad.source = '';
+    const rejected = buildKnowledgeCases([bad], base(), knowledgeCatalog(), ids);
+    expect(rejected.draft).toBeNull();
+    expect(rejected.issues.length).toBeGreaterThanOrEqual(3);
+    const many = Array.from({ length: 6 }, (_, i) => ({
+      ...input(),
+      caseId: 'FC-BATCH-' + i,
+      cause: '原因' + i,
+      solution: '方案' + i,
+    }));
+    expect(
+      buildKnowledgeCases(many, base(), knowledgeCatalog(), ids).issues.some(
+        (i) => i.field === '容量',
+      ),
+    ).toBe(true);
   });
-  it('按展开后的实体关系数限制容量，100项允许、超限整批拒绝',()=>{
-    const input=sample();input.symptoms=['功放过温现象'];input.steps=Array.from({length:44},(_,i)=>({order:i+1,text:'测试步骤'+i}));
-    const result=buildKnowledgeCases([input],base(),knowledgeCatalog());expect(result.issues).toEqual([]);expect(result.entityCount+result.relationCount).toBe(100);
-    const overflow=buildKnowledgeCases([{...input,component:'测试部件'}],base(),knowledgeCatalog());expect(overflow.draft).toBeNull();expect(overflow.issues.some(e=>e.field==='容量')).toBe(true);
+  it('未知部件允许留空，缺少现象/步骤时不能生成草稿', () => {
+    const value = input();
+    value.component = '';
+    expect(buildKnowledgeCases([value], base(), knowledgeCatalog(), ids).draft).not.toBeNull();
+    value.symptoms = [];
+    value.steps = [];
+    expect(buildKnowledgeCases([value], base(), knowledgeCatalog(), ids).draft).toBeNull();
   });
-  it.each(['替换','追加','删减'] as const)('已有案例步骤%s时整批拒绝，不追加第二条同序号步骤',action=>{
-    const published=base(),input=sample(),original=buildKnowledgeCases([input],published,knowledgeCatalog()).draft!;
-    published.entities.push(...original.entities);published.relations.push(...original.relations);const before=structuredClone(published);
-    const steps=action==='替换'?[{order:1,text:'改查馈线'},{order:2,text:'复核运行状态'}]:action==='追加'?[...input.steps,{order:3,text:'补充检查'}]:[{order:1,text:'检查供电连接'}];
-    const result=buildKnowledgeCases([{...input,steps}],published,knowledgeCatalog());
-    expect(result.draft).toBeNull();expect(result.issues.some(e=>e.message.includes('步骤集合不同'))).toBe(true);expect(published).toEqual(before);
+  it.each(['title', 'deviceClass', 'component'] as const)(
+    '已有案例的%s变更或清空不会被静默忽略',
+    (field) => {
+      const source = base(),
+        first = buildKnowledgeCases([input()], source, knowledgeCatalog(), ids).draft!;
+      const published = { ...source, ...applyKnowledgeDraft(source, first) },
+        changed = input(),
+        before = JSON.stringify(published);
+      if (field === 'title') changed.title = '另一标题';
+      else changed[field] = '';
+      const result = buildKnowledgeCases([changed], published, knowledgeCatalog(), ids);
+      expect(result.draft).toBeNull();
+      expect(
+        result.issues.some(
+          (i) =>
+            i.field ===
+            { title: '案例标题', deviceClass: '设备类别', component: '故障部件' }[field],
+        ),
+      ).toBe(true);
+      expect(JSON.stringify(published)).toBe(before);
+    },
+  );
+});
+
+describe('离线Excel导入预检', () => {
+  it('模板往返保留现象和有序步骤，沿同一构建校验产生草稿', async () => {
+    const file = await knowledgeCaseTemplate(),
+      parsed = await parseKnowledgeCaseFile(file);
+    expect(parsed.issues).toEqual([]);
+    expect(parsed.cases).toHaveLength(1);
+    expect(parsed.cases[0].steps.map((s) => s.order)).toEqual([1, 2]);
+    expect(buildKnowledgeCases(parsed.cases, base(), knowledgeCatalog(), ids).draft).not.toBeNull();
   });
-  it('新增对象使用临时身份，子表业务错误保留原始行号',()=>{
-    const valid=buildKnowledgeCases([sample()],base(),knowledgeCatalog()).draft!;
-    expect([...valid.entities,...valid.relations].every(e=>e.id.startsWith('new:'))).toBe(true);
-    const input={...sample(),row:2,symptoms:['重复现象','重复现象'],symptomRows:[5,9],steps:[{order:2,text:'检查',row:12}]};
-    const result=buildKnowledgeCases([input],base(),knowledgeCatalog());expect(result.draft).toBeNull();
-    expect(result.issues).toEqual(expect.arrayContaining([expect.objectContaining({sheet:'故障现象',row:9,message:'同一案例的现象重复'}),expect.objectContaining({sheet:'排故步骤',row:12})]));
+  it('公式、孤立关联、隐藏业务表明确返回工作表行字段错误', async () => {
+    const template = await knowledgeCaseTemplate(),
+      book = new Workbook();
+    await book.xlsx.load(template.bytes as never);
+    book.getWorksheet('知识条目')!.getCell('G2').value = { formula: '1+1', result: 2 };
+    book.getWorksheet('故障现象')!.getCell('A2').value = '不存在的条目';
+    book.getWorksheet('排故步骤')!.state = 'hidden';
+    const parsed = await parseKnowledgeCaseFile({
+      name: '预检.xlsx',
+      bytes: new Uint8Array(await book.xlsx.writeBuffer()),
+    });
+    expect(parsed.issues).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ sheet: '知识条目', row: 2, field: '原因' }),
+        expect.objectContaining({ sheet: '故障现象', row: 2, field: '条目标识' }),
+        expect.objectContaining({ sheet: '排故步骤', field: '工作表' }),
+      ]),
+    );
+  });
+  it('错误文件类型和超出5MiB文件在解析前拒绝', async () => {
+    await expect(
+      parseKnowledgeCaseFile({ name: '资料.csv', bytes: new Uint8Array() }),
+    ).rejects.toThrow('.xlsx');
+    await expect(
+      parseKnowledgeCaseFile({ name: '资料.xlsx', bytes: new Uint8Array(5 * 1024 * 1024 + 1) }),
+    ).rejects.toThrow('5 MiB');
   });
 });

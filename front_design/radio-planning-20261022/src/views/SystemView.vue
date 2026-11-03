@@ -3,7 +3,7 @@
     <div class="page-heading"
       ><h1>系统管理</h1>
       <div class="toolbar"
-        ><span class="chip">账号与权限</span><button v-if="formal" class="btn" :disabled="store.busy" @click="store.openPassword()"><i class="pi pi-key" />修改本人密码</button
+        ><span class="chip">账号与权限</span><button v-if="formal && !auth.identity?.singleUserMode" class="btn" :disabled="store.busy" @click="store.openPassword()"><i class="pi pi-key" />修改本人密码</button
         ><button
           v-if="auth.can('system.reset') && (!formal || auth.can('system.parameters'))"
           class="btn"
@@ -307,7 +307,7 @@
         ><p>身份为操作当时快照，后续改名或换角色不改写此记录。</p></template
       ></AppDrawer
     >
-    <SystemPasswordDrawer v-if="formal && store.passwordTarget" :visible="true" :mode="store.passwordTarget.mode" :disabled="!store.canSubmitPassword" :submit="store.submitPassword" @close="store.allowLeave()" @dirty-change="store.secretDirty = $event" @saved="store.passwordSaved" />
+    <SystemPasswordDrawer v-if="formal && store.passwordTarget" :visible="true" :mode="store.passwordTarget.mode" :local-single-user="auth.identity?.singleUserMode" :disabled="!store.canSubmitPassword" :submit="store.submitPassword" @close="store.allowLeave()" @dirty-change="store.secretDirty = $event" @saved="store.passwordSaved" />
     <SystemAccountDrawer /><SystemRoleDrawer /><SystemParameterDrawer /><DecisionDialog
       :request="store.decision"
       @answer="store.answer"

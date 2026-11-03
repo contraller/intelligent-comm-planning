@@ -11,8 +11,8 @@
           v-for="item in group.items"
           :key="item.type"
         >
-          <i :style="{ color: item.color }" :title="item.hasPhoto ? '含实物照片节点' : undefined">{{ item.hasPhoto ? '▧' : item.glyph }}</i
-          >{{ knowledgeTypeName(item.type, catalog.types.find((t) => t.id === item.type)?.name) }}
+          <img :src="item.url" :title="item.label" alt="" aria-hidden="true" />
+          {{ knowledgeTypeName(item.type, catalog.types.find((t) => t.id === item.type)?.name) }}
         </span>
       </div></div
     ><div
@@ -24,7 +24,9 @@
       >显示 {{ graph.entities.length }} / {{ graph.totalNodes }} 个节点 ·
       {{ graph.relations.length }} / {{ graph.totalEdges }} 条关系
       <span v-if="model.truncated">已达显示上限，请筛选或聚焦查看其余内容</span
-      ><span>拖动平移 · 滚轮缩放 · 悬停查看名称与关联</span></div
+      ><span>拖动平移 · 滚轮缩放 · 悬停查看名称与关系</span>
+      <span class="icon-note">图标表示知识类型，实物图片为参考照片。</span>
+      <details v-if="photos.length" class="photo-credits"><summary>实物参考图片 · 来源</summary><p v-for="photo in photos" :key="photo.url">{{ photo.label }} · {{ photo.credit }}</p></details></div
     ></div
   >
 </template>
@@ -34,30 +36,23 @@ import { init, use, type ECharts } from 'echarts/core';
 import { GraphChart } from 'echarts/charts';
 import { TooltipComponent } from 'echarts/components';
 import { CanvasRenderer } from 'echarts/renderers';
-import type { KnowledgeCatalog, KnowledgeDetail, KnowledgeEntity, KnowledgeGraph } from '../types/knowledge';
+import type { KnowledgeCatalog, KnowledgeGraph } from '../types/knowledge';
 import { knowledgeGraphModel } from '../graphs/knowledge-graph';
 import { knowledgeTypeName } from '../services/knowledge-display';
+import { knowledgeMedia } from '../config/knowledge-media';
 use([GraphChart, TooltipComponent, CanvasRenderer]);
 const props = defineProps<{
   graph: KnowledgeGraph;
   selectedId: string;
   matchedIds?: string[];
   catalog: KnowledgeCatalog;
-  detail?: KnowledgeDetail | null;
 }>();
 const emit = defineEmits<{ entity: [id: string]; relation: [id: string] }>();
 const host = ref<HTMLDivElement>();
 const viewport = ref({ width: 0, height: 0 });
-const failedMedia=ref<string[]>([]),checkedMedia=new Set<string>();
-const knownEntities=ref(new Map<string,KnowledgeEntity>());
-let mediaVersion=props.graph.versionId;
-// 仅复用本页已读的同版本实体；不新增接口请求，也不把旧版本的型号带进新快照。
-watch(()=>[props.graph.versionId,props.detail] as const,([version,detail])=>{
-  const next=version===mediaVersion?new Map(knownEntities.value):new Map<string,KnowledgeEntity>();
-  mediaVersion=version;
-  if(detail?.versionId===version)for(const entity of [detail.entity,...detail.neighbors])next.set(entity.id,entity);
-  knownEntities.value=next;
-},{immediate:true});
+const photos = computed(() => [...new Map(props.graph.entities.flatMap(entity => { const photo=knowledgeMedia(entity); return photo ? [[photo.url,photo] as const] : []; })).values()]);
+const availableMedia = ref(new Set<string>());
+const attemptedMedia = new Set<string>();
 let chart: ECharts | undefined, observer: ResizeObserver | undefined;
 let disposed = false,
   renderedKey: string | undefined;
@@ -69,11 +64,9 @@ const model = computed(() =>
     Object.fromEntries(props.catalog.relationTypes.map((t) => [t.id, t.name])),
     props.matchedIds,
     viewport.value,
-    failedMedia.value,
-    knownEntities.value,
+    availableMedia.value,
   ),
 );
-const chartNodes=computed(()=>model.value.nodes.map(node=>({...node,symbolSize:'photoSize' in node?node.photoSize:node.symbolSize})));
 function update() {
   if (!readViewport()) return;
   if (!chart) {
@@ -111,7 +104,7 @@ function update() {
           scaleLimit: { min: 0.35, max: 4 },
           center,
           zoom: props.selectedId ? (model.value.nodes.length === 2 ? 0.5 : 0.8) : 1,
-          data: chartNodes.value,
+          data: model.value.nodes,
           links: model.value.links,
           edgeSymbol: ['none', 'arrow'],
           edgeSymbolSize: model.value.edgeSymbolSize,
@@ -120,8 +113,7 @@ function update() {
           emphasis: {
             focus: 'adjacency',
             lineStyle: { width: 3, opacity: 1 },
-            // 节点悬停突出关联线；关系名称由单条连线的提示展示，避免再次堆满文字。
-            edgeLabel: { show: false },
+            edgeLabel: { show: true },
           },
         },
       ],
@@ -150,28 +142,37 @@ function resize() {
     series: [
       {
         id: 'knowledge-graph',
-        data: chartNodes.value,
+        data: model.value.nodes,
         edgeSymbolSize: model.value.edgeSymbolSize,
       },
     ],
   });
 }
-function preloadMedia(){
-  if(typeof Image==='undefined')return;
-  for(const node of model.value.nodes){const photo=node.photo;if(photo&&!checkedMedia.has(photo.url)){checkedMedia.add(photo.url);const image=new Image();image.onerror=()=>{if(!disposed){failedMedia.value=[...failedMedia.value,photo.url];update();}};image.src=photo.url;}}
-}
-watch(()=>model.value.nodes.map(node=>node.photo?.url).join('|'),preloadMedia);
 onMounted(() => {
-  preloadMedia();
   update();
   observer = new ResizeObserver(resize);
   observer.observe(host.value!);
 });
 // 相同绘图内容不重建，列表翻页保留平移与缩放；显式重置仍直接调用 update。
 const renderKey = computed(() =>
-  JSON.stringify([props.graph, props.selectedId, props.matchedIds ?? [], props.catalog,failedMedia.value,[...knownEntities.value.values()]]),
+  JSON.stringify([props.graph, props.selectedId, props.matchedIds ?? [], props.catalog]),
 );
 watch(renderKey, update);
+// 失败照片使用本地类型图标，避免离线缺图后出现空白节点。
+watch(photos, values => {
+  if (typeof Image === 'undefined') return;
+  for (const photo of values) {
+    if (attemptedMedia.has(photo.url)) continue;
+    attemptedMedia.add(photo.url);
+    const picture = new Image();
+    picture.onload = () => {
+      if (disposed) return;
+      availableMedia.value = new Set([...availableMedia.value, photo.url]);
+      chart?.setOption({ series: [{ id: 'knowledge-graph', data: model.value.nodes }] });
+    };
+    picture.src = photo.url;
+  }
+}, { immediate: true });
 // 专用画布独立释放事件与观察器，不改变其他页面图表的交互。
 onBeforeUnmount(() => {
   disposed = true;
@@ -207,10 +208,12 @@ defineExpose({ resetView: update });
   align-items: center;
   gap: 6px;
 }
-.legend i {
-  font-style: normal;
-  font-size: 15px;
+.legend img {
+  width: 23px;
+  height: 23px;
+  object-fit: contain;
 }
+.graph-foot .icon-note { margin-left: 0; color: #8fa8bf; }
 .legend {
   gap: 8px;
   border-bottom: 1px solid #24364b;

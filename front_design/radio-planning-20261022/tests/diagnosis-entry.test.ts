@@ -195,7 +195,7 @@ async function mountPage(demo:DiagnosisDemo='normal') {
   mark('mount:preview:loaded');
   const planning=usePlanningStore();planning.workspace=structuredClone(seed.confirmedWorkspace);
   // 注册页面已有的规划链接，避免宿主缺路由产生无关警告。
-  const diagnosis=useDiagnosisStore(),router=createRouter({history:createMemoryHistory(),routes:[{path:'/',component:DiagnosisView},{path:'/diagnosis',component:DiagnosisView},{path:'/planning',component:{render:()=>null}},{path:'/gis-workbench',component:{render:()=>null}}]});
+  const diagnosis=useDiagnosisStore(),router=createRouter({history:createMemoryHistory(),routes:[{path:'/',component:DiagnosisView},{path:'/diagnosis',component:DiagnosisView},{path:'/planning',component:{render:()=>null}},{path:'/situation',component:{render:()=>null}}]});
   mark('mount:stores:created');
   mark('mount:router:push');await router.push('/');mark('mount:router:pushed');await router.isReady();mark('mount:router:ready');
   const root=node('root');app=renderer.createApp({render:()=>h(RouterView)});app.use(pinia);app.use(router);app.provide(ssrContextKey,{});mark('mount:render:start');app.mount(root);mark('mount:render:done');await settle();mark('mount:settle:done');
@@ -410,9 +410,9 @@ describe('实际诊断页面的类型与根因展示',()=>{
     const before=JSON.stringify(s.diagnosis.draft),history=JSON.stringify(s.diagnosis.undoStack);
     expect(textOf(s.root)).not.toContain('连续标绘');expect(textOf(s.root)).not.toContain('编辑场景');
     await click(s.root,'在 GIS 标绘');
-    await vi.waitFor(()=>expect(s.router.currentRoute.value.path).toBe('/gis-workbench'));
+    await vi.waitFor(()=>expect(s.router.currentRoute.value.path).toBe('/situation'));
     expect(s.router.currentRoute.value.query).toEqual({faultEdit:'1',scenarioId:version.scenarioId,versionId:version.id});
-    expect(s.router.currentRoute.value.path).toBe('/gis-workbench');expect(JSON.stringify(s.diagnosis.draft)).toBe(before);
+    expect(s.router.currentRoute.value.path).toBe('/situation');expect(JSON.stringify(s.diagnosis.draft)).toBe(before);
     expect(JSON.stringify(s.diagnosis.undoStack)).toBe(history);expect(s.diagnosis.dirty).toBe(true);
     expect(s.storage.writes).toBe(s.writes);
   });
@@ -426,7 +426,7 @@ describe('实际诊断页面的类型与根因展示',()=>{
   });
   it('GIS 保存后的版本返回只定位一次，后续保存不会跳回旧版本或自动运行',async()=>{
     const s=await mountPage(),version=s.diagnosis.workspace!.scenarios[0].versions[0];
-    await s.router.push('/gis-workbench');await settle();
+    await s.router.push('/situation');await settle();
     await s.router.push({path:'/diagnosis',query:{scenarioId:version.scenarioId,versionId:version.id}});await settle();
     expect(s.diagnosis.versionId).toBe(version.id);expect(s.diagnosis.view).toBeNull();
     const input=JSON.parse(JSON.stringify(s.diagnosis.draft!));input.description='返回后的修改';s.diagnosis.updateDraft(input);
@@ -448,8 +448,8 @@ describe('完整诊断报告的 GIS 入口',()=>{
     const s=await mountPage();
     if(legacy){await s.diagnosis.selectLegacy(s.diagnosis.legacy[0].id);await settle();expect(s.diagnosis.record!.completedAt).toBeNull();}
     const id=s.diagnosis.record!.id;
-    await click(s.root,'在 GIS 查看');await vi.waitFor(()=>expect(s.router.currentRoute.value.path).toBe('/gis-workbench'));
-    expect(s.router.currentRoute.value.path).toBe('/gis-workbench');expect(s.router.currentRoute.value.query).toEqual({diagnosisId:id});
+    await click(s.root,'在 GIS 查看');await vi.waitFor(()=>expect(s.router.currentRoute.value.path).toBe('/situation'));
+    expect(s.router.currentRoute.value.path).toBe('/situation');expect(s.router.currentRoute.value.query).toEqual({diagnosisId:id});
     expect(s.storage.writes).toBe(s.writes);
   });
   it.each(['diagnosis-failed','impact-failed'] as const)('%s 不提供完整报告入口',async demo=>{
@@ -469,7 +469,7 @@ describe('完整诊断报告的 GIS 入口',()=>{
   });
   it('两种来源均保留诊断 GIS 入口',async()=>{
     (env as {mode:string}).mode='http';const s=await mountPage();expect(s.diagnosis.record).not.toBeNull();expect(entry(s.root)).toBeDefined();
-    await click(s.root,'在 GIS 查看');await vi.waitFor(()=>expect(s.router.currentRoute.value.path).toBe('/gis-workbench'));expect(s.router.currentRoute.value.query.diagnosisId).toBe(s.diagnosis.record!.id);
+    await click(s.root,'在 GIS 查看');await vi.waitFor(()=>expect(s.router.currentRoute.value.path).toBe('/situation'));expect(s.router.currentRoute.value.query.diagnosisId).toBe(s.diagnosis.record!.id);
   });
   it('离页确认取消后保留报告与未应用输入',async()=>{
     const s=await mountPage(),id=s.diagnosis.record!.id;s.diagnosis.formDirty=true;

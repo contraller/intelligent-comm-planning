@@ -22,7 +22,7 @@ export function gisDeviceStyles(points: readonly GisDevicePoint[], settings: Gis
   const manual = points.some(row => row.manualStation), styles: Style[] = [];
   if (points.length === 1) {
     const row = points[0], opacity = settings[row.deviceClass].opacity, color = GIS_DEVICE_COLORS[gisDeviceTone(row)];
-    const icon = gisSymbol('radio',color,selected);
+    const icon = gisSymbol('radio',selected,color);
     icon.setOpacity(opacity);
     styles.push(new Style({ image: icon, zIndex }));
     styles.push(caption(`${row.deviceClass} · ${gisDeviceStatus(row)}${row.offShelf ? ' · 已下架' : ''}`, color, -24, zIndex, 0, opacity));

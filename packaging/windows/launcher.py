@@ -221,7 +221,7 @@ def configure(port, key):
     os.environ.update({
         # SQLite URL 也会解码百分号；先编码字面路径，避免 %27 等目录被读成其他字符。
         "DATABASE_URL": "sqlite:///" + quote((DATA / "r2.sqlite").as_posix(), safe="/:"),
-        "RESOURCE_DATASET_MODE": "database", "AUTH_MODE": "LOCAL_PASSWORD",
+        "RESOURCE_DATASET_MODE": "database", "AUTH_MODE": "LOCAL_SINGLE_USER",
         "LOCAL_IDENTITY_REQUEST_KEY": key,
         "LOCAL_IDENTITY_ALLOW_INSECURE_LOOPBACK": "1",
         "LOCAL_IDENTITY_ALLOWED_ORIGINS": json.dumps([f"http://127.0.0.1:{port}"]),
@@ -253,7 +253,7 @@ def settings():
         for role in ("admin", "editor", "reviewer")
     }}
     write_json(path, value)
-    text = ["本包首次创建的本地账号（仅适用于此解压目录）", "三类账号首次登录后均需按页面提示修改初始密码。", "请妥善保管此文件及 settings.json，不要公开发送 app/data/runtime。", ""]
+    text = ["本包保留的本地账号（仅适用于此解压目录）", "系统默认以本机统一入口直接进入GIS，无需输入账号密码或切换角色。", "以下账号供单独配置LOCAL_PASSWORD模式时使用；首次密码登录后须修改初始密码。", "请妥善保管此文件及 settings.json，不要公开发送 app/data/runtime。", ""]
     for role, name in (("editor", "业务编辑者"), ("reviewer", "知识审核者"), ("admin", "系统管理员")):
         account = value["accounts"][role]
         text += [name, "账号：" + account["username"], "初始密码：" + account["password"], ""]
@@ -419,6 +419,28 @@ def active_algorithm_threads():
             {"app.planning_w3", "app.coverage", "app.deployment"}]
 
 
+def controlled_frontend_version(root=None):
+    """只读取公开清单；无效或旧清单不沿用可缓存的固定入口。"""
+    path = (Path(root) if root is not None else ROOT) / "package-manifest.json"
+    try:
+        if path.stat().st_size > 5 * 1024 * 1024:
+            return None
+        manifest = json.loads(path.read_text(encoding="utf-8"))
+        version, snapshot = manifest.get("controlled_version"), manifest.get("content_snapshot_sha256")
+        if (type(version) is str and re.fullmatch(r"LOCAL-[0-9]{8}-[0-9a-f]{12}", version)
+                and type(snapshot) is str and re.fullmatch(r"[0-9a-f]{64}", snapshot)
+                and version.endswith(snapshot[:12])):
+            return version
+    except (OSError, ValueError, TypeError, AttributeError):
+        pass
+    return None
+
+
+def frontend_entry_url(port):
+    version = controlled_frontend_version() or "reload-" + secrets.token_hex(12)
+    return f"http://127.0.0.1:{port}/?v={quote(version, safe='')}#/situation"
+
+
 def start(open_browser=True, timeout=180):
     check_frontend_assets()
     secure_data_directory()
@@ -439,12 +461,12 @@ def start(open_browser=True, timeout=180):
             time.sleep(.4)
         if not current:
             raise RuntimeError("等待启动超时，请查看 app/data/runtime/logs/launcher.log；不会强行结束其他程序")
-    url = f"http://127.0.0.1:{current['port']}/#/login?next=/situation"
+    url = frontend_entry_url(current['port'])
     (DATA / "访问地址.txt").write_text(url + "\n", encoding="utf-8")
     if open_browser:
         os.startfile(url)
     print("系统已启动：" + url)
-    print("首次登录账号见 app/data/runtime/首次登录账号.txt；使用‘停止系统’退出后台服务。")
+    print("已启用本机统一使用入口，无需登录；使用‘停止系统’退出后台服务。")
     return current
 
 

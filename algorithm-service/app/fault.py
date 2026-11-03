@@ -47,6 +47,43 @@ def _engine() -> FaultEngine:
     return _ENGINE
 
 
+def _symptom_catalog(session=None):
+    from . import fault_symptom_catalog
+    if session is not None:
+        return fault_symptom_catalog.capture(session, _engine().symptoms)
+    with get_session_factory().begin() as current:
+        return fault_symptom_catalog.capture(current, _engine().symptoms)
+
+
+def _catalog_engine(catalog, network=None):
+    from . import fault_symptom_catalog
+    engine = _engine().for_network(network) if network is not None else _engine()
+    if catalog is None:
+        return engine
+    try:
+        value = fault_symptom_catalog.checked(catalog)
+    except ValueError as exc:
+        raise FaultInputError(str(exc), 1203) from exc
+    return engine.for_symptom_catalog(value["symptoms"], value["entity_ids"])
+
+
+def _frozen_knowledge(catalog=None):
+    from . import fault_symptom_catalog
+    with get_session_factory().begin() as session:
+        value = catalog if catalog is not None else _symptom_catalog(session)
+        try:
+            graph = fault_symptom_catalog.graph_for_catalog(session, value)
+        except ValueError as exc:
+            raise FaultInputError(str(exc), 1203) from exc
+    return deepcopy(value), graph
+
+
+def _validate_current(scenario, network=None):
+    catalog = _symptom_catalog()
+    _catalog_engine(catalog, network).validate(scenario)
+    return catalog
+
+
 def _scenarios() -> dict[str, dict[str, Any]]:
     global _SCENARIOS
     if _SCENARIOS is None:
@@ -179,7 +216,7 @@ def _formal_snapshot(payload, source):
                 "faults": payload.get("faults")}
     if "description" in payload:
         snapshot["description"] = payload["description"]
-    _engine().for_network(source["network"]).validate(snapshot)
+    snapshot["symptom_catalog"] = _validate_current(snapshot, source["network"])
     return deepcopy(snapshot)
 
 
@@ -227,7 +264,7 @@ def validate_scenario(payload):
             snapshot = _formal_snapshot(payload, source)
             return _ok({"valid": True, "fault_count": len(snapshot["faults"]),
                         "plan_id": source["meta"]["plan_id"]})
-        return _ok(_engine().validate(payload or {}))
+        return _ok(_catalog_engine(_symptom_catalog()).validate(payload or {}))
     except FaultInputError as exc:
         return _bad(exc)
 
@@ -277,7 +314,7 @@ def create_scenario(payload):
             data = _version_dto(scenario, version)
         return _ok(data)
     try:
-        _engine().validate(payload or {})
+        _validate_current(payload or {})
     except FaultInputError as exc:
         return _bad(exc)
     with _SLOCK:
@@ -308,7 +345,7 @@ def update_scenario(sid, payload):
         if sid not in _scenarios():
             return {"code": 1002, "message": "故障场景不存在", "data": None}
         try:
-            _engine().validate(payload or {})
+            _validate_current(payload or {})
         except FaultInputError as exc:
             return _bad(exc)
         row = dict(payload, scenario_id=sid, create_time=_scenarios()[sid].get("create_time"),
@@ -377,7 +414,7 @@ def import_scenarios(payload):
         return _bad(FaultInputError("scenarios 必须是非空列表"))
     try:
         for scenario in scenarios:
-            _engine().validate(scenario)
+            _validate_current(scenario)
     except FaultInputError as exc:
         return _bad(exc)
     with _SLOCK:
@@ -444,6 +481,19 @@ def submit_diagnosis_feedback(task_id, payload, *, session=None):
     symptom_ids = observation.get("symptom_ids") or []
     if not symptom_ids:
         return _bad(FaultInputError("至少需要一个已观察现象才能沉淀为可复用案例"))
+    from . import kg, kg_workflow_service, fault_symptom_catalog
+    if session is not None:
+        state = kg_workflow_service._bootstrap(session, kg.STORE_PATH)
+        current_graph, _ = kg_workflow_service._current_graph(session, state)
+    else:
+        with kg._LOCK:
+            current_graph = deepcopy(kg._load()[0])
+    try:
+        symptom_labels = fault_symptom_catalog.feedback_labels(diagnosis.get("symptom_catalog"), _engine().symptoms, current_graph)
+    except ValueError as exc:
+        return _bad(FaultInputError(str(exc), 1203))
+    if any(sid not in symptom_labels for sid in symptom_ids):
+        return _bad(FaultInputError("知识现象版本已变化或原现象已移除，请重新加载并诊断后提交反馈", 1203))
 
     kg_branch = next((row for row in result["branches"] if row["source"] == "KG"), {})
     rule_branch = next((row for row in result["branches"] if row["source"] == "RULE"), {})
@@ -479,7 +529,7 @@ def submit_diagnosis_feedback(task_id, payload, *, session=None):
     for symptom_id in symptom_ids:
         ops.append({"op": "add_triple", "head_type": "Fault", "head": case_id,
                     "relation": "hasSymptom", "tail_type": "Symptom",
-                    "tail": _engine().symptoms[symptom_id], "source": source})
+                    "tail": symptom_labels[symptom_id], "source": source})
     for step_index, step in enumerate(steps, 1):
         ops.append({"op": "add_triple", "head_type": "Fault", "head": case_id,
                     "relation": "diagnosedBy", "tail_type": "DiagnosisStep",
@@ -498,6 +548,8 @@ def submit_diagnosis_feedback(task_id, payload, *, session=None):
         return _ok({**created, "case_id": case_id, "requires_kg_review": True, "provenance": provenance})
     with kg._LOCK:
         graph, _ = kg._load()
+        if graph.version != current_graph.version:
+            return _bad(FaultInputError("知识现象版本已变化，请重新加载并诊断后提交反馈", 1203))
         duplicate_pending = any(change["status"] == "PENDING" and any(
             op.get("op") == "add_triple" and op.get("head_type") == "Fault" and
             op.get("head") == case_id for op in change["ops"]) for change in graph.pending)
@@ -562,13 +614,19 @@ def submit_diagnosis(payload):
         if scenario is None:
             return {"code": 1002, "message": "故障场景不存在", "data": None}
     network = source["network"] if source else None
-    frozen_graph = None
+    frozen_catalog = None
     if payload.get("frontend_run_id"):
-        from . import kg
-        with kg._LOCK:
-            frozen_graph = deepcopy(kg._load()[0])
+        if not formal:
+            return _bad(FaultInputError("前端诊断运行必须绑定正式方案", 1203))
+        from .fault_frontend_models import FaultRun
+        with get_session_factory()() as session:
+            run = session.get(FaultRun, payload["frontend_run_id"])
+            if run is None or run.task_id != payload.get("task_id") or run.plan_id != payload.get("plan_id") or run.scenario_version_id != version_id:
+                raise FaultPlanSourceError(1203, "诊断运行与冻结场景不一致", 409)
+            frozen_catalog = deepcopy(run.snapshot.get("symptom_catalog"))
     try:
-        _diagnose_live(scenario, payload, network=network, frozen_graph=frozen_graph)
+        frozen_catalog, frozen_graph = _frozen_knowledge(frozen_catalog)
+        _diagnose_live(scenario, payload, network=network, frozen_graph=frozen_graph, symptom_catalog=frozen_catalog)
     except FaultInputError as exc:
         return _bad(exc)
     if not formal and payload.get("network_solution_id") and _solution(payload["network_solution_id"]) is None:
@@ -576,7 +634,7 @@ def submit_diagnosis(payload):
 
     def work(_payload, tick):
         tick(0.4, "规则与图谱推理")
-        out = _diagnose_live(scenario, payload, network=network, frozen_graph=frozen_graph)
+        out = _diagnose_live(scenario, payload, network=network, frozen_graph=frozen_graph, symptom_catalog=frozen_catalog)
         if source:
             meta = source["meta"]
             out.update(context="planning", network_solution_id=meta["plan_id"],
@@ -594,15 +652,18 @@ def submit_diagnosis(payload):
     return _spawn("FAULT_DIAGNOSE", payload, work)
 
 
-def _diagnose_live(scenario, payload, require_fault_type=True, network=None, frozen_graph=None):
+def _diagnose_live(scenario, payload, require_fault_type=True, network=None, frozen_graph=None, symptom_catalog=None):
     from . import kg
     with kg._LOCK:
-        graph = frozen_graph if frozen_graph is not None else kg._load()[0]
-        engine = _engine().for_network(network) if network is not None else _engine()
+        if frozen_graph is None or symptom_catalog is None:
+            symptom_catalog, frozen_graph = _frozen_knowledge(symptom_catalog)
+        graph = frozen_graph
+        engine = _catalog_engine(symptom_catalog, network)
         result = engine.diagnose(scenario, payload.get("fusion_weights"),
                                  payload.get("confidence_threshold", 0.6), graph=graph,
                                  require_fault_type=require_fault_type)
         result["knowledge_version"] = graph.version
+        result["symptom_catalog"] = deepcopy(symptom_catalog)
         return result
 
 
@@ -611,13 +672,14 @@ def submit_observation_diagnosis(payload):
     scenario = {"scenario_name": payload.get("scenario_name") or "观测诊断",
                 "faults": payload.get("faults"), "scenario_id": None}
     try:
-        _diagnose_live(scenario, payload, require_fault_type=False)
+        catalog_snapshot, graph = _frozen_knowledge()
+        _diagnose_live(scenario, payload, require_fault_type=False, frozen_graph=graph, symptom_catalog=catalog_snapshot)
     except FaultInputError as exc:
         return _bad(exc)
 
     def work(_payload, tick):
         tick(0.4, "根据观测现象推理")
-        return _diagnose_live(scenario, payload, require_fault_type=False)
+        return _diagnose_live(scenario, payload, require_fault_type=False, frozen_graph=graph, symptom_catalog=catalog_snapshot)
 
     return _spawn("FAULT_DIAGNOSE_OBSERVATION", payload, work)
 
@@ -656,13 +718,13 @@ def submit_impact(payload):
                     **deepcopy(diagnosis["input_snapshot"])}
         solution = source["solution"]
         try:
-            _engine().for_network(source["network"]).validate(scenario)
+            _catalog_engine(diagnosis.get("symptom_catalog"), source["network"]).validate(scenario)
         except FaultInputError as exc:
             return _bad(exc)
 
         def work(_payload, tick):
             tick(0.4, "沿冻结方案的主备路由计算影响")
-            out = _engine().for_network(source["network"]).impact(
+            out = _catalog_engine(diagnosis.get("symptom_catalog"), source["network"]).impact(
                 scenario, diagnosis, solution, payload.get("consider_backup_route", True))
             out.update(context="planning", network_task_id=source["meta"]["task_id"],
                        network_revision=source["meta"]["revision"],
@@ -687,7 +749,8 @@ def submit_impact(payload):
         return {"code": 1002, "message": "规划方案不存在", "data": None}
     if solution and solution.get("kind") != "SR4_FLOW":
         return _bad(FaultInputError("影响分析需要 SR4_FLOW 方案"))
-    scenario = _scenarios().get(diagnosis["scenario_id"])
+    scenario = ({"scenario_id": diagnosis["scenario_id"], **deepcopy(diagnosis["input_snapshot"])}
+                if diagnosis.get("input_snapshot") else _scenarios().get(diagnosis["scenario_id"]))
     if scenario is None:
         return {"code": 1002, "message": "诊断场景已删除", "data": None}
     if solution:
@@ -699,7 +762,7 @@ def submit_impact(payload):
 
     def work(_payload, tick):
         tick(0.4, "沿主备路由计算影响")
-        return _engine().impact(scenario, diagnosis, solution,
+        return _catalog_engine(diagnosis.get("symptom_catalog")).impact(scenario, diagnosis, solution,
                                 payload.get("consider_backup_route", True))
     return _spawn("FAULT_IMPACT", payload, work)
 

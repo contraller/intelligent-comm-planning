@@ -1079,7 +1079,7 @@ onBeforeUnmount(() => { closeConfigurationHistory(); sourceSerial++; sourceContr
 function locate() {
   if (selected.value && auth.can('situation.view') && !workspace.frozen.value)
     void router.push({
-      path: '/gis-workbench',
+      path: '/situation',
       query: { stationId: selected.value.stationId, deviceId: selected.value.id },
     });
 }

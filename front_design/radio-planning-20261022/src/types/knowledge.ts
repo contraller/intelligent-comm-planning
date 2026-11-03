@@ -53,7 +53,8 @@ export interface KnowledgeCatalog {
 export interface KnowledgeLoaded extends KnowledgeCatalog { workspace: KnowledgeWorkspace | null; error: string | null }
 export interface KnowledgeFilter extends SearchQuery { versionId: string; categories: KnowledgeCategory[]; type?: string }
 export interface KnowledgeQuery extends KnowledgeFilter, Partial<PageQuery> {}
-export type KnowledgeEntitySummary = Pick<KnowledgeEntity,'id'|'name'|'category'|'type'>;
+// 型号名称仅由同一知识快照投影，避免图谱按当前资源目录猜测图片。
+export type KnowledgeEntitySummary = Pick<KnowledgeEntity,'id'|'name'|'category'|'type'> & { modelName?: string };
 export interface KnowledgeSearch extends PageResult<KnowledgeEntitySummary> { versionId: string; similar: KnowledgeEntitySummary[]; code: 0 | 4001 }
 export interface KnowledgeDetail { versionId: string; entity: KnowledgeEntity; neighbors: KnowledgeEntity[]; relations: KnowledgeRelation[] }
 // 命中列表与显示上下文分离；空检索不把所有节点标记为命中。

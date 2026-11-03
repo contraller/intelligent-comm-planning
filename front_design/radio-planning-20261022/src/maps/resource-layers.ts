@@ -11,7 +11,7 @@ import { gisSymbol } from './gis-symbols';
 export function interferenceLayer(rows:InterferenceSource[],selectedId=''){
   return new VectorLayer({source:new VectorSource({features:rows.map(row=>new Feature({geometry:new Point(projectCoordinate(row.coordinate)),kind:'interference-source',objectId:row.id,source:row}))}),
     style:feature=>{const row=feature.get('source') as InterferenceSource;return new Style({
-      image:gisSymbol('interference-source',row.active?'#e4a859':'#6b7c91',row.id===selectedId),
+      image:gisSymbol('interference-source',row.id===selectedId,row.active?'#e4a859':'#6b7c91'),
       text:row.id===selectedId?new Text({text:row.name+' · 干扰源',offsetY:-20,fill:new Fill({color:'#ffda9d'}),backgroundFill:new Fill({color:'#162238'}),padding:[4,4,4,4]}):undefined,zIndex:20,
     });}});
 }

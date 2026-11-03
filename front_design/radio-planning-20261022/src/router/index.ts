@@ -1,7 +1,7 @@
 import { createRouter, createWebHashHistory } from 'vue-router';
 import AppShell from '../layouts/AppShell.vue';
 import { useAuthStore } from '../stores/auth';
-import { routePermissions, safeReturnPath, canAccessRoute } from '../config/permissions';
+import { routePermissions, safeReturnPath } from '../config/permissions';
 
 // Hash 路由允许静态服务器直接打开页面，无需后端路由回退规则。
 export const router = createRouter({
@@ -15,7 +15,6 @@ export const router = createRouter({
         { path: '', redirect: '/situation' },
         {
           path: 'situation',
-          // 数据模式只切换服务适配，GIS 产品页面保持一致。
           component: () => import('../views/GisSituationView.vue'),
           meta: { title: 'GIS 态势' },
         },
@@ -58,6 +57,9 @@ export const router = createRouter({
 });
 // 直达路由与导航共用权限；已挂载的失效现场由全局冻结层保留。
 router.beforeEach(async(to,from)=>{
+  // 原有资源定位、故障及干扰分析深链继续进入工作台；无参数态势入口始终是只读大地图。
+  if (to.path === '/situation' && Object.keys(to.query).length && safeReturnPath(to.fullPath))
+    return { path: '/gis-workbench', query: to.query, replace: true };
   const auth=useAuthStore();
   if(!auth.bypassLeave)await auth.check();
   // HTTP 共享会话换号时留在原页处理现场，不自动跳转并接纳新账号。
@@ -65,7 +67,7 @@ router.beforeEach(async(to,from)=>{
   if(auth.blocked&&auth.hasUnsaved()&&from.path!=='/login'&&!auth.bypassLeave)return false;
   if(to.path==='/login')return auth.identity&&!auth.error?auth.firstPath(to.query.next):true;
   if(!auth.identity||auth.error)return {path:'/login',query:{next:safeReturnPath(to.fullPath)??undefined}};
-  if(routePermissions[to.path]&&!canAccessRoute(to.path,auth.can))return auth.firstPath()===to.path?true:auth.firstPath();
+  if(routePermissions[to.path]&&!auth.can(routePermissions[to.path]))return auth.firstPath()===to.path?true:auth.firstPath();
   return true;
 });
 router.afterEach((to) => {

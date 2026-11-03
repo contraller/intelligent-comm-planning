@@ -138,7 +138,7 @@
           :show-coverage="editingAdjustment && !!planning.adjustmentParent ? true : showCoverage"
           :coverage-display="coverageDisplay"
           :selected-id="planning.step === 1 ? inputFocused : focused"
-          :frozen-coverage="fittingCoverageOverview ? null : frozenCoverageForMap"
+          :frozen-coverage="frozenCoverageForMap"
           :selected-link-id="planning.step === 1 ? '' : focusedLink"
           :highlight-station-ids="planning.step === 1 ? [] : nodeHighlights"
           :highlight-link-ids="planning.step === 1 ? [] : linkHighlights"
@@ -294,7 +294,7 @@
             <button class="btn small" :disabled="!planning.result || planning.busy || !!planning.pending" @click="enterAdjustmentWorkspace">{{ frozenCoverageForMap ? '查看覆盖详情' : '进入覆盖计算' }}</button>
           </section>
           <FrozenCoveragePanel v-if="lastCoverageQuery" v-show="planning.step === 2 || (planning.step === 3 && (workspaceMode === 'view' || workspaceMode === 'adjust') && (!!frozenCoverageQuery || coveragePanel?.hasProtectedSelection()))" ref="coveragePanel" :query="lastCoverageQuery" :readonly="planning.step !== 3 || workspaceMode !== 'adjust'" :active="(planning.step === 2 || planning.step === 3 && (workspaceMode === 'view' || workspaceMode === 'adjust')) && !!frozenCoverageQuery"
-            :services="collaborationHttp.frozenCoverage" @overlay="acceptFrozenCoverage" @focus="focusFrozenCoverage" @overview="showCoverageNetwork" />
+            :services="collaborationHttp.frozenCoverage" @overlay="acceptFrozenCoverage" />
           <PlanningAdjustmentDrawer
             v-if="
               planning.adjustmentContext && planning.adjustmentDraft && planning.adjustmentParent
@@ -516,7 +516,6 @@ const router = useRouter();
 const auth = useAuthStore();
 const previewSide = ref<'before' | 'after'>('after');
 const frozenCoverage=shallowRef<FrozenCoverageOverlay|null>(null);
-const fittingCoverageOverview=ref(false);
 const candidateCoverageOrigins=shallowRef<FrozenCoverageQuery[]>([]);
 const coveragePanel=ref<InstanceType<typeof FrozenCoveragePanel>>();
 let changingStep=false;
@@ -557,17 +556,6 @@ const frozenCoverageForMap=computed(()=>{
   const query=frozenCoverageQuery.value,value=frozenCoverage.value;
   return planning.step!==1&&query&&value&&value.anchor.plan_id===query.planId&&value.anchor.task_id===query.taskId&&value.anchor.snapshot_id===query.snapshotId&&value.anchor.resource_revision===query.resourceRevision?value:null;
 });
-async function focusFrozenCoverage(value:FrozenCoverageOverlay,preserveScale=false){
-  const generation=auth.generation;await nextTick();
-  if(!auth.blocked&&generation===auth.generation&&value===frozenCoverageForMap.value)map.value?.fitFrozenCoverage(preserveScale);
-}
-async function showCoverageNetwork(value:FrozenCoverageOverlay){
-  if(auth.blocked||value!==frozenCoverageForMap.value||fittingCoverageOverview.value)return;
-  const generation=auth.generation;fittingCoverageOverview.value=true;
-  // 临时撤下单台覆盖以复用地图全域定位，随后恢复图层和显隐偏好。
-  try{await nextTick();if(!auth.blocked&&generation===auth.generation&&value===frozenCoverageForMap.value)map.value?.fit();}
-  finally{fittingCoverageOverview.value=false;}
-}
 const routeTaskError = ref('');
 const historyVisible = ref(false);
 const historyInitialTab = ref<'saved' | undefined>();
@@ -683,7 +671,7 @@ const analysisEntry = computed(() => {
       try {
         if (!await verifyPlanningInterferenceEntry(collaborationHttp.interferenceWorkbench, { taskId: target.taskId, planId: target.id, planVersion: target.version }, signal) || !current()) return;
         const path = router.resolve({
-          path: '/gis-workbench',
+          path: '/situation',
           query: { analysisTaskId: target.taskId, analysisPlanId: target.id },
         }).fullPath;
         const navigation = { path, current };
@@ -1079,13 +1067,13 @@ async function saveAndReturnToGis() {
   try {
     const saved = await saveTaskForGis(task, current);
     if (!saved || !current()) { if (current()) gisTaskReturnError.value = task.error || '任务尚未确认保存，当前输入已保留。'; return; }
-    await router.push({ path: '/gis-workbench', query: { taskId: saved.taskId } });
+    await router.push({ path: '/situation', query: { taskId: saved.taskId } });
   } catch (reason) { if (current()) gisTaskReturnError.value = reason instanceof Error ? reason.message : '任务保存失败'; }
   finally { gisTaskReturning.value = false; }
 }
 async function returnToGis() {
   if (gisTaskReturning.value || !task.saved || route.query.editTask !== '1') return;
-  await router.push({ path: '/gis-workbench', query: { taskId: task.saved.taskId } });
+  await router.push({ path: '/situation', query: { taskId: task.saved.taskId } });
 }
 async function syncUrl() {
   if (

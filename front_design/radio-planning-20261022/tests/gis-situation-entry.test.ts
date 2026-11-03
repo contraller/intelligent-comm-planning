@@ -1,78 +1,117 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { createPinia, disposePinia, setActivePinia } from 'pinia';
-import { computed, defineComponent, nextTick, ref, shallowRef, ssrContextKey } from 'vue';
+import { h, nextTick, ssrContextKey, type App } from 'vue';
+import { createMemoryHistory, createRouter, RouterView } from 'vue-router';
+import { all, clientTemplate, find, node, renderer, textOf } from './helpers/vue-client';
+import { allPermissions, safeReturnPath } from '../src/config/permissions';
+
+const probes = vi.hoisted(() => ({ props: null as Record<string, unknown> | null, fit: vi.fn(), terrain: vi.fn(), dispose: vi.fn(), preview: vi.fn(), hover: undefined as ((ids: string[]) => void) | undefined }));
+vi.mock('../src/config/env', () => ({ env: { mode: 'mock', apiBaseUrl: '/api/v1', sampleData: true } }));
+vi.mock('../src/services/terrain-basemap', () => ({ loadTerrainBasemap: probes.terrain }));
+vi.mock('../src/components/MapCanvas.vue', () => ({ default: {
+  props: { stations: Array, frozenNetwork: Object, terrainBasemap: Object, frozenCoverage: Object, hoverPreview: Object,
+    readonlySituation: Boolean, showRoads: Boolean, showLinks: Boolean, showCoverage: Boolean },
+  emits: ['hoverFrozenDevices'],
+  setup(props: Record<string, unknown>, { expose, emit }: { expose: (value: unknown) => void; emit: (name: string, ids: string[]) => void }) {
+    probes.hover = ids => emit('hoverFrozenDevices', ids);
+    probes.props = props; expose({ fitAll: probes.fit, returnFrozenNetwork: vi.fn(), focusFrozenCoverage: vi.fn() }); return () => h('div', { 'data-map': 'readonly' });
+  },
+} }));
+vi.mock('../src/components/RequestState.vue', () => ({ default: { render: () => null } }));
+vi.mock('../src/components/DecisionDialog.vue', () => ({ default: { render: () => null } }));
+vi.mock('../src/components/ResourceEditDrawer.vue', () => ({ default: { render: () => h('div', { 'data-drawer': 'edit' }) } }));
+vi.mock('../src/components/ResourceImportDrawer.vue', () => ({ default: { render: () => h('div', { 'data-drawer': 'import' }) } }));
+vi.mock('../src/components/IntegrationIdentitySwitcher.vue', () => ({ default: { render: () => h('div', { 'data-identity-switch': true }) } }));
+
+import AppShell from '../src/layouts/AppShell.vue';
 import GisSituationView from '../src/views/GisSituationView.vue';
-import CoverageLineLegend from '../src/components/CoverageLineLegend.vue';
-import { previewService } from '../src/services';
-import { authorizeStore } from './helpers/auth';
-import { clientTemplate, find, node, renderer, textOf } from './helpers/vue-client';
-import * as situation from '../src/composables/useGisSituation';
-import {planningBounds} from '../src/maps/planning-bounds-layer';
+import { useAuthStore } from '../src/stores/auth';
+import { usePreviewStore } from '../src/stores/preview';
 
-const mapCalls=vi.hoisted(()=>({fit:vi.fn(),coverage:vi.fn()}));
-vi.mock('../src/components/MapCanvas.vue', () => ({ default: defineComponent({setup(_, {expose}){expose({fit:mapCalls.fit,fitFrozenCoverage:mapCalls.coverage});return()=>null;}}) }));
-await clientTemplate(CoverageLineLegend, 'src/components/CoverageLineLegend.vue', 'situation-legend-render.ts');
-await clientTemplate(GisSituationView, 'src/views/GisSituationView.vue', 'situation-overview-render.ts');
+const Shell = { ...AppShell }, Situation = { ...GisSituationView };
+beforeAll(async () => {
+  await clientTemplate(Shell, 'src/layouts/AppShell.vue', 'gis-situation-shell-render.ts');
+  await clientTemplate(Situation, 'src/views/GisSituationView.vue', 'gis-situation-entry-render.ts');
+});
+let pinia: ReturnType<typeof createPinia> | undefined, app: App | undefined;
+afterEach(() => { app?.unmount(); app = undefined; if (pinia) disposePinia(pinia); pinia = undefined; probes.props = null; vi.restoreAllMocks(); vi.unstubAllGlobals(); probes.fit.mockReset(); probes.terrain.mockReset(); probes.dispose.mockReset(); });
+async function settle() { for (let index = 0; index < 12; index++) await nextTick(); }
+async function mount() {
+  class TestDocument extends EventTarget { activeElement = null; }
+  vi.stubGlobal('Document', TestDocument); vi.stubGlobal('document', new TestDocument()); vi.stubGlobal('ShadowRoot', class {}); vi.stubGlobal('window', new EventTarget());
+  probes.terrain.mockResolvedValue({ url: 'blob:verified', source: '本地受控DEM', extent: [113, 36, 115, 38], dispose: probes.dispose });
+  pinia = createPinia(); setActivePinia(pinia);
+  const auth = useAuthStore(); auth.accept({ id: 'local-single-user', sessionId: 'local-session', username: 'local', name: '本机使用', roleId: 'local', roleName: '统一业务权限', epoch: 'one', revision: '1', permissions: [...allPermissions], singleUserMode: true, allowSelfReview: true, authSource: 'LOCAL_SINGLE_USER' });
+  const preview = usePreviewStore(), load = vi.spyOn(preview, 'load');
+  // 现用资源即使不可读取，也不能使随包提供的默认态势消失。
+  preview.error = '当前资源服务不可用';
+  const router = createRouter({ history: createMemoryHistory(), routes: [{ path: '/', component: Shell, children: [
+    { path: 'situation', component: Situation },
+    ...['gis-workbench', 'resources', 'planning', 'diagnosis', 'knowledge', 'system'].map(path => ({ path, component: { render: () => h('div', { 'data-module': path }, path) } })),
+  ] }] });
+  await router.push('/situation'); await router.isReady();
+  const root = node('root'); app = renderer.createApp({ render: () => h(RouterView) });
+  app.use(pinia); app.use(router); app.provide(ssrContextKey, { modules: new Set() }); app.mount(root); await settle();
+  return { root, router, auth, load };
+}
 
-afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals();mapCalls.fit.mockClear();mapCalls.coverage.mockClear(); });
-
-describe('GIS 态势真实页面初始化', () => {
-  it('切换覆盖同步图例，新成果切换后同步目录与已选方案',async()=>{
-    vi.stubGlobal('document',{hidden:false});
-    const cell=(field:number,covered=true)=>({type:'Feature',properties:{is_coverage:covered,surface_kind:'TERRAIN_CELL',field_strength_dbuvm:field},geometry:{type:'Polygon',coordinates:[[[113.09,37.09],[113.11,37.09],[113.11,37.11],[113.09,37.11],[113.09,37.09]]]}});
-    const device={device_id:'D1',node_id:'N1',lon:113.1,lat:37.1,band:'VUHF',status:'COMPLETE',computations:[{freq_khz:156000,shape:'CELLS',evaluated_samples:3,geojson:{features:[cell(14.5),cell(22.5),cell(999,false)]}},{freq_khz:157000,shape:'CELLS',evaluated_samples:1,geojson:{features:[cell(55.5)]}}]};
-    const anchor={plan_id:'P1',task_id:'T1',snapshot_id:'SNP-S1',engine_version:'V01-6'};
-    const parameters={radius_m:60000,hf_max_km:900,cell_m:2000,margin_min_db:6};
-    const cache={state:'HIT',anchor,parameters,result:{schema_version:2,solution_id:'S1',devices:[device],provenance:{engine_version:'V01-6',bandwidth_selection_id:null,bandwidth_selection_hash:null,parameters,dem_bbox:[113,37,114,38]}}};
-    const frame=shallowRef({plan:{id:'P1',taskId:'T1',name:'冻结方案',version:'V1',state:'SAVED',savedAt:'2026-11-03T00:00:00Z',input:{bbox:[113,37,114,38]}},network:{identity:{snapshot_id:'S1'},nodes:[],devices:[],links:[]},coverage:cache,notices:[],readAt:'2026-11-03T00:00:00Z'});
-    const display=ref('field'),deviceId=ref(''),coverageVisible=ref(false);
-    const frequencyKhz=ref<number>(),selectedFrequency=computed(()=>frequencyKhz.value??156000),terrainReference=ref(false);
-    const rows=ref([{...frame.value.plan}]),newest=ref<typeof frame.value.plan|null>(null);
-    const newPlan={...frame.value.plan,id:'P2',name:'新保存方案'};
-    const catalog=vi.fn(async()=>{rows.value=[newPlan,...rows.value];return rows.value;});
-    const select=vi.fn(async(row:typeof frame.value.plan)=>{frame.value={...frame.value,plan:row};newest.value=null;return true;});
-    vi.spyOn(situation,'useGisSituation').mockReturnValue({frame,rows,loading:ref(false),error:ref(''),notice:ref(''),newest,autoRefresh:ref(false),page:ref(1),total:ref(1),deviceId,coverageVisible,display,frequencyKhz,selectedFrequency,terrainReference,coverageOverlay:computed(()=>coverageVisible.value&&deviceId.value==='D1'?{anchor,result:frame.value.coverage.result,deviceId:'D1',frequencyKhz:selectedFrequency.value,display:display.value,terrainReference:terrainReference.value}:null),dimensions:computed(()=>planningBounds(frame.value.plan.input.bbox)),catalog,select,latest:vi.fn(),refresh:vi.fn(),reset:vi.fn()} as unknown as ReturnType<typeof situation.useGisSituation>);
-    const pinia=createPinia();setActivePinia(pinia);authorizeStore();
-    const root=node('root'),app=renderer.createApp(GisSituationView);app.use(pinia);app.component('RouterLink',{render:()=>null});app.provide(ssrContextKey,{});
-    try{
-      app.mount(root);await nextTick();expect(mapCalls.coverage).not.toHaveBeenCalled();
-      const deviceSelector=find(root,n=>n.props['aria-label']==='覆盖设备')!;
-      (deviceSelector.props['onUpdate:modelValue'] as Function)('D1');await (deviceSelector.props.onChange as Function)();await nextTick();expect(coverageVisible.value).toBe(true);expect(mapCalls.coverage).toHaveBeenCalledOnce();
-      expect(textOf(root)).toContain('14.5');expect(textOf(root)).toContain('22.5 dBμV/m');expect(textOf(root)).not.toContain('999');expect(textOf(root)).not.toContain('强 ≥20 dB');expect(textOf(root)).toContain('关闭地形影响标记仍保留地形计算');
-      display.value='strength';terrainReference.value=true;await nextTick();expect(textOf(root)).toContain('强 ≥20 dB');expect(mapCalls.coverage).toHaveBeenCalledOnce();display.value='field';
-      const frequency=find(root,n=>n.props['aria-label']==='覆盖频点')!;
-      await (frequency.props.onChange as (event:unknown)=>Promise<void>)({target:{value:'157000'}});await nextTick();expect(textOf(root)).toContain('55.5 dBμV/m');expect(textOf(root)).not.toContain('22.5 dBμV/m');expect(mapCalls.coverage).toHaveBeenCalledTimes(2);
-      frequencyKhz.value=156000;await nextTick();
-      display.value='boundary';await nextTick();expect(textOf(root)).toContain('遇缺格或计算边缘不补闭合');expect(textOf(root)).not.toContain('dBμV/m');
-      device.computations[0].geojson.features=[];frame.value={...frame.value};await nextTick();expect(textOf(root)).toContain('完整采样未提供，请刷新覆盖结果');expect(textOf(root)).not.toContain('达标格面外缘');
-      expect(mapCalls.coverage).toHaveBeenCalledTimes(2);
-      (deviceSelector.props['onUpdate:modelValue'] as Function)('UNKNOWN');await (deviceSelector.props.onChange as Function)();await nextTick();expect(coverageVisible.value).toBe(false);expect(textOf(root)).toContain('此设备未提供可显示的覆盖');expect(mapCalls.coverage).toHaveBeenCalledTimes(2);
-      newest.value=newPlan;await nextTick();await (find(root,n=>n.tag==='button'&&textOf(n)==='切换查看')!.props.onClick as ()=>Promise<void>)();await nextTick();
-      const selector=find(root,n=>n.props.id==='situation-plan')!;expect(selector.props.value).toBe('P2');expect(selector.children.some(n=>n.tag==='option'&&n.props.value==='P2')).toBe(true);expect(catalog).toHaveBeenCalledWith(1);
-    }finally{app.unmount();disposePinia(pinia);}
+describe('GIS首页在真实壳层中的入口', () => {
+  it('无页眉页脚、菜单默认收起，资源读取失败仍显示随包示例且不装配抽屉', async () => {
+    const s = await mount();
+    expect(all(s.root, n => n.tag === 'header' || n.tag === 'footer')).toHaveLength(0);
+    const button = find(s.root, n => n.props['aria-controls'] === 'application-menu')!;
+    expect(button.props['aria-expanded']).toBe(false);
+    expect(find(s.root, n => n.props['data-map'] === 'readonly')).toBeDefined();
+    expect(find(s.root, n => !!n.props['data-drawer'])).toBeUndefined(); expect(s.load).not.toHaveBeenCalled();
+    expect(find(s.root, n => !!n.props['data-identity-switch'])).toBeUndefined();
+    expect(probes.props?.readonlySituation).toBe(true);
+    expect(probes.props?.showRoads).toBe(false);
+    expect(probes.props?.frozenNetwork).toEqual(expect.objectContaining({ identity: expect.objectContaining({ plan_id: 'GIS-EXAMPLE-TAIHANG-1' }) }));
+    expect(probes.props?.hoverPreview).toEqual(expect.objectContaining({ source: expect.stringContaining('构造示例') }));
+    expect(textOf(s.root)).toContain('非实测');
   });
-  it('同值身份回执不重复重置页面，实际撤权和恢复才重新读取', async () => {
-    vi.stubGlobal('document', { hidden: false });
-    const pinia = createPinia(); setActivePinia(pinia);
-    const auth = authorizeStore(), permissions = [...auth.identity!.permissions];
-    let reads = 0;
-    const query = vi.spyOn(previewService, 'querySavedPlanningPlans').mockImplementation(async () => {
-      // 复现公开服务每次读取重新接纳同值身份；上限让回归失败也能结束。
-      if (++reads <= 8) auth.accept({ ...auth.identity!, permissions: [...permissions] });
-      return { items: [], total: 0, pageNum: 1, pageSize: 10 };
-    });
-    const root = node('root'), app = renderer.createApp(GisSituationView);
-    app.use(pinia); app.component('RouterLink', { render: () => null }); app.provide(ssrContextKey, {});
-    try {
-      app.mount(root);
-      for (let i = 0; i < 30; i++) await nextTick();
-      expect(query).toHaveBeenCalledTimes(1); expect(textOf(root)).toContain('GIS 态势');
-      expect(textOf(root)).toContain('尚无已保存');
-      auth.accept({ ...auth.identity!, permissions: permissions.filter(p => p !== 'planning.view') });
-      await nextTick(); expect(query).toHaveBeenCalledTimes(1);
-      auth.accept({ ...auth.identity!, permissions });
-      for (let i = 0; i < 30; i++) await nextTick();
-      expect(query).toHaveBeenCalledTimes(2);
-    } finally { app.unmount(); disposePinia(pinia); }
+  it('鼠标进入后再点击仍展开同一菜单；独立收起按钮、Escape与地图外侧点击关闭', async () => {
+    const s = await mount(), button = find(s.root, n => n.props['aria-controls'] === 'application-menu')!;
+    (button.props.onMouseenter as () => void)(); await settle();
+    // 浏览器真实顺序是先mouseenter再click；两者必须幂等打开，不能在第一次点击时反向关闭。
+    (button.props.onClick as (event: { stopPropagation(): void }) => void)({ stopPropagation() {} }); await settle();
+    expect(button.props['aria-expanded']).toBe(true);
+    const menu = find(s.root, n => n.props.id === 'application-menu')!;
+    expect(all(menu, n => n.tag === 'a')).toHaveLength(7);
+    expect(textOf(menu)).toContain('GIS 工作台'); expect(textOf(menu)).toContain('刷新当前转正态势'); expect(textOf(menu)).toContain('切换已保存方案');
+    expect(textOf(menu)).not.toContain('道路');
+    const picker = find(menu, n => n.tag === 'details')!, target = { open: false, closest: (_selector: string): unknown => target };
+    (picker.props.onMouseenter as (event: { currentTarget: unknown }) => void)({ currentTarget: target }); await settle();
+    expect(target.open).toBe(true);
+    const summary = find(picker, n => n.tag === 'summary')!;
+    (summary.props.onClick as (event: { currentTarget: unknown; preventDefault(): void }) => void)({ currentTarget: target, preventDefault() {} }); await settle();
+    expect(target.open).toBe(true);
+    const fit = find(menu, n => n.tag === 'button' && textOf(n) === '全域查看')!;
+    (fit.props.onClick as () => void)(); expect(probes.fit).toHaveBeenCalledOnce();
+    const root = find(s.root, n => String(n.props.class).includes('app-shell'))!;
+    const close = find(menu, n => n.props['aria-label'] === '收起功能菜单')!;
+    (close.props.onClick as () => void)(); await settle(); expect(button.props['aria-expanded']).toBe(false);
+    (button.props.onMouseenter as () => void)(); await settle(); expect(button.props['aria-expanded']).toBe(true);
+    (root.props.onKeydown as (event: { key: string }) => void)({ key: 'Escape' }); await settle(); expect(button.props['aria-expanded']).toBe(false);
+    (button.props.onClick as (event: { stopPropagation(): void }) => void)({ stopPropagation() {} }); await settle(); expect(button.props['aria-expanded']).toBe(true);
+    (root.props.onClick as (event: Event) => void)(new Event('click')); await settle(); expect(button.props['aria-expanded']).toBe(false);
+  });
+  it('地图悬浮事件只显示该节点已有覆盖，移到缺缓存节点不会保留另一节点覆盖', async () => {
+    const s = await mount();
+    expect(probes.props?.frozenCoverage).toBeNull();
+    probes.hover!(['EXAMPLE-ND-0037-HF']); await settle();
+    expect(probes.props?.frozenCoverage).toEqual(expect.objectContaining({ deviceId: 'EXAMPLE-ND-0037-HF' }));
+    probes.hover!(['EXAMPLE-ND-0001-HF']); await settle(); expect(probes.props?.frozenCoverage).toBeNull();
+    expect(find(s.root, n => !!n.props['data-drawer'])).toBeUndefined(); expect(s.load).not.toHaveBeenCalled();
+  });
+  it('正常及历史工作台定位均保留同样严格的返回地址校验', () => {
+    expect(safeReturnPath('/situation')).toBe('/situation'); expect(safeReturnPath('/gis-workbench')).toBe('/gis-workbench');
+    for (const base of ['/situation', '/gis-workbench']) {
+      expect(safeReturnPath(base + '?faultEdit=1&scenarioId=SC-1&versionId=V1')).not.toBeNull();
+      expect(safeReturnPath(base + '?analysisTaskId=T1&analysisPlanId=P1')).not.toBeNull();
+      expect(safeReturnPath(base + '?analysisTaskId=T1')).toBeNull();
+      expect(safeReturnPath(base + '?deviceId=A&deviceId=B')).toBeNull();
+      expect(safeReturnPath(base + '?unknown=1')).toBeNull();
+    }
   });
 });

@@ -24,6 +24,8 @@ from app.database import Base, DatabaseConfigurationError
 from app.gis_plan_router import router
 from app.planning_job_models import PlanningJob
 from app.planning_plan_models import PlanningCurrentPlan, PlanningPlan
+from app import resource_dataset_service as datasets
+from app.resource_dataset_models import ResourceDatasetCurrent, ResourceDatasetVersion
 from app.task_input_models import PlanningTask, PlanningTaskRevision
 
 
@@ -103,10 +105,119 @@ def test_network_keeps_historical_snapshot_and_unknowns(api, monkeypatch):
     assert data["nodes"][0]["status"] is None and data["nodes"][0]["alert"] is None
     assert data["nodes"][0]["coordinate"] == [114.0, 37.0]
     assert len(data["routes"]) == 2 and data["paths_state"] == "ready"
+    assert data["interferences"] == [] and "未保留同版本" in data["interferences_notice"]
     with factory() as session:
         assert session.get(PlanningCurrentPlan, "T1").plan_id == "P1"
         assert session.get(PlanningPlan, "P1").result_snapshot == frozen_result()
         assert session.scalar(select(func.count()).select_from(PlanningJob)) == 1
+
+
+def frozen_tables(source_id="IF-OLD", mobility="VEHICLE"):
+    return {"node.csv": [{"node_id": node, "mobility": mobility, "node_role": "TASK", "node_subtype": "II_MOBILE"}
+                          for node in ("A", "B", "C")],
+            "interference_source.csv": [{"interference_id": source_id, "name": "冻结构造干扰源",
+                "lon": "114.15", "lat": "37.2", "elevation_m": "", "antenna_height_m": "8.0",
+                "center_freq_khz": "7000", "bandwidth_khz": "200", "tx_power_dbm": "30.0",
+                "antenna_gain_dbi": "", "interference_type": "PULSE", "pattern_type": "",
+                "azimuth_deg": "", "duty_cycle": "0.5", "active": "false"}]}
+
+
+def resource_snapshot(source_id="IF-OLD", mobility="VEHICLE"):
+    tables = {name: [{field: "FROZEN-" + str(index)}] for index, (name, field) in enumerate(datasets.ID_FIELDS.items())}
+    tables.update(frozen_tables(source_id, mobility))
+    tables["device_model.csv"] = [{"model_id": "M1"}]
+    tables["antenna_model.csv"] = [{"antenna_id": "ANT1"}]
+    tables["device.csv"] = [{"device_id": "EA", "node_id": "A", "model_id": "M1", "antenna_id": "ANT1"}]
+    tables["task_scenario.csv"] = [{"task_id": "TASK1"}]
+    tables["comm_demand.csv"] = [{"demand_id": "D1", "task_id": "TASK1", "src_node_id": "A", "dst_node_id": "C"}]
+    return {"schema_version": 1, "tables": tables, "source_updated_at": "2026-11-03T08:00:00+08:00",
+            "source_files": {name: {"path": "data/frozen/" + name, "sha256": "a" * 64} for name in tables}}
+
+
+def add_version(session, revision, snapshot, *, bad_hash=False):
+    session.add(ResourceDatasetVersion(revision=revision, content_hash="0" * 64 if bad_hash else datasets.content_hash(snapshot),
+        source=datasets.SOURCE, data_origin=datasets.ORIGIN, snapshot=snapshot, created_at=datetime.now(timezone.utc)))
+
+
+def test_network_reads_only_the_plan_resource_revision_and_preserves_result_node_values(api, monkeypatch):
+    client, factory, _ = api
+    old_revision, current_revision = "resource-1111111111111111", "resource-2222222222222222"
+    with factory.begin() as session:
+        add_version(session, old_revision, resource_snapshot())
+        add_version(session, current_revision, resource_snapshot("IF-CURRENT", "FIXED"))
+        session.flush()
+        session.add(ResourceDatasetCurrent(scope=datasets.SCOPE, revision=current_revision))
+        plan = session.get(PlanningPlan, "P1")
+        plan.resource_revision = old_revision
+        result = deepcopy(plan.result_snapshot)
+        result["nodes"][1].update(mobility="MANPACK", node_role="EXPLICIT_RESULT_ROLE")
+        plan.result_snapshot = result
+    monkeypatch.setattr(datasets, "current", lambda *a, **k: pytest.fail("不能读取current补冻结态势"))
+    monkeypatch.setattr(datasets, "capture_files", lambda *a, **k: pytest.fail("不能读取现用CSV补冻结态势"))
+    response = query(client)
+    assert response.status_code == 200, response.text
+    data = response.json()["data"]
+    assert data["identity"]["resource_revision"] == old_revision
+    assert [source["id"] for source in data["interferences"]] == ["IF-OLD"]
+    source = data["interferences"][0]
+    assert source["coordinate"] == [114.15, 37.2] and source["active"] is False
+    assert source["elevationM"] is None and source["antennaGainDbi"] is None and source["origin"] == "SOURCE"
+    assert data["interferences_notice"] == ""
+    assert data["nodes"][0]["mobility"] == "VEHICLE" and data["nodes"][0]["node_subtype"] == "II_MOBILE"
+    assert data["nodes"][1]["mobility"] == "MANPACK" and data["nodes"][1]["node_role"] == "EXPLICIT_RESULT_ROLE"
+    assert data["nodes"][0]["status"] is None and data["nodes"][0]["alert"] is None
+    with factory() as session:
+        assert session.get(ResourceDatasetCurrent, datasets.SCOPE).revision == current_revision
+        assert session.get(ResourceDatasetVersion, old_revision).snapshot == resource_snapshot()
+
+
+def test_missing_frozen_revision_keeps_old_network_without_current_fallback(api, monkeypatch):
+    monkeypatch.setattr(datasets, "current", lambda *a, **k: pytest.fail("不能回退当前资源"))
+    data = query(api[0]).json()["data"]
+    assert data["nodes"] and data["links"] and data["interferences"] == [] and data["interferences_notice"]
+    assert data["nodes"][0]["mobility"] is None
+
+
+def test_present_but_corrupt_same_revision_does_not_silently_drop_sources(api):
+    client, factory, _ = api
+    revision = "resource-1111111111111111"
+    with factory.begin() as session:
+        add_version(session, revision, resource_snapshot(), bad_hash=True)
+        session.get(PlanningPlan, "P1").resource_revision = revision
+    response = query(client)
+    assert response.status_code == 409 and response.json()["code"] == 1203
+    assert "同版本资源快照校验失败" in response.json()["message"]
+
+
+@pytest.mark.parametrize("mutation", [
+    lambda tables: tables["interference_source.csv"][0].update(active="0"),
+    lambda tables: tables["interference_source.csv"][0].update(active=False),
+    lambda tables: tables["interference_source.csv"][0].update(lon="181"),
+    lambda tables: tables["interference_source.csv"][0].update(lon="NaN"),
+    lambda tables: tables["interference_source.csv"][0].update(tx_power_dbm="inf"),
+    lambda tables: tables["interference_source.csv"][0].update(center_freq_khz="0"),
+    lambda tables: tables["interference_source.csv"][0].update(duty_cycle="1.5"),
+    lambda tables: tables["interference_source.csv"][0].update(origin="UNKNOWN"),
+    lambda tables: tables["interference_source.csv"][0].update(interference_id="bad id"),
+    lambda tables: tables["interference_source.csv"][0].pop("lat"),
+    lambda tables: tables["interference_source.csv"].append(deepcopy(tables["interference_source.csv"][0])),
+    lambda tables: tables["node.csv"][0].update(mobility="AIRCRAFT"),
+    lambda tables: tables["node.csv"][0].update(node_role=7),
+    lambda tables: tables["node.csv"].append(deepcopy(tables["node.csv"][0])),
+])
+def test_damaged_frozen_csv_is_rejected_instead_of_coerced_or_ignored(api, mutation):
+    data = query(api[0]).json()["data"]
+    tables = frozen_tables(); mutation(tables)
+    with pytest.raises(service.GisPlanError):
+        service._project(frozen_result(), frozen_input(), data["identity"], tables)
+
+
+def test_pure_projection_accepts_old_call_and_verified_empty_source_table(api):
+    identity = query(api[0]).json()["data"]["identity"]
+    old = service._project(frozen_result(), frozen_input(), identity)
+    assert old["interferences"] == [] and old["interferences_notice"]
+    empty = service._project(frozen_result(), frozen_input(), identity, {"interference_source.csv": []})
+    assert empty["interferences"] == [] and empty["interferences_notice"] == ""
 
 
 @pytest.mark.parametrize("state", ["SAVED", "REFERENCE", "CONFIRMED"])

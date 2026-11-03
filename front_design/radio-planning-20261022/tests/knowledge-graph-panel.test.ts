@@ -4,7 +4,8 @@ import KnowledgeGraphPanel from '../src/components/KnowledgeGraphPanel.vue';
 import { initialKnowledgeWorkspace, knowledgeRelationTypes, knowledgeTypes } from '../src/mocks/knowledge-presets';
 import { queryKnowledgeSnapshot } from '../src/services/knowledge-query';
 import type { KnowledgeCatalog, KnowledgeGraph } from '../src/types/knowledge';
-import { clientTemplate, node, type HostNode } from './helpers/vue-client';
+import { all, clientTemplate, node, textOf, type HostNode } from './helpers/vue-client';
+import { knowledgeIcon, knowledgeMedia } from '../src/config/knowledge-media';
 
 // 运行实际模板与组件生命周期，只替换绘制和尺寸观察，不依赖浏览器 canvas。
 const probe=vi.hoisted(()=>({init:vi.fn()}));
@@ -88,5 +89,30 @@ describe('知识画布视口与生命周期',()=>{
     click({data:{id:'node-1'},dataType:'node'});click({data:{id:'relation-1'},dataType:'edge'});
     expect(mounted.entity).toHaveBeenCalledWith('node-1');expect(mounted.relation).toHaveBeenCalledWith('relation-1');
     mounted.value.value=structuredClone(toRaw(mounted.value.value));await nextTick();expect(chart.setOption).toHaveBeenCalledOnce();
+  });
+  it('图例采用同类象形图标，缺照片先回退；成功载图不重置视口，卸载后迟到照片无效',async()=>{
+    const pictures:{src:string;onload:(()=>void)|null}[]=[];
+    vi.stubGlobal('Image',class {src='';onload:(()=>void)|null=null;constructor(){pictures.push(this);}});
+    const entities:KnowledgeGraph['entities']=[
+      {id:'MODEL1',name:'FT-891',type:'DeviceModel',category:'设备知识'},
+      {id:'MODEL2',name:'AN/PRC-150',type:'DeviceModel',category:'设备知识'},
+      {id:'MAKER',name:'厂家',type:'Manufacturer',category:'设备知识'},
+    ];
+    const value=ref<KnowledgeGraph>({versionId:'KGV-TEST',entities,relations:[],totalNodes:3,totalEdges:0,matchedIds:[]});
+    const mounted=await mount(value,ref('MODEL1')),chart=charts[0];
+    expect(pictures).toHaveLength(2);
+    const first=chart.setOption.mock.calls[0][0].series[0];
+    expect(first.data.find((row:{id:string})=>row.id==='MODEL1').symbol).toBe('image://'+knowledgeIcon('DeviceModel').url);
+    const legend=all(mounted.root,row=>row.tag==='img');
+    expect(legend.map(row=>row.props.src)).toEqual([knowledgeIcon('DeviceModel').url,knowledgeIcon('Manufacturer').url]);
+    expect(legend.every(row=>row.props['aria-hidden']==='true')).toBe(true);
+    expect(textOf(mounted.root)).toContain('图标表示知识类型');
+    expect(textOf(mounted.root)).toContain('FT-891 电台实物参考');
+    pictures[0].onload!();await nextTick();
+    const patch=chart.setOption.mock.lastCall![0].series[0];
+    expect(patch.data.find((row:{id:string})=>row.id==='MODEL1').symbol).toBe('image://'+knowledgeMedia(entities[0])!.url);
+    expect(patch).not.toHaveProperty('zoom');expect(patch).not.toHaveProperty('center');
+    apps.pop()!.unmount();const count=chart.setOption.mock.calls.length;
+    pictures[1].onload!();await nextTick();expect(chart.setOption).toHaveBeenCalledTimes(count);
   });
 });

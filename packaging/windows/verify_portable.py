@@ -7,15 +7,77 @@ import hashlib
 import json
 import os
 from pathlib import Path
-import secrets
 import socket
 import subprocess
 import time
-from urllib.parse import quote
+from urllib.parse import parse_qs, quote, urlsplit
 
 import httpx
 
-from launcher import check_frontend_assets
+from launcher import check_frontend_assets, controlled_frontend_version
+
+
+def verify_start_url(root, state):
+    url = (root / "app/data/runtime/访问地址.txt").read_text(encoding="utf-8").strip()
+    parsed = urlsplit(url)
+    assert parsed.scheme == "http" and parsed.netloc == f"127.0.0.1:{state['port']}"
+    assert parsed.path == "/" and parsed.fragment == "/situation"
+    query = parse_qs(parsed.query, keep_blank_values=True)
+    assert set(query) == {"v"} and len(query["v"]) == 1
+    expected = controlled_frontend_version(root)
+    if expected is not None:
+        assert query["v"][0] == expected
+    else:
+        import re
+        assert re.fullmatch(r"reload-[0-9a-f]{24}", query["v"][0])
+    return url
+
+
+def _data(response):
+    assert response.status_code == 200, f"HTTP验收请求失败：{response.status_code}"
+    value = response.json()
+    assert value.get("code") == 0, f"HTTP验收业务失败：{value.get('code')}"
+    return value["data"]
+
+
+def verify_unified_session(client):
+    """服务端签发真实自动会话，并提供已登记全部权限；不密码登录或更改账号。"""
+    capabilities = _data(client.get("/api/v1/auth/capabilities"))
+    assert capabilities["authMode"] == "LOCAL_SINGLE_USER" and capabilities["initialized"] is True
+    assert capabilities["passwordChangeRequired"] is False
+    assert capabilities["capabilities"]["passwordMaintenance"] is False
+    assert all(capabilities["capabilities"].get(key) is True
+               for key in ("automaticLocalSession", "unifiedPermissions", "selfReview"))
+    response = client.get("/api/v1/auth/session")
+    identity = _data(response)
+    assert identity["auth_source"] == "LOCAL_SINGLE_USER" and identity["single_user_mode"] is True
+    assert identity["allow_self_review"] is True and identity["integration_mode"] is False
+    assert identity["data_origin"] == "FORMAL_VERIFIED"
+    assert client.cookies.get("radio_local_session")
+    assert "HttpOnly" in response.headers.get("set-cookie", "")
+    assert "SameSite=strict" in response.headers.get("set-cookie", "")
+    assert identity["account_id"] and identity["session_id"]
+    options = _data(client.get("/api/v1/system/options"))
+    permissions = identity["permissions"]
+    assert len(permissions) == len(set(permissions))
+    assert set(permissions) == {row["code"] for row in options["permissions"]}
+    assert {"situation.view", "resources.view", "planning.view", "diagnosis.view", "knowledge.view",
+            "knowledge.edit", "knowledge.review", "knowledge.publish", "knowledge.rollback",
+            "system.view", "system.accounts", "system.roles", "system.parameters", "system.logs"} <= set(permissions)
+    return identity
+
+
+def verify_write_protection(client, base):
+    """新模式仍在服务端拒绝错误CSRF、来源及会话绑定。"""
+    options = _data(client.get("/api/v1/system/options"))
+    challenge = _data(client.get("/api/v1/auth/csrf"))
+    headers = {"Origin": base, "X-CSRF-Token": challenge["csrf_token"], "X-Session-Id": challenge["session_id"]}
+    body = {"baseRevision": options["revision"], "requestId": "portable-rejected-write", "value": 31}
+    for changed, expected in (({"X-CSRF-Token": "wrong"}, 1105),
+                              ({"X-Session-Id": "different-session"}, 1106),
+                              ({"Origin": "http://127.0.0.1:1"}, 1105)):
+        response = client.put("/api/v1/system/parameters/PAR-01", headers={**headers, **changed}, json=body)
+        assert response.status_code in (403, 409) and response.json().get("code") == expected
 
 
 def verify_frontend_http(client, dist):
@@ -32,6 +94,10 @@ def verify_frontend_http(client, dist):
                     ".mjs": {"text/javascript", "application/javascript"}, ".css": {"text/css"}}.get(asset.suffix.lower())
         if expected and response.headers.get("content-type", "").split(";", 1)[0].strip().lower() not in expected:
             raise RuntimeError("前端资源 HTTP 类型不符：" + path)
+        if asset.suffix.lower() == ".html":
+            cache = response.headers.get("cache-control", "").lower()
+            if "no-store" not in cache or "no-cache" not in cache:
+                raise RuntimeError("HTML入口缺少禁止缓存响应头：" + path)
     return len(assets)
 
 
@@ -57,17 +123,21 @@ def verify(root, output):
     original_database = os.environ.get("DATABASE_URL")
     os.environ["DATABASE_URL"] = "sqlite:///F:/must-not-be-opened/development.sqlite"
     occupied = socket.socket()
-    occupied.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
-    occupied.bind(("127.0.0.1", 18480))
-    occupied.listen()
+    try:
+        occupied.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
+        occupied.bind(("127.0.0.1", 18480))
+        occupied.listen()
+    except OSError:
+        # 该端口可能已由用户实例持有；只验证新副本自行避让，不连接或停止占用者。
+        occupied.close()
+        occupied = None
     try:
         run("start")
         first = state()
         assert first["port"] != 18480
+        entry_url = verify_start_url(root, first)
         records.append({"case": "FIRST_START_BUSY_PORT", "passed": True, "port": first["port"]})
-        config = json.loads((data / "settings.json").read_text(encoding="utf-8"))
         base = f"http://127.0.0.1:{first['port']}"
-        passwords = {}
 
         def verify_identity():
             current = state()
@@ -78,14 +148,10 @@ def verify(root, output):
         verify_identity()
 
         @contextmanager
-        def login(role, password=None):
+        def local_session():
             client = httpx.Client(base_url=base, trust_env=False, headers={"Origin": base}, timeout=40)
-            challenge = client.get("/api/v1/auth/csrf").json()["data"]
-            account = config["accounts"][role]
-            response = client.post("/api/v1/auth/login", headers={"X-CSRF-Token": challenge["csrf_token"], "X-Session-Id": ""},
-                                   json={"username": account["username"], "password": password or passwords.get(role) or account["password"]})
-            assert response.status_code == 200, response.text
             try:
+                verify_unified_session(client)
                 yield client
             finally:
                 client.close()
@@ -93,12 +159,16 @@ def verify(root, output):
         def mutate(client, method, path, body):
             csrf = client.get("/api/v1/auth/csrf").json()["data"]
             reply = client.request(method, path, headers={"X-CSRF-Token": csrf["csrf_token"], "X-Session-Id": csrf["session_id"] or ""}, json=body)
-            assert reply.status_code == 200, reply.text
-            return reply.json()["data"]
+            return _data(reply)
 
         with httpx.Client(base_url=base, trust_env=False, timeout=30) as public:
             assets = verify_frontend_http(public, static)
             records.append({"case": "FRONTEND_ASSET_CLOSURE_HTTP", "passed": True, "assets": assets})
+            entry = public.get(entry_url.split("#", 1)[0])
+            assert entry.status_code == 200 and entry.content == (static / "index.html").read_bytes()
+            cache = entry.headers.get("cache-control", "").lower()
+            assert "no-store" in cache and "no-cache" in cache
+            records.append({"case": "VERSIONED_ENTRY_AND_HTML_NO_CACHE", "passed": True})
             assert public.get("/health").json()["code"] == 0
             workers = public.get("/health/workers").json()["data"]
             assert workers == {"interference": "running", "frozen_coverage": "running"}
@@ -110,22 +180,17 @@ def verify(root, output):
             assert public.post("/__portable/stop").status_code == 403
             records.append({"case": "STATIC_DEM_ROADS_WORKERS_AND_STOP_AUTH", "passed": True,
                             "terrain_image_sha256": hashlib.sha256(image.content).hexdigest(), "workers": workers})
-        for role in ("admin", "editor", "reviewer"):
-            with login(role) as client:
-                new_password = "Aa1!" + secrets.token_urlsafe(22)
-                mutate(client, "POST", "/api/v1/auth/password", {"requestId": "portable-test-password-" + role,
-                    "currentPassword": config["accounts"][role]["password"], "newPassword": new_password})
-                passwords[role] = new_password
-        with login("editor") as client:
+        with local_session() as client:
+            verify_write_protection(client, base)
+            records.append({"case": "LOCAL_SINGLE_USER_CSRF_ORIGIN_SESSION_BINDING", "passed": True})
             resource = client.get("/api/v1/resource/context", params={"context": "planning"})
             assert resource.status_code == 200, resource.text
             revision = resource.json()["data"]["revision"]
             kg = client.get("/api/v1/kg/workbench")
             assert kg.status_code == 200, kg.text
             assert client.get("/api/v1/fault/workbench").status_code == 200
-            records.append({"case": "EDITOR_LOGIN_PASSWORD_RESOURCE_SR5_SR6", "passed": True,
+            records.append({"case": "LOCAL_UNIFIED_AUTOMATIC_SESSION_FULL_PERMISSIONS_RESOURCE_SR5_SR6", "passed": True,
                             "resource_revision": revision, "knowledge_version": kg.json()["data"]["workspace"]["currentVersionId"]})
-        with login("admin") as client:
             options = client.get("/api/v1/system/options").json()["data"]
             mutate(client, "PUT", "/api/v1/system/parameters/PAR-01", {"baseRevision": options["revision"],
                    "requestId": "portable-persistence-test", "value": 31})
@@ -135,16 +200,16 @@ def verify(root, output):
         records.append({"case": "REPEATED_START_SAME_PROCESS", "passed": True})
         run("stop")
         assert state()["state"] == "STOPPED"
-        assert occupied.fileno() >= 0
+        assert occupied is None or occupied.fileno() >= 0
         run("start")
         base = f"http://127.0.0.1:{state()['port']}"
+        verify_start_url(root, state())
         verify_identity()
         assert state()["instance"] != first["instance"]
         assert hashlib.sha256((data / "settings.json").read_bytes()).hexdigest() == settings_hash
-        with login("admin") as client:
+        with local_session() as client:
             values = client.get("/api/v1/system/parameters").json()["data"]["items"]
             assert next(x["value"] for x in values if x["id"] == "PAR-01") == 31
-        with login("editor") as client:
             assert client.get("/api/v1/resource/context", params={"context": "planning"}).json()["data"]["revision"] == revision
         records.append({"case": "STOP_RESTART_PRESERVES_DATABASE_ACCOUNT_RESOURCE", "passed": True})
     finally:
@@ -153,7 +218,8 @@ def verify(root, output):
             run("stop")
             records.append({"case": "STOP_AND_REPEATED_STOP", "passed": True})
         finally:
-            occupied.close()
+            if occupied is not None:
+                occupied.close()
             if original_database is None:
                 os.environ.pop("DATABASE_URL", None)
             else:

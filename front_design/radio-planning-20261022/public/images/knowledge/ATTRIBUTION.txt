@@ -1,0 +1,24 @@
+知识实物参考图片（随程序离线使用）
+
+radio-prc150.png
+内容：AN/PRC-150 电台；仅匹配 AN/PRC-150、AN/PRC-150(C) 的明确型号。
+原始登记：US Marine Corps，Public Domain。
+来源记录：https://commons.wikimedia.org/wiki/File:AN_PRC-150_radio_set.jpg
+许可记录：https://creativecommons.org/publicdomain/mark/1.0/
+本地处理：去背景、裁切。
+
+radio-ft891.png
+内容：Yaesu FT-891 电台；仅匹配 FT-891 的明确型号。
+原始登记：Dr vulpes，CC BY-SA 4.0。
+来源记录：https://commons.wikimedia.org/wiki/File:FT-891.jpg
+许可记录：https://creativecommons.org/licenses/by-sa/4.0/
+本地处理：去背景、裁切；派生图沿用 CC BY-SA 4.0。
+
+antenna-feedline.png
+内容：同轴馈线与接头，通用部件参考；不表示某个电台型号的专用部件。
+原始登记：Michał Klimek，CC BY-SA 3.0。
+来源记录：https://commons.wikimedia.org/wiki/File:Kabel_koncentryczny.jpg
+许可记录：https://creativecommons.org/licenses/by-sa/3.0/
+本地处理：原照片右上部分去背景、裁切；派生图沿用 CC BY-SA 3.0。
+
+以上来源与许可信息沿用随图片保存的既有素材登记；本次仅处理本地文件。

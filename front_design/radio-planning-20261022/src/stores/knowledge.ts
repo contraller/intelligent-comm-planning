@@ -250,37 +250,37 @@ export const useKnowledgeStore = defineStore('knowledge',() => {
   async function closeDrawer() { if (await allowLeave()) {const reread=receiptPending.value;drawerOpen.value=false;selectedChange.value=null;editBase.value=null;changeId.value='';receiptChangeId.value='';setDraft(null);
     // 用户已完成保存或明确放弃本次输入，关闭后不再显示该表单的旧校验错误。
     if(!reread)error.value='';if(reread)await refreshTab();} }
-  async function readCaseBase():Promise<KnowledgeCaseContext>{
-    if(!auth.can('knowledge.edit'))throw new Error('当前没有知识构建权限');
-    const session=auth.generation;
-    // 预检独立读取当前发布版，不为刷新基线覆盖页面中尚未保存的原草稿。
-    const {workspace:metadata,error:failure,...values}=await previewService.loadKnowledgeMetadata();
-    if(failure||!metadata)throw new Error(failure||'知识工作区不可用，输入已保留');
-    if(session!==auth.generation||!auth.can('knowledge.edit'))throw new Error('身份已变化，请重新预检');
-    const value=await previewService.getKnowledgeVersion({id:metadata.currentVersionId});
-    if(session!==auth.generation||!auth.can('knowledge.edit'))throw new Error('身份已变化，请重新预检');
-    if(value.id!==metadata.currentVersionId)throw new Error('知识基线响应不一致，请重新预检');
-    return {base:value,catalog:values,metadata};
+  async function readCaseBase(): Promise<KnowledgeCaseContext> {
+    if (!auth.can('knowledge.edit')) throw new Error('当前没有知识构建权限');
+    const session = auth.generation;
+    const { workspace: metadata, error: failure, ...values } = await previewService.loadKnowledgeMetadata();
+    if (failure || !metadata) throw new Error(failure || '知识工作区不可用，输入已保留');
+    if (session !== auth.generation || !auth.can('knowledge.edit')) throw new Error('身份已变化，请重新预检');
+    const value = await previewService.getKnowledgeVersion({ id: metadata.currentVersionId });
+    if (session !== auth.generation || !auth.can('knowledge.edit')) throw new Error('身份已变化，请重新预检');
+    if (value.id !== metadata.currentVersionId) throw new Error('知识基线响应不一致，请重新预检');
+    return { base: value, catalog: values, metadata };
   }
-  let applyingCases=false;
-  async function applyCaseDraft(content:KnowledgeDraft,source:KnowledgeCaseContext){
-    if(applyingCases)throw new Error('正在生成知识草稿，请勿重复应用');
-    applyingCases=true;
-    const session=auth.generation;
-    try{
-      if(!auth.can('knowledge.edit')||locked.value||receiptPending.value||!(await allowLeave(false,true)))throw new Error('当前不能替换知识草稿，输入已保留');
-      // 原草稿的放弃延迟到读版及权限检查成功；读取失败不能变成一次成功替换。
-      const {workspace:metadata,error:failure,...values}=await previewService.loadKnowledgeMetadata();
-      if(failure||!metadata)throw new Error(failure||'知识工作区不可用，原草稿和结构化输入已保留');
-      if(session!==auth.generation||!auth.can('knowledge.edit')||locked.value||receiptPending.value)throw new Error('身份或工作区已变化，输入已保留');
-      if(content.baseVersionId!==metadata.currentVersionId||source.base.id!==content.baseVersionId)throw new Error('知识版本已变化，请保留输入并重新预检');
-      const before=workspace.value;
-      workspace.value={...metadata,versions:before?.versions??[],changes:before?.changes??[],logs:before?.logs??[]};catalog.value=values;loadError.value='';
-      editBase.value=knowledgeClone(source.base);selectedChange.value=null;changeId.value='';receiptChangeId.value='';
-      // 空基线保证新生成但尚未保存的草稿仍受离开保护。
-      setDraft({summary:'',baseVersionId:source.base.id,entities:[],relations:[]});draft.value=knowledgeClone(content);drawerOpen.value=true;error.value='';
-      notice.value='结构化草稿已生成，尚未保存、送审或发布';
-    }finally{applyingCases=false;}
+  let applyingCases = false;
+  async function applyCaseDraft(content: KnowledgeDraft, context: KnowledgeCaseContext) {
+    if (applyingCases) throw new Error('正在生成知识草稿，请勿重复应用');
+    applyingCases = true;
+    const session = auth.generation;
+    try {
+      if (!auth.can('knowledge.edit') || locked.value || receiptPending.value || !(await allowLeave(false, true))) throw new Error('当前不能应用知识构建，输入已保留');
+      const { workspace: metadata, error: failure, ...values } = await previewService.loadKnowledgeMetadata();
+      if (failure || !metadata) throw new Error(failure || '知识工作区不可用，原草稿和结构化输入已保留');
+      if (session !== auth.generation || !auth.can('knowledge.edit') || locked.value || receiptPending.value) throw new Error('身份或工作区已变化，输入已保留');
+      if (content.baseVersionId !== metadata.currentVersionId || context.base.id !== content.baseVersionId) throw new Error('知识版本已变化，请保留输入并重新预检');
+      const before = workspace.value;
+      workspace.value = { ...metadata, versions: before?.versions ?? [], changes: before?.changes ?? [], logs: before?.logs ?? [] };
+      catalog.value = values; loadError.value = '';
+      editBase.value = knowledgeClone(context.base); selectedChange.value = null; changeId.value = ''; receiptChangeId.value = '';
+      // 新草稿与空基线比较，尚未保存的构建结果仍受离开保护。
+      setDraft({ summary: '', baseVersionId: context.base.id, entities: [], relations: [] });
+      draft.value = knowledgeClone(content); drawerOpen.value = true; error.value = '';
+      notice.value = '结构化草稿已生成，请继续保存、提交审核和发布';
+    } finally { applyingCases = false; }
   }
   function request(kind:string,payload:unknown): KnowledgeMutation {
     const signature=knowledgeSignature({kind,payload,actorId:actorId.value,revision:workspace.value?.revision??null});

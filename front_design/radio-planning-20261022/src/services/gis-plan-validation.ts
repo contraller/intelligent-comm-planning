@@ -2,7 +2,7 @@ import { ApiError } from './types';
 import { readCoverage } from './coverage-validation';
 import type {
   GisFrozenDemand, GisFrozenDevice, GisFrozenLink, GisFrozenNode, GisFrozenRoute,
-  GisLinkDetail, GisLinkQuery, GisNetwork, GisPaths, GisPathsQuery, GisPlanIdentity, GisPlanQuery,
+  GisLinkDetail, GisLinkQuery, GisNetwork, GisPaths, GisPathsQuery, GisPlanIdentity, GisPlanQuery, GisFrozenInterference,
   GisPlanSurface,
 } from '../types/gis-plan';
 
@@ -11,10 +11,10 @@ const badQuery = () => new ApiError('请选择明确的任务、方案和快照'
 const isId = (value: unknown): value is string => typeof value === 'string' && value.length > 0
   && value.length <= 120 && !/[\s\u0000-\u001f\u007f]/u.test(value);
 function id(value: unknown): string { if (!isId(value)) throw invalid(); return value; }
-function object(value: unknown, fields: string[], optionalFields: string[] = []): Record<string, unknown> {
+function object(value: unknown, fields: string[]): Record<string, unknown> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw invalid();
   const row = value as Record<string, unknown>;
-  if (fields.some(key => !Object.hasOwn(row, key)) || Object.keys(row).some(key => !fields.includes(key) && !optionalFields.includes(key))) throw invalid();
+  if (Object.keys(row).length !== fields.length || fields.some(key => !Object.hasOwn(row, key))) throw invalid();
   return row;
 }
 function array<T>(value: unknown, read: (item: unknown) => T): T[] {
@@ -92,15 +92,16 @@ export function readGisPlanSurface(value: unknown, query: GisPlanQuery, network:
   return { identity: source, terrain, terrain_notice: notice, coverage, coverage_notice: coverageNotice };
 }
 function node(value: unknown): GisFrozenNode {
-  const row = object(value, ['id', 'name', 'coordinate', 'status', 'alert'], ['mobility', 'node_role', 'node_subtype']);
+  if(!value||typeof value!=='object'||Array.isArray(value))throw invalid();
+  const optional=['mobility','node_role','node_subtype'];
+  const row = object(value, ['id', 'name', 'coordinate', 'status', 'alert',...optional.filter(key=>Object.hasOwn(value,key))]);
   const name = text(row.name), coordinate = array(row.coordinate, item => number(item));
   if (!name.length || name.length > 512 || coordinate.length !== 2 || Math.abs(coordinate[0]) > 180 || Math.abs(coordinate[1]) > 90) throw invalid();
   return { id: id(row.id), name, coordinate: [coordinate[0], coordinate[1]],
     status: nullable(row.status, item => literal(item, ['NORMAL', 'FAULT', 'OFFLINE'])), alert: nullable(row.alert, bool),
-    // 缺省与显式 null 分开保留，重复解码也不补造平台字段。
-    ...(Object.hasOwn(row, 'mobility') ? { mobility: nullable(row.mobility, item => literal(item, ['FIXED', 'VEHICLE', 'MANPACK'] as const)) } : {}),
-    ...(Object.hasOwn(row, 'node_role') ? { node_role: nullable(row.node_role, text) } : {}),
-    ...(Object.hasOwn(row, 'node_subtype') ? { node_subtype: nullable(row.node_subtype, text) } : {}) };
+    ...(Object.hasOwn(row,'mobility')?{mobility:nullable(row.mobility,item=>literal(item,['FIXED','VEHICLE','MANPACK'] as const))}:{}),
+    ...(Object.hasOwn(row,'node_role')?{node_role:nullable(row.node_role,text)}:{}),
+    ...(Object.hasOwn(row,'node_subtype')?{node_subtype:nullable(row.node_subtype,text)}:{}) };
 }
 function device(value: unknown): GisFrozenDevice {
   const row = object(value, ['id', 'station_id', 'model_id', 'device_class', 'frequency_khz', 'tx_power_dbm', 'antenna_height_m']);
@@ -127,6 +128,18 @@ function route(value: unknown): GisFrozenRoute {
   if (!nodeIds.length || nodeIds.length !== linkIds.length + 1) throw invalid();
   return { id: id(row.id), demand_id: id(row.demand_id), node_ids: nodeIds, link_ids: linkIds, backup: bool(row.backup) };
 }
+function interference(value: unknown): GisFrozenInterference {
+  const row = object(value, ['id', 'name', 'coordinate', 'elevationM', 'antennaHeightM', 'centerFreqKhz', 'bandwidthKhz',
+    'txPowerDbm', 'antennaGainDbi', 'interferenceType', 'patternType', 'azimuthDeg', 'dutyCycle', 'active', 'origin']);
+  const name = text(row.name), kind = text(row.interferenceType), coordinate = array(row.coordinate, part => number(part));
+  if (!name.length || name.length > 512 || !kind.length || kind.length > 120 || coordinate.length !== 2
+    || Math.abs(coordinate[0]) > 180 || Math.abs(coordinate[1]) > 90) throw invalid();
+  return { id: id(row.id), name, coordinate: [coordinate[0], coordinate[1]], elevationM: nullable(row.elevationM, part => number(part)),
+    antennaHeightM: number(row.antennaHeightM, 0), centerFreqKhz: positive(row.centerFreqKhz), bandwidthKhz: positive(row.bandwidthKhz),
+    txPowerDbm: number(row.txPowerDbm), antennaGainDbi: nullable(row.antennaGainDbi, part => number(part)), interferenceType: kind,
+    patternType: nullable(row.patternType, text), azimuthDeg: nullable(row.azimuthDeg, part => number(part, 0, 360)),
+    dutyCycle: nullable(row.dutyCycle, part => number(part, 0, 1)), active: bool(row.active), origin: literal(row.origin, ['SOURCE', 'MANUAL', 'IMPORT']) };
+}
 function pathFields(row: Record<string, unknown>) {
   const state = literal(row.paths_state, ['ready', 'missing']), message = text(row.paths_message);
   if ((state === 'missing' && !message.trim()) || (state === 'ready' && message !== '')) throw invalid();
@@ -135,6 +148,7 @@ function pathFields(row: Record<string, unknown>) {
 function associations(network: GisNetwork): void {
   const nodes = unique(network.nodes), devices = unique(network.devices), links = unique(network.links), demands = unique(network.demands);
   unique(network.routes);
+  if (network.interferences) unique(network.interferences);
   if (!nodes.size || network.devices.some(row => !nodes.has(row.station_id))) throw invalid();
   for (const edge of links.values()) {
     const a = devices.get(edge.device_a), b = devices.get(edge.device_b);
@@ -161,9 +175,15 @@ function associations(network: GisNetwork): void {
 }
 export function readGisNetwork(value: unknown, query: GisPlanQuery): GisNetwork {
   validateGisPlanQuery(query, 'network');
-  const row = object(value, ['identity', 'nodes', 'devices', 'links', 'demands', 'routes', 'paths_state', 'paths_message']);
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw invalid();
+  const hasSources = Object.hasOwn(value, 'interferences'), hasNotice = Object.hasOwn(value, 'interferences_notice');
+  if (hasSources !== hasNotice) throw invalid();
+  const row = object(value, ['identity', 'nodes', 'devices', 'links', 'demands', 'routes', 'paths_state', 'paths_message',
+    ...(hasSources ? ['interferences', 'interferences_notice'] : [])]);
   const result: GisNetwork = { identity: identity(row.identity, query), nodes: array(row.nodes, node), devices: array(row.devices, device),
-    links: array(row.links, link), demands: array(row.demands, demand), routes: array(row.routes, route), ...pathFields(row) };
+    links: array(row.links, link), demands: array(row.demands, demand), routes: array(row.routes, route), ...pathFields(row),
+    ...(hasSources ? { interferences: array(row.interferences, interference), interferences_notice: text(row.interferences_notice) } : {}) };
+  if (result.interferences?.length && result.interferences_notice !== '') throw invalid();
   associations(result);
   return result;
 }

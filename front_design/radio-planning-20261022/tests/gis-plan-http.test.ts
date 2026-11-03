@@ -3,7 +3,7 @@ import { createGisPlanHttp } from '../src/services/gis-plan-http';
 import { readGisLinkDetail, readGisNetwork, readGisPaths, readGisPlanSurface } from '../src/services/gis-plan-validation';
 import { createAuthHttp, type AuthenticatedRequest } from '../src/services/auth-http';
 import { ApiError } from '../src/services/types';
-import type { GisLinkDetail, GisNetwork, GisPaths } from '../src/types/gis-plan';
+import type { GisLinkDetail, GisNetwork, GisPaths, GisFrozenInterference } from '../src/types/gis-plan';
 
 // 独立构造的冻结契约样本，不是算法实跑或真实观测。
 const query = { planId: 'P1', taskId: 'T1', snapshotId: 'S1' };
@@ -29,6 +29,11 @@ function detail(source = network()): GisLinkDetail {
     endpoint_devices: [structuredClone(source.devices[0]), structuredClone(source.devices[1])], demand_ids: ['D1'], route_ids: ['R2'],
     observation: { state: 'missing', message: '未提供实测观测', samples: [] } };
 }
+function interference(): GisFrozenInterference {
+  return { id: 'IF-FROZEN', name: '冻结干扰源', coordinate: [114.2, 37.1], elevationM: null, antennaHeightM: 8,
+    centerFreqKhz: 7000, bandwidthKhz: 200, txPowerDbm: 30, antennaGainDbi: null, interferenceType: 'PULSE',
+    patternType: null, azimuthDeg: null, dutyCycle: 0.5, active: false, origin: 'SOURCE' };
+}
 function paths(source = network()): GisPaths {
   return { identity: structuredClone(source.identity), demands: structuredClone(source.demands), routes: structuredClone(source.routes),
     paths_state: source.paths_state, paths_message: source.paths_message };
@@ -40,6 +45,42 @@ function fixture(value: unknown) {
 }
 
 describe('GIS 冻结方案读取适配器', () => {
+  it('同帧干扰源随原资源身份严格读取，不用当前资源修补；旧响应仍兼容', async () => {
+    const original = network(), source = { ...original, interferences: [interference()], interferences_notice: '' };
+    const { api, transport } = fixture(source);
+    const result = await api.getNetwork(query);
+    expect(result.identity.resource_revision).toBe('V1'); expect(result.identity.source_changed).toBe(true);
+    expect(result.interferences).toEqual(source.interferences); expect(result.interferences?.[0].active).toBe(false);
+    result.interferences![0].coordinate[0] = 100; expect(source.interferences[0].coordinate[0]).toBe(114.2);
+    expect(transport).toHaveBeenCalledOnce(); expect(readGisNetwork(original, query)).toEqual(original);
+  });
+  it('缺失冻结干扰源与已核验空表的提示分别保留，不冒充实测零干扰', () => {
+    expect(readGisNetwork({ ...network(), interferences: [], interferences_notice: '历史资料未保留' }, query).interferences_notice).toBe('历史资料未保留');
+    expect(readGisNetwork({ ...network(), interferences: [], interferences_notice: '' }, query).interferences).toEqual([]);
+    expect(() => readGisNetwork({ ...network(), interferences: [] }, query)).toThrowError(ApiError);
+    expect(() => readGisNetwork({ ...network(), interferences_notice: '' }, query)).toThrowError(ApiError);
+  });
+  it.each<[string, (source: Record<string, unknown>) => void]>([
+    ['经度越界', source => { source.coordinate = [181, 37]; }],
+    ['坐标维数', source => { source.coordinate = [114, 37, 8]; }],
+    ['非有限数', source => { source.txPowerDbm = Infinity; }],
+    ['数字字符串', source => { source.centerFreqKhz = '7000'; }],
+    ['非法频率', source => { source.centerFreqKhz = 0; }],
+    ['负挂高', source => { source.antennaHeightM = -1; }],
+    ['布尔字符串', source => { source.active = 'false'; }],
+    ['非法标识', source => { source.id = 'bad id'; }],
+    ['占空比越界', source => { source.dutyCycle = 1.5; }],
+    ['来源非法', source => { source.origin = 'CURRENT'; }],
+    ['缺少未知值字段', source => { delete source.elevationM; }],
+    ['意外额外字段', source => { source.status = 'NORMAL'; }],
+  ])('存在新干扰源字段时拒绝损坏值：%s', (_label, mutate) => {
+    const source = interference() as unknown as Record<string, unknown>; mutate(source);
+    expect(() => readGisNetwork({ ...network(), interferences: [source], interferences_notice: '' }, query)).toThrowError(ApiError);
+  });
+  it('拒绝重复干扰源编号或与非空资料冲突的缺失说明', () => {
+    expect(() => readGisNetwork({ ...network(), interferences: [interference(), interference()], interferences_notice: '' }, query)).toThrowError(ApiError);
+    expect(() => readGisNetwork({ ...network(), interferences: [interference()], interferences_notice: '未提供' }, query)).toThrowError(ApiError);
+  });
   it('冻结地形按精确快照读取，缺失必须有明确原因', async () => {
     const row = { identity: network().identity, terrain: null, terrain_notice: '历史DEM未提供', coverage: null, coverage_notice: '覆盖未提供' };
     const { api, transport } = fixture(row);
@@ -68,42 +109,6 @@ describe('GIS 冻结方案读取适配器', () => {
     expect(result.nodes[0].status).toBeNull(); expect(result.devices[0].frequency_khz).toBeNull();
     await api.getNetwork({ planId: 'P1', taskId: 'T1' });
     expect(transport.mock.calls[1][0]).toBe('/gis/plans/P1/network?context=gis&task_id=T1');
-  });
-  it.each([
-    { mobility: 'VEHICLE', node_role: 'TASK', node_subtype: 'II_MOBILE' },
-    { mobility: 'FIXED' },
-    { mobility: 'MANPACK', node_role: null },
-    { mobility: null, node_role: null, node_subtype: null },
-  ])('原 network 请求直接接收可选冻结平台字段 %j，重复解码仍保留原值', async fields => {
-    const source = network(); Object.assign(source.nodes[0], fields);
-    const before = structuredClone(source), { api, transport } = fixture(source);
-    const result = await api.getNetwork(query);
-    expect(result.nodes[0]).toMatchObject(fields);
-    expect(readGisNetwork(result, query)).toEqual(result);
-    expect(source).toEqual(before);
-    expect(transport).toHaveBeenCalledExactlyOnceWith('/gis/plans/P1/network?context=gis&task_id=T1&snapshot_id=S1', { method: 'GET', signal: undefined });
-    transport.mockResolvedValue({ identity: source.identity, terrain: null, terrain_notice: '历史DEM未提供', coverage: null, coverage_notice: '覆盖未提供' });
-    expect((await api.getSurface(query, result)).identity).toEqual(source.identity);
-  });
-  it('旧五字段节点缺省保持缺省，不补当前平台或 null', () => {
-    const result = readGisNetwork(network(), query);
-    for (const field of ['mobility', 'node_role', 'node_subtype']) expect(result.nodes[0]).not.toHaveProperty(field);
-    expect(readGisNetwork(result, query)).toEqual(result);
-  });
-  it.each([
-    { mobility: 'AIRCRAFT' }, { mobility: '' }, { mobility: true }, { mobility: undefined },
-    { node_role: 1 }, { node_role: [] }, { node_subtype: {} }, { node_subtype: false },
-    { mobility: 'VEHICLE', platform_source: 'current-resource' },
-  ])('拒绝非法平台值或未登记扩展字段 %j', fields => {
-    const source = network(); Object.assign(source.nodes[0], fields);
-    expect(() => readGisNetwork(source, query)).toThrowError(expect.objectContaining({ code: 'INVALID_GIS_PLAN_RESPONSE' }));
-  });
-  it('新增平台字段不放宽必需字段、冻结身份或节点唯一性', () => {
-    const source = network(); Object.assign(source.nodes[0], { mobility: 'VEHICLE', node_role: 'TASK', node_subtype: 'II_MOBILE' });
-    const missing = structuredClone(source); delete (missing.nodes[0] as Partial<GisNetwork['nodes'][0]>).status;
-    const wrongSnapshot = structuredClone(source); wrongSnapshot.identity.snapshot_id = 'S2';
-    const duplicate = structuredClone(source); duplicate.nodes.push({ ...duplicate.nodes[0], mobility: 'FIXED' });
-    for (const value of [missing, wrongSnapshot, duplicate]) expect(() => readGisNetwork(value, query)).toThrowError(ApiError);
   });
   it('读取指定链路并保留观测缺失', async () => {
     const { api, transport } = fixture(detail());

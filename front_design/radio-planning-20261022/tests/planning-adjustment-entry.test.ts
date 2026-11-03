@@ -23,11 +23,10 @@ import { apiJob, apiPlan, storeFixture } from './fixtures/planning-api';
 import { clientTemplate } from './helpers/vue-client';
 
 // 只替换画布和浮层宿主；真实页面、调整输入和预览组件均运行编译模板。
-const coverageMapCalls=vi.hoisted(()=>({fit:vi.fn(),coverage:vi.fn()}));
-vi.mock('../src/components/MapCanvas.vue',async()=>{const {defineComponent,h}=await import('vue');return{default:defineComponent({inheritAttrs:false,props:['stations','links','mockCoverage','planningOverlay','frozenCoverage'],setup(props,{expose}){expose({fit:()=>coverageMapCalls.fit(props.frozenCoverage),fitFrozenCoverage:coverageMapCalls.coverage});return()=>h('map-probe',{...props});}})};});
+vi.mock('../src/components/MapCanvas.vue',async()=>{const {defineComponent,h}=await import('vue');return{default:defineComponent({inheritAttrs:false,props:['stations','links','mockCoverage','planningOverlay'],setup:props=>()=>h('map-probe',{...props})})};});
 vi.mock('../src/components/AppDrawer.vue',async()=>{const {defineComponent,h}=await import('vue');return{default:defineComponent({inheritAttrs:false,props:['visible','title'],render(){return this.visible?h('drawer-probe',{title:this.title},[this.$slots.default?.(),this.$slots.footer?.()]):null;}})};});
 vi.mock('../src/components/AppTable.vue',()=>({default:{inheritAttrs:false,render:()=>null}}));
-vi.mock('../src/components/FrozenCoveragePanel.vue',()=>({default:Vue.defineComponent({inheritAttrs:false,props:['query','active'],emits:['overlay','focus','overview'],setup(props,{expose,emit}){expose({requestLeave:async()=>true,hasProtectedSelection:()=>false,readCache:async()=>{}});return()=>h('coverage-probe',{...props,onOverlay:(value:unknown)=>emit('overlay',value),onFocus:(value:unknown)=>emit('focus',value),onOverview:(value:unknown)=>emit('overview',value)});}})}));
+vi.mock('../src/components/FrozenCoveragePanel.vue',()=>({default:Vue.defineComponent({inheritAttrs:false,setup(_p,{expose}){expose({requestLeave:async()=>true,hasProtectedSelection:()=>false,readCache:async()=>{}});return()=>null;}})}));
 vi.mock('../src/components/TaskApiPanel.vue',()=>({default:{inheritAttrs:false,render:()=>null}}));
 vi.mock('../src/components/ResourceReadStatus.vue',()=>({default:{inheritAttrs:false,render:()=>null}}));
 vi.mock('../src/components/PlanningApiProgressPanel.vue',()=>({default:{inheritAttrs:false,render:()=>null}}));
@@ -53,7 +52,7 @@ async function flush(){for(let i=0;i<12;i++)await Promise.resolve();await nextTi
 async function click(root:Host,label:string){const entry=button(root,label);expect(entry,label).toBeDefined();expect(entry.props.disabled,`${label} 可操作`).not.toBe(true);await entry.props.onClick();await flush();}
 async function input(root:Host,label:string,value:string){const entry=control(root,label);expect(entry).toBeDefined();entry.props.onInput({target:{value}});await flush();}
 let app:App<Host>|undefined,pinia:ReturnType<typeof createPinia>|undefined;
-afterEach(()=>{app?.unmount();app=undefined;if(pinia)disposePinia(pinia);pinia=undefined;vi.restoreAllMocks();vi.unstubAllGlobals();vi.useRealTimers();coverageMapCalls.fit.mockClear();coverageMapCalls.coverage.mockClear();});
+afterEach(()=>{app?.unmount();app=undefined;if(pinia)disposePinia(pinia);pinia=undefined;vi.restoreAllMocks();vi.unstubAllGlobals();vi.useRealTimers();});
 async function mount(component:typeof PlanningApiView,path='/planning'){
   vi.stubGlobal('Document',class {});vi.stubGlobal('ShadowRoot',class {});
   vi.stubGlobal('window',new EventTarget());vi.stubGlobal('document',new EventTarget());
@@ -94,16 +93,6 @@ async function apiEntry(){
 }
 
 describe('具体方案调整真实页面入口',()=>{
-  it('覆盖仅在显式操作时定位，返回全网保留图层，迟到定位不影响新结果',async()=>{
-    const s=await apiEntry(),panel=all(s.root,n=>n.tag==='coverage-probe')[0]!,q=panel.props.query;
-    const overlay={anchor:{plan_id:q.planId,task_id:q.taskId,snapshot_id:q.snapshotId,resource_revision:q.resourceRevision},deviceId:'D1',display:'field'};
-    panel.props.onOverlay(overlay);await flush();const map=()=>all(s.root,n=>n.tag==='map-probe')[0]!;
-    expect(map().props.frozenCoverage).toBe(overlay);expect(coverageMapCalls.coverage).not.toHaveBeenCalled();
-    panel.props.onFocus(overlay);await flush();expect(coverageMapCalls.coverage).toHaveBeenCalledOnce();
-    const palette={...overlay,display:'boundary'};panel.props.onOverlay(palette);await flush();expect(coverageMapCalls.coverage).toHaveBeenCalledOnce();
-    panel.props.onOverview(palette);await flush();expect(coverageMapCalls.fit).toHaveBeenCalledWith(null);expect(map().props.frozenCoverage).toBe(palette);
-    panel.props.onFocus(palette);panel.props.onOverlay({...palette,deviceId:'D2'});await flush();expect(coverageMapCalls.coverage).toHaveBeenCalledOnce();
-  });
   it('转正配置入口只打开服务已返回的产物，旧响应不拿规划配置替代', async () => {
     const s = await apiEntry(), plan = s.planning.selectedPlan!;
     plan.state = 'CONFIRMED';plan.current = true;plan.confirmedAt = '2026-10-05T01:00:00Z';await flush();

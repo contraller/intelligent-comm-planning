@@ -25,9 +25,9 @@ def _invalid(field: str):
 def _mode() -> str:
     demo = os.environ.get("FRONTEND_INTEGRATION_DEMO") == "1"
     mode = os.environ.get("AUTH_MODE", "INTEGRATION" if demo else "OFF")
-    if mode not in ("OFF", "INTEGRATION", "LOCAL_PASSWORD"):
+    if mode not in ("OFF", "INTEGRATION", "LOCAL_PASSWORD", "LOCAL_SINGLE_USER"):
         _invalid("AUTH_MODE")
-    if mode == "LOCAL_PASSWORD" and demo or mode == "INTEGRATION" and not demo:
+    if mode in ("LOCAL_PASSWORD", "LOCAL_SINGLE_USER") and demo or mode == "INTEGRATION" and not demo:
         _invalid("AUTH_MODE/FRONTEND_INTEGRATION_DEMO")
     return mode
 
@@ -111,11 +111,19 @@ def install_local_identity(app, *, session_factory=None, settings: LocalIdentity
     mode = _mode()
     if getattr(app.state, "local_identity_adapter", None) is not None:
         _invalid("local_identity_adapter重复安装")
-    if mode != "LOCAL_PASSWORD":
+    if mode not in ("LOCAL_PASSWORD", "LOCAL_SINGLE_USER"):
         # main的公共分流应尊重显式OFF，不能只凭DEMO开关继续返回联调身份。
         app.state.auth_mode = mode
         return None
     local_settings, secret = _settings(settings), _key(request_key)
+    if mode == "LOCAL_SINGLE_USER":
+        # 该模式只供本机便携入口，不接受域名、局域网或外部代理来源。
+        for origin in local_settings.allowed_origins:
+            try:
+                if not ipaddress.ip_address(urlsplit(origin).hostname).is_loopback:
+                    _invalid("LOCAL_SINGLE_USER回环来源")
+            except ValueError:
+                _invalid("LOCAL_SINGLE_USER回环来源")
     from .database import DatabaseConfigurationError, get_session_factory
     from .local_identity_router import create_local_identity_router
     from .local_identity_service import LocalIdentityAdapter, LocalIdentityService
@@ -130,8 +138,13 @@ def install_local_identity(app, *, session_factory=None, settings: LocalIdentity
         _invalid("DATABASE_URL/session_factory")
     if not callable(factory):
         _invalid("session_factory")
-    system = SystemManagementService(session_factory=factory, permission_registry=SERVER_PERMISSION_REGISTRY, request_key=secret)
-    local = LocalIdentityService(system_service=system, settings=local_settings)
+    system = SystemManagementService(session_factory=factory, permission_registry=SERVER_PERMISSION_REGISTRY, request_key=secret,
+                                     auth_source=mode)
+    if mode == "LOCAL_SINGLE_USER":
+        from .local_single_user_service import LocalSingleUserService
+        local = LocalSingleUserService(system_service=system, settings=local_settings)
+    else:
+        local = LocalIdentityService(system_service=system, settings=local_settings)
 
     class InstalledAdapter(LocalIdentityAdapter):
         @property
@@ -139,6 +152,7 @@ def install_local_identity(app, *, session_factory=None, settings: LocalIdentity
             return self
 
     adapter = InstalledAdapter(service=local)
+    adapter.auth_mode = mode
     auth_router = create_local_identity_router(service=local)
     system_router = create_system_management_router(authorize=adapter.require_actor, service=system)
     expected = {route.path for router in (auth_router, system_router) for route in router.routes}

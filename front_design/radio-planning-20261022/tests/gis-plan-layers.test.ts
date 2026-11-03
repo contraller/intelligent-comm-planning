@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest';
 import { gisPlanLayer } from '../src/maps/gis-plan-layers';
-import { Icon, Style } from 'ol/style';
 import type { GisNetwork } from '../src/types/gis-plan';
 function sample(): GisNetwork {
   return {
@@ -78,22 +77,6 @@ describe('GIS冻结图层', () => {
     const input = sample();
     input.nodes = [];
     expect(gisPlanLayer(input).getSource()!.getFeatures()).toEqual([]);
-  });
-  it.each([
-    ['FIXED', 'fixed-station'], ['VEHICLE', 'communication-vehicle'], ['MANPACK', 'manpack'],
-    [null, 'node-generic'], [undefined, 'node-generic'],
-  ] as const)('只按明确冻结 mobility %s 选择 %s 图标', (mobility, symbol) => {
-    const input = sample();
-    input.nodes[0] = { ...input.nodes[0], name: '通信车名称不代表平台来源', node_role: 'VEHICLE', node_subtype: 'VEHICLE_A', ...(mobility === undefined ? {} : { mobility }) };
-    const before = structuredClone(input);
-    const feature = gisPlanLayer(input).getSource()!.getFeatures().find(row => row.get('kind') === 'frozen-plan-node' && row.get('objectId') === 'A')!;
-    const style = feature.getStyle(); expect(style).toBeInstanceOf(Style);
-    if (!(style instanceof Style)) throw new Error('节点样式未提供');
-    const icon = style.getImage(); expect(icon).toBeInstanceOf(Icon);
-    if (!(icon instanceof Icon)) throw new Error('节点图标未提供');
-    expect(icon.getSrc()).toContain(`/icons/gis/${symbol}.svg`);
-    expect(feature.get('snapshot')).toBe(input.identity.snapshot_id);
-    expect(input).toEqual(before);
   });
   it('尚无分析运行时同样遵循冻结拓扑显隐，不清除节点', () => {
     for (const display of [{ linksVisible: false }, { topologyOpacity: 0 }]) {

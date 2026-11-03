@@ -112,6 +112,20 @@ describe('本地系统页面状态闭环', () => {
     expect(find(root, n => n.tag === 'input')!.props.readonly).toBeDefined();
     expect(find(root, n => n.tag === 'button' && textOf(n) === '保存参数')!.props.disabled).toBe(true);
   });
+  it('统一本地模式维护普通账号密码不要求操作人密码，密码模式仍要求', async () => {
+    const submit = vi.fn(async () => result());
+    const root = node('root');
+    app = renderer.createApp({ render: () => h(SystemPasswordDrawer, { visible: true, mode: 'ADMIN', localSingleUser: true, submit }) });
+    app.provide(ssrContextKey, { modules: new Set() }); app.mount(root);
+    expect(all(root, n => n.tag === 'input' && n.props.type === 'password')).toHaveLength(2);
+    expect(textOf(root)).not.toContain('操作人当前密码');
+    app.unmount(); app = undefined;
+    const old = node('root');
+    app = renderer.createApp({ render: () => h(SystemPasswordDrawer, { visible: true, mode: 'ADMIN', submit }) });
+    app.provide(ssrContextKey, { modules: new Set() }); app.mount(old);
+    expect(all(old, n => n.tag === 'input' && n.props.type === 'password')).toHaveLength(3);
+    expect(textOf(old)).toContain('操作人当前密码');
+  });
   it('初始密码不进入 Pinia，资料保存走真实适配签名', async () => {
     const store = useSystemStore(); await store.load(); await store.openAccount(); store.accountForm!.username = 'viewer'; store.accountForm!.name = '查看人员'; store.accountForm!.department = '测试';
     const password = crypto.randomUUID(); expect(await store.save(false, { initialPassword: password })).toBe(true);

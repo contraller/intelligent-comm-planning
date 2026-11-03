@@ -5,6 +5,11 @@ import type { AuthenticatedRequest } from '../src/services/auth-http';
 const caps = () => ({ authMode: 'LOCAL_PASSWORD', initialized: true, passwordChangeRequired: false, passwordPolicy: { minScalars: 8, maxScalars: 128 }, capabilities: { passwordMaintenance: true, anonymousRecovery: false } });
 const response = (data: unknown) => new Response(JSON.stringify({ code: 0, message: 'success', data }), { headers: { 'Content-Type': 'application/json' } });
 describe('本地正式身份专用适配', () => {
+  it('严格接收统一本地模式能力，保留来源及自审能力', async () => {
+    const data = { ...caps(), authMode: 'LOCAL_SINGLE_USER', capabilities: { passwordMaintenance: false, anonymousRecovery: false, automaticLocalSession: true, unifiedPermissions: true, selfReview: true } };
+    await expect(readLocalIdentityCapabilities({ baseUrl: '/api/v1', fetcher: async () => response(data) })).resolves.toMatchObject({ authMode: 'LOCAL_SINGLE_USER', capabilities: { passwordMaintenance: false, selfReview: true } });
+    await expect(readLocalIdentityCapabilities({ baseUrl: '/api/v1', fetcher: async () => response({ ...data, capabilities: { ...data.capabilities, selfReview: false } }) })).rejects.toMatchObject({ code: 'INVALID_AUTH_RESPONSE' });
+  });
   it('匿名仅读取同源能力，不发送凭据或建立会话', async () => {
     const fetcher = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => response(caps()));
     expect((await readLocalIdentityCapabilities({ baseUrl: '/api/v1', origin: 'https://local.example', fetcher })).authMode).toBe('LOCAL_PASSWORD');

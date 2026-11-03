@@ -1,0 +1,120 @@
+{
+  "用途": "现用桌面实例",
+  "来源": "人工构造例程，非生产、非实测。仅用于学习导入、状态切换和结果查看，不表示真实设备采集或执行。",
+  "适用资源版本": "resource-a2736f3fe68c66b4",
+  "每批全量设备数": 414,
+  "预期统计": [
+    {
+      "文件": "设备状态_第1批_初始状态.json",
+      "状态统计": {
+        "NORMAL": 408,
+        "FAULT": 3,
+        "OFFLINE": 2,
+        "UNKNOWN": 1
+      },
+      "请求编号": "d526db1d-1cf6-552e-856c-0186cd62887c"
+    },
+    {
+      "文件": "设备状态_第2批_状态变化.json",
+      "状态统计": {
+        "NORMAL": 410,
+        "FAULT": 2,
+        "OFFLINE": 1,
+        "UNKNOWN": 1
+      },
+      "请求编号": "700fd7d8-718a-5fe5-8104-59edfa32ebf8"
+    }
+  ],
+  "预期变化": [
+    {
+      "设备": "DV-0001",
+      "第1批": "FAULT",
+      "第2批": "NORMAL"
+    },
+    {
+      "设备": "DV-0003",
+      "第1批": "FAULT",
+      "第2批": "NORMAL"
+    },
+    {
+      "设备": "DV-0004",
+      "第1批": "OFFLINE",
+      "第2批": "NORMAL"
+    },
+    {
+      "设备": "DV-0006",
+      "第1批": null,
+      "第2批": "NORMAL"
+    },
+    {
+      "设备": "DV-0007",
+      "第1批": "NORMAL",
+      "第2批": "FAULT"
+    },
+    {
+      "设备": "DV-0008",
+      "第1批": "NORMAL",
+      "第2批": null
+    }
+  ],
+  "配对方案": {
+    "plan_id": "PLAN-2204963f889c4b1982244cfe80025e95",
+    "task_id": "DEMO-FIRST-PLAN",
+    "snapshot_id": "SNP-PL-2C3FC433",
+    "input_version": "TREV-25600cd299ef4e0d83757651bcb44d0d",
+    "condition_version": "TCOND-e1cd3df0a56345cc97bc52e9fcad63d4",
+    "resource_revision": "resource-a2736f3fe68c66b4",
+    "state": "CONFIRMED",
+    "source_changed": false,
+    "data_origin": "SYNTHETIC_INTEGRATION",
+    "source": "SR4"
+  },
+  "方案资源版本相同": true,
+  "方案中不在当前资源台账的设备": [
+    "DV-O0415",
+    "DV-O0416",
+    "DV-O0417",
+    "DV-O0418",
+    "DV-O0419",
+    "DV-O0420",
+    "DV-O0421",
+    "DV-O0422",
+    "DV-O0423",
+    "DV-O0424",
+    "DV-O0425",
+    "DV-O0426",
+    "DV-O0427",
+    "DV-O0428",
+    "DV-O0429",
+    "DV-O0430",
+    "DV-O0431",
+    "DV-O0432",
+    "DV-O0433",
+    "DV-O0434",
+    "DV-O0435",
+    "DV-O0436",
+    "DV-O0437",
+    "DV-O0438",
+    "DV-O0439",
+    "DV-O0440",
+    "DV-O0441",
+    "DV-O0442",
+    "DV-O0443"
+  ],
+  "方案设备面板各批预期统计": [
+    {
+      "NORMAL": 408,
+      "FAULT": 3,
+      "OFFLINE": 2,
+      "UNKNOWN": 30
+    },
+    {
+      "NORMAL": 410,
+      "FAULT": 2,
+      "OFFLINE": 1,
+      "UNKNOWN": 30
+    }
+  ],
+  "使用说明": "先校验并导入第1批，再在已导入批次中选择；导入第2批后手动选择或启用跟随最新。相同文件重复导入为同一请求，不创建新批次。",
+  "边界": "只使用真实台账编号构造状态，不包含方案新增但尚未入台账的设备；未覆盖成员继续显示未知。资源版本变化后应重新生成，不能只改base_revision。"
+}

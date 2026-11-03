@@ -10,7 +10,7 @@
     <div class="situation-toolbar">
       <!-- 模式条使用文字和颜色共同提示当前可编辑范围。 -->
       <div class="toolbar">
-        <button v-if="httpMode && auth.can('planning.view')" class="btn small" :disabled="editor.busy || fault.active.value" :title="frozenView?'返回当前资源点位':'打开已保存方案，查看设备覆盖'" @click="toggleFrozenPlans">
+        <button v-if="httpMode && auth.can('planning.view')" class="btn small" :disabled="editor.busy || fault.active.value" @click="toggleFrozenPlans">
           {{ frozenView ? '返回当前资源' : '查看已保存方案' }}
         </button>
         <button v-if="frozenView && analysisReturn" class="btn small" :onClick="analysisReturn.open">返回规划方案</button>
@@ -22,7 +22,6 @@
           aria-label="当前视图数据来源"
           >{{ visibleSource }}</span
         >
-        <span v-if="httpMode && !frozenView && auth.can('planning.view')" class="muted">设备覆盖见“查看已保存方案”</span>
       </div>
       <div class="toolbar">
         <button
@@ -98,7 +97,6 @@
       </div>
     </div>
     <GisFrozenPlanPanel v-if="frozenView" ref="frozenPanel" :services="frozenServices" :operations="frozenOperationServices"
-      :coverage-reader="collaborationHttp.frozenCoverage.getLatestCache"
       :initial-tab="frozenInitialTab" :current-resource-revision="workspace.read.workspace?.revision" :session-generation="auth.generation"
       @open-plan="openAnalysisResult" @open-job="openAnalysisJob" />
     <template v-if="!frozenView">

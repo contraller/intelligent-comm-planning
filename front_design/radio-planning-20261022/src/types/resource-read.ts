@@ -49,6 +49,7 @@ export interface ResourceMapQuery extends VersionedRead, ResourceReadFilter { bb
 export interface ResourceMapPoint {
   kind: 'node' | 'interference'; id: string; name: string; coordinate: Coordinate;
   status: OperationalStatus | null; alert: boolean | null; active: boolean | null;
+  mobility?:string|null; node_role?:string|null; node_subtype?:string|null;
 }
 export interface ResourceMapCluster {
   kind: 'node' | 'interference'; id: string; coordinate: Coordinate; count: number;

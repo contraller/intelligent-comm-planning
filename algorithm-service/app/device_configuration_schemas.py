@@ -113,7 +113,7 @@ class AcceptanceActorV2(InputModel):
     display_name: Annotated[StrictStr, Field(min_length=1)]
     role_id: Identifier
     identity_revision: Identifier
-    authentication_mode: Literal["INTEGRATION", "LOCAL_PASSWORD"]
+    authentication_mode: Literal["INTEGRATION", "LOCAL_PASSWORD", "LOCAL_SINGLE_USER"]
 
 
 class ConfigurationAcceptance(InputModel):

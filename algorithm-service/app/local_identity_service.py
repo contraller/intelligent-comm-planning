@@ -50,6 +50,7 @@ def _unknown_account_hash():
 
 
 class LocalIdentityService:
+    auth_mode = "LOCAL_PASSWORD"
     def __init__(self, *, system_service, settings: LocalIdentitySettings):
         self.system, self.settings = system_service, settings
         self.factory, self.clock = system_service.factory, system_service.clock
@@ -119,7 +120,7 @@ class LocalIdentityService:
             identity = FormalIdentity(session_id=row.session_id, account_id=account.id, username=account.username,
                 display_name=account.name, role_id=role.id, role_name=role.name, permissions=tuple(role.permissions),
                 identity_revision=str(account.identity_revision), session_generation=row.generation)
-            context = FormalSessionContext("FORMAL", "ACTIVE", "FORMAL_VERIFIED", source_reference="LOCAL_PASSWORD",
+            context = FormalSessionContext("FORMAL", "ACTIVE", "FORMAL_VERIFIED", source_reference=self.auth_mode,
                 identity=identity, expires_at=row.expires_at, csrf_token=row.csrf)
             if touch:
                 row.last_seen = now
@@ -137,6 +138,9 @@ class LocalIdentityService:
         value["permissions"] = list(value["permissions"])
         return value
 
+    def browser_session(self, request, response):
+        return self.session(request)
+
     def require(self, request, permission: str | None = None, *, writing=False) -> SystemActor:
         context, row, credential = self._load(request)
         if writing:
@@ -151,7 +155,7 @@ class LocalIdentityService:
         if credential.must_change_password and permission is not None:
             raise SystemManagementError("请先维护本人密码", 1104, 403, reason="PASSWORD_CHANGE_REQUIRED")
         return SystemActor(identity.account_id, identity.session_id, identity.identity_revision,
-                           frozenset(identity.permissions), authenticated_at=row.created_at)
+                           frozenset(identity.permissions), auth_source=self.auth_mode, authenticated_at=row.created_at)
 
     def require_identity(self, request, permission: str | None = None, *, writing=False) -> dict:
         """供仍使用 dict 身份的宿主装配；不能绕过正式 require 检查。"""

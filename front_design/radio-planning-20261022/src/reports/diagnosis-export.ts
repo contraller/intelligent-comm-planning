@@ -31,11 +31,11 @@ export async function createDiagnosisExport(record: DiagnosisRecord, format: Rep
     const bytes = options.fontBytes ?? await reportFont();
     pdfMake.addVirtualFileSystem({ 'Report.otf': base64(bytes) });
     pdfMake.addFonts({ Report: { normal:'Report.otf', bold:'Report.otf', italics:'Report.otf', bolditalics:'Report.otf' } });
-    const content: Content[] = [{ text: `${record.name}诊断报告`, fontSize: 22, margin:[0,0,0,10] }, { text: `导出时间：${exportedAt}`, color:'#61738a', fontSize:9 }, { svg: diagnosisFigureSvg(record), width:495, margin:[0,12,0,12] }];
+    const content: Content[] = [{ text: '故障诊断报告', fontSize: 22, margin:[0,0,0,7] }, {text:record.name,fontSize:12,color:'#193b60',margin:[0,0,0,8]}, { text: `导出时间：${exportedAt}`, color:'#61738a', fontSize:9 }, { svg: diagnosisFigureSvg(record), width:495, margin:[0,12,0,12] }];
     for (const section of sections) {
       content.push({ text: section.title, fontSize:14, color:'#193b60', margin:[0,15,0,7], headlineLevel:1 });
       for (const line of section.text) content.push({ text:line, margin:[0,2,0,5] });
-      // 长依据允许跨页拆行；把表头与前两行强绑会使超过整页的依据丢失。
+      // 长依据可跨页拆分；不把表头和两整行锁成超出一页的不可分页块。
       const widths = section.headers.length === 2 ? [135,'*'] : section.headers[1] === '结论 / 依据' ? [55,'*',55,75] : section.headers.map(() => '*');
       if (section.headers.length) content.push({ table: { headerRows:1, widths, body:[section.headers.map((text) => ({text,fillColor:'#e6eef6'})), ...section.rows] }, layout:'lightHorizontalLines', fontSize:9, margin:[0,3,0,5] });
     }

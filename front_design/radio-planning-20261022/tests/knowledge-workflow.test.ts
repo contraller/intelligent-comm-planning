@@ -2,8 +2,7 @@ import { authorizeStore } from './helpers/auth';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createPinia, setActivePinia } from 'pinia';
 import { createKnowledgeMock } from '../src/services/knowledge-mock';
-import { initialKnowledgeWorkspace, knowledgeCatalog } from '../src/mocks/knowledge-presets';
-import { buildKnowledgeCases } from '../src/services/knowledge-case-builder';
+import { initialKnowledgeWorkspace } from '../src/mocks/knowledge-presets';
 import { knowledgeClone } from '../src/services/knowledge-validation';
 import { previewService } from '../src/services';
 import { useKnowledgeStore } from '../src/stores/knowledge';
@@ -13,16 +12,9 @@ import type { KnowledgeChange, KnowledgeWorkspace } from '../src/types/knowledge
 afterEach(()=>vi.restoreAllMocks());
 function setup(){const storage=new TestStorage(),service=createKnowledgeMock(()=>storage);let counter=0;return {storage,service,request:(w:KnowledgeWorkspace,actorId='KG-EDITOR')=>({actorId,baseRevision:w.revision,requestId:'request-'+(++counter)}),change:(w:KnowledgeWorkspace)=>w.changes.find(c=>c.id==='KGC-SEED-DRAFT')!};}
 async function approveDraft(s:ReturnType<typeof setup>){let w=(await s.service.loadKnowledgeWorkspace()).workspace!;let c=s.change(w);w=(await s.service.submitKnowledgeChange({...s.request(w),changeId:c.id,revision:c.revision})).workspace;c=s.change(w);w=(await s.service.reviewKnowledgeChange({...s.request(w,'KG-REVIEWER'),changeId:c.id,revision:c.revision,submission:1,approved:true,opinion:''})).workspace;return w;}
-const caseInput=()=>({caseId:'FC-WORKFLOW-NEW',title:'构造工作流案例',faultType:'HW_FAILURE',objectType:'DEVICE',deviceClass:'' as const,cause:'构造原因',component:'',solution:'构造方案',source:'结构化工作流测试资料，非现场',symptoms:['构造现象'],steps:[{order:1,text:'构造检查'}]});
 describe('知识编辑、审核与版本流程',()=>{
   it('送审和审核不改变发布库，单独发布仅合入选中变更',async()=>{const s=setup();const w=await approveDraft(s),c=s.change(w);expect(w.currentVersionId).toBe('KGV-SEED-2');const r=await s.service.publishKnowledgeChange({...s.request(w,'KG-REVIEWER'),changeId:c.id,revision:c.revision});expect(r.workspace.versions).toHaveLength(3);expect(r.workspace.changes.find(c=>c.id==='KGC-SEED-PENDING')!.state).toBe('PENDING');expect(r.workspace.versions[2].entities.find(e=>e.id==='KGE-OPERATION')!.description).toContain('操作时间');expect(r.workspace.versions[2].entities.find(e=>e.id==='KGE-ANTENNA')!.source).not.toContain('天线检查记录样例');});
   it('新实体和关系在同单保存后使用服务分配的稳定 ID',async()=>{const s=setup(),w=(await s.service.loadKnowledgeWorkspace()).workspace!;const entity={...knowledgeClone(w.versions[1].entities[0]),id:'new:e',name:'新增型号知识'};const relation={...knowledgeClone(w.versions[1].relations[0]),id:'new:r',head:'new:e'};const r=await s.service.saveKnowledgeChange({...s.request(w),changeId:null,revision:null,draft:{summary:'新增关联',baseVersionId:w.currentVersionId,entities:[entity],relations:[relation]}});const c=r.workspace.changes.find(c=>c.id===r.entityId)!;expect(c.content.entities[0].id).toMatch(/^KGE-/);expect(c.content.relations[0].head).toBe(c.content.entities[0].id);const again=await s.service.saveKnowledgeChange({...s.request(r.workspace),changeId:c.id,revision:c.revision,draft:c.content});expect(again.changed).toBe(false);expect(again.workspace.changes.find(x=>x.id===c.id)!.revision).toBe(1);expect(s.storage.writes).toBe(1);});
-  it('结构化草稿能经原Mock保存分配身份，关系不遗留临时端点',async()=>{
-    const s=setup(),w=(await s.service.loadKnowledgeWorkspace()).workspace!,draft=buildKnowledgeCases([caseInput()],w.versions.at(-1)!,knowledgeCatalog()).draft!;
-    const result=await s.service.saveKnowledgeChange({...s.request(w),changeId:null,revision:null,draft}),saved=result.workspace.changes.find(c=>c.id===result.entityId)!.content;
-    expect(saved.entities.every(e=>e.id.startsWith('KGE-'))).toBe(true);expect(saved.relations.every(r=>!r.id.startsWith('new:')&&!r.head.startsWith('new:')&&!r.tail.startsWith('new:'))).toBe(true);
-    const ids=new Set([...w.versions.at(-1)!.entities,...saved.entities].map(e=>e.id));expect(saved.relations.every(r=>ids.has(r.head)&&ids.has(r.tail))).toBe(true);expect(s.storage.writes).toBe(1);
-  });
   it('驳回必填理由，修改重提保留上一送审内容',async()=>{const s=setup();let w=(await s.service.loadKnowledgeWorkspace()).workspace!;let c=w.changes.find(c=>c.state==='PENDING')!;await expect(s.service.reviewKnowledgeChange({...s.request(w,'KG-REVIEWER'),changeId:c.id,revision:1,submission:1,approved:false,opinion:'  '})).rejects.toThrow('驳回');w=(await s.service.reviewKnowledgeChange({...s.request(w,'KG-REVIEWER'),changeId:c.id,revision:1,submission:1,approved:false,opinion:'来源需补充'})).workspace;c=w.changes.find(x=>x.id===c.id)!;const original=knowledgeClone(c.submissions[0].content),draft=knowledgeClone(c.content);draft.entities[0].source='已补充教学来源';w=(await s.service.saveKnowledgeChange({...s.request(w),changeId:c.id,revision:1,draft})).workspace;c=w.changes.find(x=>x.id===c.id)!;w=(await s.service.submitKnowledgeChange({...s.request(w),changeId:c.id,revision:2})).workspace;c=w.changes.find(x=>x.id===c.id)!;expect(c.submissions).toHaveLength(2);expect(c.submissions[0].content).toEqual(original);expect(c.submissions[0].outcome).toBe('REJECTED');expect(c.submissions[1].content.entities[0].source).toContain('已补充');});
   it('作者撤回后恢复草稿，送审历史保留',async()=>{const s=setup(),w=(await s.service.loadKnowledgeWorkspace()).workspace!,c=w.changes.find(c=>c.state==='PENDING')!;const r=await s.service.withdrawKnowledgeChange({...s.request(w),changeId:c.id,revision:1});const next=r.workspace.changes.find(x=>x.id===c.id)!;expect(next.state).toBe('DRAFT');expect(next.submissions[0].outcome).toBe('WITHDRAWN');});
   it('服务直接调用也禁止作者自审、编辑人发布与未知身份',async()=>{const s=setup(),w=(await s.service.loadKnowledgeWorkspace()).workspace!,c=w.changes.find(c=>c.state==='PENDING')!;await expect(s.service.reviewKnowledgeChange({...s.request(w),changeId:c.id,revision:1,submission:1,approved:true,opinion:''})).rejects.toMatchObject({code:'KNOWLEDGE_FORBIDDEN'});await expect(s.service.publishKnowledgeChange({...s.request(w),changeId:c.id,revision:1})).rejects.toMatchObject({code:'KNOWLEDGE_FORBIDDEN'});await expect(s.service.resetKnowledgeWorkspace(s.request(w,'任意身份'))).rejects.toMatchObject({code:'KNOWLEDGE_FORBIDDEN'});expect(s.storage.writes).toBe(0);});
@@ -51,20 +43,6 @@ describe('知识 store 未保存与查询保护',()=>{
   });
   it('回滚原因离开前必须明确处理，取消时保留输入',async()=>{setActivePinia(createPinia());authorizeStore('kg_editor');const store=useKnowledgeStore();store.rollbackReason='尚未确认的回滚原因';const first=store.allowLeave();store.answer('cancel');expect(await first).toBe(false);expect(store.dirty).toBe(true);const second=store.allowLeave();store.answer('save');expect(await second).toBe(true);expect(store.rollbackReason).toBe('');});
   async function start(){setActivePinia(createPinia());authorizeStore('kg_editor');const s=setup();for(const key of Object.keys(s.service) as (keyof typeof s.service)[])vi.spyOn(previewService,key).mockImplementation(s.service[key] as never);const store=useKnowledgeStore();await store.load();await store.changeTab('changes');return {store,s};}
-  it('结构化预检读新版不覆盖旧草稿，过期应用失败后重读可恢复',async()=>{
-    const {store,s}=await start();await store.openChange({id:'KGC-SEED-DRAFT'});store.draft!.summary='需要保留的原草稿';const before=knowledgeClone(store.draft),old=await store.readCaseBase();
-    const generated=buildKnowledgeCases([caseInput()],old.base,old.catalog).draft!;
-    const w=(await s.service.loadKnowledgeWorkspace()).workspace!;await s.service.rollbackKnowledgeVersion({...s.request(w,'KG-REVIEWER'),versionId:w.currentVersionId,reason:'外部发布版本变化'});
-    const applying=store.applyCaseDraft(generated,old);store.answer('discard');await expect(applying).rejects.toThrow('版本已变化');expect(store.draft).toEqual(before);
-    const fresh=await store.readCaseBase();expect(fresh.base.id).not.toBe(old.base.id);expect(store.draft).toEqual(before);expect(store.workspace!.currentVersionId).toBe(old.base.id);
-    const next=buildKnowledgeCases([caseInput()],fresh.base,fresh.catalog).draft!,retry=store.applyCaseDraft(next,fresh);store.answer('discard');await retry;
-    expect(store.draft).toEqual(next);expect(store.dirtyDraft).toBe(true);expect(s.storage.writes).toBe(1);
-  });
-  it('应用前元信息读取失败不能消费已确认放弃的原草稿',async()=>{
-    const {store,s}=await start();await store.openChange({id:'KGC-SEED-DRAFT'});store.draft!.summary='网络失败时保留';const before=knowledgeClone(store.draft),context=await store.readCaseBase();
-    const content=buildKnowledgeCases([caseInput()],context.base,context.catalog).draft!;vi.mocked(previewService.loadKnowledgeMetadata).mockRejectedValueOnce(new Error('读取暂不可用'));
-    const applying=store.applyCaseDraft(content,context);store.answer('discard');await expect(applying).rejects.toThrow('读取暂不可用');expect(store.draft).toEqual(before);expect(s.storage.writes).toBe(0);
-  });
   it('写入已受理但重读失败时，再次保存或送审不会重复提交',async()=>{
     const {store,s}=await start();await store.openChange({id:'KGC-SEED-DRAFT'});store.draft!.summary='受理后等待重读';
     vi.mocked(previewService.getKnowledgeChange).mockRejectedValueOnce(new Error('详情暂不可读'));
