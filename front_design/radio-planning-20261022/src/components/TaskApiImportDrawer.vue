@@ -5,6 +5,9 @@
     subtitle="选择文件 → 解析格式 → 校验引用 → 应用草稿；保存与规划分别操作。"
     @update:visible="!$event && close()"
   >
+    <TaskQuickStart :active="task.importVisible" />
+    <h4>导入已有文件</h4>
+    <p class="muted">内置例程下载为一个完整 XLSX；也支持自行准备的一个 XLSX 或配套的两个 CSV。</p>
     <div class="toolbar"
       ><button
         class="btn small"
@@ -120,6 +123,7 @@
 <script setup lang="ts">
 // 文件预览、应用到草稿和保存任务是三个独立动作。
 import { ref, toRaw } from 'vue';
+import TaskQuickStart from './TaskQuickStart.vue';
 import PlanningOptionsSummary from './PlanningOptionsSummary.vue';
 import AppDrawer from './AppDrawer.vue';
 import DeploymentConstraintsSummary from './DeploymentConstraintsSummary.vue';

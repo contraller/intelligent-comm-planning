@@ -55,12 +55,14 @@ export const useTaskInputStore = defineStore('task-input', () => {
   const dirty = computed(() => changed.value || !!importFiles.value.length || Object.values(auxiliary.value).some(Boolean));
   const options = (signal?: AbortSignal): TaskApiOptions => ({ context: context.value, signal });
   function stop() { generation++; controllers.forEach(c => c.abort()); controllers.clear(); loading.value = false; referencesRefreshing.value = false; importBusy.value = false; answer('cancel'); }
-  async function read<T>(key: string, action: (signal: AbortSignal) => Promise<T>): Promise<T | undefined> {
-    if (!readable.value) return;
+  async function read<T>(key: string, action: (signal: AbortSignal) => Promise<T>, externalSignal?: AbortSignal): Promise<T | undefined> {
+    if (!readable.value || externalSignal?.aborted) return;
     controllers.get(key)?.abort(); const controller = new AbortController(), token = generation, session = auth.generation; controllers.set(key, controller);
+    const abort = () => controller.abort();
+    externalSignal?.addEventListener('abort', abort, { once: true });
     try { const value = await action(controller.signal); if (generation === token && session === auth.generation && controllers.get(key) === controller && !controller.signal.aborted && readable.value) return value; }
     catch (e) { if (token === generation && session === auth.generation && !controller.signal.aborted) error.value = e instanceof Error ? e.message : '任务读取失败'; }
-    finally { if (controllers.get(key) === controller) controllers.delete(key); }
+    finally { externalSignal?.removeEventListener('abort', abort); if (controllers.get(key) === controller) controllers.delete(key); }
   }
   function ask(value: DecisionRequest): Promise<Decision> { answer('cancel'); decision.value = value; return new Promise(resolve => { resolveDecision = resolve; }); }
   function answer(value: Decision) { decision.value = null; const resolve = resolveDecision; resolveDecision = undefined; resolve?.(value); }
@@ -137,7 +139,7 @@ export const useTaskInputStore = defineStore('task-input', () => {
   }
   function accept(task: ApiTask) { validationInput.value=null;validationExtras.value=[];saved.value = copy(task); taskId.value = task.taskId; resourceRevision.value = task.resourceRevision; draft.value = copy(task.input); baseline.value = JSON.stringify(draft.value); issues.value = []; clearImport(); auxiliary.value = {}; }
   async function open(id: string, protect = true) {
-    if (busy.value || running.value || pendingSave.value) {error.value='当前操作尚未结束，请完成后再打开任务';return false;}
+    if (busy.value || running.value || pendingSave.value || referencesRefreshing.value) {error.value='当前操作尚未结束，请完成后再打开任务';return false;}
     if(protect && !(await allowLeave())) return false;
     error.value = ''; const value = await read('task', signal => previewService.getTaskInput({ ...options(signal), taskId: id }));
     if (!value) return false; accept(value); if(context.value==='planning')notice.value=`已打开任务“${value.input.name}”及服务端保存版本。`; await refreshReferences(false); return true;
@@ -161,6 +163,75 @@ export const useTaskInputStore = defineStore('task-input', () => {
     await refreshReferences();
     return owner === auth.generation && readable.value;
   }
+  async function presetFrame(id: string, sourceContext: TaskApiOptions['context'], revision: string, signal: AbortSignal) {
+    const detail = await previewService.getPlanningPreset({ context: sourceContext, presetId: id, signal });
+    const input = copy(detail.defaults);
+    if (detail.id !== id || input.presetId !== id || taskInputIssues(input).length)
+      throw new ApiError('例程输入不完整，请刷新目录后重试；原草稿已保留。', 'INVALID_PLANNING_RESPONSE');
+    const selectedNodes: ReadNode[] = [], selectedDevices: ReadDevice[] = [];
+    const nodeIds = [...new Set([...input.stationIds, ...(input.deploymentConstraints?.losRequiredNodeIds ?? [])])];
+    const deviceIds = [...new Set(input.demands.flatMap(row => [row.sourceDeviceId, row.targetDeviceId]).filter((value): value is string => !!value))];
+    const refs = [...nodeIds.map(value => ({ id: value, kind: 'node' as const })), ...deviceIds.map(value => ({ id: value, kind: 'device' as const }))];
+    for (let start = 0; start < refs.length; start += 8) {
+      const batch = refs.slice(start, start + 8);
+      const rows = await Promise.all(batch.map(ref => previewService.getResourceObject({ ...ref, context: sourceContext, revision, signal })));
+      rows.forEach((row, index) => {
+        if (row.revision !== revision || row.object.kind !== batch[index].kind || row.object.id !== batch[index].id)
+          throw new ApiError('例程资源引用不匹配，请刷新资源后重试；原草稿已保留。', 'INVALID_PLANNING_RESPONSE');
+        if (row.object.kind === 'node') selectedNodes.push(row.object);
+        if (row.object.kind === 'device') selectedDevices.push(row.object);
+      });
+      if (signal.aborted) throw new DOMException('Aborted', 'AbortError');
+    }
+    return { input, label: detail.label, selectedNodes, selectedDevices };
+  }
+  const quickStartReady = (id: string) => editable.value && resources.readable && !decision.value && !loading.value && !importBusy.value && !!resources.workspace
+    && !resources.refreshing && !!catalog.value?.presets.some(row => row.id === id);
+  // 先核对整套输入和同版引用；任何失败均不撤销原草稿或改变已保存任务身份。
+  async function startFromPreset(id: string, signal?: AbortSignal) {
+    if (!quickStartReady(id) || signal?.aborted) return false;
+    const allowing = allowLeave(true), ownedDecision = decision.value;
+    const abortDecision = () => { if (ownedDecision && decision.value === ownedDecision) answer('cancel'); };
+    signal?.addEventListener('abort', abortDecision, { once: true });
+    let allowed: boolean;
+    try { allowed = await allowing; } finally { signal?.removeEventListener('abort', abortDecision); }
+    if (!allowed || !quickStartReady(id) || signal?.aborted) return false;
+    const session = auth.generation, owner = lifetime, token = generation, sourceContext = context.value;
+    const revision = resources.workspace!.revision, before = JSON.stringify([taskId.value, draft.value, saved.value?.revision]);
+    referencesRefreshing.value = true; error.value = '';
+    try {
+      const frame = await read('quick-start', currentSignal => presetFrame(id, sourceContext, revision, currentSignal), signal);
+      if (!frame || signal?.aborted || session !== auth.generation || token !== generation || !readable.value || !auth.can('planning.execute') || !resources.readable
+        || context.value !== sourceContext
+        || before !== JSON.stringify([taskId.value, draft.value, saved.value?.revision])) return false;
+      if (revision !== resources.workspace?.revision) { error.value = '资源版本已变化，例程未载入；原草稿已保留，请刷新资源后重试。'; return false; }
+      const nextId = randomUuid();
+      initialInput.value = copy(frame.input); saved.value = null; taskId.value = nextId;
+      draft.value = frame.input; baseline.value = ''; resourceRevision.value = revision;
+      nodes.value = frame.selectedNodes.filter(row => frame.input.stationIds.includes(row.id));
+      losNodes.value = frame.selectedNodes.filter(row => frame.input.deploymentConstraints?.losRequiredNodeIds?.includes(row.id));
+      devices.value = frame.selectedDevices; issues.value = []; validationInput.value = null; validationExtras.value = [];
+      clearImport(); auxiliary.value = {};
+      error.value = '';
+      notice.value = `已载入“${frame.label}”构造例程，作为新任务草稿；请保存任务后提交规划。`;
+      return true;
+    } finally { if (owner === lifetime && token === generation) referencesRefreshing.value = false; }
+  }
+  async function getPresetExampleFile(id: string, signal?: AbortSignal) {
+    if (!quickStartReady(id) || signal?.aborted) return;
+    const owner = lifetime, token = generation, session = auth.generation, sourceContext = context.value, revision = resources.workspace!.revision;
+    referencesRefreshing.value = true; error.value = '';
+    try {
+      const file = await read('quick-start-file', async currentSignal => {
+        const frame = await presetFrame(id, sourceContext, revision, currentSignal), exampleId = randomUuid();
+        const value = await previewService.getTaskInputTemplate({ context: sourceContext, format: 'xlsx', taskId: exampleId, input: frame.input, signal: currentSignal });
+        return { ...value, name: `构造例程-${frame.label.replace(/[\\/:*?"<>|\u0000-\u001f]/g, '_').slice(0, 80)}-${exampleId}.xlsx` };
+      }, signal);
+      if (!file || signal?.aborted || session !== auth.generation || context.value !== sourceContext || !auth.can('planning.execute') || !resources.readable) return;
+      if (revision !== resources.workspace?.revision) { error.value = '资源版本已变化，请刷新资源后重新下载例程。'; return; }
+      return file;
+    } finally { if (owner === lifetime && token === generation) referencesRefreshing.value = false; }
+  }
   function resetDraft() {
     // 仅在工作区重置成功后调用；任务库记录独立保留。
     saved.value = null; taskId.value = randomUuid(); draft.value = initialInput.value ? copy(initialInput.value) : null;
@@ -181,7 +252,7 @@ export const useTaskInputStore = defineStore('task-input', () => {
     await refreshReferences(); return readable.value;
   }
   async function openPlanTask(id: string) {
-    if (busy.value || running.value || pendingSave.value || !(await allowLeave())) return false;
+    if (busy.value || running.value || pendingSave.value || referencesRefreshing.value || !(await allowLeave())) return false;
     const value = await read('plan-task', async signal => {
       try { return await previewService.getTaskInput({ ...options(signal), taskId: id }); }
       catch (error) { if (error instanceof ApiError && (error.code === 'TASK_NOT_FOUND' || error.status === 404)) return null; throw error; }
@@ -286,5 +357,5 @@ export const useTaskInputStore = defineStore('task-input', () => {
   }
   function clearForSession() { referencesRefreshing.value=false;initialInput.value=null;adjustmentExamples.value=[];lifetime++; stop(); catalog.value = null; draft.value = null; saved.value = null; taskId.value = ''; baseline.value = ''; resourceRevision.value = ''; nodes.value = []; losNodes.value = []; devices.value = []; library.value = null; issues.value = []; pendingSave.value = null; busy.value = false; running.value = false; clearImport(); auxiliary.value = {}; error.value = ''; notice.value = ''; }
   return { context, catalog, draft, saved, taskId, resourceRevision, nodes, losNodes, devices, library, libraryQuery, error, notice, issues, displayIssues, busy, loading, running, pendingSave, importPreview, importFiles, importVisible, importBusy, auxiliary, decision, readable, editable, dirty, changed, resourceStale, referencesRefreshing, adjustmentExamples, loadAdjustmentExamples,
-    initialize, refreshReferences, refreshResources, queryLibrary, open, newTask, loadPreset, resetDraft, copyPlanInput, openPlanTask, updateInput, applyPreset, save, reconcileSave, previewImport, applyImport, clearImport, allowLeave, discardDraft, ask, answer, stop, clearForSession };
+    initialize, refreshReferences, refreshResources, queryLibrary, open, newTask, loadPreset, startFromPreset, getPresetExampleFile, resetDraft, copyPlanInput, openPlanTask, updateInput, applyPreset, save, reconcileSave, previewImport, applyImport, clearImport, allowLeave, discardDraft, ask, answer, stop, clearForSession };
 });

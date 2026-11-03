@@ -270,7 +270,14 @@ def example_materials(path):
 def guide_page():
     return ('''<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>系统例程导入指引</title><style>body{max-width:800px;margin:60px auto;padding:20px;background:#102132;color:#d9e7f1;font:17px/1.9 system-ui}a{color:#83d4ff}h1{font-size:28px}.primary{display:block;padding:20px;border:1px solid #6baccd;border-radius:8px;font-size:21px}small{color:#a9bdca}</style>
-<h1>系统例程导入指引</h1><p>从下方新指南开始，按本机资源版本选择对应例程，依次完成规划、设备状态、故障场景及结构化知识导入。</p>
+<h1>系统例程导入指引</h1>
+<h2>第一次体验：选择一类规划任务</h2>
+<ol><li>启动系统，展开左上角菜单，进入“网络规划”。</li>
+<li>在“从构造例程开始”选择“均衡规划”“高可靠规划”或“经济规划”，点“一键载入”，即可建立一份新任务草稿。</li>
+<li>如需体验文件导入，点对应的“下载导入例程”，再点“导入”，选择刚下载的一个XLSX文件，点“解析并校验”和“确认替换当前草稿”。</li>
+<li>核对后点“保存任务”，再点“提交规划”。有结果后还需单独“保存方案”；未达标结果也可保存。</li></ol>
+<p><small>载入和导入不会自动保存或执行规划。三类例程按当前资源生成，作为新任务使用，已有任务保留。</small></p>
+<h2>其他导入例程</h2><p>按本机资源版本选择对应例程，完成设备状态、故障场景及结构化知识导入；配套CSV任务示例仍可使用。</p>
 <a class="primary" href="./系统例程导入数据/导入使用指南.html">打开系统例程导入指南</a>
 <p><small>例程为人工构造数据。导入与计算按指南分别执行，不能将输入文件视为已完成的计算结果。</small></p>
 <p><a href="./首次使用演示_旧流程.html">查看旧版首次使用流程与原例程附件</a></p></html>''').encode("utf-8")

@@ -150,13 +150,14 @@ export function createTaskFileHttp(request: AuthenticatedRequest): FileServices 
     },
     async getTaskInputTemplate(input) {
       assertTaskOptions(input);
+      const taskId = input.taskId === undefined ? undefined : apiId(input.taskId);
       const format = apiChoice(input.format, ['csv', 'xlsx'], 'format'),
         kind = apiChoice(input.kind ?? 'task_scenarios', ['task_scenarios', 'task_links'], 'kind');
       const file = await request<Blob>(
         '/task-files/template',
         {
           method: 'POST',
-          body: body({ context: input.context, format, kind, input: input.input }),
+          body: body({ context: input.context, format, kind, input: input.input, ...(taskId === undefined ? {} : { task_id: taskId }) }),
           signal: input.signal,
         },
         'blob',

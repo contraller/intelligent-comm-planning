@@ -6,6 +6,7 @@
         >{{ task.saved ? '已保存任务' : '新任务' }}{{ task.changed ? ' · 有修改' : '' }}</span
       ></div
     ><div class="panel-body">
+      <TaskQuickStart @started="emit('opened')" />
       <div class="toolbar"
         ><button
           class="btn small"
@@ -74,31 +75,6 @@
         @click="task.initialize(task.context)"
         >重试读取</button
       >
-      <details class="preset-entry"
-        ><summary>从整套任务预设开始 <small>替换节点、需求与条件</small></summary
-        ><p class="muted">第一次使用可先选一套预设，再修改任务。载入整套任务会替换当前草稿的参与节点、通联需求及条件；载入后还需保存任务、提交规划。</p
-        ><div class="toolbar section-gap">
-          <select
-            v-model="presetId"
-            aria-label="整套任务预设"
-            :disabled="!task.editable"
-          >
-            <option value="">选择整套任务预设</option>
-            <option
-              v-for="preset in task.catalog?.presets ?? []"
-              :key="preset.id"
-              :value="preset.id"
-              >{{ preset.label }}</option
-            >
-          </select>
-          <button
-            class="btn small"
-            :disabled="!task.editable || !presetId"
-            @click="task.loadPreset(presetId)"
-            >载入整套任务</button
-          >
-        </div></details
-      >
       <TaskApiForm ref="form" />
       <TaskApiLibraryDrawer
         v-model:visible="libraryVisible"
@@ -161,13 +137,13 @@ import { useResourceReadStore } from '../stores/resource-read';
 import TaskApiForm from './TaskApiForm.vue';
 import TaskApiLibraryDrawer from './TaskApiLibraryDrawer.vue';
 import TaskApiImportDrawer from './TaskApiImportDrawer.vue';
+import TaskQuickStart from './TaskQuickStart.vue';
 import type { PlanningIssue } from '../types/planning';
 import { planningIssueText } from '../services/planning-issue-display';
 const emit = defineEmits<{ opened: [] }>();
 const task = useTaskInputStore(),
   resources = useResourceReadStore(),
   libraryVisible = ref(false);
-const presetId = ref('');
 const form = ref<InstanceType<typeof TaskApiForm> | null>(null),
   locationNotice = ref('');
 // 定位失败只说明位置，不代改资源或丢弃未知问题。
@@ -238,18 +214,12 @@ async function locate(issue: PlanningIssue) {
 .task-actions li button {
   text-align: left;
 }
-.task-meta,
-.preset-entry {
+.task-meta {
   margin: 8px 0;
   font-size: 12px;
 }
 summary {
   cursor: pointer;
   color: var(--muted);
-}
-.preset-entry small {
-  display: inline;
-  margin-left: 4px;
-  font-size: 11px;
 }
 </style>

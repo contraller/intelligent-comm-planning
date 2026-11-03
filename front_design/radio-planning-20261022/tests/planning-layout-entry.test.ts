@@ -3,6 +3,7 @@ import { createRenderer, h, nextTick, ssrContextKey, type App } from 'vue';
 import { disposePinia } from 'pinia';
 import TaskApiForm from '../src/components/TaskApiForm.vue';
 import TaskApiPanel from '../src/components/TaskApiPanel.vue';
+import TaskQuickStart from '../src/components/TaskQuickStart.vue';
 import PlanningOptionsEditor from '../src/components/PlanningOptionsEditor.vue';
 import DeploymentConstraintsEditor from '../src/components/DeploymentConstraintsEditor.vue';
 import { storeFixture, readNode } from './fixtures/planning-api';
@@ -15,7 +16,7 @@ vi.mock('../src/components/TaskDemandEditor.vue', () => ({ default: { render: ()
 vi.mock('../src/components/TaskApiLibraryDrawer.vue', () => ({ default: { render: () => null } }));
 vi.mock('../src/components/TaskApiImportDrawer.vue', () => ({ default: { render: () => null } }));
 beforeAll(async () => {
-  for (const [component, name] of [[TaskApiForm, 'TaskApiForm'], [TaskApiPanel, 'TaskApiPanel'], [PlanningOptionsEditor, 'PlanningOptionsEditor'], [DeploymentConstraintsEditor, 'DeploymentConstraintsEditor']] as const) {
+  for (const [component, name] of [[TaskQuickStart, 'TaskQuickStart'], [TaskApiForm, 'TaskApiForm'], [TaskApiPanel, 'TaskApiPanel'], [PlanningOptionsEditor, 'PlanningOptionsEditor'], [DeploymentConstraintsEditor, 'DeploymentConstraintsEditor']] as const) {
     const filename = `src/components/${name}.vue`;
     await clientTemplate(component, filename, 'layout-render.ts');
   }

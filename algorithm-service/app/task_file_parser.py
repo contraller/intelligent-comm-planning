@@ -529,10 +529,12 @@ class _MemoryExcelWriter(ExcelWriter):
         self.manifest.append(sheet)
 
 
-def build_task_template(format: str, kind: str, input: dict) -> dict:
+def build_task_template(format: str, kind: str, input: dict, *, task_id: str = "TASK-NEW") -> dict:
     """只从调用方当前输入生成模板；不选择预设、不提供示例资源或写业务文件。"""
     if format not in {"csv", "xlsx"} or kind not in KINDS or not isinstance(input, dict):
         raise TaskFileError("模板只支持task_scenarios/task_links的CSV或XLSX")
+    if not _identifier(task_id):
+        raise TaskFileError("任务编号不能为空、超长或包含空白及控制字符")
     value = _json_copy(input)
     problems = []
     add = lambda field, message: problems.append((field, message))
@@ -570,9 +572,9 @@ def build_task_template(format: str, kind: str, input: dict) -> dict:
         selected = next((row for row in filters if row["deviceClass"] == device_class), None)
         option_values.extend([*(selected["rangeKhz"] or [None, None]), ";".join(selected["excludeFreqIds"])] if selected else [None, None, None])
     option_values.append(json.dumps(value["deploymentSolve"], ensure_ascii=False) if value.get("deploymentSolve") is not None else None)
-    rows = {"task_scenarios": [["TASK-NEW", value["name"], ";".join(map(str, value["bbox"])), value.get("startTime"), value.get("durationH"),
+    rows = {"task_scenarios": [[task_id, value["name"], ";".join(map(str, value["bbox"])), value.get("startTime"), value.get("durationH"),
                                 value["description"], ";".join(value["stationIds"]), value["presetId"], value["frequencyId"], *deployment_values, *option_values]],
-            "task_links": [[demand["id"], "TASK-NEW", demand.get("sourceId"), demand.get("targetId"), demand.get("priority"), _scalar(demand["mandatory"]),
+            "task_links": [[demand["id"], task_id, demand.get("sourceId"), demand.get("targetId"), demand.get("priority"), _scalar(demand["mandatory"]),
                             demand.get("dataVolumeMb"), demand.get("requiredRateKbps"), demand.get("maxDelayMs"), demand.get("minReliability"), demand.get("service"),
                             demand.get("preferredClass"), demand.get("endpointMode"), demand.get("sourceDeviceId"), demand.get("targetDeviceId"), demand.get("routeStrategy"),
                             "" if demand.get("needBackup") is None else _scalar(demand["needBackup"])] for demand in value["demands"]]}
@@ -602,7 +604,7 @@ def build_task_template(format: str, kind: str, input: dict) -> dict:
                 sheet.freeze_panes = "A2"
             notes = book.create_sheet("说明")
             for row in [("范围", "每批一个任务，预检不保存；任务保存和规划执行分别操作。"),
-                        ("来源", "模板仅使用传入任务输入；TASK-NEW不代表已创建任务。"),
+                        ("来源", "模板仅使用传入任务输入；任务编号不代表任务已创建或保存。"),
                         ("空值", "未知数值留空，不补零；完整导入清空文件未设置的部署、频率及路由条件。"),
                         ("CSV", "UTF-8配套两表；公式前缀和~rp~文本使用~rp~加JSON字符串可逆转义。")]:
                 notes.append(row)

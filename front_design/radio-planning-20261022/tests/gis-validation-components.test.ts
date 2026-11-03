@@ -9,6 +9,7 @@ import ResourceEditDrawer from '../src/components/ResourceEditDrawer.vue';
 import InterferenceSourceDrawer from '../src/components/InterferenceSourceDrawer.vue';
 import TaskApiForm from '../src/components/TaskApiForm.vue';
 import TaskApiPanel from '../src/components/TaskApiPanel.vue';
+import TaskQuickStart from '../src/components/TaskQuickStart.vue';
 import TaskDemandEditor from '../src/components/TaskDemandEditor.vue';
 import { useTaskInputStore } from '../src/stores/task-input';
 import { usePreviewStore } from '../src/stores/preview';
@@ -72,7 +73,7 @@ await Promise.all([
  [GisValidationPanel,'src/components/GisValidationPanel.vue'],
  [AppDrawer,'src/components/AppDrawer.vue'],[ResourceEditDrawer,'src/components/ResourceEditDrawer.vue'],
  [InterferenceSourceDrawer,'src/components/InterferenceSourceDrawer.vue'],[TaskApiForm,'src/components/TaskApiForm.vue'],
- [TaskApiPanel,'src/components/TaskApiPanel.vue'],[TaskDemandEditor,'src/components/TaskDemandEditor.vue'],
+ [TaskQuickStart,'src/components/TaskQuickStart.vue'],[TaskApiPanel,'src/components/TaskApiPanel.vue'],[TaskDemandEditor,'src/components/TaskDemandEditor.vue'],
 ].map(([c,p])=>clientTemplate(c as Component,p as string, 'coverage-render.ts')));
 let app:App<HostNode>|undefined,pinia:ReturnType<typeof createPinia>|undefined;
 afterEach(()=>{app?.unmount();app=undefined;if(pinia)disposePinia(pinia);pinia=undefined;vi.restoreAllMocks();vi.unstubAllGlobals();vi.useRealTimers();focused=null;scrolled=null;});

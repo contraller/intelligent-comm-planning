@@ -192,4 +192,17 @@ describe('任务原文件HTTP契约', () => {
       ).rejects.toThrow();
     }
   });
+  it('可选例程taskId严格映射task_id；旧调用不发送该字段', async () => {
+    const f = httpFixture(() => new Response(new Uint8Array([80, 75, 3, 4]), { headers: { 'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 'Content-Disposition': 'attachment; filename="example.xlsx"' } }));
+    const service = createTaskFileHttp(f.request);
+    await service.getTaskInputTemplate({ context: 'planning', format: 'xlsx', taskId: 'EXAMPLE-ONE', input: input() });
+    expect(JSON.parse(String(f.calls.at(-1)!.init.body)).task_id).toBe('EXAMPLE-ONE');
+    await service.getTaskInputTemplate({ context: 'planning', format: 'xlsx', input: input() });
+    expect(JSON.parse(String(f.calls.at(-1)!.init.body))).not.toHaveProperty('task_id');
+  });
+  it.each([null, '', ' ', ' bad', 'x'.repeat(121), 3])('非法模板taskId在任何请求前拒绝：%s', async taskId => {
+    const f = httpFixture(() => response(null));
+    await expect(createTaskFileHttp(f.request).getTaskInputTemplate({ context: 'planning', format: 'xlsx', taskId: taskId as string, input: input() })).rejects.toThrow();
+    expect(f.calls).toEqual([]);
+  });
 });
