@@ -33,7 +33,7 @@ def create_local_identity_router(*, service) -> APIRouter:
 
     @router.get("/session")
     def session(request: Request, response: Response):
-        return call(response, lambda: service.session(request))
+        return call(response, lambda: service.browser_session(request, response))
 
     @router.get("/csrf")
     def csrf(request: Request, response: Response):

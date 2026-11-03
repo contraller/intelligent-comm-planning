@@ -14,13 +14,13 @@ export interface SystemWorkspace {
   receipts: { requestId: string; signature: string; objectId: string; changed: boolean }[];
 }
 export interface SessionRecord { schemaVersion: 1; state: 'ACTIVE' | 'SIGNED_OUT'; id: string; accountId: string; epoch: string; loginAt: string }
-export interface AuthIdentity { sessionId: string; id: string; username: string; name: string; roleId: string; roleName: string; permissions: Permission[]; epoch: string; revision: string; integrationMode?: boolean }
+export interface AuthIdentity { sessionId: string; id: string; username: string; name: string; roleId: string; roleName: string; permissions: Permission[]; epoch: string; revision: string; integrationMode?: boolean; authSource?: 'LOCAL_PASSWORD' | 'LOCAL_SINGLE_USER'; singleUserMode?: boolean; allowSelfReview?: boolean }
 export interface ActorSnapshot { id: string; name: string; roleId: string; roleName: string }
 export interface OperationEvent {
   id: string; epoch: string; time: string; actor: ActorSnapshot | null; attemptedUsername: string;
   module: string; action: string; objectId: string; requestId: string | null;
   outcome: 'SUCCESS' | 'FAILED' | 'DENIED' | 'UNCHANGED'; summary: string; errorCode: string; dedupeKey: string;
-  sequence?: number; changes?: Record<string, unknown>; authSource?: 'LOCAL_PASSWORD';
+  sequence?: number; changes?: Record<string, unknown>; authSource?: 'LOCAL_PASSWORD' | 'LOCAL_SINGLE_USER';
 }
 export interface OperationJournal { schemaVersion: 1; revision: string; epoch: string; events: OperationEvent[] }
 // 系统列表只查询、筛选和分页，展示顺序由数据服务提供。

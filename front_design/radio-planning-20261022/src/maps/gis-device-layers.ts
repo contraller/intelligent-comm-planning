@@ -10,24 +10,22 @@ import { GIS_DEVICE_COLORS, GIS_DEVICE_TYPES, gisDeviceStatus, gisDeviceSummary,
 import type { GisDeviceMapFrame, GisDevicePoint, GisDeviceSettings } from './gis-device-display';
 
 const alphaColor = (color: string, opacity: number) => color + Math.round(opacity * 255).toString(16).padStart(2, '0');
-interface GisDeviceStyleOptions { compact?: boolean; unknownColor?: string }
 function caption(text: string, color: string, offsetY: number, zIndex: number, offsetX = 0, opacity = 1) {
   return new Style({ text: new Text({ text, offsetY, offsetX, font: '11px Microsoft YaHei', declutterMode: 'declutter',
     fill: new Fill({ color: alphaColor(color, opacity) }), backgroundFill: new Fill({ color: alphaColor('#0c1b2d', opacity * 0.91) }), padding: [3, 4, 3, 4] }), zIndex });
 }
 // 每种设备使用不同轮廓和文字，颜色只表示它自己的运行状态。
-export function gisDeviceStyles(points: readonly GisDevicePoint[], settings: GisDeviceSettings, selectedId: string, options: GisDeviceStyleOptions = {}): Style[] {
+export function gisDeviceStyles(points: readonly GisDevicePoint[], settings: GisDeviceSettings, selectedId: string): Style[] {
   if (!points.length) return [];
   const summary = gisDeviceSummary(points), selected = points.some(row => row.id === selectedId);
   const zIndex = summary.faults ? (selected ? 60 : 50) : selected ? 40 : summary.alerts ? 30 : 20;
   const manual = points.some(row => row.manualStation), styles: Style[] = [];
   if (points.length === 1) {
-    const row = points[0], opacity = settings[row.deviceClass].opacity, tone = gisDeviceTone(row);
-    const color = tone === 'UNKNOWN' ? options.unknownColor ?? GIS_DEVICE_COLORS.UNKNOWN : GIS_DEVICE_COLORS[tone];
-    const icon = gisSymbol('radio',color,selected);
+    const row = points[0], opacity = settings[row.deviceClass].opacity, color = GIS_DEVICE_COLORS[gisDeviceTone(row)];
+    const icon = gisSymbol('radio',selected,color);
     icon.setOpacity(opacity);
     styles.push(new Style({ image: icon, zIndex }));
-    styles.push(caption(options.compact ? row.deviceClass : `${row.deviceClass} · ${gisDeviceStatus(row)}${row.offShelf ? ' · 已下架' : ''}`, color, -24, zIndex, 0, opacity));
+    styles.push(caption(`${row.deviceClass} · ${gisDeviceStatus(row)}${row.offShelf ? ' · 已下架' : ''}`, color, -24, zIndex, 0, opacity));
     if (selected) styles.push(caption(row.id, '#e4f3ff', 25, zIndex, 0, opacity));
     if (manual || selected) {
       const ring = new Circle({ radius: selected ? 17 : 15, declutterMode: 'none', stroke: new Stroke({ color: manual ? '#dcb976' : '#ffffff', width: 2 }) });
@@ -43,21 +41,18 @@ export function gisDeviceStyles(points: readonly GisDevicePoint[], settings: Gis
   if (statusColor && (selected || manual)) styles.push(new Style({
     image: new Circle({ radius: selected ? 24 : 21, declutterMode: 'none', stroke: new Stroke({ color: selected ? '#ffffff' : '#dcb976', width: 2 }) }), zIndex: zIndex - 1,
   }));
-  if (options.compact) {
-    styles.push(caption(GIS_DEVICE_TYPES.filter(type => summary[type]).map(type => `${type} ${summary[type]}`).join(' · '), '#c5e4fa', 27, zIndex));
-  } else for (const type of GIS_DEVICE_TYPES) if (summary[type]) styles.push(caption(`${type === 'HF' ? '◇' : '□'} ${type} ${summary[type]}`,
+  for (const type of GIS_DEVICE_TYPES) if (summary[type]) styles.push(caption(`${type === 'HF' ? '◇' : '□'} ${type} ${summary[type]}`,
     '#c5e4fa', 29, zIndex, summary.HF && summary.VUHF ? (type === 'HF' ? -36 : 36) : 0, settings[type].opacity));
   const warning = [summary.faults ? `故障 ${summary.faults}` : '', summary.alerts ? `告警 ${summary.alerts}` : ''].filter(Boolean).join(' · ');
   if (warning) styles.push(caption(warning, summary.faults ? GIS_DEVICE_COLORS.FAULT : GIS_DEVICE_COLORS.ALERT, -29, zIndex));
   // 聚合仍按原几何分组，缺省观测数量单独提示，不归入正常。
   const unknown = points.filter(row => row.status === null || row.alert === null).length;
-  // 态势页在图例与浮卡说明未知观测，避免每个聚合点重复长提示；工作台保持原样。
-  if (unknown && !options.compact) styles.push(caption(`状态/告警未提供 ${unknown}`, GIS_DEVICE_COLORS.UNKNOWN, warning ? -48 : -29, zIndex));
+  if (unknown) styles.push(caption(`状态/告警未提供 ${unknown}`, GIS_DEVICE_COLORS.UNKNOWN, warning ? -48 : -29, zIndex));
   if (manual) styles.push(caption('含人工站点', '#dcb976', 48, zIndex));
   return styles;
 }
 
-export function createGisDeviceLayer(options: GisDeviceStyleOptions = {}) {
+export function createGisDeviceLayer() {
   const source = new VectorSource<Feature<Point>>();
   const clusters = new Cluster({ distance: 36, source, createCluster: (geometry, features) =>
     new Feature({ geometry, features, kind: 'gis-device-cluster' }) });
@@ -68,7 +63,7 @@ export function createGisDeviceLayer(options: GisDeviceStyleOptions = {}) {
     const item = feature as Feature, cached = styles.get(item);
     if (cached?.version === styleVersion && cached.selected === current.selectedDeviceId) return cached.value;
     const rows = (item.get('features') as Feature[]).map(member => member.get('devicePoint') as GisDevicePoint);
-    const value = gisDeviceStyles(rows, current.settings, current.selectedDeviceId, options);
+    const value = gisDeviceStyles(rows, current.settings, current.selectedDeviceId);
     styles.set(item, { version: styleVersion, selected: current.selectedDeviceId, value }); return value;
   } });
   return {

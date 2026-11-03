@@ -43,21 +43,19 @@
         >{{ error }}</p
       >
     </div>
-    <template #footer>
-      <div class="source-footer">
-        <button
-          class="btn"
-          :disabled="busy"
-          @click="$emit('close')"
-          >取消</button
-        ><button
-          class="btn primary"
-          :disabled="busy || !plans.some((plan) => plan.id === planId && plan.canCreate)"
-          @click="$emit('confirm', planId)"
-          >创建场景草稿</button
-        >
-      </div>
-    </template>
+    <template #footer
+      ><button
+        class="btn"
+        :disabled="busy"
+        @click="$emit('close')"
+        >取消</button
+      ><button
+        class="btn primary"
+        :disabled="busy || !plans.some((plan) => plan.id === planId && plan.canCreate)"
+        @click="$emit('confirm', planId)"
+        >创建场景草稿</button
+      ></template
+    >
   </AppDrawer>
 </template>
 <script setup lang="ts">
@@ -86,12 +84,6 @@ watch(
 );
 </script>
 <style scoped>
-.source-footer {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 12px;
-}
 .source-form {
   display: grid;
   gap: 16px;

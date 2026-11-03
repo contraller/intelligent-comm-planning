@@ -184,7 +184,8 @@ export function decodeMap(value: unknown, query: ResourceMapQuery): ResourceMapF
     const p = readRecord(value), kind = choice(p.kind, ['node', 'interference'], 'point.kind'), coordinate = readCoordinate(p.lon, p.lat);
     if (!inside(coordinate)) fail('point outside bbox');
     return { kind, id: readText(p.id, 'point.id'), name: readText(p.name, 'point.name'), coordinate,
-      status: kind === 'node' ? status(p.status) : null, alert: kind === 'node' ? optionalBool(p.alert, 'alert') : null, active: kind === 'interference' ? bool(p.active, 'active') : null };
+      status: kind === 'node' ? status(p.status) : null, alert: kind === 'node' ? optionalBool(p.alert, 'alert') : null, active: kind === 'interference' ? bool(p.active, 'active') : null,
+      ...Object.fromEntries(['mobility','node_role','node_subtype'].filter(key=>Object.hasOwn(p,key)).map(key=>[key,p[key]===null?null:readText(p[key],key)])) };
   });
   const clusters = (v.clusters as unknown[]).map(value => {
     const c = readRecord(value), coordinate = readCoordinate(c.lon, c.lat), bounds = readBounds(c.bounds), n = count(c.count, 'cluster.count');

@@ -173,15 +173,15 @@ local_identity_adapter = install_local_identity(app)
 def _frontend_device_actor(request, permission, *, writing=False):
     actor = integration_identity.require(request, permission, writing=writing)
     adapter = getattr(request.app.state, "local_identity_adapter", None)
-    if adapter is None or adapter.auth_mode != "LOCAL_PASSWORD":
+    if adapter is None or adapter.auth_mode not in ("LOCAL_PASSWORD", "LOCAL_SINGLE_USER"):
         raise integration_identity.IdentityError("设备正式身份未装配", 5001, 503)
     # 设备受理a2冻结真实认证来源，不把本地账号冒充旧联调principal。
-    return {**actor, "authentication_mode": "LOCAL_PASSWORD"}
+    return {**actor, "authentication_mode": adapter.auth_mode}
 
 
 def _planning_business_kwargs(request, *, job=False):
     adapter = getattr(request.app.state, "local_identity_adapter", None)
-    local = getattr(request.app.state, "auth_mode", None) == "LOCAL_PASSWORD" or os.environ.get("AUTH_MODE") == "LOCAL_PASSWORD"
+    local = getattr(request.app.state, "auth_mode", None) in ("LOCAL_PASSWORD", "LOCAL_SINGLE_USER") or os.environ.get("AUTH_MODE") in ("LOCAL_PASSWORD", "LOCAL_SINGLE_USER")
     if not local:
         return {}
     if adapter is None:

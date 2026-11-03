@@ -262,7 +262,9 @@ def _point(row, kind):
     if kind == "node":
         return {"kind": kind, "id": row["node_id"], "name": row["node_name"],
                 "lon": row["lon"], "lat": row["lat"], "status": row["status"],
-                "alert": row["alert"], "origin": row["origin"]}
+                "alert": row["alert"], "origin": row["origin"],
+                "mobility": row.get("mobility"), "node_role": row.get("node_role"),
+                "node_subtype": row.get("node_subtype")}
     return {"kind": kind, "id": row["interference_id"], "name": row["interference_name"],
             "lon": row["lon"], "lat": row["lat"], "active": row["active"], "origin": row["origin"]}
 

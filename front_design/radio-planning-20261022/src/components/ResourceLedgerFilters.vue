@@ -287,7 +287,6 @@ function updateClassification(patch: Partial<LedgerClassification>) {
   display: grid;
   gap: 12px;
   margin: 0;
-  padding: 8px 18px;
   min-width: 0;
   border: 0;
 }

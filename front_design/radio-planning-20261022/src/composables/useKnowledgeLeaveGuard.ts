@@ -3,7 +3,7 @@ import { onBeforeRouteLeave } from 'vue-router';
 import { useAuthStore } from '../stores/auth';
 import { useKnowledgeStore } from '../stores/knowledge';
 
-export function useKnowledgeLeaveGuard() {
+export function useKnowledgeLeaveGuard(beforeLeave?:()=>Promise<boolean>) {
   const store=useKnowledgeStore();
   const auth=useAuthStore(),release=auth.registerLeave(()=>store.allowLeave(false,true),()=>store.dirty);
   onBeforeUnmount(release);
@@ -12,6 +12,6 @@ export function useKnowledgeLeaveGuard() {
   const focus=()=>{void store.load();};
   onMounted(()=>{window.addEventListener('beforeunload',beforeUnload);window.addEventListener('focus',focus);void store.load();});
   // 正常离开沿用原提示；失效时留在原组件，由统一对话框处理。
-  onBeforeRouteLeave(async()=>{if(auth.bypassLeave)return true;await auth.check();return !auth.blocked&&store.allowLeave();});
+  onBeforeRouteLeave(async()=>{if(auth.bypassLeave)return true;await auth.check();if(auth.blocked)return false;if(beforeLeave&&!(await beforeLeave()))return false;return store.allowLeave();});
   onBeforeUnmount(()=>{store.stopQueries();store.answer('cancel');window.removeEventListener('beforeunload',beforeUnload);window.removeEventListener('focus',focus);});
 }

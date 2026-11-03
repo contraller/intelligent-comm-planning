@@ -27,7 +27,7 @@ _OPERATIONS = {"saveTask": "task.save", "submit": "planning.submit", "cancel": "
 
 def _business_context(audit_context: LocalBusinessContext | None):
     if audit_context is None:
-        if os.environ.get("AUTH_MODE") == "LOCAL_PASSWORD":
+        if os.environ.get("AUTH_MODE") in ("LOCAL_PASSWORD", "LOCAL_SINGLE_USER"):
             raise SystemManagementError("本地规划操作缺少可信业务上下文", 5001, 503)
         return None
     from .local_business_context import LocalBusinessContext

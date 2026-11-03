@@ -152,36 +152,6 @@ function frozenNumber(row:Record<string,unknown>,key:string,lo:number,hi:number)
   if(typeof raw!=='number'&&typeof raw!=='string'||typeof raw==='string'&&!/^[+-]?(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)(?:[eE][+-]?[0-9]+)?$/.test(raw.trim()))return fail();
   const value=number(typeof raw==='number'?raw:Number(raw));if(value<lo||value>hi)return fail();return value;
 }
-function samplingGrid(part:Record<string,unknown>,device:Record<string,unknown>,options:FrozenCoverageParameters,box:number[]):number {
-  // 旧响应未提供完整采样时保留未知；有此字段必须完整核验，不能退回格面拼边。
-  if(part.sampling_grid===undefined)return 0;
-  const grid=object(part.sampling_grid),origin=coordinate(grid.origin),cell=number(grid.cell_m);
-  const radius=device.band==='HF'?Math.min(options.radius_m,options.hf_max_km*1000):options.radius_m;
-  if(!keys(grid,['origin','cell_m','radius_m','samples'])||!equal(origin,[device.lon,device.lat])||cell!==options.cell_m||grid.radius_m!==radius
-    ||!Array.isArray(grid.samples)||grid.samples.length>300000||grid.samples.length!==part.evaluated_samples)return fail();
-  const dx=cell/(111320*Math.cos(number(device.lat)*Math.PI/180)),dy=cell/111320;
-  const byKey=new Map<string,unknown[]>();let required:number|undefined;
-  for(const value of grid.samples){
-    if(!Array.isArray(value)||value.length!==7)return fail();
-    const [gx,gy,field,margin,loss,clearance,los]=value;
-    if(!Number.isSafeInteger(gx)||!Number.isSafeInteger(gy)||byKey.has(`${gx},${gy}`))return fail();
-    number(field);number(margin);if(loss!==null&&number(loss)<0)return fail();if(clearance!==null)number(clearance);if(los!==null&&typeof los!=='boolean')return fail();
-    if(required!==undefined&&Math.abs(field-margin-required)>1e-7)return fail();required=field-margin;
-    const x=number(device.lon)+gx*dx,y=number(device.lat)+gy*dy;
-    const sample:FrozenCoverageFeature={type:'Feature',geometry:{type:'Polygon',coordinates:[[[x-dx/2,y-dy/2],[x+dx/2,y-dy/2],[x+dx/2,y+dy/2],[x-dx/2,y+dy/2],[x-dx/2,y-dy/2]]]},properties:{device_id:String(device.device_id),node_id:String(device.node_id),freq_khz:number(part.freq_khz),surface_kind:'TERRAIN_CELL',is_coverage:margin>=options.margin_min_db}};
-    if(!isLocalTerrainCell(sample,{lon:number(device.lon),lat:number(device.lat),band:String(device.band)},options,box))return fail();
-    byKey.set(`${gx},${gy}`,value);
-  }
-  const features=object(part.geojson).features as FrozenCoverageFeature[],passed=grid.samples.filter(sample=>sample[3]>=options.margin_min_db);
-  if(passed.length!==features.length)return fail();
-  const matched=new Set<string>();
-  for(const feature of features){const p=feature.properties,key=`${p.gx},${p.gy}`,sample=byKey.get(key);
-    if(!sample||matched.has(key)||number(sample[3])<options.margin_min_db||Math.abs(number(sample[2])-number(p.field_strength_dbuvm))>1e-7||Math.abs(number(sample[3])-number(p.margin_db))>1e-7
-      ||sample[4]!==(p.terrain_loss_db??null)||sample[5]!==(p.clearance_m??null)||sample[6]!==(p.los??null))return fail();
-    matched.add(key);
-  }
-  return grid.samples.length;
-}
 function v4Device(device:Record<string,unknown>) {
   const provenance=bandwidthProvenance(device.bandwidth_provenance);
   const model=device.frozen_model===null?null:object(device.frozen_model),antenna=device.frozen_antenna===null?null:object(device.frozen_antenna);
@@ -258,7 +228,7 @@ function result(value:unknown,bound:FrozenCoverageAnchor,options:FrozenCoverageP
   strings(provenance.limitations);
   const box=provenance.dem_bbox;if(!Array.isArray(box)||box.length!==4)return fail();box.forEach(number);if(box[0]>=box[2]||box[1]>=box[3])return fail();
   if(!Array.isArray(row.devices)||row.devices.length>1024)return fail();
-  const ids=new Set<string>();let count=0,sampleCount=0;
+  const ids=new Set<string>();let count=0;
   for(const value of row.devices){const device=object(value),id=text(device.device_id),nid=text(device.node_id);
     if(!id.trim()||!nid.trim()||ids.has(id)||!text(device.model_id).trim()||!text(device.antenna_id).trim())return fail();ids.add(id);
     coordinate([device.lon,device.lat]);strings(device.reasons);
@@ -280,10 +250,6 @@ function result(value:unknown,bound:FrozenCoverageAnchor,options:FrozenCoverageP
       if(frequency<=0||!['CELLS','RINGS'].includes(String(part.shape))||!strings(part.link_ids).length||geo.type!=='FeatureCollection'||!Array.isArray(geo.features))return fail();
       if(v5&&part.shape!==(device.band==='HF'?'RINGS':'CELLS'))return fail();
       if(v6&&part.shape!=='CELLS')return fail();
-      // 只把已核验的原始采样信息用于地图解释；历史缺字段保持未知。
-      if(v6&&part.evaluated_samples!==undefined&&(!Number.isSafeInteger(part.evaluated_samples)||number(part.evaluated_samples)<geo.features.length))return fail();
-      if(v6){sampleCount+=samplingGrid(part,device,options,box as number[]);if(sampleCount>300000)return fail();}
-      else if(part.sampling_grid!==undefined)return fail();
       count+=geo.features.length;if(count>300000)return fail();geo.features.forEach(value=>{
         const decoded=feature(value,id,nid,frequency);
         if(v5||v6){
@@ -295,9 +261,6 @@ function result(value:unknown,bound:FrozenCoverageAnchor,options:FrozenCoverageP
             ||p.strength_class!==(margin>=20?'STRONG':margin>=10?'MEDIUM':'WEAK')||p.is_coverage!==(margin>=options.margin_min_db))return fail();
           if(v5&&(device.band==='VUHF'&&p.surface_kind!=='TERRAIN_CELL'||device.band==='HF'&&p.surface_kind==='TERRAIN_CELL'))return fail();
           if(v6){
-            if(p.los!==undefined&&typeof p.los!=='boolean')return fail();
-            if(p.clearance_m!==undefined)number(p.clearance_m);
-            for(const key of ['gx','gy'] as const)if(p[key]!==undefined&&!Number.isSafeInteger(p[key]))return fail();
             if(!isLocalTerrainCell(decoded,{lon:number(device.lon),lat:number(device.lat),band:String(device.band)},options,box as number[]))return fail();
             if(p.terrain_loss_db!==undefined&&number(p.terrain_loss_db)<0)return fail();
             if(p.propagation_mode!==undefined&&!text(p.propagation_mode).trim())return fail();

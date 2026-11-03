@@ -115,26 +115,6 @@
           >关闭网络</button
         ></div
       >
-      <div v-if="coverageReader && !analysisMap" class="v6-controls">
-        <strong>设备覆盖</strong><select v-model="v6DeviceId" aria-label="覆盖设备" :disabled="coverageReading || v6Cache?.state!=='HIT'" @change="chooseCoverageDevice"><option value="">选择设备覆盖</option><option v-for="d in v6Cache?.result?.devices ?? []" :key="d.device_id" :value="d.device_id">{{ d.band }} · {{ d.device_id }} · {{ d.node_id }} · {{ coverageStatus[d.status] }}</option></select>
-        <select v-if="v6Frequencies.length>1" :value="v6Frequency" aria-label="覆盖频点" @change="chooseCoverageFrequency"><option v-for="f in v6Frequencies" :key="f" :value="f">{{ f }} kHz</option></select><span v-else-if="v6Frequency">{{ v6Frequency }} kHz</span>
-        <select v-model="v6Display" aria-label="V6覆盖显示方式"><option value="field">场强等值线</option><option value="strength">强 / 中 / 弱</option><option value="boundary">通信门限线</option></select>
-        <label><input v-model="v6Visible" type="checkbox" :disabled="v6Selected?.status!=='COMPLETE'" @change="coverageVisibilityChanged" />显示覆盖</label><label><input v-model="v6Terrain" type="checkbox" :disabled="!v6Overlay || v6Display==='boundary'" />显示地形影响标记</label>
-        <button class="btn small" :disabled="!v6Overlay" @click="focusCoverage()">定位覆盖</button><button class="btn small" @click="mapCanvas?.fit()">返回全网</button><button class="btn small" :disabled="coverageReading" @click="readCoverage">刷新覆盖</button><button v-if="model.surface?.coverage" class="text-link" @click="showHistorical=!showHistorical">历史覆盖</button>
-        <p v-if="coverageReading">读取同快照覆盖中…</p><p v-else-if="coverageError" role="alert">{{ coverageError }}</p><p v-else-if="v6Cache?.state!=='HIT'">{{ v6Cache?.reason || '尚无已计算的V6覆盖' }} <button class="text-link" @click="openCoveragePlanning">打开同一方案的覆盖计算</button></p>
-        <p v-else-if="!v6Selected">选择设备以查看已有覆盖</p><p v-else-if="v6Selected.status!=='COMPLETE'" role="status">{{ coverageStatus[v6Selected.status] }}：{{ v6Selected.reasons.join('；') || '此设备未提供可显示的覆盖' }}</p>
-        <div v-if="v6Overlay && v6View" class="v6-legend">
-          <CoverageLineLegend :display="v6Display" :has-grid="!!v6View.grid" :boundary-status="v6View.boundaryStatus" :margin-min-db="v6Overlay.result.provenance.parameters.margin_min_db" />
-          <span v-if="v6Display==='strength'">强 ≥20 dB · 中 ≥10 dB · 其余达标格为弱</span>
-          <span v-if="v6Terrain && v6Display!=='boundary'"><i class="terrain-hatch" />斜纹：{{ v6Selected?.band==='HF'?'有地形附加损耗':'非通视' }}</span>
-        </div>
-        <details v-if="v6Selected?.status==='COMPLETE' && v6Cache?.state==='HIT'"><summary>参数与来源</summary>
-          <p>计算半径 {{ v6RadiusKm }} km · 网格 {{ v6Cache.parameters.cell_m }} m · 功率 {{ v6Selected.radio_parameters?.tx_dbm ?? '未提供' }} dBm · 天线高度 {{ v6Selected.radio_parameters?.height ?? '未提供' }} m</p>
-          <p>预测覆盖已考虑地形，非现场实测。计算半径不代表最远通信距离；关闭地形影响标记仍保留地形计算。等值线在有效采样间插值，悬停读取原始采样；精度受网格分辨率限制。</p>
-          <p v-if="v6Display==='field' && Number.isFinite(v6View?.min)">所选设备 {{ v6View?.min.toFixed(1) }}–{{ v6View?.max.toFixed(1) }} dBμV/m；同一方案采用统一场强刻度。</p>
-          <p>{{ v6View?.evaluated === undefined ? '已评估采样数未提供' : `所选频点达标 ${v6View.features.length} / ${v6View.evaluated} 个采样点` }}；不是面积覆盖率。空白可能为未达门限、计算范围外或缺少地形数据，不能统一判为遮挡。{{ model.network.identity.snapshot_id }}</p>
-        </details>
-      </div>
       <p v-if="deviceStatus && !analysisMap" class="status-render-anchor" role="status" data-testid="gis-device-status-render"
         :data-snapshot-id="deviceStatus.anchor.snapshotId" :data-snapshot-revision="deviceStatus.anchor.snapshotRevision"
         :data-resource-revision="deviceStatus.anchor.resourceRevision" :data-network-snapshot-id="deviceStatus.networkSnapshotId"
@@ -145,7 +125,6 @@
       <div v-show="!analysisMap" class="frozen-layout">
         <div class="frozen-map">
           <MapCanvas
-            ref="mapCanvas"
             :stations="[]"
             resource-read
             gis-surface
@@ -154,7 +133,6 @@
             :planning-overlay="coverageOverlay"
             :show-coverage="showCoverage"
             :coverage-display="coverageDisplay"
-            :frozen-coverage="v6Overlay"
             :terrain-basemap="basemap"
             :map-caption="basemap ? '冻结 DEM 地形' : groundMessage"
             :selected-id="model.selectedNodeId"
@@ -168,8 +146,7 @@
           />
         </div>
         <aside class="frozen-details">
-          <div v-if="!coverageReader || showHistorical" class="coverage-controls">
-            <span v-if="coverageReader">历史覆盖（非V6格面）</span>
+          <div class="coverage-controls">
             <label><input v-model="showCoverage" type="checkbox" :disabled="!model.surface?.coverage" />覆盖结果</label>
             <select v-model="coverageDisplay" class="input" aria-label="覆盖显示方式" :disabled="!model.surface?.coverage">
               <option value="auto">自动</option><option value="raster">场强栅格</option><option value="contour">覆盖轮廓</option>
@@ -271,9 +248,8 @@
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, reactive, ref, shallowRef, watch } from 'vue';
+import { computed, onBeforeUnmount, reactive, ref, shallowRef, watch } from 'vue';
 import MapCanvas from './MapCanvas.vue';
-import CoverageLineLegend from './CoverageLineLegend.vue';
 import GisPlanOperations from './GisPlanOperations.vue';
 import {
   createGisFrozenPlanWorkspace,
@@ -285,9 +261,7 @@ import type { CoverageDisplay } from '../types/coverage';
 import type { GisPlanOperationServices } from '../types/gis-plan';
 import type { PlanningPlanSummary } from '../types/planning-api';
 import { gisDeviceStatusKey, type GisDeviceStatusOverlay, type GisDeviceStatusRender } from '../maps/gis-device-status-layer';
-import type { FrozenCoverageCache, FrozenCoverageDisplay, FrozenCoverageOverlay, FrozenCoverageQuery } from '../types/frozen-coverage';
-import { coverageFrequencies, coverageFrequency, frozenCoverageView } from '../maps/frozen-coverage-layers';
-const props = defineProps<{ services: GisFrozenPlanServices; sessionGeneration: number; operations?: GisPlanOperationServices; coverageReader?:(query:FrozenCoverageQuery,signal?:AbortSignal)=>Promise<FrozenCoverageCache>; currentResourceRevision?: string; initialTab?: 'devices' | 'interference' }>();
+const props = defineProps<{ services: GisFrozenPlanServices; sessionGeneration: number; operations?: GisPlanOperationServices; currentResourceRevision?: string; initialTab?: 'devices' | 'interference' }>();
 const emit = defineEmits<{ openPlan: [value: { taskId: string; planId: string }]; openJob: [value: { taskId: string; jobId: string }] }>();
 const analysisMap = ref(false);
 const deviceStatus = shallowRef<GisDeviceStatusOverlay | null>(null);
@@ -307,40 +281,7 @@ const model = reactive(createGisFrozenPlanWorkspace(props.services));
 const searchText = ref(''),
   state = ref<ApiPlan['state'] | ''>(''),
   page = ref(1);
-const showCoverage = ref(!props.coverageReader), coverageDisplay = ref<CoverageDisplay>('auto');
-const mapCanvas=ref<InstanceType<typeof MapCanvas>>(),showHistorical=ref(false);
-const v6Cache=shallowRef<FrozenCoverageCache|null>(null),coverageReading=ref(false),coverageError=ref('');
-const v6DeviceId=ref(''),v6FrequencyChoice=ref<number>(),v6Display=ref<FrozenCoverageDisplay>('field'),v6Visible=ref(false),v6Terrain=ref(false);
-const coverageStatus={COMPLETE:'已计算',UNAVAILABLE:'不可计算',SKIPPED:'本次无活动链路'};
-const v6Selected=computed(()=>v6Cache.value?.result?.devices.find(d=>d.device_id===v6DeviceId.value));
-const v6Frequencies=computed(()=>coverageFrequencies(v6Selected.value));
-const v6Frequency=computed(()=>coverageFrequency(v6Selected.value,v6FrequencyChoice.value));
-const v6RadiusKm=computed(()=>{const p=v6Cache.value?.parameters;return p?(v6Selected.value?.band==='HF'?Math.min(p.radius_m/1000,p.hf_max_km):p.radius_m/1000):undefined;});
-const v6Overlay=computed<FrozenCoverageOverlay|null>(()=>{const cache=v6Cache.value;if(!v6Visible.value||cache?.state!=='HIT'||!cache.result||v6Selected.value?.status!=='COMPLETE')return null;return {anchor:cache.anchor,result:cache.result,deviceId:v6DeviceId.value,frequencyKhz:v6Frequency.value,display:v6Display.value,terrainReference:v6Terrain.value,...cache.bandwidth_selection_id&&cache.bandwidth_selection_hash?{bandwidthSelection:{selectionId:cache.bandwidth_selection_id,selectionHash:cache.bandwidth_selection_hash}}:{}};});
-const v6View=computed(()=>v6Overlay.value?frozenCoverageView(v6Overlay.value):null);
-
-let coverageRequest:AbortController|undefined,coverageSerial=0;
-const coverageOwner=()=>`${props.sessionGeneration}:${model.network?.identity.plan_id}:${model.network?.identity.snapshot_id}`;
-async function readCoverage(){
-  const network=model.network,read=props.coverageReader;if(!network||!read)return;
-  coverageRequest?.abort();const request=new AbortController(),serial=++coverageSerial,owner=coverageOwner();coverageRequest=request;coverageReading.value=true;coverageError.value='';
-  try{const i=network.identity,cache=await read({planId:i.plan_id,taskId:i.task_id,snapshotId:i.snapshot_id,resourceRevision:i.resource_revision,context:'gis',engineVersion:'V01-6'},request.signal);
-    if(request.signal.aborted||serial!==coverageSerial||owner!==coverageOwner())return;
-    if(cache.anchor.plan_id!==i.plan_id||cache.anchor.task_id!==i.task_id||cache.anchor.snapshot_id!==i.snapshot_id||cache.anchor.resource_revision!==i.resource_revision||cache.anchor.engine_version!=='V01-6')throw new Error('覆盖与当前冻结网络身份不一致');
-    v6Cache.value=cache;if(!cache.result?.devices.some(d=>d.device_id===v6DeviceId.value)){v6DeviceId.value='';v6Visible.value=false;v6FrequencyChoice.value=undefined;}
-    // 失效频点回退后记住实际显示值，后续刷新不跳回旧频点。
-    if(v6Frequency.value!==undefined)v6FrequencyChoice.value=v6Frequency.value;
-  }catch(reason){if(!request.signal.aborted&&serial===coverageSerial)coverageError.value=(reason instanceof Error?reason.message:'覆盖读取失败')+(v6Cache.value?'；保留上次成功结果':'');}
-  finally{if(serial===coverageSerial)coverageReading.value=false;}
-}
-async function focusCoverage(preserveScale=false){const key=coverageOwner()+':'+v6DeviceId.value+':'+v6Frequency.value;await nextTick();if(v6Overlay.value&&key===coverageOwner()+':'+v6DeviceId.value+':'+v6Frequency.value)mapCanvas.value?.fitFrozenCoverage(preserveScale);}
-function chooseCoverageDevice(){v6FrequencyChoice.value=undefined;v6Visible.value=v6Selected.value?.status==='COMPLETE';if(v6Visible.value){showCoverage.value=false;void focusCoverage(true);}}
-function chooseCoverageFrequency(event:Event){v6FrequencyChoice.value=Number((event.target as HTMLSelectElement).value);if(v6Visible.value)void focusCoverage(true);}
-function coverageVisibilityChanged(){if(v6Visible.value){showCoverage.value=false;void focusCoverage(true);}}
-async function openCoveragePlanning(){const i=model.network?.identity;if(i&&await requestLeave())emit('openPlan',{taskId:i.task_id,planId:i.plan_id});}
-// 换来源先取消旧读取；相同快照仅回读缓存，不卸载地图或抢回用户视角。
-watch(coverageOwner,()=>{coverageSerial++;coverageRequest?.abort();v6Cache.value=null;v6DeviceId.value='';v6Visible.value=false;v6FrequencyChoice.value=undefined;v6Terrain.value=false;coverageReading.value=false;coverageError.value='';if(model.network&&props.coverageReader)showCoverage.value=false;void readCoverage();},{flush:'sync'});
-watch(showCoverage,value=>{if(value)v6Visible.value=false;});
+const showCoverage = ref(true), coverageDisplay = ref<CoverageDisplay>('auto');
 // GIS 仅显示已有冻结覆盖；配置与计算保留在规划页，栅格沿用既有安全下载。
 const coverageOverlay = computed(() => model.surface?.coverage ? { nodes: [], coverage: model.surface.coverage, snapshotId: model.surface.identity.snapshot_id } : null);
 const labels = { SAVED: '已保存', REFERENCE: '参考方案', CONFIRMED: '已确认' };
@@ -387,17 +328,11 @@ watch(
   },
   { immediate: true },
 );
-onBeforeUnmount(()=>{coverageSerial++;coverageRequest?.abort();model.stop();});
+onBeforeUnmount(model.stop);
 defineExpose({ stop: model.stop, requestLeave, openIdentity });
 </script>
 
 <style scoped>
-.v6-controls { display:flex;align-items:center;flex-wrap:wrap;gap:8px 12px;padding:12px;border:1px solid #2b455e;border-radius:6px;background:#102035;font-size:12px; }
-.v6-controls select { max-width:310px;padding:6px; }
-.v6-controls label { display:flex;flex-direction:row;align-items:center;gap:5px; }
-.v6-controls p,.v6-controls details,.v6-legend { flex-basis:100%;margin:0;font-size:11px;color:#a9c1d4; }
-.v6-legend { display:flex;align-items:center;flex-wrap:wrap;gap:8px 20px; }
-.terrain-hatch { display:inline-block;width:18px;height:9px;margin-right:5px;border:1px solid #8ca9bf;background:repeating-linear-gradient(135deg,#b5cce0 0 1px,transparent 1px 5px); }
 .status-render-anchor { margin: 0; padding: 8px 0; font-size: 12px; overflow-wrap: anywhere; }
 .frozen-workspace {
   display: grid;

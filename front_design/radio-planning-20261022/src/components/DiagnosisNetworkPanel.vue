@@ -391,11 +391,6 @@ const detail = computed(() => {
   min-height: 0;
   height: 100%;
 }
-/* 仅收紧诊断图例；左侧留出比例尺通道，换行时也不互相遮挡。 */
-.network-canvas :deep(.map-legend.mock-legend) {
-  bottom: 12px;
-  max-width: calc(100% - 175px);
-}
 .object-detail {
   padding: 14px 17px;
   border-top: 1px solid #2f4966;

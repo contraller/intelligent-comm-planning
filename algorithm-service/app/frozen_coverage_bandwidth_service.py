@@ -133,7 +133,7 @@ class FrozenCoverageBandwidthService:
         except ValidationError as exc:
             raise storage.CoverageServiceError("接收带宽选择请求无效") from exc
         plan_id, actor_id = storage._id(plan_id), storage._id(actor_id)
-        if audit_context is not None or os.environ.get("AUTH_MODE") == "LOCAL_PASSWORD":
+        if audit_context is not None or os.environ.get("AUTH_MODE") in ("LOCAL_PASSWORD", "LOCAL_SINGLE_USER"):
             from .planning_operation_service import _business_context
             context = _business_context(audit_context)
             if not context._writing or context.actor.account_id != actor_id:

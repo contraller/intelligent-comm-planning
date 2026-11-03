@@ -7,14 +7,13 @@ import { Circle, Fill, Stroke, Style, Text } from 'ol/style';
 import type { GisNetwork } from '../types/gis-plan';
 import { projectCoordinate } from './layers';
 import { LINK_STATUS_STYLES } from '../config/link-status';
-import { gisSymbol, stationSymbol } from './gis-symbols';
-import type { GIS_DEVICE_COLORS } from './gis-device-display';
+import { gisNodeSymbol, gisSymbol } from './gis-symbols';
 
 // 冻结计划使用独立要素身份，点击不能落到当前资源同名对象。
 export function gisPlanLayer(
   network: GisNetwork,
   selected: { node?: string; link?: string; demand?: string } = {},
-  display: { linksVisible?: boolean; topologyOpacity?: number; nodeColors?: typeof GIS_DEVICE_COLORS } = {},
+  display: { linksVisible?: boolean; topologyOpacity?: number } = {},
 ) {
   const positions = new Map(network.nodes.map((node) => [node.id, node.coordinate]));
   const features: Feature[] = [],
@@ -37,23 +36,22 @@ export function gisPlanLayer(
       b = positions.get(link.b);
     if (!a || !b) continue;
     const active = link.id === selected.link || routeLinks.has(link.id);
-    const quality=link.planned_state?LINK_STATUS_STYLES[link.planned_state]:{color:'#8797a8',width:1.5};
+    const quality=link.planned_state?LINK_STATUS_STYLES[link.planned_state]:null;
     const feature = new Feature({
       geometry: new LineString([projectCoordinate(a), projectCoordinate(b)]),
       kind: 'frozen-plan-link',
       objectId: link.id,
       snapshot,
     });
-    feature.setStyle([
-      ...(active?[new Style({stroke:new Stroke({color:'#e6f5ff'+Math.round(opacity*255).toString(16).padStart(2,'0'),width:quality.width+4,lineDash:link.backup?[7,5]:undefined,lineCap:'butt'})})]:[]),
+    feature.setStyle(
       new Style({
         stroke: new Stroke({
-          color: quality.color + Math.round(opacity*255).toString(16).padStart(2,'0'),
-          width: quality.width,
+          color: active ? [255, 224, 138, opacity] : quality?quality.color+Math.round(opacity*255).toString(16).padStart(2,'0'):[149,162,176,opacity],
+          width: active ? 4 : quality?.width??1.5,
           lineDash: link.backup ? [7, 5] : undefined,
         }),
       }),
-    ]);
+    );
     features.push(feature);
   }
   for (const demand of network.demands) {
@@ -72,22 +70,20 @@ export function gisPlanLayer(
     );
     features.push(feature);
   }
-  // 配色仅作用于显式传入的态势页，其他冻结网络保留原样；不改写状态数据。
-  const nodeColors = display.nodeColors ?? { NORMAL: '#60ccbb', FAULT: '#ed7184', OFFLINE: '#8093a9', ALERT: '#efa84c', UNKNOWN: '#bac4cf' };
   for (const node of network.nodes) {
     const active = selected.node === node.id;
     const unknown = node.status === null || node.alert === null;
     const color = active
       ? '#ffe08a'
       : node.status === 'FAULT'
-        ? nodeColors.FAULT
+        ? '#ed7184'
         : node.status === 'OFFLINE'
-          ? nodeColors.OFFLINE
+          ? '#8093a9'
           : unknown
-            ? nodeColors.UNKNOWN
+            ? '#bac4cf'
             : node.alert
-              ? nodeColors.ALERT
-              : nodeColors.NORMAL;
+              ? '#efa84c'
+              : '#60ccbb';
     const feature = new Feature({
       geometry: new Point(projectCoordinate(node.coordinate)),
       kind: 'frozen-plan-node',
@@ -96,7 +92,7 @@ export function gisPlanLayer(
     });
     feature.setStyle(
       new Style({
-        image: gisSymbol(stationSymbol({mobility:node.mobility??undefined,subtype:node.node_subtype??undefined}),color,active),
+        image: gisSymbol(gisNodeSymbol(node),active,color),
         text: active
           ? new Text({
               text: node.name,
@@ -107,7 +103,9 @@ export function gisPlanLayer(
           : undefined,
       }),
     );
+    const devices=network.devices.filter(device=>device.station_id===node.id),hf=devices.filter(device=>device.device_class==='HF').length,vu=devices.length-hf;
+    if(devices.length)feature.setStyle([...(Array.isArray(feature.getStyle())?feature.getStyle() as Style[]:[feature.getStyle() as Style]),new Style({text:new Text({text:`HF ${hf} · VUHF ${vu}`,offsetY:23,font:'10px Microsoft YaHei',fill:new Fill({color:'#d6e9f4'}),backgroundFill:new Fill({color:'#102638d9'}),padding:[2,4,2,4]})})]);
     features.push(feature);
   }
-  return new VectorLayer({ source: new VectorSource({ features }), zIndex: 45 });
+  return new VectorLayer({ source: new VectorSource({ features }), zIndex: 45, declutter:'frozen-plan-captions' });
 }

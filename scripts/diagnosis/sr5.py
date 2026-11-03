@@ -107,6 +107,13 @@ class FaultEngine:
         engine.demands = {row["demand_id"]: row for row in network["demands"]}
         return engine
 
+    def for_symptom_catalog(self, symptoms, entity_ids=None):
+        """调用级目录副本；规则继续使用原SY编号，知识现象按稳定实体编号解析。"""
+        engine = copy(self)
+        engine.symptoms = dict(symptoms)
+        engine.symptom_entity_ids = dict(entity_ids or {})
+        return engine
+
     def _build_graph(self):
         graph = KnowledgeGraph("synthetic_fault_cases")
         for case in self.cases.values():
@@ -167,6 +174,9 @@ class FaultEngine:
                 raise FaultInputError("faults[%d].params 应为对象" % index)
             bad = set(symptoms) - self.symptoms.keys()
             if bad:
+                if any(sid.startswith("KGV-") for sid in bad):
+                    raise FaultInputError("知识现象目录已更新，请重新加载故障诊断并重新选择新增现象", 1203,
+                                          {"index": index, "symptom_ids": sorted(bad)})
                 raise FaultInputError("未知故障现象 %s" % sorted(bad), 1002, {"index": index})
         return {"valid": True, "fault_count": len(faults)}
 
@@ -219,12 +229,25 @@ class FaultEngine:
         observed = set(fault.get("symptom_ids") or [])
         observed_names = {self.symptoms[sid] for sid in observed if sid in self.symptoms}
         observed_names.update(str(name).strip() for name in fault.get("symptom_names") or [])
+        bindings = getattr(self, "symptom_entity_ids", {})
+        symptom_entities = set()
+        for sid in observed:
+            if sid in bindings:
+                entity = graph.ent(bindings[sid])
+                if entity and entity["type"] == "Symptom":
+                    symptom_entities.add(bindings[sid])
+            elif sid in self.symptoms:
+                eid = graph.get("Symptom", self.symptoms[sid])
+                if eid:
+                    symptom_entities.add(eid)
+        for name in fault.get("symptom_names") or []:
+            eid = graph.get("Symptom", str(name).strip())
+            if eid:
+                symptom_entities.add(eid)
         by_case = defaultdict(set)
         evidence = defaultdict(set)
-        for symptom_name in observed_names:
-            eid = graph.get("Symptom", symptom_name)
-            if not eid:
-                continue
+        for eid in symptom_entities:
+            symptom_name = graph.ent(eid)["name"]
             for triple in graph.incoming(eid, "hasSymptom"):
                 cid = graph.ent(triple["head"])["name"]
                 if graph.ent(triple["head"])["type"] == "Fault":

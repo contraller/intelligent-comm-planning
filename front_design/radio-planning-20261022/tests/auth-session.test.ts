@@ -50,21 +50,21 @@ describe('标签页登录契约',()=>{
     const s=authFixture();await s.login();await expect(s.login('viewer')).rejects.toMatchObject({code:'AUTH_ACTIVE_SESSION'});
     await s.service.resetSystemWorkspace(s.mutation());await expect(s.service.getSession()).rejects.toMatchObject({code:'AUTH_EXPIRED'});await s.login('viewer');expect((await s.service.getSession())?.id).toBe('SYS-VIEWER');
   });
-  it.each(['https://example.com','//example.com','/login','/system?next=https://example.com','/situation#bad','/gis-workbench?deviceId=../bad','/planning?anything=1'])('拒绝非白名单返回地址 %s',value=>expect(safeReturnPath(value)).toBeNull());
-  it('仅保留业务页面使用的站内查询参数',()=>{expect(safeReturnPath('/gis-workbench?deviceId=DV-0001')).toBe('/gis-workbench?deviceId=DV-0001');expect(safeReturnPath('/knowledge?entityId=KGE-OPERATION')).toBeTruthy();});
+  it.each(['https://example.com','//example.com','/login','/system?next=https://example.com','/situation#bad','/situation?deviceId=../bad','/planning?anything=1'])('拒绝非白名单返回地址 %s',value=>expect(safeReturnPath(value)).toBeNull());
+  it('仅保留业务页面使用的站内查询参数',()=>{expect(safeReturnPath('/situation?deviceId=DV-0001')).toBe('/situation?deviceId=DV-0001');expect(safeReturnPath('/knowledge?entityId=KGE-OPERATION')).toBeTruthy();});
   // 完整报告使用不透明 ID；登录返回也不能混合多种地图上下文。
   it('保留唯一诊断目标的不透明身份',()=>{
-    const value='/gis-workbench?diagnosisId='+encodeURIComponent('历史 / 诊断:甲');
-    expect(safeReturnPath(value)).toBe('/gis-workbench?'+new URLSearchParams({diagnosisId:'历史 / 诊断:甲'}).toString());
+    const value='/situation?diagnosisId='+encodeURIComponent('历史 / 诊断:甲');
+    expect(safeReturnPath(value)).toBe('/situation?'+new URLSearchParams({diagnosisId:'历史 / 诊断:甲'}).toString());
   });
   it.each(['','a&diagnosisId=b','a&stationId=N','a&deviceId=D','a&interferenceId=I','a&taskId=T','%00bad','x'.repeat(121)])('拒绝诊断返回参数 %s',value=>{
-    expect(safeReturnPath('/gis-workbench?diagnosisId='+value)).toBeNull();
+    expect(safeReturnPath('/situation?diagnosisId='+value)).toBeNull();
   });
   // 标绘、报告与任务编辑保持独立目标，登录返回不能混合工作上下文。
-  it.each(['/gis-workbench?faultEdit=1','/gis-workbench?faultEdit=1&scenarioId=S1&versionId=V1','/diagnosis?scenarioId=S1&versionId=V1','/planning?taskId=T1&editTask=1'])('保留合法工作入口 %s',value=>{
+  it.each(['/situation?faultEdit=1','/situation?faultEdit=1&scenarioId=S1&versionId=V1','/diagnosis?scenarioId=S1&versionId=V1','/planning?taskId=T1&editTask=1'])('保留合法工作入口 %s',value=>{
     expect(safeReturnPath(value)).toBe(value);
   });
-  it.each(['/gis-workbench?faultEdit=2','/gis-workbench?faultEdit=1&scenarioId=S1','/gis-workbench?faultEdit=1&taskId=T1','/gis-workbench?faultEdit=1&diagnosisId=D1','/gis-workbench?scenarioId=S1&versionId=V1','/diagnosis?versionId=V1','/planning?editTask=1','/planning?taskId=T1&editTask=2','/planning?taskId=T1&editTask=1&planId=P1'])('拒绝混合或缺失目标 %s',value=>{
+  it.each(['/situation?faultEdit=2','/situation?faultEdit=1&scenarioId=S1','/situation?faultEdit=1&taskId=T1','/situation?faultEdit=1&diagnosisId=D1','/situation?scenarioId=S1&versionId=V1','/diagnosis?versionId=V1','/planning?editTask=1','/planning?taskId=T1&editTask=2','/planning?taskId=T1&editTask=1&planId=P1'])('拒绝混合或缺失目标 %s',value=>{
     expect(safeReturnPath(value)).toBeNull();
   });
 });

@@ -158,7 +158,7 @@
             role="status"
             >当前查看或编辑的设备不在当前页，详情和输入已保留。</p
           >
-          <div class="panel-body toolbar ledger-selection-toolbar">
+          <div class="panel-body toolbar">
             <label class="page-selection"
               ><input
                 type="checkbox"
@@ -1079,7 +1079,7 @@ onBeforeUnmount(() => { closeConfigurationHistory(); sourceSerial++; sourceContr
 function locate() {
   if (selected.value && auth.can('situation.view') && !workspace.frozen.value)
     void router.push({
-      path: '/gis-workbench',
+      path: '/situation',
       query: { stationId: selected.value.stationId, deviceId: selected.value.id },
     });
 }
@@ -1115,9 +1115,6 @@ const columns = [
 .resource-summary strong {
   color: var(--text);
   font-size: 15px;
-}
-.ledger-selection-toolbar {
-  padding: 8px 18px;
 }
 .page-selection {
   display: inline-flex;

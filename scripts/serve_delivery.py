@@ -6,8 +6,25 @@ import os
 from pathlib import Path
 import sys
 
+from fastapi.staticfiles import StaticFiles
+
 ROOT = Path(__file__).resolve().parents[1]
 FRONTEND_DIST = ROOT / "front_design" / "radio-planning-20261022" / "dist"
+
+
+class DeliveryStaticFiles(StaticFiles):
+    """HTML每次读取当前入口；带内容指纹的脚本仍使用原静态缓存规则。"""
+    def is_not_modified(self, response_headers, request_headers):
+        if response_headers.get("content-type", "").split(";", 1)[0].strip().lower() == "text/html":
+            return False
+        return super().is_not_modified(response_headers, request_headers)
+
+    async def get_response(self, path, scope):
+        response = await super().get_response(path, scope)
+        if response.headers.get("content-type", "").split(";", 1)[0].strip().lower() == "text/html":
+            response.headers.update({"Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+                                     "Pragma": "no-cache", "Expires": "0"})
+        return response
 
 
 def create_delivery_app():
@@ -23,14 +40,13 @@ def create_delivery_app():
         if not database or database == ":memory:" or not Path(database).is_absolute() or not Path(database).is_file():
             raise RuntimeError("交付入口要求 SQLite 使用已存在数据库的绝对路径，请先单独执行迁移")
     sys.path.insert(0, str(ROOT / "algorithm-service"))
-    from fastapi.staticfiles import StaticFiles
     from app.main import app
     from app import resource_dataset_service
     # 交付入口只使用已初始化的数据库资源，旧文件模式不作为页面降级路径。
     os.environ["RESOURCE_DATASET_MODE"] = "database"
     resource_dataset_service.current()
     # API 路由在前、静态页面在后；不挂载旧前端或仓库根目录。
-    app.mount("/", StaticFiles(directory=str(FRONTEND_DIST), html=True), name="delivery")
+    app.mount("/", DeliveryStaticFiles(directory=str(FRONTEND_DIST), html=True), name="delivery")
     return app
 
 

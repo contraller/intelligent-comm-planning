@@ -29,7 +29,7 @@
           label="批量故障类型"
           :disabled="!auth.can('diagnosis.scenario')"
         />
-        <div class="symptom-list"><label
+        <label
           v-for="symptom in symptoms"
           :key="symptom.id"
           class="check"
@@ -37,8 +37,8 @@
             v-model="batchSymptoms"
             type="checkbox"
             :value="symptom.id"
-          /><span>{{ symptom.label }}</span></label
-        ></div>
+          />{{ symptom.label }}</label
+        >
         <button
           class="btn small"
           :disabled="!selectedKeys.length"
@@ -89,7 +89,7 @@
           ><summary>现象（{{ fault.symptomIds.length }}）</summary
           ><p v-if="!fault.symptomIds.length" class="evidence-warning" role="status"
             >尚未选择故障现象。上方类型只是注入假设；请按观察勾选现象，否则无法据此识别根因。</p
-          ><div class="symptom-list"><label
+          ><label
             v-for="symptom in symptoms"
             :key="symptom.id"
             class="check"
@@ -97,8 +97,8 @@
               v-model="fault.symptomIds"
               type="checkbox"
               :value="symptom.id"
-            /><span>{{ symptom.label }}</span></label
-          ></div></details
+            />{{ symptom.label }}</label
+          ></details
         >
         <label
           >发生时间（可空，需带时区）<input
@@ -143,20 +143,18 @@
         }}</p
       >
     </fieldset>
-    <template #footer>
-      <div class="scenario-footer">
-        <button
-          class="btn"
-          @click="emit('close')"
-          >关闭</button
-        ><button
-          class="btn primary"
-          :disabled="!auth.can('diagnosis.scenario') || validating"
-          @click="apply"
-          >{{ validating ? '校验中' : '应用到场景草稿' }}</button
-        >
-      </div>
-    </template>
+    <template #footer
+      ><button
+        class="btn"
+        @click="emit('close')"
+        >关闭</button
+      ><button
+        class="btn primary"
+        :disabled="!auth.can('diagnosis.scenario') || validating"
+        @click="apply"
+        >{{ validating ? '校验中' : '应用到场景草稿' }}</button
+      ></template
+    >
   </AppDrawer>
 </template>
 <script setup lang="ts">
@@ -286,23 +284,15 @@ async function apply() {
 }
 </script>
 <style scoped>
-.scenario-footer {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 12px;
-}
 .scenario-form {
   display: grid;
   gap: 16px;
-  min-width: 0;
-  container-type: inline-size;
 }
 .evidence-warning {
   color: #f0c374;
   font-size: 12px;
-  line-height: 1.6;
-  margin: 6px 0;
+  line-height: 1.7;
+  margin: 8px 0;
 }
 .scenario-form label {
   display: grid;
@@ -325,33 +315,9 @@ input[type='checkbox'] {
 }
 .scenario-form .check {
   display: flex;
-  flex-direction: row;
-  align-items: flex-start;
+  align-items: center;
   gap: 7px;
-  min-width: 0;
-  margin: 0;
-  padding: 5px 0;
-  line-height: 1.6;
-  cursor: pointer;
-}
-.check input {
-  flex-shrink: 0;
-  margin: 3px 0 0;
-}
-.check span {
-  overflow-wrap: anywhere;
-}
-.symptom-list {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 2px 12px;
-  margin: 6px 0;
-}
-/* 按抽屉可用宽度收为单列，长现象始终完整显示。 */
-@container (max-width: 350px) {
-  .symptom-list {
-    grid-template-columns: minmax(0, 1fr);
-  }
+  margin: 8px 0;
 }
 fieldset {
   border: 1px solid #34516f;

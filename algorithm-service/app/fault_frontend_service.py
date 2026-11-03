@@ -138,7 +138,7 @@ def context():
         latest = session.scalar(select(FaultRun.id).order_by(FaultRun.started_at.desc()).limit(1))
     return {"revision": f"SR5-{revision}", "error": None, "presets": [], "legacy": [], "sources": sources(),
         "dataOrigin": "SAMPLE", "capabilities": {"demoControls": False, "twoStep": True},
-        "symptoms": [{"id": key, "label": value} for key, value in fault._engine().symptoms.items()],
+        "symptoms": [{"id": key, "label": value} for key, value in fault._symptom_catalog()["symptoms"].items()],
         "interferenceIds": [r["interference_id"] for r in frontend_integration._rows("interferences")], "latestRunId": latest}
 
 
@@ -181,7 +181,7 @@ def catalog(kind, page: FaultPage):
     return {"items": items, "total": total, "pageNum": page.pageNum, "pageSize": page.pageSize}
 
 
-def validate(draft: FaultDraft):
+def validate(draft: FaultDraft, *, symptom_catalog=None):
     with get_session_factory()() as session:
         plan = session.get(PlanningPlan, draft.planId)
         if plan is None:
@@ -201,7 +201,14 @@ def validate(draft: FaultDraft):
     snap = {"scenario_name": draft.name.strip(), "description": draft.description, "faults": faults}
     if not snap["scenario_name"]:
         fail("场景名称不能为空")
-    fault._engine().for_network(source["network"]).validate(snap)
+    catalog = symptom_catalog if symptom_catalog is not None else fault._symptom_catalog()
+    try:
+        fault._catalog_engine(catalog, source["network"]).validate(snap)
+    except fault.FaultInputError as exc:
+        if exc.code == 1203:
+            fail(str(exc), 1203, 409)
+        raise
+    snap["symptom_catalog"] = deepcopy(catalog)
     return source, snap
 
 
@@ -303,8 +310,9 @@ def report(run_id):
 
 def mutate(action, request: FaultMutation, identity):
     _workspace()
-    if action == "feedback":
-        kg_workflow_service.workspace(kg.STORE_PATH)
+    if action in ("save", "import", "submit", "feedback"):
+        # 初始化在故障写事务之前完成，避免首次并发读取在嵌套会话中建图。
+        kg_workflow_service.current_revision(kg.STORE_PATH)
     normalized = request.model_dump(mode="json")
     digest = hashlib.sha256(json.dumps([identity["account_id"], action, normalized], sort_keys=True, ensure_ascii=False).encode()).hexdigest()
     launch = None
@@ -323,7 +331,8 @@ def mutate(action, request: FaultMutation, identity):
             drafts = request.drafts if action == "import" else [request.draft] if request.draft else []
             if not drafts or len({d.planId for d in drafts}) != 1:
                 fail("需提供绑定同一网络的场景")
-            validated = [validate(d) for d in drafts]
+            catalog_snapshot = fault._symptom_catalog(session)
+            validated = [validate(d, symptom_catalog=catalog_snapshot) for d in drafts]
             now = datetime.now(timezone.utc)
             for source, snap in validated:
                 if action == "save" and request.scenarioId:
@@ -354,10 +363,17 @@ def mutate(action, request: FaultMutation, identity):
             row = session.get(FaultScenario, version.scenario_id)
             if row.archived:
                 fail("已归档场景不能提交新诊断", 1203, 409)
-            load_plan_source(row.task_id, version.plan_id)
+            source = load_plan_source(row.task_id, version.plan_id)
             plan = session.get(PlanningPlan, version.plan_id)
+            catalog_snapshot = fault._symptom_catalog(session)
+            try:
+                fault._catalog_engine(catalog_snapshot, source["network"]).validate(version.snapshot)
+            except fault.FaultInputError as exc:
+                if exc.code == 1203:
+                    fail(str(exc), 1203, 409)
+                raise
             frozen = {**_draft(version), "id": version.version_id, "scenarioId": row.scenario_id, "version": version.version_no,
-                      "savedAt": _iso(version.saved_at), "network": network(plan)}
+                      "savedAt": _iso(version.saved_at), "network": network(plan), "symptom_catalog": catalog_snapshot}
             run = FaultRun(id="FR-"+uuid.uuid4().hex[:20], scenario_version_id=version.version_id,
                 task_id=row.task_id, plan_id=version.plan_id, started_at=time.time(), snapshot=frozen)
             session.add(run)

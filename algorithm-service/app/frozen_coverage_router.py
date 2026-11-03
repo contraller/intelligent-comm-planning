@@ -159,7 +159,7 @@ def create_frozen_coverage_router(authorize):
                             != (actor["account_id"], actor.get("session_id")) or permission not in current.get("permissions", [])):
                         raise CoverageServiceError("覆盖请求身份或会话已变化", 1106, 409)
                 context = None
-                local = getattr(request.app.state, "auth_mode", None) == "LOCAL_PASSWORD" or os.environ.get("AUTH_MODE") == "LOCAL_PASSWORD"
+                local = getattr(request.app.state, "auth_mode", None) in ("LOCAL_PASSWORD", "LOCAL_SINGLE_USER") or os.environ.get("AUTH_MODE") in ("LOCAL_PASSWORD", "LOCAL_SINGLE_USER")
                 if local:
                     adapter = getattr(request.app.state, "local_identity_adapter", None)
                     if adapter is None:

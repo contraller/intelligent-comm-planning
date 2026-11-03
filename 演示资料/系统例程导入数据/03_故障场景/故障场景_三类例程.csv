@@ -1,0 +1,4 @@
+scenario_key,scenario_name,description,object_type,object_id,fault_type,symptom_ids,occur_time,interference_id
+EXAMPLE-20261103-HF-POWER,例程短波设备功放故障,人工构造例程，非生产、非实测。仅用于学习导入、状态切换和结果查看，不表示真实设备采集或执行。驻波比告警与功率读数接近零；保留证据缺项及人工复核提示，不保证识别结果。,DEVICE,DV-0001,HW_FAILURE,SY-0001;SY-0002,,
+EXAMPLE-20261103-VUHF-LINK,例程超短波链路中断,人工构造例程，非生产、非实测。仅用于学习导入、状态切换和结果查看，不表示真实设备采集或执行。对端完全失联与握手超时；保留证据缺项及人工复核提示，不保证识别结果。,LINK,OL-0001,LINK_DOWN,SY-0005;SY-0007,,
+EXAMPLE-20261103-VUHF-CONFIG,例程超短波频率配置不一致,人工构造例程，非生产、非实测。仅用于学习导入、状态切换和结果查看，不表示真实设备采集或执行。人工构造频率配置与对端不一致现象；保留证据缺项及人工复核提示，不保证识别结果。,DEVICE,DV-0033,SW_CONFIG,SY-0012,,

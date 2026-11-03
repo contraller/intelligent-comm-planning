@@ -29,6 +29,16 @@ function fixture(initial: ReturnType<typeof dto> | null = null) {
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); vi.useRealTimers(); });
 
 describe('同源 Cookie 认证契约', () => {
+  it('仅按服务端完整来源标记接受本地统一会话，自审授权不由前端补齐', async () => {
+    const raw = { ...dto(), auth_source: 'LOCAL_SINGLE_USER', single_user_mode: true, allow_self_review: true };
+    const fetcher = vi.fn<typeof fetch>(async () => response(raw));
+    const auth = createAuthHttp({ baseUrl: () => '/api/v1', fetcher });
+    await expect(auth.getSession()).resolves.toMatchObject({ authSource: 'LOCAL_SINGLE_USER', singleUserMode: true, allowSelfReview: true, permissions: ['resources.view'] });
+    for (const invalid of [{ ...raw, auth_source: 'LOCAL_PASSWORD' }, { ...raw, single_user_mode: false }, { ...raw, allow_self_review: false }, { ...raw, integration_mode: true }]) {
+      const other = createAuthHttp({ baseUrl: () => '/api/v1', fetcher: async () => response(invalid) });
+      await expect(other.getSession()).rejects.toMatchObject({ code: 'INVALID_AUTH_RESPONSE' });
+    }
+  });
   it('登录、会话与退出使用真实 HTTP 适配，凭据不进入浏览器存储', async () => {
     const storage = { getItem: vi.fn(), setItem: vi.fn(), removeItem: vi.fn() };
     vi.stubGlobal('localStorage', storage); vi.stubGlobal('sessionStorage', storage);

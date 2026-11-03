@@ -83,17 +83,17 @@
             open
             ><summary
               >{{ diagnosisLabel(branch.source) }} ·
-              置信度 {{ confidenceText(branch.confidence) }}</summary
+              {{ confidenceText(branch.confidence) }}</summary
             ><p
               v-if="branch.disabledReason"
               class="muted"
               >{{ branch.disabledReason }}</p
-            ><dl v-if="branch.evidence.length" class="evidence-list"><div
-              v-for="(evidence, i) in diagnosisEvidenceDisplay(branch.evidence)"
+            ><p
+              v-for="(evidence, i) in branch.evidence"
               :key="i"
-              ><dt>{{ evidence.label }}</dt
-              ><dd><ul><li v-for="(value, valueIndex) in evidence.values" :key="valueIndex">{{ value }}</li></ul></dd></div
-            ></dl><p v-else class="muted">依据未提供。</p></details
+              ><b>{{ evidence.label }}</b
+              ><br />{{ evidence.value }}</p
+            ></details
           ><details
             v-if="result.notes.length"
             open
@@ -251,15 +251,20 @@
               }}<br />案例修复耗时：{{ caseRepairTimeText(item.repairTimeMin) }}</p
             ></details
           ></template
-        > </div>
-      <div class="report-actions">
-        <button
-          class="btn primary report"
-          :disabled="!reportReady"
-          @click="$emit('report')"
-          >{{ legacy ? '预览历史诊断报告' : '预览完整报告' }}</button
-        ><button v-if="!legacy" class="btn" :disabled="!reportReady || exporting || !auth.can('diagnosis.export')" @click="$emit('exportPdf')">{{ exporting ? '正在生成 PDF…' : '导出图文 PDF' }}</button>
-      </div></template
+        > </div
+      ><button
+        v-if="reportReady && auth.can('diagnosis.export')"
+        class="btn primary report"
+        :disabled="exporting"
+        @click="$emit('download', 'pdf')"
+        >{{ exporting ? '正在生成文件…' : '导出 PDF 报告' }}</button
+      ><button
+        class="btn primary report"
+        :disabled="!reportReady"
+        @click="$emit('report')"
+        >{{ legacy ? '预览历史诊断报告' : '预览与下载完整报告' }}</button
+      ><p v-if="reportExportError" class="error" role="alert">{{ reportExportError }}</p
+      ></template
     ></section
   >
 </template>
@@ -273,7 +278,6 @@ import {
   confidenceText,
   diagnosisLabel,
   diagnosisFaultLabel,
-  diagnosisEvidenceDisplay,
   reportValue,
   orderedDiagnosisSuggestions,
   caseRepairTimeText,
@@ -288,16 +292,17 @@ const props = withDefaults(
     exporting: boolean;
     impactExporting?: boolean;
     exportError?: string;
+    reportExportError?: string;
     symptoms?: DiagnosisSymptomLabel[];
     contextKey?: string;
     legacy?: boolean;
   }>(),
-  { symptoms: () => [], contextKey: '', legacy: false, impactExporting: false, exportError: '' },
+  { symptoms: () => [], contextKey: '', legacy: false, impactExporting: false, exportError: '', reportExportError: '' },
 );
 defineEmits<{
   locate: [type: 'NODE' | 'DEVICE' | 'LINK', id: string];
   report: [];
-  exportPdf: [];
+  download: [format: 'pdf'];
   exportImpact: [format: 'xlsx' | 'png'];
 }>();
 const index = ref(0),
@@ -408,40 +413,6 @@ summary {
   font-size: 12px;
   cursor: pointer;
 }
-.evidence-list {
-  display: grid;
-  gap: 10px;
-  margin: 12px 0 0;
-  font-size: 12px;
-}
-.evidence-list > div {
-  display: grid;
-  grid-template-columns: 84px minmax(0, 1fr);
-  gap: 10px;
-  align-items: baseline;
-}
-.evidence-list dt {
-  color: #91aec8;
-  line-height: 1.7;
-}
-.evidence-list dd {
-  min-width: 0;
-  margin: 0;
-}
-.evidence-list ul {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px 12px;
-  list-style: none;
-  margin: 0;
-  padding: 0;
-}
-.evidence-list li {
-  min-width: 0;
-  max-width: 100%;
-  white-space: pre-wrap;
-  line-height: 1.7;
-}
 .impact-row {
   display: grid;
   gap: 7px;
@@ -464,16 +435,10 @@ summary {
   flex-wrap: wrap;
   margin-top: 12px;
 }
-.report-actions {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px;
-  padding: 10px 12px;
+.report {
+  margin: 15px;
+  width: calc(100% - 30px);
   flex-shrink: 0;
-}
-.report-actions .report {
-  flex-grow: 1;
 }
 select {
   background: #11253f;

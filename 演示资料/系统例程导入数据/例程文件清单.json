@@ -1,0 +1,130 @@
+{
+  "name": "系统例程导入数据",
+  "date": "2026-11-03",
+  "origin": "人工构造演示，非生产、非实测；不含数据库或身份凭据",
+  "resource_variants": {
+    "当前实例用": "resource-a2736f3fe68c66b4",
+    "新解压便携包用": "resource-e4a642d6ea91744b"
+  },
+  "start": "导入使用指南.html",
+  "import_files": {
+    "planning_csv": 2,
+    "device_status_json": 4,
+    "fault_csv": 1,
+    "knowledge_xlsx": 3
+  },
+  "validation": {
+    "status": "四批在最小隔离SQLite中经生产路由导入和回读，认证使用显式测试替身；资源表不变",
+    "csv": "规划与故障文件通过真实前端文件解析器；未运行新规划或诊断",
+    "knowledge": "三个文件经生产Excel解析、纯函数预检及草稿校验，逐个满足30项上限；未发布到现用知识库",
+    "adapter": "便携Python实际只读生成通过；输出状态通过生产schema",
+    "guide": "本地入口已渲染查看，所有相对链接存在；不等于现用软件全流程浏览器验收"
+  },
+  "files": [
+    {
+      "path": "00_从这里开始.txt",
+      "bytes": 3290,
+      "sha256": "6cf57c7b10a8fdd50323bc08c6c9c98e631fea2937b0bb2a3d6d84dd494039f4"
+    },
+    {
+      "path": "01_规划任务/00_适用资源.json",
+      "bytes": 765,
+      "sha256": "369555791beafd39be749bb26ef8f12e0f2c01c3953a0b4eda77c1724d862edc"
+    },
+    {
+      "path": "01_规划任务/01_task_scenarios.csv",
+      "bytes": 828,
+      "sha256": "459be9a80364c84a1ac3dbedf2608f1e9817adf45a1cfede72eb88e07278504b"
+    },
+    {
+      "path": "01_规划任务/02_task_links.csv",
+      "bytes": 340,
+      "sha256": "7cededdd39b0a052166238d7636a14f59d238531491579ac4306d9c92281c5c5"
+    },
+    {
+      "path": "02_设备状态/00_先核对资源版本.json",
+      "bytes": 770,
+      "sha256": "e16617aae8857d4e50edd27d22e457b4650ba40f15957a579a27df737b73e56a"
+    },
+    {
+      "path": "02_设备状态/当前实例用/00_状态数据说明.json",
+      "bytes": 3145,
+      "sha256": "01ab8bc94a702b65cd07a413e0ba6ca55d367a8d9a98a0ae2a76aa9ef9bee301"
+    },
+    {
+      "path": "02_设备状态/当前实例用/设备状态_第1批_初始状态.json",
+      "bytes": 95794,
+      "sha256": "f705c7bc1375fdc58c1ebaa06c6c0b9b5bb2becbd3baf36c06a1548badc655be"
+    },
+    {
+      "path": "02_设备状态/当前实例用/设备状态_第2批_状态变化.json",
+      "bytes": 95838,
+      "sha256": "05b77aceaea9f13ac643f972881313b5cca93727439e6a0544be5cc61ccb9d79"
+    },
+    {
+      "path": "02_设备状态/新解压便携包用/00_状态数据说明.json",
+      "bytes": 2035,
+      "sha256": "bb7fde361c1e529f6cb47b03688c5ae76b07fe56170096105ea97af75adca008"
+    },
+    {
+      "path": "02_设备状态/新解压便携包用/设备状态_第1批_初始状态.json",
+      "bytes": 95794,
+      "sha256": "d05794147330e39d994c9cf91ab37df3cb48f24a736106c30b3a1a7f953c1c39"
+    },
+    {
+      "path": "02_设备状态/新解压便携包用/设备状态_第2批_状态变化.json",
+      "bytes": 95838,
+      "sha256": "c5f3c30e8d883833420f03d2b20ee144851c5228ae4fa97268e66ac3fcb46084"
+    },
+    {
+      "path": "03_故障场景/00_适用方案.json",
+      "bytes": 1363,
+      "sha256": "86cc70425b028886d072693ad26348a857b022ae5c05f678376aca90336708fc"
+    },
+    {
+      "path": "03_故障场景/故障场景_三类例程.csv",
+      "bytes": 1155,
+      "sha256": "88c285c7e795be80fb1e38cb1061c0f4003e927bc8405a22c8019e01d1c60a83"
+    },
+    {
+      "path": "04_结构化知识/01_短波功放排查.xlsx",
+      "bytes": 7355,
+      "sha256": "6285daef623f48b027eb8e8041b20a3d38a9a2799ebebc11a6747b6ec0600e16"
+    },
+    {
+      "path": "04_结构化知识/02_超短波配置排查.xlsx",
+      "bytes": 7309,
+      "sha256": "2dbf2490861d795a1af626217101a7d982fa0d13af6e46df2cfd9ec907118c0f"
+    },
+    {
+      "path": "04_结构化知识/03_超短波链路排查.xlsx",
+      "bytes": 7349,
+      "sha256": "9133e126d5d4c05d544ec40a681e9fafb4b8532b145856bc0c108ebe0a656b16"
+    },
+    {
+      "path": "04_结构化知识/填表示例.txt",
+      "bytes": 2076,
+      "sha256": "028787acc51eeb779f2fb637de437cf1d65ad8bfebd76301659dd6c600e7694d"
+    },
+    {
+      "path": "导入使用指南.html",
+      "bytes": 15019,
+      "sha256": "52bfc4d160664957d108d9d7eb5c4f58c9e88675a5be3f90aca9b9e7731b51c2"
+    },
+    {
+      "path": "工具/build_example_import_data.py",
+      "bytes": 22744,
+      "sha256": "216d6678d47daaa6d79e04cbc96bc045ab27aa330fecbf003f8518d82a2a1527"
+    },
+    {
+      "path": "工具/按当前资源生成例程.py",
+      "bytes": 6844,
+      "sha256": "c34bbfe45fdac196b50e014b9e902475e22cd553e8a718a82bf568958c1902e7"
+    },
+    {
+      "path": "工具/重新生成当前资源例程.cmd",
+      "bytes": 1211,
+      "sha256": "ddb74433d42e925c1e3c3b947425a706513b84f58aecc06f60afb261083f92bc"
+    }
+  ]
+}

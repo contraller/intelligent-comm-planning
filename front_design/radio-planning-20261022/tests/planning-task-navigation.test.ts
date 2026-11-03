@@ -34,7 +34,7 @@ async function setup(path = '/planning?taskId=T1') {
   const preview = usePreviewStore(); await preview.load();await useResourceReadStore().activate('planning');
   const task=useTaskInputStore();await task.initialize('planning');await task.open('T1',false);
   const planning=usePlanningApiStore();vi.spyOn(planning,'start').mockImplementation(()=>{});
-  const router = createRouter({ history: createMemoryHistory(), routes: [{ path: '/planning', component: PlanningApiView }, { path: '/gis-workbench', component: { render: () => h('gis-view') } }] });
+  const router = createRouter({ history: createMemoryHistory(), routes: [{ path: '/planning', component: PlanningApiView }, { path: '/situation', component: { render: () => h('gis-view') } }] });
   await router.push(path); await router.isReady(); app = renderer.createApp({ render: () => h(RouterView) }); app.use(pinia); app.use(router); app.provide(ssrContextKey, {}); app.mount({}); await settle();
   return { planning, task, router, storage, raw, auth };
 }
@@ -76,11 +76,11 @@ describe('Mock 保存任务跨页定位与草稿保护', () => {
   });
   it('去 GIS 不再共享未保存任务，取消或保存失败都留在规划页', async () => {
     const s = await setup(); s.task.updateInput({ ...structuredClone(toRaw(s.task.saved!.input)), name: '需要保护的草稿' });
-    let pending = s.router.push('/gis-workbench'); await vi.waitFor(() => expect(s.task.decision).not.toBeNull()); s.task.answer('cancel'); await pending;
+    let pending = s.router.push('/situation'); await vi.waitFor(() => expect(s.task.decision).not.toBeNull()); s.task.answer('cancel'); await pending;
     expect(s.router.currentRoute.value.path).toBe('/planning'); expect(s.task.draft!.name).toBe('需要保护的草稿');
-    s.storage.failWrite = true; pending = s.router.push('/gis-workbench'); await vi.waitFor(() => expect(s.task.decision).not.toBeNull()); s.task.answer('save'); await pending;
+    s.storage.failWrite = true; pending = s.router.push('/situation'); await vi.waitFor(() => expect(s.task.decision).not.toBeNull()); s.task.answer('save'); await pending;
     expect(s.router.currentRoute.value.path).toBe('/planning'); expect(s.task.draft!.name).toBe('需要保护的草稿');
-    s.storage.failWrite = false; pending = s.router.push('/gis-workbench'); await vi.waitFor(() => expect(s.task.decision).not.toBeNull()); s.task.answer('save'); await pending;
-    expect(s.router.currentRoute.value.path).toBe('/gis-workbench'); expect(s.task.changed).toBe(false); expect(s.task.saved!.input.name).toBe('需要保护的草稿');
+    s.storage.failWrite = false; pending = s.router.push('/situation'); await vi.waitFor(() => expect(s.task.decision).not.toBeNull()); s.task.answer('save'); await pending;
+    expect(s.router.currentRoute.value.path).toBe('/situation'); expect(s.task.changed).toBe(false); expect(s.task.saved!.input.name).toBe('需要保护的草稿');
   });
 });

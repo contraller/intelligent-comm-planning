@@ -34,7 +34,7 @@ export const KNOWLEDGE_PRESET_VERSION = 'knowledge-demo-3';
 export const KNOWLEDGE_PAGE_SIZE = 20;
 export const KNOWLEDGE_MAX_NODES = 60;
 export const KNOWLEDGE_MAX_EDGES = 120;
-export const KNOWLEDGE_MAX_OPERATIONS = 100;
+export const KNOWLEDGE_MAX_OPERATIONS = 30;
 // 系统配置、操作日志及标签页会话独立保存，重置不能清除业务工作区。
 export const SYSTEM_STORAGE_KEY = 'radio-planning:system-workspace';
 export const OPERATION_LOG_KEY = 'radio-planning:operation-logs';

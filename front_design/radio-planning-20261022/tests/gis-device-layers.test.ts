@@ -11,10 +11,11 @@ import { projectCoordinate } from '../src/maps/layers';
 const frame = (): GisDeviceMapFrame => ({ points: gisDevicePoints(initialResources()).points.slice(0, 3), settings: defaultGisDeviceSettings(), version: 1, selectedDeviceId: '' });
 const labels = (styles: Style[]) => styles.map(style => style.getText()?.getText() ?? '').join(' ');
 describe('设备图标及真实 OpenLayers 聚合', () => {
-  it('电台符号保留类别文字，四种状态独立于站点，下架不改运行状态', () => {
+  it('电台使用本地图标，两类文字及四种状态独立于站点，下架不改运行状态', () => {
     const data = frame(), a = data.points[0], b = { ...a, deviceClass: 'VUHF' as const };
     const hf = gisDeviceStyles([a], data.settings, ''), vu = gisDeviceStyles([b], data.settings, '');
-    expect((hf[0].getImage() as Icon).getSrc()).toContain('radio.svg');expect(labels(hf)).toContain('HF');expect(labels(vu)).toContain('VUHF');
+    expect((hf[0].getImage() as Icon).getSrc()).toContain('/icons/gis/radio.svg');
+    expect(labels(hf)).toContain('HF');expect(labels(vu)).toContain('VUHF');
     for (const [status, alert, word] of [['NORMAL', false, '正常'], ['NORMAL', true, '告警'], ['FAULT', false, '故障'], ['OFFLINE', true, '离线 · 告警']] as const) {
       const styles = gisDeviceStyles([{ ...a, status, alert, offShelf: true }], data.settings, '');
       expect(labels(styles)).toContain(word); expect(labels(styles)).toContain('已下架');

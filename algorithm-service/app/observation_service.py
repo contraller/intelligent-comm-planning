@@ -33,7 +33,7 @@ def synthetic_workflows_enabled() -> bool:
     # 业务来源仍是构造数据；LOCAL只放行已由路由鉴权的显式操作，不提供身份。
     demo = frontend_integration.integration_enabled()
     mode = os.environ.get("AUTH_MODE", "INTEGRATION" if demo else "OFF")
-    return (mode == "INTEGRATION" and demo) or (mode == "LOCAL_PASSWORD" and not demo)
+    return (mode == "INTEGRATION" and demo) or (mode in ("LOCAL_PASSWORD", "LOCAL_SINGLE_USER") and not demo)
 
 
 def _require_synthetic_mode():

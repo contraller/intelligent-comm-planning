@@ -9,6 +9,7 @@ import VectorTileLayer from 'ol/layer/VectorTile';
 import ImageLayer from 'ol/layer/Image';
 import type ImageSource from 'ol/source/Image';
 import type { Style } from 'ol/style';
+import CircleStyle from 'ol/style/Circle';
 import { fromLonLat, get as projection } from 'ol/proj';
 import Cluster from 'ol/source/Cluster';
 import { defaultGisDeviceSettings, gisDevicePoints, type GisDeviceMapFrame } from '../src/maps/gis-device-display';
@@ -38,16 +39,22 @@ import { coverageDto } from './fixtures/planning-api';
 import { clientTemplate } from './helpers/vue-client';
 import { coverageV5Case } from './helpers/frozen-coverage';
 import { frozenCoverageLayer } from '../src/maps/frozen-coverage-layers';
+import * as radioWaveDisplay from '../src/maps/gis-radio-waves';
+import exampleNetwork from '../src/config/gis-situation-example.json';
+import { readGisNetwork } from '../src/services/gis-plan-validation';
+import type { GisNetwork } from '../src/types/gis-plan';
 
 interface MapProbe {
   view: View; layers: BaseLayer[]; setLayers: ReturnType<typeof vi.fn>; dispose: ReturnType<typeof vi.fn>;
   handlers: Map<string, (event: { pixel: number[]; coordinate: number[] }) => void>;
   picked?: Feature;
+  pixel: number[];
 }
 const probes = vi.hoisted(() => ({ maps: [] as MapProbe[] }));
 // 仅替换需要真实 DOM/画布的地图宿主；View、图层、要素、样式及业务模板均实际执行。
 vi.mock('ol/Map', () => ({ default: class implements MapProbe {
   view: View; layers: BaseLayer[] = []; picked?: Feature;
+  pixel = [480, 320];
   handlers = new Map<string, (event: { pixel: number[]; coordinate: number[] }) => void>();
   setLayers = vi.fn((layers: BaseLayer[]) => { this.layers = layers; });
   dispose = vi.fn();
@@ -59,6 +66,8 @@ vi.mock('ol/Map', () => ({ default: class implements MapProbe {
     probes.maps.push(this);
   }
   getView() { return this.view; }
+  getLayers() { return { getArray: () => this.layers }; }
+  getPixelFromCoordinate() { return this.pixel; }
   getViewport() { return {addEventListener() {},removeEventListener() {}}; }
   getSize() { return [960, 640]; }
   updateSize() {}
@@ -91,7 +100,7 @@ afterEach(() => {
   vi.restoreAllMocks(); vi.unstubAllGlobals(); vi.useRealTimers(); probes.maps.length = 0;
 });
 
-async function mountMap(options: { reduced?: boolean; resourceRead?: boolean; withCoverage?: boolean; withHttpCoverage?: boolean; gis?: boolean; gisSurface?: boolean; topologyOpacity?: number; collapsibleLegend?: boolean } = {}) {
+async function mountMap(options: { reduced?: boolean; resourceRead?: boolean; withCoverage?: boolean; withHttpCoverage?: boolean; gis?: boolean; gisSurface?: boolean; topologyOpacity?: number; collapsibleLegend?: boolean; readonlySituation?: boolean } = {}) {
   // 仅接管动画 interval，避免把 OpenLayers 数据源的零延时通知计作闪烁任务。
   vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
   const page = Object.assign(new EventTarget(), { hidden: false });
@@ -119,6 +128,10 @@ async function mountMap(options: { reduced?: boolean; resourceRead?: boolean; wi
     topologyOpacity: options.topologyOpacity as number | undefined,
     resourceRead: options.resourceRead ?? false,
     richScene: false,
+    readonlySituation: options.readonlySituation ?? false,
+    radioWaves: true,
+    picking: false,
+    frozenNetwork: null as GisNetwork | null,
     frozenCoverage: null as import('../src/types/frozen-coverage').FrozenCoverageOverlay|null,
     resourceFrame: null as import('../src/types/resource-read').ResourceMapFrame | null,
     collapsibleLegend: options.collapsibleLegend ?? false,
@@ -149,6 +162,48 @@ async function mountMap(options: { reduced?: boolean; resourceRead?: boolean; wi
   const lineStyle = (id: string) => { const value = style(id); return Array.isArray(value) ? value.at(-1)! : value!; };
   return { props, map, root, page, motion, layer, style, lineStyle, select, selectCandidateLink, selectDevice, selectDeviceCluster, selectFault, report, submit, image, httpSubmit, save };
 }
+
+describe('GIS radio overlay integration and readonly viewport', () => {
+  it('uses current rendered points, reprojects after map rendering, and disposes on picking/disable/unmount', async () => {
+    const overlays: { update: ReturnType<typeof vi.fn>; dispose: ReturnType<typeof vi.fn> }[] = [];
+    const factory = vi.spyOn(radioWaveDisplay, 'createRadioWaveOverlay').mockImplementation(() => {
+      const overlay = { update: vi.fn(), dispose: vi.fn() }; overlays.push(overlay); return overlay;
+    });
+    const s = await mountMap({ resourceRead: true, gisSurface: true, readonlySituation: true });
+    s.props.frozenNetwork = readGisNetwork(exampleNetwork.network, { planId: exampleNetwork.network.identity.plan_id, taskId: exampleNetwork.network.identity.task_id });
+    await nextTick();
+    const active = overlays.at(-1)!;
+    expect(factory).toHaveBeenCalled();
+    expect(active.update.mock.calls.at(-1)![0]).toEqual([expect.objectContaining({ kind: 'radio', pixel: [480, 320], id: expect.stringContaining(s.props.frozenNetwork.identity.snapshot_id) })]);
+    s.map.pixel = [300, 180];
+    s.map.handlers.get('postrender')!({ pixel: [], coordinate: [] });
+    expect(active.update.mock.calls.at(-1)![0][0].pixel).toEqual([300, 180]);
+    const old = s.props.frozenNetwork.identity.snapshot_id;
+    s.props.frozenNetwork = { ...s.props.frozenNetwork, identity: { ...s.props.frozenNetwork.identity, snapshot_id: 'SNP-NEXT' } };
+    await nextTick();
+    expect(active.update.mock.calls.at(-1)![0].every((point: radioWaveDisplay.RadioWavePoint) => !point.id.includes(old))).toBe(true);
+    s.props.picking = true; await nextTick(); expect(active.dispose).toHaveBeenCalledOnce();
+    s.props.picking = false; await nextTick(); const resumed = overlays.at(-1)!;
+    expect(resumed).not.toBe(active);
+    s.props.radioWaves = false; await nextTick(); expect(resumed.dispose).toHaveBeenCalledOnce();
+    s.props.radioWaves = true; await nextTick(); const final = overlays.at(-1)!;
+    app!.unmount(); app = undefined; expect(final.dispose).toHaveBeenCalledOnce();
+  });
+
+  it('keeps the readonly user viewport on a new confirmed snapshot; workbench still fits', async () => {
+    const s = await mountMap({ resourceRead: true, gisSurface: true, readonlySituation: true });
+    const fit = vi.mocked(s.map.view.fit), initially = fit.mock.calls.length;
+    const value = readGisNetwork(exampleNetwork.network, { planId: exampleNetwork.network.identity.plan_id, taskId: exampleNetwork.network.identity.task_id });
+    s.props.frozenNetwork = value; await nextTick();
+    expect(fit.mock.calls.length).toBe(initially);
+    s.map.view.setZoom(12);
+    s.props.frozenNetwork = { ...value, identity: { ...value.identity, snapshot_id: 'SNP-REFRESHED' } }; await nextTick();
+    expect(fit.mock.calls.length).toBe(initially); expect(s.map.view.getZoom()).toBe(12);
+    s.props.readonlySituation = false;
+    s.props.frozenNetwork = { ...value, identity: { ...value.identity, snapshot_id: 'SNP-WORKBENCH' } }; await nextTick();
+    expect(fit.mock.calls.length).toBe(initially + 1);
+  });
+});
 
 describe('冻结覆盖全域定位',()=>{
   it('全域适配所选覆盖面而非仅适配站点，关闭后不借用旧覆盖范围',async()=>{
@@ -493,7 +548,7 @@ describe('GIS 设备层在实际地图组件中的可选接入', () => {
     const base = s.map.layers.find(layer => layer instanceof VectorLayer && layer.getSource()?.getFeatures().some((feature: Feature) => feature.get('kind') === 'resource-read-point')) as VectorLayer;
     expect(base.getSource()!.getFeatures()).toHaveLength(1); expect(s.layer().getVisible()).toBe(true); expect(deviceLayer(s)).toBeDefined();
     const styles = base.getStyleFunction()!(base.getSource()!.getFeatures()[0], 1) as Style[];
-    expect((styles[0].getImage() as import('ol/style/Circle').default).getStroke()!.getColor()).toBe('#dcb976');
+    expect(styles.some(style=>{const image=style.getImage();return image instanceof CircleStyle&&image.getStroke()?.getColor()==='#dcb976';})).toBe(true);
     expect(s.map.layers.some(layer => layer instanceof VectorLayer && layer.getSource() instanceof Cluster && layer.getSource().getSource()?.getFeatures().some((feature: Feature) => feature.get('station')))).toBe(false);
     s.props.resourceRead = false; await nextTick(); expect(s.map.layers).not.toContain(base);
     expect(s.submit).not.toHaveBeenCalled(); expect(s.httpSubmit).not.toHaveBeenCalled();

@@ -34,12 +34,8 @@ export interface FrozenCoverageFeature {
   type:'Feature';geometry:{type:'Point';coordinates:[number,number]}|{type:'Polygon';coordinates:[number,number][][]}|null;
   properties:{device_id:string;node_id:string;freq_khz:number;is_coverage:boolean;margin_db?:number;note?:string;inner_m?:number;outer_m?:number;
     field_strength_dbuvm?:number;required_field_dbuvm?:number;rx_power_dbm?:number;path_loss_db?:number;
-    strength_class?:'STRONG'|'MEDIUM'|'WEAK';surface_kind?:string;terrain_loss_db?:number;propagation_mode?:string;
-    los?:boolean;clearance_m?:number;gx?:number;gy?:number};
+    strength_class?:'STRONG'|'MEDIUM'|'WEAK';surface_kind?:string;terrain_loss_db?:number;propagation_mode?:string};
 }
-// 紧凑只读采样：格中心索引、绝对场强、接收余量、地形损耗、净空、通视。
-export type FrozenCoverageSample=[gx:number,gy:number,field:number,margin:number,terrainLoss:number|null,clearance:number|null,los:boolean|null];
-export interface FrozenCoverageGrid { origin:[number,number];cell_m:number;radius_m:number;samples:FrozenCoverageSample[] }
 export interface FrozenCoverageDevice {
   device_id:string;node_id:string;model_id:string;antenna_id:string;lon:number;lat:number;band:string|null;
   status:'COMPLETE'|'UNAVAILABLE'|'SKIPPED';reasons:string[];
@@ -48,7 +44,7 @@ export interface FrozenCoverageDevice {
   rx_bandwidth?:{value_khz:number|null;source:'EXPLICIT_COMPUTE_PARAMETER'|'FROZEN_MODEL_SINGLE_VALUE'|'UNSELECTED'|'UNKNOWN'};
   frozen_model?:Record<string,unknown>|null;frozen_antenna?:Record<string,unknown>|null;planned_parameters?:Record<string,unknown>|null;
   radio_parameters?:{tx_dbm:number;height:number;gain:number;sens:number;fmin:number;fmax:number;pattern:string;bw:number}|null;
-  computations:{freq_khz:number;link_ids:string[];shape:'CELLS'|'RINGS';skip_distance_m?:number|null;max_distance_m?:number;evaluated_samples?:number;sampling_grid?:FrozenCoverageGrid;geojson:{type:'FeatureCollection';features:FrozenCoverageFeature[]}}[];
+  computations:{freq_khz:number;link_ids:string[];shape:'CELLS'|'RINGS';skip_distance_m?:number|null;max_distance_m?:number;geojson:{type:'FeatureCollection';features:FrozenCoverageFeature[]}}[];
 }
 export interface FrozenCoverageResult {
   schema_version:1|2;solution_id:string;status:'COMPLETE'|'PARTIAL'|'UNAVAILABLE'|'NOT_APPLICABLE';devices:FrozenCoverageDevice[];
@@ -64,7 +60,7 @@ export interface FrozenCoverageJob extends FrozenCoverageSelectionBinding {
   error:{code:string|number;message:string}|null;created_at:string;updated_at:string;finished_at:string|null;
 }
 export type FrozenCoverageDisplay='strength'|'field'|'boundary';
-export interface FrozenCoverageOverlay { anchor:FrozenCoverageAnchor;result:FrozenCoverageResult;deviceId:string;bandwidthSelection?:FrozenCoverageSelectionRef;display?:FrozenCoverageDisplay;frequencyKhz?:number;terrainReference?:boolean }
+export interface FrozenCoverageOverlay { anchor:FrozenCoverageAnchor;result:FrozenCoverageResult;deviceId:string;bandwidthSelection?:FrozenCoverageSelectionRef;display?:FrozenCoverageDisplay }
 export interface FrozenCoverageClient {
   getLatestCache?(query:FrozenCoverageQuery,signal?:AbortSignal):Promise<FrozenCoverageCache>;
   getBandwidthOptions(query:FrozenCoverageQuery,signal?:AbortSignal):Promise<FrozenCoverageBandwidthOptions>;

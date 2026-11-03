@@ -266,7 +266,7 @@ def save_draft(old_path: Path, request: dict[str, Any], change_id: str | None = 
 
 
 def transition(old_path: Path, change_id: str, request: dict[str, Any],
-               action: str) -> dict[str, Any]:
+               action: str, *, allow_self_review: bool = False) -> dict[str, Any]:
     required = {"SUBMIT": "DRAFT", "WITHDRAW": "PENDING", "REVIEW": "PENDING",
                 "PUBLISH": "APPROVED"}[action]
     with get_session_factory().begin() as session:
@@ -279,7 +279,7 @@ def transition(old_path: Path, change_id: str, request: dict[str, Any],
         actor = request["actor"]
         if action in ("SUBMIT", "WITHDRAW") and actor != row.submitter:
             raise KgWorkflowError("只有作者可送审或撤回", 1003, 403)
-        if action in ("REVIEW", "PUBLISH") and actor == row.submitter:
+        if action in ("REVIEW", "PUBLISH") and actor == row.submitter and not allow_self_review:
             raise KgWorkflowError("作者不能审核或发布自己的变更", 1003, 403)
         submissions = session.scalars(select(KgSubmission).where(
             KgSubmission.change_id == change_id).order_by(KgSubmission.number)).all()
