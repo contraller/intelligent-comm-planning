@@ -138,9 +138,10 @@
       </details>
     </div>
     <!-- 后端按原文件重验并原子提交，不与未保存任务草稿混成一笔事务。 -->
-    <template #footer
-      ><p class="readonly-note">确认后整批保存资源；任务草稿不变。</p
-      ><div class="toolbar"
+    <template #footer>
+      <div :class="{ 'gis-resource-footer': editor.context === 'gis' }">
+        <p class="readonly-note" :class="{ 'gis-resource-footer-note': editor.context === 'gis' }">确认后整批保存资源；任务草稿不变。</p>
+        <div :class="editor.context === 'gis' ? 'gis-resource-footer-actions' : 'toolbar'"
         ><button
           class="btn"
           :disabled="editor.busy || reading"
@@ -148,6 +149,7 @@
           >关闭</button
         ><button
           class="btn primary"
+          :class="{ 'gis-resource-footer-submit': editor.context === 'gis' }"
           :disabled="
             !editor.canEdit ||
             editor.busy ||
@@ -157,8 +159,9 @@
           "
           @click="editor.confirmImport()"
           >确认整批保存</button
-        ></div
-      ></template
+        ></div>
+      </div>
+    </template
     >
   </AppDrawer>
 </template>
