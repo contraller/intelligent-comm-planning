@@ -3,9 +3,10 @@ import { computed,effectScope,h,nextTick,ref,ssrContextKey,type App } from 'vue'
 import { createPinia,disposePinia,setActivePinia } from 'pinia';
 import { readFrozenBandwidthOptions,readFrozenCoverageCache,readFrozenCoverageJob,validateCoverageQuery } from '../src/services/frozen-coverage-decode';
 import { createFrozenCoverageHttp } from '../src/services/frozen-coverage-http';
-import { frozenCoverageLayer } from '../src/maps/frozen-coverage-layers';
+import { frozenCoverageLayer, frozenCoverageSamples, frozenCoverageView, coverageTerrainMark, coverageFrequency, coverageFieldScale } from '../src/maps/frozen-coverage-layers';
 import { useFrozenCoverage } from '../src/composables/useFrozenCoverage';
 import FrozenCoveragePanel from '../src/components/FrozenCoveragePanel.vue';
+import CoverageLineLegend from '../src/components/CoverageLineLegend.vue';
 import FrozenCoverageBandwidthEditor from '../src/components/FrozenCoverageBandwidthEditor.vue';
 import { useAuthStore } from '../src/stores/auth';
 import type { FrozenCoverageClient,FrozenCoverageOverlay,FrozenCoverageQuery } from '../src/types/frozen-coverage';
@@ -34,6 +35,17 @@ function terrainCase(band:'HF'|'VUHF'='HF',selected=false){
     Object.assign(f.cache,binding);Object.assign(f.job,binding);Object.assign(f.result.provenance,binding,{bandwidth_choices:f.selection.choices});
     f.options.current_selection=f.selection;device.rx_bandwidth!.source='EXPLICIT_COMPUTE_PARAMETER';
   }
+  return f;
+}
+function sampledCase(){
+  const f=terrainCase('VUHF'),device=f.result.devices[0]!,part=device.computations[0]!;
+  const dx=f.parameters.cell_m/(111320*Math.cos(device.lat*Math.PI/180)),dy=f.parameters.cell_m/111320;
+  part.geojson.features.forEach((feature,i)=>{const gx=i%2,gy=Math.floor(i/2),x=device.lon+gx*dx,y=device.lat+gy*dy;
+    Object.assign(feature.properties,{gx,gy});feature.geometry={type:'Polygon',coordinates:[[[x-dx/2,y-dy/2],[x+dx/2,y-dy/2],[x+dx/2,y+dy/2],[x-dx/2,y+dy/2],[x-dx/2,y-dy/2]]]};});
+  part.evaluated_samples=4;
+  part.sampling_grid={origin:[device.lon,device.lat],cell_m:f.parameters.cell_m,radius_m:f.parameters.radius_m,samples:[
+    ...part.geojson.features.map(feature=>{const p=feature.properties;return [p.gx!,p.gy!,p.field_strength_dbuvm!,p.margin_db!,p.terrain_loss_db!,null,null] as [number,number,number,number,number,null,null];}),
+    [1,1,part.geojson.features[0]!.properties.required_field_dbuvm!-5,-5,2,null,null]]};
   return f;
 }
 function mockClient(f:ReturnType<typeof terrainCase>){
@@ -75,6 +87,10 @@ describe('V6局地地形与V5历史严格隔离',()=>{
     const f=terrainCase();for(const feature of f.result.devices[0]!.computations[0]!.geojson.features){delete feature.properties.terrain_loss_db;delete feature.properties.propagation_mode;}
     expect(readFrozenCoverageCache(f.cache,f.query,f.parameters).result?.devices[0]!.computations[0]!.max_distance_m).toBe(900000);
     expect(layerFor(f).getSource()!.getFeatures()).toHaveLength(3);
+    for(const bad of [{los:'false'},{clearance_m:NaN},{gx:1.2},{gy:Infinity}]){
+      const copy=terrainCase();Object.assign(copy.result.devices[0]!.computations[0]!.geojson.features[0]!.properties,bad);expect(()=>readFrozenCoverageCache(copy.cache,copy.query,copy.parameters)).toThrow();
+    }
+    const invalidCount=terrainCase();invalidCount.result.devices[0]!.computations[0]!.evaluated_samples=2;expect(()=>readFrozenCoverageCache(invalidCount.cache,invalidCount.query,invalidCount.parameters)).toThrow();
   });
   it.each(['schema','old-metadata','rings','ground','point','null','dem-outside','dem-crossing','radius','hf-range','field','power','margin','grade','units','conversion','gain','medium','strong','terrain-negative','terrain-nan','mode','selection-id','selection-hash','engine'])(
     '拒绝错误V6响应：%s',change=>{
@@ -125,6 +141,35 @@ describe('V6局地地形与V5历史严格隔离',()=>{
 });
 
 describe('V6地形格面显示',()=>{
+  it('完整采样生成场强和门限线，原始未达标值仍可查询，统一色标不随频点变化',()=>{
+    const f=sampledCase(),part=f.result.devices[0]!.computations[0]!;
+    expect(readFrozenCoverageCache(f.cache,f.query,f.parameters)).toEqual(f.cache);
+    const second=structuredClone(part);second.freq_khz=31000;second.sampling_grid!.samples.forEach(s=>{s[2]+=40;s[3]+=40;});
+    f.result.devices[0]!.computations.push(second);
+    const before=JSON.stringify(f.result),overlay:FrozenCoverageOverlay={anchor:f.anchor,result:f.result,deviceId:'D1',frequencyKhz:30000,display:'field'};
+    const scale=coverageFieldScale(f.result),layer=frozenCoverageLayer(overlay,f.query.snapshotId),raw=frozenCoverageSamples(layer),drawn=layer.getSource()!.getFeatures();
+    expect(drawn.length).toBeGreaterThan(0);expect(drawn.every(f=>f.getGeometry()?.getType()==='LineString')).toBe(true);expect(raw).not.toBe(layer.getSource());
+    expect(raw.getFeatures().map(f=>f.get('field_strength_dbuvm'))).toEqual(part.sampling_grid!.samples.map(s=>s[2]));
+    expect(raw.getFeatures().some(f=>f.get('is_coverage')===false)).toBe(true);
+    expect(drawn.every(f=>f.get('field_strength_dbuvm')===undefined)).toBe(true);
+    const boundary=frozenCoverageLayer({...overlay,display:'boundary'},f.query.snapshotId);
+    expect(boundary.getSource()!.getFeatures().length).toBeGreaterThan(0);expect(color(boundary)).toBeUndefined();
+    expect(frozenCoverageLayer({...overlay,display:'boundary',frequencyKhz:31000},f.query.snapshotId).getSource()!.getFeatures()).toHaveLength(0);
+    expect(frozenCoverageView({...overlay,frequencyKhz:31000}).boundaryStatus).toBe('本次采样内未出现覆盖边界');
+    expect(coverageFieldScale(f.result)).toBe(scale);expect(JSON.stringify(f.result)).toBe(before);
+  });
+  it.each(['duplicate','value','count','origin','step','missing-positive','dem','nonfinite'] as const)('完整采样拒绝损坏数据：%s',change=>{
+    const f=sampledCase(),part=f.result.devices[0]!.computations[0]!,g=part.sampling_grid!;
+    if(change==='duplicate')g.samples[3]=[...g.samples[0]!];
+    if(change==='value')g.samples[3]![2]+=1;
+    if(change==='count')part.evaluated_samples=5;
+    if(change==='origin')g.origin[0]+=.1;
+    if(change==='step')g.cell_m*=2;
+    if(change==='missing-positive'){g.samples[0]![2]-=10;g.samples[0]![3]-=10;}
+    if(change==='dem')g.samples[3]![0]=100;
+    if(change==='nonfinite')g.samples[3]![2]=Infinity;
+    expect(()=>readFrozenCoverageCache(f.cache,f.query,f.parameters)).toThrow();
+  });
   it('真实返回格面采用绿黄橙分级，不生成圆或远域预算面',()=>{
     const f=terrainCase(),layer=layerFor(f),features=layer.getSource()!.getFeatures();
     expect(features).toHaveLength(3);expect(features.every(feature=>feature.getGeometry()?.getType()==='Polygon')).toBe(true);
@@ -148,12 +193,21 @@ describe('V6地形格面显示',()=>{
     overlay.bandwidthSelection={...f.query.bandwidthSelection!,selectionHash:'0'.repeat(64)};
     expect(frozenCoverageLayer(overlay,f.query.snapshotId,f.query.planId).getSource()!.getFeatures()).toHaveLength(0);
   });
-  it('热力图对应绝对场强且边界无填色，不改变原始预算',()=>{
+  it('未提供完整采样时不以达标格面外缘冒充门限线，保持频点和地形信息',()=>{
     const f=terrainCase(),part=f.result.devices[0]!.computations[0]!;part.geojson.features=part.geojson.features.slice(0,1);
     const next=structuredClone(part);next.freq_khz=14000;
     const p=next.geojson.features[0]!.properties;p.freq_khz=14000;p.field_strength_dbuvm!+=20*Math.log10(2);p.required_field_dbuvm!+=20*Math.log10(2);
     f.result.devices[0]!.computations.push(next);const before=JSON.stringify(f.result),heat=layerFor(f,'field');
-    expect(color(heat,0)).not.toBe(color(heat,1));expect(color(layerFor(f,'boundary'))).toBeUndefined();expect(JSON.stringify(f.result)).toBe(before);
+    expect(heat.getSource()!.getFeatures()).toHaveLength(0);expect(layerFor(f,'boundary').getSource()!.getFeatures()).toHaveLength(0);expect(JSON.stringify(f.result)).toBe(before);
+    const overlay:FrozenCoverageOverlay={anchor:f.anchor,result:f.result,deviceId:'D1',frequencyKhz:14000,display:'field',terrainReference:false};
+    expect(coverageFrequency(f.result.devices[0],12345)).toBe(7000);expect(coverageFrequency(f.result.devices[0],14000)).toBe(14000);
+    const filtered=frozenCoverageLayer(overlay,f.query.snapshotId,f.query.planId),view=frozenCoverageView(overlay);
+    expect(filtered.getSource()!.getFeatures()).toHaveLength(0);expect(view.boundaryStatus).toContain('完整采样未提供');expect(view.min).toBe(p.field_strength_dbuvm);expect(view.max).toBe(p.field_strength_dbuvm);
+    const drawn=frozenCoverageSamples(filtered).getFeatures()[0]!;expect(drawn.get('kind')).toBe('frozen-coverage-cell');expect(drawn.get('deviceId')).toBe('D1');expect(drawn.get('freq_khz')).toBe(14000);
+    expect(coverageTerrainMark(next.geojson.features[0]!,'HF')).toBe('地形附加损耗');
+    const losOnly=structuredClone(next.geojson.features[0]!);losOnly.properties.terrain_loss_db=0;losOnly.properties.los=false;
+    expect(coverageTerrainMark(losOnly,'HF')).toBeNull();expect(coverageTerrainMark(losOnly,'VUHF')).toBe('非通视');
+    expect(JSON.stringify(f.result)).toBe(before);
   });
 });
 
@@ -189,6 +243,7 @@ describe('V6只读地图开关与原请求保护',()=>{
 describe('V6实际组件入口',()=>{
   beforeAll(async()=>{
     await clientTemplate(FrozenCoverageBandwidthEditor,'src/components/FrozenCoverageBandwidthEditor.vue','terrain-bandwidth-render.ts');
+    await clientTemplate(CoverageLineLegend, 'src/components/CoverageLineLegend.vue', 'terrain-legend-render.ts');
     await clientTemplate(FrozenCoveragePanel,'src/components/FrozenCoveragePanel.vue','terrain-panel-render.ts');
   });
   beforeEach(()=>{
@@ -198,8 +253,8 @@ describe('V6实际组件入口',()=>{
   });
   async function settle(){for(let count=0;count<8;count++){await Promise.resolve();await nextTick();}}
   async function mount(readonly=false){
-    const f=terrainCase(),client=mockClient(f),root=node('root'),overlay=vi.fn(),query=computed(()=>f.query);
-    app=renderer.createApp({render:()=>h(FrozenCoveragePanel,{query:query.value,services:client,readonly,onOverlay:overlay})});app.use(pinia!);app.provide(ssrContextKey,{});app.mount(root);await settle();return {f,client,root,overlay};
+    const f=terrainCase(),client=mockClient(f),root=node('root'),overlay=vi.fn(),focus=vi.fn(),overview=vi.fn(),query=computed(()=>f.query);
+    app=renderer.createApp({render:()=>h(FrozenCoveragePanel,{query:query.value,services:client,readonly,onOverlay:overlay,onFocus:focus,onOverview:overview})});app.use(pinia!);app.provide(ssrContextKey,{});app.mount(root);await settle();return {f,client,root,overlay,focus,overview};
   }
   async function click(root:HostNode,label:string){
     const button=all(root,row=>row.tag==='button'&&textOf(row)===label)[0]!;expect(button).toBeDefined();await (button.props.onClick as ()=>Promise<void>)();await settle();
@@ -207,10 +262,35 @@ describe('V6实际组件入口',()=>{
   it('默认新计算明确V6，展示局地近似、DEM边界及900km解释预算',async()=>{
     const f=await mount();await click(f.root,'计算冻结覆盖');expect(f.client.compute.mock.lastCall![0].engineVersion).toBe('V01-6');
     const text=textOf(f.root);expect(text).toContain('局地近似');expect(text).toContain('DEM外不推算');expect(text).toContain('原径向预算上限 900 km');expect(text).toContain('HF / VUHF格面分辨率 5000 m');
-    expect(text).not.toContain('无静区时可呈连续覆盖圆盘');expect(f.overlay.mock.lastCall![0].display).toBe('strength');
+    expect(text).not.toContain('无静区时可呈连续覆盖圆盘');expect(f.overlay.mock.lastCall![0]).toMatchObject({display:'field',terrainReference:false,frequencyKhz:7000});
     const display=all(f.root,row=>row.props['aria-label']==='预测覆盖显示方式')[0]!;
-    (display.props['onUpdate:modelValue'] as (value:string)=>void)('field');await settle();
-    expect(f.overlay.mock.lastCall![0].display).toBe('field');expect(f.client.compute).toHaveBeenCalledOnce();expect(f.client.getCache).toHaveBeenCalledOnce();
+    (display.props['onUpdate:modelValue'] as (value:string)=>void)('strength');await settle();
+    expect(f.overlay.mock.lastCall![0].display).toBe('strength');expect(f.client.compute).toHaveBeenCalledOnce();expect(f.client.getCache).toHaveBeenCalledOnce();expect(f.focus).not.toHaveBeenCalled();
+  });
+  it('单频色阶、选择定位、空结果及同源回读保留偏好，不触发计算',async()=>{
+    const s=await mount(true),d=s.f.result.devices[0]!,part=structuredClone(d.computations[0]!);
+    part.freq_khz=7100;part.geojson.features.forEach(cell=>{cell.properties.freq_khz=7100;cell.properties.field_strength_dbuvm=55.5;});d.computations.push(part);
+    s.f.result.devices.push({...structuredClone(d),device_id:'D2',status:'UNAVAILABLE',reasons:['缺少接收带宽'],computations:[]});
+    await click(s.root,'读取覆盖缓存');expect(s.overlay.mock.lastCall![0].frequencyKhz).toBe(7000);expect(s.focus).not.toHaveBeenCalled();
+    const device=all(s.root,n=>n.props['aria-label']==='覆盖设备')[0]!;
+    const selectDevice=async(id:string)=>{(device.props['onUpdate:modelValue'] as Function)(id);await (device.props.onChange as Function)();await settle();};
+    await selectDevice('D2');expect(s.overlay.mock.lastCall![0]).toBeNull();expect(textOf(s.root)).toContain('缺少接收带宽');expect(textOf(s.root)).not.toContain('最高场强');expect(s.focus).not.toHaveBeenCalled();
+    await selectDevice('D1');expect(s.overlay.mock.lastCall![0].deviceId).toBe('D1');expect(s.focus).toHaveBeenCalledOnce();
+    const frequency=all(s.root,n=>n.props['aria-label']==='覆盖频点')[0]!;
+    await (frequency.props.onChange as Function)({target:{value:'7100'}});await settle();expect(s.overlay.mock.lastCall![0].frequencyKhz).toBe(7100);expect(textOf(s.root)).toContain('55.5–55.5');expect(s.focus).toHaveBeenCalledTimes(2);
+    const terrain=all(s.root,n=>n.tag==='label'&&textOf(n)==='显示地形影响标记')[0]!.children.find(n=>n.tag==='input')!;
+    (terrain.props['onUpdate:modelValue'] as Function)(true);await settle();
+    await click(s.root,'读取覆盖缓存');expect(s.overlay.mock.lastCall![0]).toMatchObject({deviceId:'D1',frequencyKhz:7100,terrainReference:true});expect(s.focus).toHaveBeenCalledTimes(2);
+    await click(s.root,'返回全网');expect(s.overview).toHaveBeenCalledOnce();expect(s.focus).toHaveBeenCalledTimes(2);
+    const empty=structuredClone(s.f.cache);empty.result!.devices[0]!.computations.find(p=>p.freq_khz===7100)!.geojson.features=[];s.client.getLatestCache.mockResolvedValueOnce(empty);
+    await click(s.root,'读取覆盖缓存');expect(textOf(s.root)).toContain('当前频点无达标覆盖格面');expect(textOf(s.root)).not.toContain('最高场强');expect(s.focus).toHaveBeenCalledTimes(2);
+    const reduced=structuredClone(s.f.cache);reduced.result!.devices[0]!.computations.pop();s.client.getLatestCache.mockResolvedValueOnce(reduced);
+    await click(s.root,'读取覆盖缓存');expect(s.overlay.mock.lastCall![0].frequencyKhz).toBe(7000);
+    await click(s.root,'读取覆盖缓存');expect(s.overlay.mock.lastCall![0].frequencyKhz).toBe(7000);expect(s.focus).toHaveBeenCalledTimes(2);
+    let finish!:(value:typeof s.f.cache)=>void;s.client.getLatestCache.mockImplementationOnce(()=>new Promise(resolve=>{finish=resolve;}));
+    const reading=click(s.root,'读取覆盖缓存');await settle();await selectDevice('D2');finish(s.f.cache);await reading;
+    expect(s.overlay.mock.lastCall![0]).toBeNull();expect(textOf(s.root)).toContain('缺少接收带宽');expect(s.focus).toHaveBeenCalledTimes(2);
+    expect(s.client.compute).not.toHaveBeenCalled();expect(s.client.saveBandwidthSelection).not.toHaveBeenCalled();
   });
   it.each(['V01-5','V01-4'] as const)('历史%s不显示写入口并按指定版本回读',async version=>{
     const f=await mount(),control=all(f.root,row=>row.props['aria-label']==='覆盖结果版本')[0]!;

@@ -4,6 +4,7 @@ import { initialResources } from '../src/mocks/resource-presets';
 import { defaultGisDeviceSettings, gisDevicePoints, type GisDeviceMapFrame } from '../src/maps/gis-device-display';
 import { gisHoverPlacement, gisHoverSummary } from '../src/maps/gis-hover';
 import type { ResourceMapFrame, ResourceMapPoint, ResourceMapCluster } from '../src/types/resource-read';
+import type { GisNetwork } from '../src/types/gis-plan';
 
 function fixture() {
   const raw = initialResources();
@@ -14,7 +15,38 @@ function fixture() {
 const deviceFeature = () => new Feature({ kind: 'gis-device-cluster' });
 const values = (summary: ReturnType<typeof gisHoverSummary>) => Object.fromEntries(summary!.rows.map(row => [row.label, row.value]));
 
+function frozenNetwork(): GisNetwork {
+  return {
+    identity: { plan_id: 'P1', task_id: 'T1', snapshot_id: 'S1', input_version: 'I1', condition_version: 'C1', resource_revision: 'frozen-r1', state: 'SAVED', source_changed: true, data_origin: 'SYNTHETIC_INTEGRATION', source: 'SR4' },
+    nodes: [{ id: 'N1', name: '冻结节点', coordinate: [114, 37], status: null, alert: null },
+      { id: 'N2', name: '其他冻结节点', coordinate: [114.1, 37], status: null, alert: null }],
+    devices: ['E1', 'E2', 'E3'].map((id, index) => ({ id, station_id: index < 2 ? 'N1' : 'N2', model_id: 'M1', device_class: 'HF', frequency_khz: null, tx_power_dbm: null, antenna_height_m: null })),
+    links: [], demands: [], routes: [], paths_state: 'missing', paths_message: '未提供路径',
+  };
+}
+
 describe('GIS 悬浮摘要的数据边界', () => {
+  it.each([['FIXED', '固定部署'], ['VEHICLE', '车载部署'], ['MANPACK', '背负部署']] as const)('冻结浮卡展示 %s 和同站设备，不采用当前资源站点', (mobility, label) => {
+    const input = fixture(), network = frozenNetwork();
+    Object.assign(input.stations[0], { id: 'N1', name: '当前节点', mobility: 'VEHICLE', role: 'CURRENT_ROLE', subtype: 'CURRENT_SUBTYPE' });
+    Object.assign(network.nodes[0], { mobility, node_role: 'FROZEN_ROLE', node_subtype: 'FROZEN_SUBTYPE' });
+    const before = JSON.stringify({ input, network });
+    const feature = new Feature({ kind: 'frozen-plan-node', objectId: 'N1', snapshot: 'S1' });
+    const summary = gisHoverSummary(feature, { ...input, frozenNetwork: network })!;
+    expect(summary.title).toBe('冻结节点');
+    expect(values(summary)).toMatchObject({ 平台类型: label, 节点角色: 'FROZEN_ROLE', 节点子类: 'FROZEN_SUBTYPE' });
+    expect(summary.devices?.map(d => d.id)).toEqual(['E1', 'E2']);
+    expect(summary.source).toContain('冻结方案');
+    expect(JSON.stringify({ input, network })).toBe(before);
+    feature.set('snapshot', 'S2'); expect(gisHoverSummary(feature, { ...input, frozenNetwork: network })).toBeNull();
+  });
+  it.each([{}, { mobility: null, node_role: null, node_subtype: null }])('旧或显式未知冻结平台仍显示未提供，不借当前资源补齐 %j', fields => {
+    const input = fixture(), network = frozenNetwork();
+    Object.assign(input.stations[0], { id: 'N1', mobility: 'VEHICLE', role: 'TASK', subtype: 'VEHICLE_A' });
+    Object.assign(network.nodes[0], fields);
+    const summary = gisHoverSummary(new Feature({ kind: 'frozen-plan-node', objectId: 'N1', snapshot: 'S1' }), { ...input, frozenNetwork: network });
+    expect(values(summary)).toMatchObject({ 平台类型: '未提供', 节点角色: '未提供', 节点子类: '未提供' });
+  });
   it('单设备使用自身身份、型号、站点和状态，不采用同站状态', () => {
     const input = fixture(), row = input.devices.points[0];
     row.status = 'OFFLINE'; row.alert = true; row.offShelf = true;

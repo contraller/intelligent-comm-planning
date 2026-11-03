@@ -1,4 +1,5 @@
 import type { Station } from '../types/domain';
+import type { GisNetwork } from '../types/gis-plan';
 import type { ResourceMapFrame, ResourceMapPoint, ResourceMapCluster } from '../types/resource-read';
 import { gisDeviceStatus, gisDeviceSummary, type GisDeviceMapFrame, type GisDevicePoint } from './gis-device-display';
 
@@ -9,15 +10,18 @@ export interface GisHoverContext {
 export interface GisHoverSummary {
   key: string; kind: 'device' | 'station' | 'devices' | 'stations'; title: string;
   rows: { label: string; value: string }[]; source: string;
+  devices?: {id:string;label:string;rows:{label:string;value:string}[]}[];
 }
 interface HoverInput {
   context: GisHoverContext; stations: readonly Station[]; devices?: GisDeviceMapFrame;
   resources?: ResourceMapFrame | null; deviceTarget?: { ids: string[]; version: number };
+  frozenNetwork?: GisNetwork | null;
 }
 interface HoverFeature { get(key: string): unknown }
 const statusText = (status: unknown, alert: unknown) =>
   (status === 'NORMAL' ? '正常' : status === 'FAULT' ? '故障' : status === 'OFFLINE' ? '离线' : '状态未提供')
   + (alert === null || alert === undefined ? ' · 告警未提供' : alert ? ' · 告警' : '');
+const platformText = (value: unknown) => value === 'FIXED' ? '固定部署' : value === 'VEHICLE' ? '车载部署' : value === 'MANPACK' ? '背负部署' : '未提供';
 function deviceRows(points: readonly GisDevicePoint[]) {
   const count = gisDeviceSummary(points), rows = [
     { label: '类别分布', value: `HF ${count.HF} 台 / VUHF ${count.VUHF} 台` },
@@ -36,6 +40,19 @@ function stationDevices(stationId: string, devices?: GisDeviceMapFrame) {
   return [{ label: '当前显示设备', value: `${visible.length} 台（HF ${summary.HF} / VUHF ${summary.VUHF}）` }, ...deviceRows(visible).filter(row => row.label !== '类别分布')];
 }
 export function gisHoverSummary(feature: HoverFeature, input: HoverInput): GisHoverSummary | null {
+  const network=input.frozenNetwork;
+  if(network&&feature.get('snapshot')===network.identity.snapshot_id){
+    const id=feature.get('objectId');
+    if(feature.get('kind')==='frozen-plan-node'){
+      const node=network.nodes.find(n=>n.id===id);if(!node)return null;
+      // 历史平台字段缺失时不借当前资源中的同名节点补齐。
+      return {key:`frozen:${network.identity.plan_id}:${network.identity.snapshot_id}:${node.id}`,kind:'station',title:node.name,source:input.context.source+' · 冻结方案',rows:[{label:'节点编号',value:node.id},{label:'冻结状态',value:statusText(node.status,node.alert)},{label:'平台类型',value:platformText(node.mobility)},{label:'节点角色',value:node.node_role?.trim()||'未提供'},{label:'节点子类',value:node.node_subtype?.trim()||'未提供'},{label:'坐标',value:node.coordinate.map(v=>v.toFixed(5)).join(', ')}],devices:network.devices.filter(d=>d.station_id===id).map(d=>({id:d.id,label:`${d.device_class} · ${d.id}`,rows:[{label:'设备型号',value:d.model_id},{label:'频率 / kHz',value:d.frequency_khz===null?'未提供':String(d.frequency_khz)},{label:'功率 / dBm',value:d.tx_power_dbm===null?'未提供':String(d.tx_power_dbm)},{label:'挂高 / m',value:d.antenna_height_m===null?'未提供':String(d.antenna_height_m)}]}))};
+    }
+    if(feature.get('kind')==='frozen-plan-link'){
+      const link=network.links.find(l=>l.id===id);if(!link)return null;
+      return {key:`link:${network.identity.snapshot_id}:${link.id}`,kind:'station',title:link.id,source:input.context.source+' · 规划预测',rows:[{label:'端点',value:`${link.a} → ${link.b}`},{label:'链路类型',value:link.backup?'备用链路':'主链路'},{label:'预测等级',value:link.planned_state??'未提供'},{label:'频率 / kHz',value:link.frequency_khz===null?'未提供':String(link.frequency_khz)}]};
+    }
+  }
   const { context, stations, devices, resources, deviceTarget } = input;
   if (feature.get('kind') === 'gis-device-cluster') {
     if (!devices || !deviceTarget?.ids.length || deviceTarget.version !== devices.version) return null;

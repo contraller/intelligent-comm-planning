@@ -30,6 +30,10 @@ export interface GisFrozenNode {
   coordinate: [number, number];
   status: 'NORMAL' | 'FAULT' | 'OFFLINE' | null;
   alert: boolean | null;
+  // 平台信息仅取同一冻结响应；历史快照缺省时保留未知。
+  mobility?: 'FIXED' | 'VEHICLE' | 'MANPACK' | null;
+  node_role?: string | null;
+  node_subtype?: string | null;
 }
 export interface GisFrozenDevice {
   id: string;

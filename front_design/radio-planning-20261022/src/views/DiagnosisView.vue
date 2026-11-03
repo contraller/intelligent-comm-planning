@@ -469,6 +469,7 @@
           :legacy="diagnosis.record?.legacy ?? false"
           @locate="locate"
           @report="reportDrawer = true"
+          @export-pdf="diagnosis.download('pdf')"
           @export-impact="diagnosis.download($event, filters)"
         >
           <!-- 收起入口放入标题行，避免面板外占行造成顶边错位。 -->
@@ -583,7 +584,7 @@ const gisReady = computed(
 // 只跳转完整报告身份，离页是否放弃输入仍由原守卫决定。
 function openGis() {
   if (gisReady.value && diagnosis.record)
-    void router.push({ path: '/situation', query: { diagnosisId: diagnosis.record.id } });
+    void router.push({ path: '/gis-workbench', query: { diagnosisId: diagnosis.record.id } });
 }
 const gisEditable = computed(
   () =>
@@ -599,7 +600,7 @@ async function openGisEditor() {
     diagnosis.scenarioId && diagnosis.versionId
       ? { faultEdit: '1', scenarioId: diagnosis.scenarioId, versionId: diagnosis.versionId }
       : { faultEdit: '1' };
-  if (await router.push({ path: '/situation', query })) diagnosis.clearGisTransfer();
+  if (await router.push({ path: '/gis-workbench', query })) diagnosis.clearGisTransfer();
 }
 useDiagnosisLeaveGuard();
 // 抽屉显示与地图筛选状态分别声明，便于独立维护。

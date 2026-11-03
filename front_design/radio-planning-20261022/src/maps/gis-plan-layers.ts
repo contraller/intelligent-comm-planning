@@ -6,6 +6,8 @@ import VectorLayer from 'ol/layer/Vector';
 import { Circle, Fill, Stroke, Style, Text } from 'ol/style';
 import type { GisNetwork } from '../types/gis-plan';
 import { projectCoordinate } from './layers';
+import { LINK_STATUS_STYLES } from '../config/link-status';
+import { gisSymbol, stationSymbol } from './gis-symbols';
 
 // 冻结计划使用独立要素身份，点击不能落到当前资源同名对象。
 export function gisPlanLayer(
@@ -34,21 +36,23 @@ export function gisPlanLayer(
       b = positions.get(link.b);
     if (!a || !b) continue;
     const active = link.id === selected.link || routeLinks.has(link.id);
+    const quality=link.planned_state?LINK_STATUS_STYLES[link.planned_state]:{color:'#8797a8',width:1.5};
     const feature = new Feature({
       geometry: new LineString([projectCoordinate(a), projectCoordinate(b)]),
       kind: 'frozen-plan-link',
       objectId: link.id,
       snapshot,
     });
-    feature.setStyle(
+    feature.setStyle([
+      ...(active?[new Style({stroke:new Stroke({color:'#e6f5ff'+Math.round(opacity*255).toString(16).padStart(2,'0'),width:quality.width+4,lineDash:link.backup?[7,5]:undefined,lineCap:'butt'})})]:[]),
       new Style({
         stroke: new Stroke({
-          color: active ? [255, 224, 138, opacity] : [80, 182, 219, opacity],
-          width: active ? 4 : 2,
+          color: quality.color + Math.round(opacity*255).toString(16).padStart(2,'0'),
+          width: quality.width,
           lineDash: link.backup ? [7, 5] : undefined,
         }),
       }),
-    );
+    ]);
     features.push(feature);
   }
   for (const demand of network.demands) {
@@ -89,11 +93,7 @@ export function gisPlanLayer(
     });
     feature.setStyle(
       new Style({
-        image: new Circle({
-          radius: active ? 8 : 5,
-          fill: new Fill({ color }),
-          stroke: new Stroke({ color: '#152d40', width: 2 }),
-        }),
+        image: gisSymbol(stationSymbol({mobility:node.mobility??undefined,subtype:node.node_subtype??undefined}),color,active),
         text: active
           ? new Text({
               text: node.name,

@@ -1,6 +1,7 @@
 <template>
   <section
     class="gis-hover-preview"
+    :class="{ interactive }"
     role="tooltip"
     :style="{
       left: position.left + 'px',
@@ -10,6 +11,7 @@
     }"
   >
     <strong>{{ summary.title }}</strong>
+    <button v-if="interactive" class="close text-link" aria-label="关闭节点浮卡" @click="$emit('close')">×</button>
     <dl
       ><template
         v-for="row in summary.rows"
@@ -19,7 +21,8 @@
       ></dl
     >
     <p class="source">{{ summary.source }}</p>
-    <p>{{
+    <template v-if="interactive && summary.devices?.length"><select aria-label="浮卡设备选择" :value="selectedDeviceId" @change="$emit('device',($event.target as HTMLSelectElement).value)"><option value="">查看设备参数</option><option v-for="device in summary.devices" :key="device.id" :value="device.id">{{ device.label }}</option></select><dl v-if="selectedDevice"><template v-for="row in selectedDevice.rows" :key="row.label"><dt>{{ row.label }}</dt><dd>{{ row.value }}</dd></template></dl><button class="text-link" :disabled="!selectedDevice" @click="$emit('device',selectedDeviceId || '')">选择此设备覆盖</button></template>
+    <p v-if="!interactive">{{
       summary.kind === 'device' || summary.kind === 'station'
         ? '点击地图对象查看完整详情'
         : '点击地图对象展开或查看成员'
@@ -28,11 +31,16 @@
 </template>
 <script setup lang="ts">
 import type { GisHoverSummary } from '../maps/gis-hover';
+import { computed } from 'vue';
 // 预览没有操作按钮，不遮挡原地图点击，也不抢占焦点。
-defineProps<{
+const props=defineProps<{
   summary: GisHoverSummary;
   position: { left: number; top: number; width: number; maxHeight: number };
+  interactive?:boolean;
+  selectedDeviceId?:string;
 }>();
+defineEmits<{device:[id:string];close:[]}>();
+const selectedDevice=computed(()=>props.summary.devices?.find(d=>d.id===props.selectedDeviceId));
 </script>
 <style scoped>
 .gis-hover-preview {
@@ -51,6 +59,7 @@ defineProps<{
   line-height: 1.45;
   overflow-wrap: anywhere;
 }
+.interactive{pointer-events:auto;overflow:auto;max-height:360px!important}.interactive select{width:100%;margin:6px 0}.close{position:absolute;right:8px;top:6px;font-size:19px}
 strong {
   display: block;
   overflow: hidden;

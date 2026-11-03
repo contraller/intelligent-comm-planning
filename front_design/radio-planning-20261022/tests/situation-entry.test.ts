@@ -222,7 +222,7 @@ async function mountEntry(url: string, editing = false, confirmedNetwork = false
   }
   const before = [...storage.entries];
   const router = createRouter({ history: createMemoryHistory(), routes: [
-    { path: '/situation', component: MountedSituationView },
+    { path: '/gis-workbench', component: MountedSituationView },
     { path: '/planning', component: { render: () => null } },
   ] });
   const wb = await createWorkbenchFixture(); wb.bind();
@@ -243,13 +243,13 @@ async function mountEntry(url: string, editing = false, confirmedNetwork = false
 }
 const editingIt = it.extend<{ page: Awaited<ReturnType<typeof mountEntry>> }>({
   page: [async ({}, use) => {
-    await use(await mountEntry('/situation?stationId=ND-0001', true));
+    await use(await mountEntry('/gis-workbench?stationId=ND-0001', true));
   }, { auto: true }],
 });
 
 describe('GIS 入口挂载联动', () => {
   it('轻目录只在进入和刷新读取，正常无技术横栏，失败保留目录并可重试', async () => {
-    const s = await mountEntry('/situation');
+    const s = await mountEntry('/gis-workbench');
     expect(previewService.loadGisResourceDirectory).toHaveBeenCalledTimes(1);
     expect(previewService.queryResourceDevices).not.toHaveBeenCalled(); expect(previewService.loadGisResourceEditContext).not.toHaveBeenCalled();
     await search(s.root, 'DV-0033'); expect(previewService.loadGisResourceDirectory).toHaveBeenCalledTimes(1);
@@ -263,7 +263,7 @@ describe('GIS 入口挂载联动', () => {
   });
   // 默认不占用详情栏，但明确选择对象仍通过原监控联动展开。
   it('普通入口收起右侧详情，选择监控设备后显示对应面板', async () => {
-    const s = await mountEntry('/situation');
+    const s = await mountEntry('/gis-workbench');
     const detail = () => findWhere(s.root, row => String(row.props.class).includes('situation-right'));
     expect(detail()).toBeUndefined(); expect(s.monitor.open).toBe(true);
     // 恢复入口归属右侧工作区，保留可见短标签和明确的无障碍名称。
@@ -275,7 +275,7 @@ describe('GIS 入口挂载联动', () => {
     expect(s.monitor.selectedDeviceId).toBe('DV-0001'); expect(s.storage.writes).toBe(0);
   });
   it('窄窗口切回资源面板仅收起详情，不清空选择和未保存表单', async () => {
-    const s = await mountEntry('/situation?stationId=ND-0001');
+    const s = await mountEntry('/gis-workbench?stationId=ND-0001');
     Object.assign(window, { matchMedia: () => ({ matches: true }) });
     await s.gis.begin(); await s.editor.openForm('device', 'DV-0001');
     s.editor.form!.fields.antennaHeightM = '19';
@@ -292,7 +292,7 @@ describe('GIS 入口挂载联动', () => {
     expect(JSON.stringify(s.editor.form)).toBe(before); expect(s.editor.formDirty).toBe(true);
     expect(s.storage.writes).toBe(0);
   });
-  it.each(['/situation', '/situation?stationId=ND-0001', '/situation?diagnosisId=DG-HW'])(
+  it.each(['/gis-workbench', '/gis-workbench?stationId=ND-0001', '/gis-workbench?diagnosisId=DG-HW'])(
     '没有分析记录时，%s 的冻结入口隔离原快照但不伪造分析结果', async url => {
       const s = await mountEntry(url, false, false, true), analysis = useInterferenceStore(), originalMode = s.gis.mapMode;
       s.wb.context.run_count = 0;
@@ -307,7 +307,7 @@ describe('GIS 入口挂载联动', () => {
       expect(submit).not.toHaveBeenCalled(); s.wb.assertNoWrites(); expect(s.storage.writes).toBe(0);
     });
   it('已有分析记录时从监控切到选定快照，不自动重新分析', async () => {
-    const s = await mountEntry('/situation', false, false, true);s.monitor.showNetwork();
+    const s = await mountEntry('/gis-workbench', false, false, true);s.monitor.showNetwork();
     const analysis = await openWorkbenchFromPage(s.root, s.wb);
     expect(analysisMap(s.root).interferenceProjection).toEqual(analysis.mapProjection);
     expect(analysisMap(s.root).gisDeviceFrame).toBeUndefined();expect(textOf(s.root)).toContain(s.wb.run.run_id);
@@ -315,7 +315,7 @@ describe('GIS 入口挂载联动', () => {
     s.wb.assertNoWrites();expect(s.storage.writes).toBe(0);
   });
   it('取消进入冻结分析保留未应用的 GIS 表单', async () => {
-    const s = await mountEntry('/situation', true, false, true), before = JSON.stringify(s.editor.form);
+    const s = await mountEntry('/gis-workbench', true, false, true), before = JSON.stringify(s.editor.form);
     const entering = clickWorkbench(s.root, '干扰分析'); await settleWorkbench();
     expect(s.editor.decision).not.toBeNull(); s.editor.answer('cancel'); await entering;
     expect(workbenchNode(s.root, row => row.props['aria-label'] === '数据库冻结方案')).toBeUndefined();
@@ -323,7 +323,7 @@ describe('GIS 入口挂载联动', () => {
     s.wb.assertNoWrites(); expect(s.storage.writes).toBe(0);
   });
   it('保留已选资源链路时，切回分析不会被资源详情监听覆盖', async () => {
-    const s = await mountEntry('/situation?stationId=ND-0001', false, false, true);
+    const s = await mountEntry('/gis-workbench?stationId=ND-0001', false, false, true);
     await search(s.root, 'PL-001');
     const link = findWhere(s.root, row => row.props['aria-label'] === '选择链路 PL-001')!;
     await (link.props.onClick as Function)(); await settleMonitoring();
@@ -338,7 +338,7 @@ describe('GIS 入口挂载联动', () => {
   });
   // 只核对实际模板中的来源说明，切换展示不产生业务保存。
   it('来源标识跟随资源和监控视图，缺少资源版本时明确提示', async () => {
-    const s = await mountEntry('/situation?stationId=ND-0001');
+    const s = await mountEntry('/gis-workbench?stationId=ND-0001');
     const label = () => textOf(findWhere(s.root, n => n.props['aria-label'] === '当前视图数据来源')!);
     const read = useResourceReadStore(), revision = read.workspace!.revision;
     expect(label()).toBe('资源 · ' + revision);
@@ -349,14 +349,14 @@ describe('GIS 入口挂载联动', () => {
     expect(s.storage.writes).toBe(0);
   });
   it('诊断来源只显示已取得报告，目标不存在时不冒充已有结果', async () => {
-    const s = await mountEntry('/situation?diagnosisId=DG-HW');
+    const s = await mountEntry('/gis-workbench?diagnosisId=DG-HW');
     const label = () => textOf(findWhere(s.root, n => n.props['aria-label'] === '当前视图数据来源')!);
     expect(label()).toBe('诊断 DG-HW');
-    await s.router.push('/situation?diagnosisId=DG-missing'); await settleMonitoring();
+    await s.router.push('/gis-workbench?diagnosisId=DG-missing'); await settleMonitoring();
     expect(label()).toBe('诊断 结果未提供'); expect(s.storage.writes).toBe(0);
   });
   it('普通入口默认资源图，观测独立加载；明确查看网络才切源', async () => {
-    const s = await mountEntry('/situation');
+    const s = await mountEntry('/gis-workbench');
     expect(s.gis.mapMode).toBe('resource');expect(s.map().resourceMarkers).toBe(true);
     expect((s.map().gisDeviceFrame as GisDeviceMapFrame).points).toHaveLength(414);
     expect(s.monitor.network?.kind).toBe('DEMO');expect(s.monitor.networkState.index).toBe(0);
@@ -364,7 +364,7 @@ describe('GIS 入口挂载联动', () => {
     s.monitor.showNetwork();await nextTick();expect(s.gis.mapMode).toBe('monitoring');
     await click(s.root,'资源树');expect(s.gis.mapMode).toBe('resource');expect(s.storage.writes).toBe(0);
   });
-  it.each(['/situation', '/situation?diagnosisId=DG-HW'])(
+  it.each(['/gis-workbench', '/gis-workbench?diagnosisId=DG-HW'])(
     '%s 的图层和侧栏恢复不换来源，资源树明确返回且保留深链', async url => {
       const s = await mountEntry(url), mode = s.gis.mapMode, query = { ...s.router.currentRoute.value.query };
       const network = JSON.stringify([s.map().stations, s.map().links]);
@@ -383,7 +383,7 @@ describe('GIS 入口挂载联动', () => {
     },
   );
   it('进入冻结干扰前必须处理 GIS 输入；取消不丢表单，返回当前资源不改冻结身份', async () => {
-    const s = await mountEntry('/situation?stationId=ND-0001', true, false, true), form = JSON.stringify(s.editor.form);
+    const s = await mountEntry('/gis-workbench?stationId=ND-0001', true, false, true), form = JSON.stringify(s.editor.form);
     const enter=hostStep('situation.frozen.cancel',()=>clickWorkbench(s.root,'干扰分析'));await settleWorkbench();
     expect(s.editor.decision).not.toBeNull();s.editor.answer('cancel');await enter;await settleWorkbench();
     expect(JSON.stringify(s.editor.form)).toBe(form);expect(s.editor.formDirty).toBe(true);
@@ -406,10 +406,10 @@ describe('GIS 入口挂载联动', () => {
   });
   it.each(['顶部按钮', '同页 URL'])(
     '%s 进入故障标绘时配置或资源取消都保留路由与原输入', async entry => {
-      const s = await mountEntry('/situation?stationId=ND-0001', true), configuration = useDeviceConfigurationStore();
+      const s = await mountEntry('/gis-workbench?stationId=ND-0001', true), configuration = useDeviceConfigurationStore();
       await configuration.open('gis', 'DV-0001', true); configuration.power = '50';
       const form = JSON.stringify(s.editor.form), original = s.router.currentRoute.value.fullPath;
-      const enter = () => entry === '顶部按钮' ? click(s.root, '故障标绘') : s.router.push('/situation?faultEdit=1');
+      const enter = () => entry === '顶部按钮' ? click(s.root, '故障标绘') : s.router.push('/gis-workbench?faultEdit=1');
       let navigation = enter(); await settleMonitoring(); expect(configuration.decision).not.toBeNull();
       expect(s.editor.decision).toBeNull(); configuration.answer('cancel'); await navigation;
       expect(s.router.currentRoute.value.fullPath).toBe(original); expect(configuration.power).toBe('50');
@@ -428,7 +428,7 @@ describe('GIS 入口挂载联动', () => {
     '%s 进入标绘前保存失败保留现场，重试成功只提交一次且不重复决策', async (entry, { page: s }) => {
       const form = JSON.stringify(s.editor.form);
       const original = s.router.currentRoute.value.fullPath;
-      const enter = () => entry === '顶部按钮' ? click(s.root, '故障标绘') : s.router.push('/situation?faultEdit=1');
+      const enter = () => entry === '顶部按钮' ? click(s.root, '故障标绘') : s.router.push('/gis-workbench?faultEdit=1');
       vi.mocked(previewService.saveResourceChanges).mockRejectedValueOnce(new Error('资源保存失败'));
       let navigation = enter(); await settleMonitoring(); expect(s.editor.decision).not.toBeNull();
       s.editor.answer('save'); await hostStep('situation.save.failed', () => navigation);
@@ -442,7 +442,7 @@ describe('GIS 入口挂载联动', () => {
     },
   );
   it('仅故障标绘保留顶部返回，旧资源页签不能退出，取消或保存失败保留后明确放弃才退出', async () => {
-    const s = await mountEntry('/situation?stationId=ND-0001', false, true);
+    const s = await mountEntry('/gis-workbench?stationId=ND-0001', false, true);
     const oldTab = findWhere(s.root, n => n.tag === 'button' && textOf(n).trim() === '资源树')!.props.onClick as () => unknown;
     const previousOpen = s.monitor.open; await click(s.root, '故障标绘'); await settleMonitoring();
     const diagnosis = useDiagnosisStore(); expect(diagnosis.draft).not.toBeNull();
@@ -462,18 +462,18 @@ describe('GIS 入口挂载联动', () => {
     expect(s.monitor.open).toBe(previousOpen); expect(previewService.saveDiagnosisReceipt).toHaveBeenCalledTimes(1);
   });
   it('节点定位不被挂载后的默认监控覆盖，仍可手动切换监控', async () => {
-    const s = await mountEntry('/situation?stationId=ND-0001');
+    const s = await mountEntry('/gis-workbench?stationId=ND-0001');
     expect(s.gis.mapMode).toBe('resource'); expect(s.map()).toMatchObject({ selectedId: 'ND-0001', resourceMarkers: true });
     s.monitor.showNetwork(); await settleMonitoring();
     expect(s.gis.mapMode).toBe('monitoring'); expect(s.map().resourceMarkers).toBe(false);
   });
   it('设备定位保留所属节点和设备详情', async () => {
-    const s = await mountEntry('/situation?stationId=ND-0003&deviceId=DV-0027');
+    const s = await mountEntry('/gis-workbench?stationId=ND-0003&deviceId=DV-0027');
     expect(s.gis.mapMode).toBe('resource'); expect(s.map().selectedId).toBe('ND-0003');
     expect(find(s.root, 'device-probe')?.props.selectedDeviceId).toBe('DV-0027');
   });
   it('干扰源定位保留资源地图和对应详情', async () => {
-    const s = await mountEntry('/situation?interferenceId=IF-0008');
+    const s = await mountEntry('/gis-workbench?interferenceId=IF-0008');
     expect(s.gis.mapMode).toBe('resource'); expect(s.map()).toMatchObject({ selectedInterferenceId: 'IF-0008', resourceMarkers: true });
     expect(useResourceReadStore().detail?.object).toMatchObject({kind:'interference',id:'IF-0008'});
   });
@@ -485,21 +485,21 @@ describe('GIS 入口挂载联动', () => {
     ['stationId=ND-0001&stationId=ND-0003', '地图定位失败'],
     ['interferenceId=IF-0008&stationId=ND-0001', '地图定位参数无效'],
   ])('无效定位 %s 保留原错误提示，不自动进入监控', async (query, message) => {
-    const s = await mountEntry('/situation?' + query);
+    const s = await mountEntry('/gis-workbench?' + query);
     expect(textOf(s.root)).toContain(message); expect(s.gis.mapMode).toBe('resource');
   });
   it('已有 GIS 编辑状态及未应用表单保持不变', async () => {
-    const s = await mountEntry('/situation', true);
+    const s = await mountEntry('/gis-workbench', true);
     expect(s.gis.mapMode).toBe('resource'); expect(s.editor.context).toBe('gis');
     expect(s.editor.form!.fields.antennaHeightM).toBe('19'); expect(s.editor.formDirty).toBe(true);
   });
   // 同页任务深链必须尊重当前资源表单及导入的取消决定。
   it.each(['form', 'import'])('任务深链取消 %s 决策时保留地图、路由与资源输入', async kind => {
-    const s = await mountEntry('/situation', true), before = JSON.stringify(s.editor.form);
+    const s = await mountEntry('/gis-workbench', true), before = JSON.stringify(s.editor.form);
     vi.spyOn(s.editor, 'closeForm').mockResolvedValue(kind !== 'form');
     const closeImport = vi.spyOn(s.editor, 'closeImport').mockResolvedValue(false);
-    await s.router.push('/situation?taskId=TASK-OTHER'); await settleMonitoring();
-    expect(s.router.currentRoute.value.fullPath).toBe('/situation');
+    await s.router.push('/gis-workbench?taskId=TASK-OTHER'); await settleMonitoring();
+    expect(s.router.currentRoute.value.fullPath).toBe('/gis-workbench');
     expect(s.gis.mapMode).toBe('resource'); expect(JSON.stringify(s.editor.form)).toBe(before);
     expect(s.editor.formDirty).toBe(true); expect(s.storage.writes).toBe(0);
     if (kind === 'form') expect(closeImport).not.toHaveBeenCalled();
@@ -521,29 +521,29 @@ describe('GIS 频率条件与跨页定位', () => {
     await click(root, '图层管理'); await input(root, 'GIS 频率筛选依据', 'DEVICE'); await input(root, 'GIS 频率下限（kHz）', '6000'); await apply(root);
   }
   it('有效设备定位解除阻挡并保留待应用输入，站点和导出范围未被频率改变', async () => {
-    const s = await mountEntry('/situation?stationId=ND-0001&deviceId=DV-0001');
+    const s = await mountEntry('/gis-workbench?stationId=ND-0001&deviceId=DV-0001');
     const outside = JSON.stringify([s.map().stations, s.map().links, s.map().candidateLinks, s.map().demands, s.map().interferences, s.map().regions, find(s.root, 'export-probe')!.props]);
     await filter(s.root); expect(frame(s)!.points).toEqual([]);
     expect(JSON.stringify([s.map().stations, s.map().links, s.map().candidateLinks, s.map().demands, s.map().interferences, s.map().regions, find(s.root, 'export-probe')!.props])).toBe(outside);
     await input(s.root, 'GIS 频率下限（kHz）', '7000');
-    await s.router.push('/situation?stationId=ND-0001&deviceId=DV-0002'); await settleMonitoring();
+    await s.router.push('/gis-workbench?stationId=ND-0001&deviceId=DV-0002'); await settleMonitoring();
     expect(frame(s)!.points.some(row => row.id === 'DV-0002')).toBe(true);
     expect(control(s.root, 'GIS 频率下限（kHz）').props.value).toBe('7000'); expect(textOf(s.root)).toContain('解除频率限制');
     expect(find(s.root, 'device-probe')!.props.selectedDeviceId).toBe('DV-0002'); expect(s.storage.writes).toBe(0);
   });
   it('错误归属和取消跨页定位不清频率条件、详情或未保存输入', async () => {
-    const s = await mountEntry('/situation?stationId=ND-0001&deviceId=DV-0001'); await filter(s.root);
-    await s.router.push('/situation?stationId=ND-0003&deviceId=DV-0001'); await settleMonitoring();
+    const s = await mountEntry('/gis-workbench?stationId=ND-0001&deviceId=DV-0001'); await filter(s.root);
+    await s.router.push('/gis-workbench?stationId=ND-0003&deviceId=DV-0001'); await settleMonitoring();
     expect(frame(s)!.points).toEqual([]); expect(textOf(s.root)).toContain('地图定位失败');
     await s.gis.begin(); await s.editor.openForm('device', 'DV-0001'); s.editor.form!.fields.workFreqKhz = '6000';
-    const form = JSON.stringify(s.editor.form); await s.router.push('/situation?stationId=ND-0001&deviceId=DV-0002'); await settleMonitoring();
+    const form = JSON.stringify(s.editor.form); await s.router.push('/gis-workbench?stationId=ND-0001&deviceId=DV-0002'); await settleMonitoring();
     expect(s.editor.decision).not.toBeNull(); s.editor.answer('cancel'); await settleMonitoring();
     expect(frame(s)!.points).toEqual([]); expect(JSON.stringify(s.editor.form)).toBe(form);
     expect(control(s.root, 'GIS 频率下限（kHz）').props.value).toBe('6000'); expect(textOf(s.root)).not.toContain('解除频率限制');
   });
   it('新挂载恢复资源图与默认频率条件', async () => {
-    const s = await mountEntry('/situation?stationId=ND-0001&deviceId=DV-0001'); await filter(s.root);
-    await s.router.push('/planning'); await nextTick(); await s.router.push('/situation'); await settleMonitoring();
+    const s = await mountEntry('/gis-workbench?stationId=ND-0001&deviceId=DV-0001'); await filter(s.root);
+    await s.router.push('/planning'); await nextTick(); await s.router.push('/gis-workbench'); await settleMonitoring();
     expect(s.gis.mapMode).toBe('resource');expect(frame(s)!.points).toHaveLength(414);
     await click(s.root, '图层管理');expect(control(s.root, 'GIS 频率筛选依据').props.disabled).toBeFalsy();
     expect(control(s.root, 'GIS 频率筛选依据').props.value).toBe('ALL');
@@ -556,7 +556,7 @@ describe('GIS 资源目录新增检索入口', () => {
   const frame = (s: Awaited<ReturnType<typeof mountEntry>>) => s.map().gisDeviceFrame as GisDeviceMapFrame;
   const exported = (s: Awaited<ReturnType<typeof mountEntry>>) => find(s.root, 'export-probe')!.props.filteredIds;
   it('搜索其他节点的设备自动展开但不选中；显式选择设置精确设备和父节点', async () => {
-    const s = await mountEntry('/situation?stationId=ND-0001');
+    const s = await mountEntry('/gis-workbench?stationId=ND-0001');
     await search(s.root, ' dv-0027 ');
     expect(treeIds(s.root)).toEqual(['ND-0003']); expect(frame(s).points.map(row => row.id)).toEqual(['DV-0027']);
     expect(s.map().selectedId).toBe('ND-0001'); expect(find(s.root, 'device-probe')!.props.selectedDeviceId).toBe('');
@@ -568,7 +568,7 @@ describe('GIS 资源目录新增检索入口', () => {
     expect(s.storage.writes).toBe(0);
   });
   it('链路搜索只显示命中链路和两端必要设备，导出沿用资源格式', async () => {
-    const s = await mountEntry('/situation?stationId=ND-0001');
+    const s = await mountEntry('/gis-workbench?stationId=ND-0001');
     await search(s.root, 'pl-001');
     expect((s.map().links as NetworkLink[]).map(row => row.id)).toEqual(['PL-001']);
     expect(treeIds(s.root)).toEqual(['ND-0001', 'ND-0003']); expect(frame(s).points.map(row => row.id)).toEqual(['DV-0001', 'DV-0027']);
@@ -577,26 +577,26 @@ describe('GIS 资源目录新增检索入口', () => {
     expect(exported(s)).toEqual({ nodes: ['ND-0001', 'ND-0003'], devices: ['DV-0001', 'DV-0027'], interference_sources: [] });
   });
   it('跨页设备定位保留仍匹配的设备搜索，只解除阻挡目标的节点条件', async () => {
-    const s = await mountEntry('/situation?stationId=ND-0001'), device = s.browseResources.devices.find(row => {
+    const s = await mountEntry('/gis-workbench?stationId=ND-0001'), device = s.browseResources.devices.find(row => {
       const parent = s.browseResources.stations.find(station => station.id === row.stationId);
       return parent && !parent.alert && parent.id !== 'ND-0001';
     })!;
     await search(s.root, device.id); await click(s.root, '告警');
     expect(frame(s).points).toEqual([]);
-    await s.router.push({ path: '/situation', query: { stationId: device.stationId, deviceId: device.id } }); await settleMonitoring();
+    await s.router.push({ path: '/gis-workbench', query: { stationId: device.stationId, deviceId: device.id } }); await settleMonitoring();
     expect(frame(s).points.map(row => row.id)).toEqual([device.id]);
     expect(findWhere(s.root, row => row.props['aria-label'] === '搜索资源')!.props.value).toBe(device.id);
     expect(find(s.root, 'device-probe')!.props.selectedDeviceId).toBe(device.id);
   });
   it('已选设备被另一台设备搜索隐藏时保留详情，不扩大匹配结果', async () => {
-    const s = await mountEntry('/situation?stationId=ND-0001&deviceId=DV-0001'); await search(s.root, 'DV-0002');
+    const s = await mountEntry('/gis-workbench?stationId=ND-0001&deviceId=DV-0001'); await search(s.root, 'DV-0002');
     expect(frame(s).points.map(row => row.id)).toEqual(['DV-0002']); expect(frame(s).selectedDeviceId).toBe('DV-0001');
     expect(textOf(s.root)).toContain('当前选中对象不在筛选结果中');
     expect(find(s.root, 'device-probe')!.props.selectedDeviceId).toBe('DV-0001');
     await click(s.root, '清除筛选'); expect(frame(s).points).toHaveLength(414); expect(frame(s).selectedDeviceId).toBe('DV-0001');
   });
   it('搜索设备不裁剪监控网络；明确选择后才切回资源地图', async () => {
-    const s = await mountEntry('/situation');s.monitor.showNetwork();await nextTick();
+    const s = await mountEntry('/gis-workbench');s.monitor.showNetwork();await nextTick();
     const network=JSON.stringify([s.map().stations,s.map().links]);
     await search(s.root, 'DV-0027'); expect(s.gis.mapMode).toBe('monitoring');
     expect(JSON.stringify([s.map().stations, s.map().links])).toBe(network);
@@ -614,7 +614,7 @@ describe('设备显示与既有 GIS 定位/节点筛选衔接', () => {
     expect(target, label).toBeDefined(); (target.props[event] as (e: unknown) => void)({ target: { value, checked: value } }); await nextTick();
   }
   it('节点能力和告警条件保持原口径，设备只显示这些节点中的匹配成员', async () => {
-    const s = await mountEntry('/situation?stationId=ND-0001');
+    const s = await mountEntry('/gis-workbench?stationId=ND-0001');
     await click(s.root, 'HF'); const nodes = s.map().stations as Station[], ids = new Set(nodes.map(row => row.id));
     expect(frame(s)!.points.every(row => ids.has(row.stationId))).toBe(true);
     // 双频站仍包含 VUHF 设备，节点能力条件不冒充设备类型条件。
@@ -625,25 +625,25 @@ describe('设备显示与既有 GIS 定位/节点筛选衔接', () => {
     await click(s.root, '清除筛选'); expect(frame(s)!.points.every(row => row.deviceClass === 'HF')).toBe(true);
   });
   it('有效显式设备定位仅解除目标类型和状态阻挡，其他图层偏好保留', async () => {
-    const s = await mountEntry('/situation?stationId=ND-0001&deviceId=DV-0001'); await click(s.root, '图层管理');
+    const s = await mountEntry('/gis-workbench?stationId=ND-0001&deviceId=DV-0001'); await click(s.root, '图层管理');
     await change(s.root, '显示HF设备', false); await change(s.root, 'HF设备透明度', '0', 'onInput');
     await change(s.root, '显示VUHF设备', false); await change(s.root, '设备点位状态', 'FAULT');
-    await s.router.push('/situation?stationId=ND-0001&deviceId=DV-0002'); await settleMonitoring();
+    await s.router.push('/gis-workbench?stationId=ND-0001&deviceId=DV-0002'); await settleMonitoring();
     expect(frame(s)!.settings.HF).toEqual({ visible: true, opacity: 1 }); expect(frame(s)!.settings.VUHF.visible).toBe(false);
     expect(frame(s)!.points.some(row => row.id === 'DV-0002')).toBe(true);
     expect(find(s.root, 'device-probe')!.props.selectedDeviceId).toBe('DV-0002'); expect(s.storage.writes).toBe(0);
   });
   it('错误归属及取消设备定位保留设备显示条件和未保存表单', async () => {
-    const s = await mountEntry('/situation?stationId=ND-0001', true), form = JSON.stringify(s.editor.form);
+    const s = await mountEntry('/gis-workbench?stationId=ND-0001', true), form = JSON.stringify(s.editor.form);
     await click(s.root, '图层管理'); await change(s.root, '显示HF设备', false); await change(s.root, 'HF设备透明度', '0.3', 'onInput');
-    await s.router.push('/situation?stationId=ND-0003&deviceId=DV-0001'); await settleMonitoring();
+    await s.router.push('/gis-workbench?stationId=ND-0003&deviceId=DV-0001'); await settleMonitoring();
     expect(frame(s)!.settings.HF).toEqual({ visible: false, opacity: 0.3 }); expect(textOf(s.root)).toContain('地图定位失败');
     vi.spyOn(s.editor, 'closeForm').mockResolvedValue(false);
-    await s.router.push('/situation?stationId=ND-0001&deviceId=DV-0002'); await settleMonitoring();
+    await s.router.push('/gis-workbench?stationId=ND-0001&deviceId=DV-0002'); await settleMonitoring();
     expect(frame(s)!.settings.HF).toEqual({ visible: false, opacity: 0.3 }); expect(JSON.stringify(s.editor.form)).toBe(form);
   });
   it('默认资源图的设备显示可直接操作，返回资源树保留显示偏好', async () => {
-    const s=await mountEntry('/situation');expect(s.gis.mapMode).toBe('resource');expect(frame(s)!.points).toHaveLength(414);
+    const s=await mountEntry('/gis-workbench');expect(s.gis.mapMode).toBe('resource');expect(frame(s)!.points).toHaveLength(414);
     await click(s.root,'图层管理');await change(s.root,'显示HF设备',false);
     expect(frame(s)!.settings.HF.visible).toBe(false);
     await click(s.root,'资源树');expect(frame(s)!.settings.HF.visible).toBe(false);
@@ -652,7 +652,7 @@ describe('设备显示与既有 GIS 定位/节点筛选衔接', () => {
 
 describe('GIS 资源筛选与地图联动', () => {
   it.each(['编号', '名称'])('按节点%s搜索时地图与资源树一致，覆盖区域及资源数据保持完整', async kind => {
-    const s = await mountEntry('/situation?stationId=ND-0001');
+    const s = await mountEntry('/gis-workbench?stationId=ND-0001');
     const original = JSON.stringify(s.gis.scene!.map), target = s.browseResources.stations[0];
     const regions = s.map().regions as MapRegion[];
     await search(s.root, kind === '编号' ? target.id.toLowerCase() : target.name);
@@ -664,7 +664,7 @@ describe('GIS 资源筛选与地图联动', () => {
     expect([...s.storage.entries]).toEqual(s.before);
   });
   it.each(['HF', 'VUHF', '告警'])('%s 筛选同步节点，不把节点条件应用到干扰源', async filter => {
-    const s = await mountEntry('/situation?stationId=ND-0001');
+    const s = await mountEntry('/gis-workbench?stationId=ND-0001');
     const expected = s.browseResources.stations.filter(row => filter === '告警' ? row.alert : row.classes.includes(filter as 'HF' | 'VUHF'));
     await click(s.root, filter);
     expect((s.map().stations as Station[]).map(row => row.id)).toEqual(expected.map(row => row.id));
@@ -673,14 +673,14 @@ describe('GIS 资源筛选与地图联动', () => {
     expect(s.map().interferences).toEqual(s.browseResources.interferences);
   });
   it.each(['编号', '名称'])('干扰源%s搜索同步资源树与地图', async kind => {
-    const s = await mountEntry('/situation?stationId=ND-0001'), source = s.browseResources.interferences![0];
+    const s = await mountEntry('/gis-workbench?stationId=ND-0001'), source = s.browseResources.interferences![0];
     await search(s.root, kind === '编号' ? source.id.toLowerCase() : source.name);
     expect((s.map().interferences as InterferenceSource[]).map(row => row.id)).toEqual([source.id]);
     expect(treeIds(s.root)).toEqual([source.id]);
     expect(s.map().stations).toEqual([]);
   });
   it('无匹配时隐藏点与连线，保留详情、表单及草稿，清除后恢复', async () => {
-    const s = await mountEntry('/situation?stationId=ND-0001', true);
+    const s = await mountEntry('/gis-workbench?stationId=ND-0001', true);
     const form = JSON.stringify(s.editor.form), resources = JSON.stringify(s.editor.resources);
     const stations = s.map().stations, sources = s.map().interferences, regions = s.map().regions;
     await search(s.root, '不存在的资源');
@@ -696,7 +696,7 @@ describe('GIS 资源筛选与地图联动', () => {
     expect(JSON.stringify(s.editor.form)).toBe(form); expect([...s.storage.entries]).toEqual(s.before);
   });
   it('资源筛选裁剪资源链路，任务地图独立读取保存版本而不修改规划草稿', async () => {
-    const s = await mountEntry('/situation?stationId=ND-0001');
+    const s = await mountEntry('/gis-workbench?stationId=ND-0001');
     const planning = useTaskInputStore(), nodes = s.browseResources.stations;
     const demands: PlanningDemand[] = [{ ...planningPresets[0].input.demands[0], id: 'CD-FILTER', sourceId: nodes[0].id, targetId: nodes[1].id }];
     // 规划页草稿不再作为 GIS 任务输入；保存版本由只读服务明确提供。
@@ -715,7 +715,7 @@ describe('GIS 资源筛选与地图联动', () => {
     const task = { taskId: 'TASK-VIEW', revision: 'TV-1', inputVersion: 'TV-1', conditionVersion: 'TC-1', resourceRevision: useResourceReadStore().workspace!.revision, updatedAt: '2026-10-19T00:00:00Z', activeJobId: null, input: saved };
     vi.spyOn(previewService, 'queryTaskSummaries').mockResolvedValue({ items: [{...task,name:task.input.name}], total: 1, pageNum: 1, pageSize: 10 });
     vi.spyOn(previewService, 'getTaskInput').mockResolvedValue(task);
-    await s.router.push('/situation?taskId=TASK-VIEW'); await settleMonitoring();
+    await s.router.push('/gis-workbench?taskId=TASK-VIEW'); await settleMonitoring();
     expect(((s.map().planningOverlay as { nodes: Station[] }).nodes as Station[]).map(row => row.id)).toEqual(saved.stationIds);
     expect(demandLayer((s.map().planningOverlay as { demands: PlanningDemand[] }).demands as PlanningDemand[], (s.map().planningOverlay as { nodes: Station[] }).nodes as Station[]).getSource()!.getFeatures()).toHaveLength(1);
     expect(textOf(s.root)).toContain('任务查看 · 只读');
@@ -727,56 +727,56 @@ describe('GIS 资源筛选与地图联动', () => {
     expect(JSON.stringify(planning.draft)).toBe(before); expect(s.storage.writes).toBe(0);
   });
   it('跨页定位清除阻挡目标的搜索和类别条件', async () => {
-    const s = await mountEntry('/situation?stationId=ND-0001');
+    const s = await mountEntry('/gis-workbench?stationId=ND-0001');
     const target = s.browseResources.stations.find(row => row.id !== 'ND-0001' && !row.alert)!;
     await click(s.root, '告警'); await search(s.root, '不存在的资源');
-    await s.router.push({ path: '/situation', query: { stationId: target.id } }); await settleMonitoring();
+    await s.router.push({ path: '/gis-workbench', query: { stationId: target.id } }); await settleMonitoring();
     expect(s.map().selectedId).toBe(target.id);
     expect((s.map().stations as Station[]).some(row => row.id === target.id)).toBe(true);
     expect(textOf(s.root)).not.toContain('当前选中对象不在筛选结果中');
   });
   it('干扰源定位清除搜索但保留节点类别筛选；隐藏时详情仍在', async () => {
-    const s = await mountEntry('/situation?interferenceId=IF-0008');
+    const s = await mountEntry('/gis-workbench?interferenceId=IF-0008');
     await click(s.root, 'HF'); await search(s.root, '不存在的资源');
     expect(useResourceReadStore().detail?.object).toMatchObject({kind:'interference',id:'IF-0008'});
     expect(textOf(s.root)).toContain('当前选中对象不在筛选结果中');
-    await s.router.push('/situation?interferenceId=IF-0001'); await settleMonitoring();
+    await s.router.push('/gis-workbench?interferenceId=IF-0001'); await settleMonitoring();
     expect((s.map().interferences as InterferenceSource[]).some(row => row.id === 'IF-0001')).toBe(true);
     const expected = s.browseResources.stations.filter(row => row.classes.includes('HF'));
     expect(s.map().stations).toEqual(expected);
   });
   it('节点定位保留仍匹配目标的搜索，只解除不匹配的告警条件', async () => {
-    const s = await mountEntry('/situation?stationId=ND-0001');
+    const s = await mountEntry('/gis-workbench?stationId=ND-0001');
     const target = s.browseResources.stations.find(row => row.id !== 'ND-0001' && !row.alert)!;
     await search(s.root, target.id); await click(s.root, '告警');
     expect(s.map().stations).toEqual([]);
-    await s.router.push({ path: '/situation', query: { stationId: target.id } }); await settleMonitoring();
+    await s.router.push({ path: '/gis-workbench', query: { stationId: target.id } }); await settleMonitoring();
     expect((s.map().stations as Station[]).map(row => row.id)).toEqual([target.id]);
     expect(findWhere(s.root, entry => entry.props['aria-label'] === '搜索资源')?.props.value).toBe(target.id);
   });
   it('无效定位和取消切换都保留筛选与未保存输入', async () => {
-    const s = await mountEntry('/situation?stationId=ND-0001', true);
+    const s = await mountEntry('/gis-workbench?stationId=ND-0001', true);
     const form = JSON.stringify(s.editor.form);
     await search(s.root, '不存在的资源');
-    await s.router.push('/situation?stationId=ND-missing'); await settleMonitoring();
+    await s.router.push('/gis-workbench?stationId=ND-missing'); await settleMonitoring();
     expect(textOf(s.root)).toContain('地图定位失败'); expect(s.map().stations).toEqual([]);
     vi.spyOn(s.editor, 'closeForm').mockResolvedValue(false);
-    await s.router.push('/situation?stationId=ND-0003'); await settleMonitoring();
+    await s.router.push('/gis-workbench?stationId=ND-0003'); await settleMonitoring();
     expect(s.map().selectedId).toBe('ND-0001'); expect(s.map().stations).toEqual([]);
     expect(JSON.stringify(s.editor.form)).toBe(form);
   });
   it('同站点设备定位被取消时也不解除筛选或丢弃表单', async () => {
-    const s = await mountEntry('/situation?stationId=ND-0001', true);
+    const s = await mountEntry('/gis-workbench?stationId=ND-0001', true);
     const form = JSON.stringify(s.editor.form);
     await search(s.root, '不存在的资源');
     vi.spyOn(s.editor, 'closeForm').mockResolvedValue(false);
-    await s.router.push('/situation?stationId=ND-0001&deviceId=DV-0001'); await settleMonitoring();
+    await s.router.push('/gis-workbench?stationId=ND-0001&deviceId=DV-0001'); await settleMonitoring();
     expect(s.map().stations).toEqual([]); expect(s.map().selectedId).toBe('ND-0001');
     expect(find(s.root, 'device-probe')?.props.selectedDeviceId).toBe('');
     expect(JSON.stringify(s.editor.form)).toBe(form); expect(s.editor.formDirty).toBe(true);
   });
   it('显式查看监控后筛选不截断冻结网络，返回资源图才应用筛选', async () => {
-    const s=await mountEntry('/situation');s.monitor.showNetwork();await nextTick();
+    const s=await mountEntry('/gis-workbench');s.monitor.showNetwork();await nextTick();
     const stations = s.map().stations, links = s.map().links;
     await search(s.root, '不存在的资源'); await click(s.root, '告警');
     expect(s.gis.mapMode).toBe('monitoring'); expect(s.map().stations).toEqual(stations); expect(s.map().links).toEqual(links);
@@ -785,7 +785,7 @@ describe('GIS 资源筛选与地图联动', () => {
     expect(s.map().stations).toEqual([]); expect(s.map().interferences).toEqual([]);
   });
   it('资源筛选不截断干扰分析的冻结节点、链路和干扰源', async () => {
-    const s = await mountEntry('/situation?stationId=ND-0001',false,false,true);
+    const s = await mountEntry('/gis-workbench?stationId=ND-0001',false,false,true);
     await search(s.root,'不存在的资源');await click(s.root,'告警');
     const analysis=await openWorkbenchFromPage(s.root,s.wb),projection=analysis.mapProjection!;
     expect(projection.nodes).toHaveLength(s.wb.network.nodes.length);expect(projection.links).toHaveLength(s.wb.network.links.length);
@@ -795,7 +795,7 @@ describe('GIS 资源筛选与地图联动', () => {
     expect(s.map().stations).toEqual([]);expect(s.map().interferences).toEqual([]);s.wb.assertNoWrites();
   });
   it('措施后地图使用服务快照自身坐标和成套结果，缺失后完整回到措施前',async()=>{
-    const s=await mountEntry('/situation?stationId=ND-0001',false,false,true);
+    const s=await mountEntry('/gis-workbench?stationId=ND-0001',false,false,true);
     const analysis=await openWorkbenchFromPage(s.root,s.wb);
     const sourceLabel=()=>textOf(findWhere(s.root,n=>n.props['aria-label']==='当前视图数据来源')!);
     expect(sourceLabel()).toBe('数据库冻结方案 · 独立历史来源');

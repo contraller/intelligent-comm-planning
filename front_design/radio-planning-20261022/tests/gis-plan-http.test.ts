@@ -69,6 +69,42 @@ describe('GIS 冻结方案读取适配器', () => {
     await api.getNetwork({ planId: 'P1', taskId: 'T1' });
     expect(transport.mock.calls[1][0]).toBe('/gis/plans/P1/network?context=gis&task_id=T1');
   });
+  it.each([
+    { mobility: 'VEHICLE', node_role: 'TASK', node_subtype: 'II_MOBILE' },
+    { mobility: 'FIXED' },
+    { mobility: 'MANPACK', node_role: null },
+    { mobility: null, node_role: null, node_subtype: null },
+  ])('原 network 请求直接接收可选冻结平台字段 %j，重复解码仍保留原值', async fields => {
+    const source = network(); Object.assign(source.nodes[0], fields);
+    const before = structuredClone(source), { api, transport } = fixture(source);
+    const result = await api.getNetwork(query);
+    expect(result.nodes[0]).toMatchObject(fields);
+    expect(readGisNetwork(result, query)).toEqual(result);
+    expect(source).toEqual(before);
+    expect(transport).toHaveBeenCalledExactlyOnceWith('/gis/plans/P1/network?context=gis&task_id=T1&snapshot_id=S1', { method: 'GET', signal: undefined });
+    transport.mockResolvedValue({ identity: source.identity, terrain: null, terrain_notice: '历史DEM未提供', coverage: null, coverage_notice: '覆盖未提供' });
+    expect((await api.getSurface(query, result)).identity).toEqual(source.identity);
+  });
+  it('旧五字段节点缺省保持缺省，不补当前平台或 null', () => {
+    const result = readGisNetwork(network(), query);
+    for (const field of ['mobility', 'node_role', 'node_subtype']) expect(result.nodes[0]).not.toHaveProperty(field);
+    expect(readGisNetwork(result, query)).toEqual(result);
+  });
+  it.each([
+    { mobility: 'AIRCRAFT' }, { mobility: '' }, { mobility: true }, { mobility: undefined },
+    { node_role: 1 }, { node_role: [] }, { node_subtype: {} }, { node_subtype: false },
+    { mobility: 'VEHICLE', platform_source: 'current-resource' },
+  ])('拒绝非法平台值或未登记扩展字段 %j', fields => {
+    const source = network(); Object.assign(source.nodes[0], fields);
+    expect(() => readGisNetwork(source, query)).toThrowError(expect.objectContaining({ code: 'INVALID_GIS_PLAN_RESPONSE' }));
+  });
+  it('新增平台字段不放宽必需字段、冻结身份或节点唯一性', () => {
+    const source = network(); Object.assign(source.nodes[0], { mobility: 'VEHICLE', node_role: 'TASK', node_subtype: 'II_MOBILE' });
+    const missing = structuredClone(source); delete (missing.nodes[0] as Partial<GisNetwork['nodes'][0]>).status;
+    const wrongSnapshot = structuredClone(source); wrongSnapshot.identity.snapshot_id = 'S2';
+    const duplicate = structuredClone(source); duplicate.nodes.push({ ...duplicate.nodes[0], mobility: 'FIXED' });
+    for (const value of [missing, wrongSnapshot, duplicate]) expect(() => readGisNetwork(value, query)).toThrowError(ApiError);
+  });
   it('读取指定链路并保留观测缺失', async () => {
     const { api, transport } = fixture(detail());
     const result = await api.getLink({ ...query, linkId: 'L1' }, network());

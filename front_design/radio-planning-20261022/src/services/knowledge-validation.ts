@@ -76,7 +76,7 @@ export function applyKnowledgeDraft(base: KnowledgeSnapshot,draft: KnowledgeDraf
 export function validateKnowledgeDraft(base: KnowledgeSnapshot,draft: KnowledgeDraft,previous?: KnowledgeDraft) {
   knowledgeAssert(draft && knowledgeText(draft.summary,1,120) && knowledgeText(draft.baseVersionId,1,120),'变更摘要须为 1–120 字符，且必须指定基线版本');
   knowledgeAssert(Array.isArray(draft.entities) && Array.isArray(draft.relations),'变更内容须为实体和关系数组');
-  knowledgeAssert(draft.entities.length+draft.relations.length > 0 && draft.entities.length+draft.relations.length <= KNOWLEDGE_MAX_OPERATIONS,'每单须包含 1–30 项实体/关系操作');
+  knowledgeAssert(draft.entities.length+draft.relations.length > 0 && draft.entities.length+draft.relations.length <= KNOWLEDGE_MAX_OPERATIONS,'每单须包含 1–100 项实体/关系操作');
   const all = [...draft.entities,...draft.relations]; knowledgeAssert(all.every(x => x && knowledgeText(x.id,1,120)) && new Set(all.map(x => x.id)).size === all.length,'变更对象 ID 无效或重复');
   for (const e of draft.entities) {
     const old: KnowledgeEntity | undefined = previous?.entities.find(x => x.id === e.id) ?? base.entities.find(x => x.id === e.id);

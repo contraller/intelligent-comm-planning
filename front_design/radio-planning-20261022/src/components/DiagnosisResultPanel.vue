@@ -257,6 +257,7 @@
         :disabled="!reportReady"
         @click="$emit('report')"
         >{{ legacy ? '预览历史诊断报告' : '预览与下载完整报告' }}</button
+      ><button v-if="!legacy" class="btn report" :disabled="!reportReady || exporting || !auth.can('diagnosis.export')" @click="$emit('exportPdf')">{{ exporting ? '正在生成 PDF…' : '导出图文 PDF' }}</button
       ></template
     ></section
   >
@@ -294,6 +295,7 @@ const props = withDefaults(
 defineEmits<{
   locate: [type: 'NODE' | 'DEVICE' | 'LINK', id: string];
   report: [];
+  exportPdf: [];
   exportImpact: [format: 'xlsx' | 'png'];
 }>();
 const index = ref(0),

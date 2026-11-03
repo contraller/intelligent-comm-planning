@@ -127,7 +127,7 @@ async function diagnosisFixture(demo: DiagnosisDemo = 'normal', presetId = 'bala
 }
 let app: App<HostNode> | undefined, pinia: ReturnType<typeof createPinia> | undefined;
 afterEach(() => { app?.unmount(); app = undefined; if (pinia) disposePinia(pinia); pinia = undefined; vi.restoreAllMocks(); vi.clearAllMocks(); vi.unstubAllGlobals(); vi.useRealTimers(); });
-async function mountEntry(url = '/situation?diagnosisId=DG-HW', options: { editing?: boolean; denied?: boolean; fixture?: Awaited<ReturnType<typeof diagnosisFixture>> } = {}) {
+async function mountEntry(url = '/gis-workbench?diagnosisId=DG-HW', options: { editing?: boolean; denied?: boolean; fixture?: Awaited<ReturnType<typeof diagnosisFixture>> } = {}) {
   vi.useFakeTimers(); vi.stubGlobal('window', new EventTarget());
   class TestDocument extends EventTarget { hidden = false; activeElement = null; }
   vi.stubGlobal('Document', TestDocument); vi.stubGlobal('document', new TestDocument());
@@ -151,7 +151,7 @@ async function mountEntry(url = '/situation?diagnosisId=DG-HW', options: { editi
   if (options.editing) { await gis.begin(); await editor.openForm('device', 'DV-0001'); editor.form!.fields.antennaHeightM = '19'; }
   const before = [...storage.entries], writes = storage.writes;
   const router = createRouter({ history: createMemoryHistory(), routes: [
-    { path: '/situation', component: SituationView }, { path: '/diagnosis', component: { render: () => null } },
+    { path: '/gis-workbench', component: SituationView }, { path: '/diagnosis', component: { render: () => null } },
     { path: '/planning', component: { render: () => null } }, { path: '/other', component: { render: () => null } },
   ] });
   app = renderer.createApp({ render: () => h(RouterView) }); app.use(pinia); app.use(router); app.provide(ssrContextKey, {});
@@ -162,8 +162,8 @@ async function mountEntry(url = '/situation?diagnosisId=DG-HW', options: { editi
 }
 // 报告入口通过明确身份路由重入；同页去掉再携带身份可验证显示偏好保留。
 async function reopenReport(s: Awaited<ReturnType<typeof mountEntry>>, id = 'DG-HW') {
-  await s.router.replace('/situation'); await settleMonitoring();
-  await s.router.push({ path: '/situation', query: { diagnosisId: id } }); await settleMonitoring();
+  await s.router.replace('/gis-workbench'); await settleMonitoring();
+  await s.router.push({ path: '/gis-workbench', query: { diagnosisId: id } }); await settleMonitoring();
 }
 
 describe('GIS 完整诊断独立快照入口', () => {
@@ -183,7 +183,7 @@ describe('GIS 完整诊断独立快照入口', () => {
   });
   it('真实已完成任务使用规划输出坐标和影响清单，不混入当前资源或其他三模式结果', async () => {
     const fixture = await diagnosisFixture(); fixture.advance(); const record = await fixture.service.getDiagnosisReport(fixture.id);
-    const s = await mountEntry('/situation?diagnosisId=' + fixture.id, { fixture });
+    const s = await mountEntry('/gis-workbench?diagnosisId=' + fixture.id, { fixture });
     expect(s.map().stations).toEqual(planStations(record.network)); expect(s.map().links).toEqual(record.network.links);
     expect(s.map().diagnosisFaults).toEqual(record.faults); expect(s.map().diagnosisRegions).toEqual(record.result.regions);
     expect(s.map().diagnosisPaths).toEqual(record.result.propagationPaths);expect(textOf(s.panel()!)).toContain('故障传播路径');
@@ -196,16 +196,16 @@ describe('GIS 完整诊断独立快照入口', () => {
     expect([...s.storage.entries]).toEqual(s.before); expect(s.workspace).not.toHaveBeenCalled();
   });
   it.each(['', 'DG-HW&diagnosisId=DG-LINK', 'DG-HW&stationId=ND-0001', 'DG-HW&taskId=TASK-A', 'x'.repeat(121)])('错误入口 %s 不请求、不自动进入监控，也不显示资源替代结果', async query => {
-    const s = await mountEntry('/situation?diagnosisId=' + query);
+    const s = await mountEntry('/gis-workbench?diagnosisId=' + query);
     expect(s.gis.mapMode).toBe('diagnosis'); expect(s.report).not.toHaveBeenCalled(); expect(s.map().stations).toEqual([]);
     expect(s.map().links).toEqual([]); expect(find(s.root, row => row.props.role === 'alert')).toBeDefined();
     expect(s.workspace).not.toHaveBeenCalled();
   });
   it('普通入口不读取任何诊断，顶部不再提供诊断及其他快照常驻入口', async () => {
-    const s = await mountEntry('/situation'); expect(s.gis.mapMode).toBe('resource'); expect(s.report).not.toHaveBeenCalled();
+    const s = await mountEntry('/gis-workbench'); expect(s.gis.mapMode).toBe('resource'); expect(s.report).not.toHaveBeenCalled();
     const toolbar = find(s.root, row => typeof row.props.class === 'string' && row.props.class.includes('maintenance-toolbar'))!;
     for (const label of ['诊断快照', '干扰分析', '监控网络快照']) expect(button(toolbar, label)).toBeUndefined();
-    expect(s.router.currentRoute.value.path).toBe('/situation');
+    expect(s.router.currentRoute.value.path).toBe('/gis-workbench');
     expect(s.workspace).not.toHaveBeenCalled(); expect(s.report).not.toHaveBeenCalled();
   });
   it('缺诊断权限保持空诊断画布，不能读取报告或打开资源详情', async () => {
@@ -215,7 +215,7 @@ describe('GIS 完整诊断独立快照入口', () => {
   });
   it.each(['normal', 'impact-failed'] as const)('未就绪或影响失败 %s 不读取预藏结果，正常完成后可重试', async demo => {
     const fixture = await diagnosisFixture(demo); if (demo === 'impact-failed') fixture.advance();
-    const s = await mountEntry('/situation?diagnosisId=' + fixture.id, { fixture });
+    const s = await mountEntry('/gis-workbench?diagnosisId=' + fixture.id, { fixture });
     expect(s.map().stations).toEqual([]); expect(textOf(s.root)).toContain('完整报告未就绪');
     expect(s.run).not.toHaveBeenCalled(); expect(s.workspace).not.toHaveBeenCalled();
     if (demo === 'normal') { fixture.advance(); await click(s.root, '重新读取报告'); expect((s.map().stations as unknown[]).length).toBeGreaterThan(0); }
@@ -265,7 +265,7 @@ describe('GIS 完整诊断独立快照入口', () => {
     const close = vi.spyOn(s.editor, 'closeForm').mockImplementation(() => new Promise(resolve => { confirm = resolve; }));
     const control = find(s.root, row => row.props['aria-label'] === '选择设备 DV-0027')!;
     (control.props.onClick as () => unknown)(); await settleMonitoring(); expect(close).toHaveBeenCalledOnce();
-    await s.router.push('/situation?diagnosisId=DG-LINK'); await settleMonitoring(); confirm(true); await settleMonitoring();
+    await s.router.push('/gis-workbench?diagnosisId=DG-LINK'); await settleMonitoring(); confirm(true); await settleMonitoring();
     expect(s.gis.mapMode).toBe('diagnosis'); expect(textOf(s.panel()!)).toContain('DG-LINK'); expect(s.map().selectedId).toBe('');
     expect(find(s.root, row => row.tag === 'resource-detail')).toBeUndefined(); expect(s.storage.writes).toBe(s.writes);
   });
@@ -280,7 +280,7 @@ describe('GIS 完整诊断独立快照入口', () => {
   });
   it('等级筛选只裁剪区域与影响高亮，统计与冻结网络保持；清单和地图选择可重复定位', async () => {
     const fixture = await diagnosisFixture(); fixture.advance(); const record = await fixture.service.getDiagnosisReport(fixture.id);
-    const s = await mountEntry('/situation?diagnosisId=' + fixture.id, { fixture });
+    const s = await mountEntry('/gis-workbench?diagnosisId=' + fixture.id, { fixture });
     const network = JSON.stringify([s.map().stations, s.map().links]), count = s.report.mock.calls.length;
     const affected = record.result.nodes.find(row => row.level === 'SEVERE')!; expect(affected).toBeDefined();
     await click(s.root, '定位节点 ' + affected.nodeId); expect(find(s.root, row => row.props['aria-label'] === '冻结对象详情')).toBeDefined();
@@ -341,7 +341,7 @@ describe('GIS 完整诊断独立快照入口', () => {
   });
   it('源规划重置后焦点刷新保留历史网络与有效选择，来源核实失败清理画面', async () => {
     const fixture = await diagnosisFixture(); fixture.advance();
-    const s = await mountEntry('/situation?diagnosisId=' + fixture.id, { fixture });
+    const s = await mountEntry('/gis-workbench?diagnosisId=' + fixture.id, { fixture });
     const record = await fixture.service.getDiagnosisReport(fixture.id), network = JSON.stringify([s.map().stations, s.map().links]);
     await click(s.root, '图层管理'); await change(s.root, '拓扑透明度', '0.3', 'onInput'); await change(s.root, '显示规划后链路', false);
     (s.map().select as (id: string) => void)(record.network.inputSnapshot.stations[0].id); await settleMonitoring();
@@ -364,7 +364,7 @@ describe('GIS 完整诊断独立快照入口', () => {
     s.gis.mapMode = 'analysis'; await settleMonitoring(); expect(s.map().diagnosisRegions).toEqual([]);
     await reopenReport(s); expect(s.gis.mapMode).toBe('diagnosis'); expect(s.report).toHaveBeenCalledTimes(requests + 1);
     await s.router.push('/other'); await settleMonitoring(); expect(s.gis.mapMode).toBe('resource');
-    await s.router.push('/situation'); await settleMonitoring(); expect(s.gis.mapMode).toBe('resource'); expect(s.report).toHaveBeenCalledTimes(requests + 1);
+    await s.router.push('/gis-workbench'); await settleMonitoring(); expect(s.gis.mapMode).toBe('resource'); expect(s.report).toHaveBeenCalledTimes(requests + 1);
   });
 });
 
@@ -372,7 +372,7 @@ describe('GIS 诊断快照拓扑透明度', () => {
   const control = (root: HostNode, label = '拓扑透明度') => find(root, row => row.props['aria-label'] === label)!;
   it('零透明度只拦地图线条，故障图标与影响清单仍可定位且不改变冻结统计或区域', async () => {
     const fixture = await diagnosisFixture('normal', 'balanced:link'); fixture.advance();
-    const record = await fixture.service.getDiagnosisReport(fixture.id), s = await mountEntry('/situation?diagnosisId=' + fixture.id, { fixture });
+    const record = await fixture.service.getDiagnosisReport(fixture.id), s = await mountEntry('/gis-workbench?diagnosisId=' + fixture.id, { fixture });
     const link = record.network.links[0].id, fault = record.faults.find(row => row.objectType === 'LINK')!;
     const oldMap = s.map().selectLink as (id: string) => void, network = JSON.stringify([s.map().stations, s.map().links]);
     const regions = JSON.stringify([s.map().diagnosisRegions, s.map().gisResultLayers]), faults = s.map().diagnosisFaults;
@@ -416,7 +416,7 @@ describe('GIS 诊断快照拓扑透明度', () => {
     await change(s.root, '拓扑透明度', '0.7', 'onInput'); expect(s.map().topologyOpacity).toBe(0.7); expect(s.report).toHaveBeenCalledTimes(count);
   });
   it('完整诊断未就绪时不借普通网络启用控件，成功重读后才能恢复原偏好', async () => {
-    const fixture = await diagnosisFixture(), s = await mountEntry('/situation?diagnosisId=' + fixture.id, { fixture });
+    const fixture = await diagnosisFixture(), s = await mountEntry('/gis-workbench?diagnosisId=' + fixture.id, { fixture });
     await click(s.root, '图层管理'); expect(control(s.root).props.disabled).toBe(true);
     expect(control(s.root, '显示规划后链路').props.disabled).toBe(true); expect(s.map().showLinks).toBe(false);
     await change(s.root, '拓扑透明度', '0', 'onInput'); await change(s.root, '显示规划后链路', false); expect(s.map().topologyOpacity).toBe(1);

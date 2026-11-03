@@ -81,7 +81,11 @@ describe('诊断报告三格式', () => {
     const fontBytes = new Uint8Array(await readFile('public/fonts/NotoSansCJKsc-Regular.otf'));
     if (outputDir) await mkdir(outputDir,{recursive:true});
     for (const [name,record] of [['multiple',await sample()],['single',await sample('balanced:hardware')],['legacy',await createMockService(() => new TestStorage()).getDiagnosisReport('DG-HW')]] as const) {
-      if (name === 'multiple') record.result.notes.push('长文本换行与分页检查。'.repeat(80));
+      if (name === 'multiple') {
+        record.result.notes.push('长文本换行与分页检查。'.repeat(80));
+        // 真实 HTTP 的候选依据可超过一页，不能只用末尾说明测试分页。
+        record.result.conclusions[0].branches[0].evidence.push({label:'长依据完整性',value:'LONG-EVIDENCE-BEGIN\n'+Array.from({length:100},(_,i)=>`候选 ${i+1}：核对故障现象、规则来源和原始案例证据。`).join('\n')+'\nLONG-EVIDENCE-END'});
+      }
       const file = await createDiagnosisExport(record,'pdf',{fontBytes,exportedAt:'2026-10-03T10:00:00Z'});
       expect(new TextDecoder().decode(file.bytes.slice(0,8))).toContain('%PDF-'); expect(file.bytes.byteLength).toBeGreaterThan(10000);
       if (outputDir) await writeFile(outputDir+'/'+name+'.pdf',file.bytes);
@@ -94,6 +98,12 @@ describe('诊断报告三格式', () => {
   it('图中全部文本转义，不把场景名称当成 SVG 指令', async () => {
     const record = await sample(); record.name = '<script>&测试'; const svg = diagnosisFigureSvg(record);
     expect(svg).toContain('&lt;script&gt;&amp;测试'); expect(svg).not.toContain('<script>'); expect(svg).toContain('LINK-A'); expect(svg).toContain('CHECK-NETWORK');
+    const base=record.network.inputSnapshot.stations[0];
+    record.network.inputSnapshot.stations.push(...Array.from({length:65},(_,i)=>({...structuredClone(base),id:`DENSE-${i}`,coordinate:[base.coordinate[0]+i*0.001,base.coordinate[1]+0.01] as [number,number]})));
+    const before=JSON.stringify(record),dense=diagnosisFigureSvg(record);
+    expect(dense).toContain('大网络仅标注故障及受影响对象');expect(dense).not.toContain('>DENSE-64</text>');
+    expect((dense.match(/<circle /g)??[]).length-(svg.match(/<circle /g)??[]).length).toBe(65);
+    expect(dense).toContain('LINK-A');expect(JSON.stringify(record)).toBe(before);
   });
 });
 

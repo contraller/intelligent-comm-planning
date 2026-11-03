@@ -7,6 +7,8 @@ const escape = (value: string) => value.replace(/[&<>"']/g, (c) => ({ '&':'&amp;
 // 这里只把已存在坐标映射到报告画布，不推算影响轮廓或诊断结果。
 export function diagnosisFigureSvg(record: DiagnosisRecord): string {
   const nodes = planStations(record.network);
+  // 大网络仍绘制完整拓扑，仅收敛文字到故障及受影响对象，避免标签淹没结果。
+  const dense = nodes.length + record.network.links.length > 60;
   const coordinates = [...nodes.map((n) => n.coordinate), ...record.result.regions.flatMap((r) => r.rings.flat())];
   const xs = coordinates.map((c) => c[0]); const ys = coordinates.map((c) => c[1]);
   const minX = Math.min(...xs), maxX = Math.max(...xs), minY = Math.min(...ys), maxY = Math.max(...ys);
@@ -33,15 +35,16 @@ export function diagnosisFigureSvg(record: DiagnosisRecord): string {
     const affected = record.result.links.some((l) => l.linkId === link.id);
     const x = (a[0]+b[0])/2, y = (a[1]+b[1])/2;
     parts.push(`<line x1="${a[0]}" y1="${a[1]}" x2="${b[0]}" y2="${b[1]}" stroke="${affected ? '#c6455f' : '#487da4'}" stroke-width="${affected ? 4 : 2}"/>`);
-    label(link.id,x,y,index % 3 === 2 ? 27 : -16);
-    if (record.faults.some((f) => f.objectType === 'LINK' && f.objectId === link.id)) parts.push(`<polygon points="${x},${y-11} ${x+11},${y} ${x},${y+11} ${x-11},${y}" fill="#f5f8fc" stroke="#9249b9" stroke-width="3"/>`);
+    const injected = record.faults.some((f) => f.objectType === 'LINK' && f.objectId === link.id);
+    if (!dense || affected || injected) label(link.id,x,y,index % 3 === 2 ? 27 : -16);
+    if (injected) parts.push(`<polygon points="${x},${y-11} ${x+11},${y} ${x},${y+11} ${x-11},${y}" fill="#f5f8fc" stroke="#9249b9" stroke-width="3"/>`);
   }
   for (const node of nodes) {
     const p = positioned.get(node.id)!;
     const affected = record.result.nodes.some((n) => n.nodeId === node.id);
     const injected = record.faults.some((f) => f.objectId === node.id || record.network.inputSnapshot.devices.some((d) => d.id === f.objectId && d.stationId === node.id));
     parts.push(`<circle cx="${p[0]}" cy="${p[1]}" r="${affected ? 8 : 5}" fill="${affected ? '#c6455f' : '#227c85'}"/>`);
-    label(node.id,p[0],p[1]);
+    if (!dense || affected || injected) label(node.id,p[0],p[1]);
     if (injected) parts.push(`<circle cx="${p[0]}" cy="${p[1]}" r="14" fill="none" stroke="#9249b9" stroke-width="3"/>`);
   }
   // 按已冻结的步骤画方向，不从可见链路或备份路由补算。
@@ -51,7 +54,7 @@ export function diagnosisFigureSvg(record: DiagnosisRecord): string {
   }
   parts.push(...labels);
   for (const [index,label] of ['红：严重','橙：一般','蓝：轻微','紫标：注入故障','红线：受影响链路','青箭头：传播'].entries()) parts.push(`<text x="${25+index*145}" y="477" font-size="12" fill="#38536f">${label}</text>`);
-  parts.push('<text x="30" y="505" font-size="12" fill="#526a80">WGS84 坐标示意 · 不是实时底图 · 仅展示冻结结果</text>', '</svg>');
+  parts.push(`<text x="30" y="505" font-size="12" fill="#526a80">WGS84 坐标示意 · 不是实时底图 · 仅展示冻结结果${dense ? ' · 大网络仅标注故障及受影响对象' : ''}</text>`, '</svg>');
   return parts.join('');
 }
 export async function diagnosisFigurePng(record: DiagnosisRecord): Promise<Uint8Array> {

@@ -88,13 +88,13 @@
     </footer>
     <ResourceEditDrawer
       v-if="
-        route.path === '/situation' ||
-        (!['/resources', '/planning'].includes(route.path) && env.mode === 'mock' && store.data)
+        route.path === '/gis-workbench' ||
+        (!['/resources', '/planning', '/situation'].includes(route.path) && env.mode === 'mock' && store.data)
       "
     /><ResourceImportDrawer
       v-if="
-        route.path === '/situation' ||
-        (!['/resources', '/planning'].includes(route.path) && env.mode === 'mock' && store.data)
+        route.path === '/gis-workbench' ||
+        (!['/resources', '/planning', '/situation'].includes(route.path) && env.mode === 'mock' && store.data)
       "
     />
     <DecisionDialog />
@@ -104,7 +104,7 @@
 import { computed, onBeforeUnmount, provide, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useAuthStore } from '../stores/auth';
-import { routePermissions } from '../config/permissions';
+import { routePermissions, canAccessRoute } from '../config/permissions';
 import { usePreviewStore } from '../stores/preview';
 import { env } from '../config/env';
 import RequestState from '../components/RequestState.vue';
@@ -127,7 +127,7 @@ const route = useRoute(),
   router = useRouter(),
   auth = useAuthStore();
 const visibleNavigation = computed(() =>
-  navigation.filter((n) => auth.can(routePermissions[n.path])),
+  navigation.filter((n) => canAccessRoute(n.path,auth.can)),
 );
 const runtime = useRuntimeParametersStore();
 const runtimeSession = () => env.mode === 'http' && auth.identity && !auth.transition && !auth.blocked
@@ -152,11 +152,12 @@ onBeforeUnmount(() => { runtime.unbind(); applyHttpRuntimeParameters(null); });
 const resourceRead = useResourceReadStore();
 const ledger = useResourceLedgerEditStore();
 const httpResource = computed(
-  () => env.mode === 'http' && ['/resources', '/situation'].includes(route.path),
+  () => env.mode === 'http' && ['/resources', '/gis-workbench'].includes(route.path),
 );
 const independent = computed(
   () =>
     route.path === '/situation' ||
+    route.path === '/gis-workbench' ||
     httpResource.value ||
     route.path === '/resources' ||
     route.path === '/planning' ||
@@ -201,7 +202,7 @@ function closeResourceMenus(event: Event) {
 }
 async function resetResources() {
   if (
-    !['/resources', '/situation'].includes(route.path) ||
+    !['/resources', '/gis-workbench'].includes(route.path) ||
     !auth.can('resources.reset') ||
     resourceResetDisabled.value
   )
@@ -270,6 +271,7 @@ async function resetResources() {
 watch(() => auth.generation, () => { resetPending = null; resetError.value = ''; resetNotice.value = ''; });
 const navigation = [
   { path: '/situation', title: 'GIS 态势', icon: 'pi-globe' },
+  { path: '/gis-workbench', title: 'GIS 工作台', icon: 'pi-map' },
   { path: '/resources', title: '资源管理', icon: 'pi-server' },
   { path: '/planning', title: '网络规划', icon: 'pi-share-alt' },
   { path: '/diagnosis', title: '故障诊断', icon: 'pi-wave-pulse' },
@@ -280,9 +282,9 @@ const navigation = [
 watch(
   () => route.path,
   () => {
-    entered.value = auth.can(routePermissions[route.path]);
+    entered.value = canAccessRoute(route.path,auth.can);
     if (entered.value && !independent.value && !store.data) void store.load();
-    if (route.path === '/situation' && auth.can('planning.view'))
+    if (route.path === '/gis-workbench' && auth.can('planning.view'))
       void planning.refreshReadContext();
   },
   { immediate: true },

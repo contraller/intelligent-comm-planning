@@ -5,7 +5,7 @@ import { env } from '../config/env';
 import { ApiError } from '../services/types';
 import { subscribeAccess } from '../services/access';
 import { operationLogger } from '../services/operation-log';
-import { routePermissions, safeReturnPath, type Permission } from '../config/permissions';
+import { routePermissions, safeReturnPath, canAccessRoute, type Permission } from '../config/permissions';
 import type { AuthIdentity } from '../types/system';
 
 export const useAuthStore=defineStore('auth',()=>{
@@ -13,7 +13,7 @@ export const useAuthStore=defineStore('auth',()=>{
   const currentPath=ref(''),bypassLeave=ref(false),transition=ref(false),pendingLogs=ref(0),logWarning=ref(''),notice=ref('');
   const errorCode=ref(''),sessionReplaced=ref(false);
   const can=(p:Permission)=>!!identity.value&&!error.value&&identity.value.permissions.includes(p);
-  const pageDenied=computed(()=>!!identity.value&&!!routePermissions[currentPath.value]&&!can(routePermissions[currentPath.value]));
+  const pageDenied=computed(()=>!!identity.value&&!!routePermissions[currentPath.value]&&!canAccessRoute(currentPath.value,can));
   const blocked=computed(()=>checked.value&&currentPath.value!=='/login'&&(!identity.value||!!error.value||pageDenied.value));
   const cleaners=new Set<()=>void>();
   const leavers=new Map<symbol,{leave:()=>Promise<boolean>;dirty:()=>boolean}>();
@@ -52,8 +52,8 @@ export const useAuthStore=defineStore('auth',()=>{
   }
   function firstPath(target?:unknown){
     const safe=safeReturnPath(target),path=safe?.split('?')[0];
-    if(path&&can(routePermissions[path]))return safe!;
-    return Object.entries(routePermissions).find(([,p])=>can(p))?.[0]??'/system';
+    if(path&&canAccessRoute(path,can))return safe!;
+    return Object.entries(routePermissions).find(([path])=>canAccessRoute(path,can))?.[0]??'/system';
   }
   async function login(username:string,password:string){
     if(busy.value||transition.value)return false;

@@ -35,9 +35,9 @@ export async function createDiagnosisExport(record: DiagnosisRecord, format: Rep
     for (const section of sections) {
       content.push({ text: section.title, fontSize:14, color:'#193b60', margin:[0,15,0,7], headlineLevel:1 });
       for (const line of section.text) content.push({ text:line, margin:[0,2,0,5] });
-      // 长依据列多分配宽度，表头至少与两行正文一起分页。
+      // 长依据允许跨页拆行；把表头与前两行强绑会使超过整页的依据丢失。
       const widths = section.headers.length === 2 ? [135,'*'] : section.headers[1] === '结论 / 依据' ? [55,'*',55,75] : section.headers.map(() => '*');
-      if (section.headers.length) content.push({ table: { headerRows:1, keepWithHeaderRows:Math.min(2,section.rows.length), widths, body:[section.headers.map((text) => ({text,fillColor:'#e6eef6'})), ...section.rows] }, layout:'lightHorizontalLines', fontSize:9, margin:[0,3,0,5] });
+      if (section.headers.length) content.push({ table: { headerRows:1, widths, body:[section.headers.map((text) => ({text,fillColor:'#e6eef6'})), ...section.rows] }, layout:'lightHorizontalLines', fontSize:9, margin:[0,3,0,5] });
     }
     const definition: TDocumentDefinitions = { pageSize:'A4', pageMargins:[45,48,45,48], defaultStyle:{font:'Report',fontSize:10,lineHeight:1.3}, content,
       header:{text:'无线网络智能规划系统 · 故障诊断报告',fontSize:8,color:'#61738a',margin:[45,22,45,0]},

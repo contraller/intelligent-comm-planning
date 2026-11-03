@@ -11,10 +11,10 @@ const badQuery = () => new ApiError('请选择明确的任务、方案和快照'
 const isId = (value: unknown): value is string => typeof value === 'string' && value.length > 0
   && value.length <= 120 && !/[\s\u0000-\u001f\u007f]/u.test(value);
 function id(value: unknown): string { if (!isId(value)) throw invalid(); return value; }
-function object(value: unknown, fields: string[]): Record<string, unknown> {
+function object(value: unknown, fields: string[], optionalFields: string[] = []): Record<string, unknown> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw invalid();
   const row = value as Record<string, unknown>;
-  if (Object.keys(row).length !== fields.length || fields.some(key => !Object.hasOwn(row, key))) throw invalid();
+  if (fields.some(key => !Object.hasOwn(row, key)) || Object.keys(row).some(key => !fields.includes(key) && !optionalFields.includes(key))) throw invalid();
   return row;
 }
 function array<T>(value: unknown, read: (item: unknown) => T): T[] {
@@ -92,11 +92,15 @@ export function readGisPlanSurface(value: unknown, query: GisPlanQuery, network:
   return { identity: source, terrain, terrain_notice: notice, coverage, coverage_notice: coverageNotice };
 }
 function node(value: unknown): GisFrozenNode {
-  const row = object(value, ['id', 'name', 'coordinate', 'status', 'alert']);
+  const row = object(value, ['id', 'name', 'coordinate', 'status', 'alert'], ['mobility', 'node_role', 'node_subtype']);
   const name = text(row.name), coordinate = array(row.coordinate, item => number(item));
   if (!name.length || name.length > 512 || coordinate.length !== 2 || Math.abs(coordinate[0]) > 180 || Math.abs(coordinate[1]) > 90) throw invalid();
   return { id: id(row.id), name, coordinate: [coordinate[0], coordinate[1]],
-    status: nullable(row.status, item => literal(item, ['NORMAL', 'FAULT', 'OFFLINE'])), alert: nullable(row.alert, bool) };
+    status: nullable(row.status, item => literal(item, ['NORMAL', 'FAULT', 'OFFLINE'])), alert: nullable(row.alert, bool),
+    // 缺省与显式 null 分开保留，重复解码也不补造平台字段。
+    ...(Object.hasOwn(row, 'mobility') ? { mobility: nullable(row.mobility, item => literal(item, ['FIXED', 'VEHICLE', 'MANPACK'] as const)) } : {}),
+    ...(Object.hasOwn(row, 'node_role') ? { node_role: nullable(row.node_role, text) } : {}),
+    ...(Object.hasOwn(row, 'node_subtype') ? { node_subtype: nullable(row.node_subtype, text) } : {}) };
 }
 function device(value: unknown): GisFrozenDevice {
   const row = object(value, ['id', 'station_id', 'model_id', 'device_class', 'frequency_khz', 'tx_power_dbm', 'antenna_height_m']);

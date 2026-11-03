@@ -545,10 +545,16 @@ class FrozenCoverageService:
                 self._scan()
             result = self._cached(key)
         if version in ("V01-5", "V01-6") and result is not None:
-            # 原生逐公里/逐格剖面留在已校验持久文件；GIS只需要显示面。
-            # 不把重复的原始采样随每次读取发送到浏览器（全网可达近100MB）。
+            # V6展示需包含门限两侧的有效采样；紧凑投影复用旧缓存，不写回或重新计算。
+            # 索引对应格中心，gy向北；缺格保持未知，不补零制造边界。
             for device in result["devices"]:
                 for part in device["computations"]:
+                    if version == "V01-6":
+                        part["sampling_grid"] = dict(
+                            origin=part["origin"], cell_m=part["cell_m"], radius_m=part["radius_m"],
+                            samples=[[cell["gx"], cell["gy"], cell["field_strength_dbuvm"], cell["margin_db"],
+                                      cell.get("terrain_loss_db"), cell.get("clearance_m"), cell.get("los")]
+                                     for cell in part["cells"]])
                     for raw_key in ("cells", "radial_samples", "rings"):
                         part.pop(raw_key, None)
         stale = self.fingerprint() != anchor["terrain_fingerprint"]

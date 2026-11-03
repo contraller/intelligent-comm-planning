@@ -1,7 +1,7 @@
 import { createRouter, createWebHashHistory } from 'vue-router';
 import AppShell from '../layouts/AppShell.vue';
 import { useAuthStore } from '../stores/auth';
-import { routePermissions, safeReturnPath } from '../config/permissions';
+import { routePermissions, safeReturnPath, canAccessRoute } from '../config/permissions';
 
 // Hash 路由允许静态服务器直接打开页面，无需后端路由回退规则。
 export const router = createRouter({
@@ -16,8 +16,13 @@ export const router = createRouter({
         {
           path: 'situation',
           // 数据模式只切换服务适配，GIS 产品页面保持一致。
-          component: () => import('../views/SituationView.vue'),
+          component: () => import('../views/GisSituationView.vue'),
           meta: { title: 'GIS 态势' },
+        },
+        {
+          path: 'gis-workbench',
+          component: () => import('../views/SituationView.vue'),
+          meta: { title: 'GIS 工作台' },
         },
         {
           path: 'resources',
@@ -60,7 +65,7 @@ router.beforeEach(async(to,from)=>{
   if(auth.blocked&&auth.hasUnsaved()&&from.path!=='/login'&&!auth.bypassLeave)return false;
   if(to.path==='/login')return auth.identity&&!auth.error?auth.firstPath(to.query.next):true;
   if(!auth.identity||auth.error)return {path:'/login',query:{next:safeReturnPath(to.fullPath)??undefined}};
-  if(routePermissions[to.path]&&!auth.can(routePermissions[to.path]))return auth.firstPath()===to.path?true:auth.firstPath();
+  if(routePermissions[to.path]&&!canAccessRoute(to.path,auth.can))return auth.firstPath()===to.path?true:auth.firstPath();
   return true;
 });
 router.afterEach((to) => {

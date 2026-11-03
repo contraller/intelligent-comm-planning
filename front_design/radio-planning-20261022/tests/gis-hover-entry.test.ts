@@ -8,7 +8,7 @@ import type Feature from 'ol/Feature';
 import type BaseLayer from 'ol/layer/Base';
 import VectorLayer from 'ol/layer/Vector';
 import Cluster from 'ol/source/Cluster';
-import { get as projection } from 'ol/proj';
+import { get as projection, fromLonLat } from 'ol/proj';
 import MapCanvas from '../src/components/MapCanvas.vue';
 import GisHoverPreview from '../src/components/GisHoverPreview.vue';
 import { initialResources } from '../src/mocks/resource-presets';
@@ -27,19 +27,26 @@ import { useAuthStore } from '../src/stores/auth';
 import { bindMonitoring, settleMonitoring } from './helpers/monitoring';
 // 仅复用模板编译，原有特殊宿主和业务交互保持本地。
 import { clientTemplate } from './helpers/vue-client';
+import { coverageV5Case } from './helpers/frozen-coverage';
+import type { FrozenCoverageOverlay } from '../src/types/frozen-coverage';
 
 interface MapEvent { pixel: number[]; coordinate: number[]; dragging?: boolean }
-interface Probe { view: View; layers: BaseLayer[]; picked?: Feature; handlers: Map<string, ((event: MapEvent) => void)[]>; dispose: ReturnType<typeof vi.fn> }
+interface Probe { view: View; layers: BaseLayer[]; picked?: Feature; coordinate?:number[]; handlers: Map<string, ((event: MapEvent) => void)[]>; dispose: ReturnType<typeof vi.fn> }
 const probes = vi.hoisted(() => ({ maps: [] as Probe[], resize: undefined as (() => void) | undefined }));
 // 仅替换依赖 DOM 的地图外壳；真实聚合源、要素、View 和客户端模板参与验证。
 vi.mock('ol/Map', () => ({ default: class implements Probe {
-  view: View; layers: BaseLayer[] = []; picked?: Feature; handlers = new Map<string, ((event: MapEvent) => void)[]>();
+  view: View; layers: BaseLayer[] = []; picked?: Feature; coordinate?:number[]; handlers = new Map<string, ((event: MapEvent) => void)[]>();
   dispose = vi.fn();
   constructor(options: { view: View }) { this.view = options.view; vi.spyOn(this.view, 'fit').mockImplementation(() => {}); probes.maps.push(this); }
   getView() { return this.view; } getSize() { return [960, 640]; } updateSize() {}
+  getCoordinateFromPixel() { return this.coordinate??[0,0]; }
+  getViewport() { return { addEventListener() {}, removeEventListener() {} }; }
   setLayers(layers: BaseLayer[]) { this.layers = layers; }
+  getLayers() { return {getArray:()=>this.layers}; }
+  addLayer(layer: BaseLayer) { this.layers.push(layer); }
+  removeLayer(layer: BaseLayer) { this.layers=this.layers.filter(value=>value!==layer); }
   on(type: string, fn: (event: MapEvent) => void) { this.handlers.set(type, [...this.handlers.get(type) ?? [], fn]); }
-  forEachFeatureAtPixel(_pixel: number[], fn: (feature: Feature) => unknown) { if (this.picked) return fn(this.picked); }
+  forEachFeatureAtPixel(_pixel: number[], fn: (feature: Feature,layer?:BaseLayer) => unknown) { if (this.picked) return fn(this.picked,this.layers.find(layer=>layer instanceof VectorLayer&&layer.getSource()?.hasFeature(this.picked!))); }
 } }));
 vi.mock('ol/control', () => ({ defaults: () => ({ extend: () => [] }), ScaleLine: class {} }));
 await clientTemplate(MapCanvas, 'src/components/MapCanvas.vue', 'hover-render.ts');
@@ -80,9 +87,9 @@ async function mountPage() {
   bindMonitoring(raw);
   await usePreviewStore().load(); const read = useResourceReadStore(); await read.activate('gis');
   const gis = useGisWorkspaceStore(); await gis.loadScene();
-  const router = createRouter({ history: createMemoryHistory(), routes: [{ path: '/situation', component: pageComponent }] });
+  const router = createRouter({ history: createMemoryHistory(), routes: [{ path: '/gis-workbench', component: pageComponent }] });
   app = renderer.createApp({ render: () => h(RouterView) }); app.use(pinia); app.use(router); app.provide(ssrContextKey, {});
-  await router.push('/situation'); await router.isReady(); const root = node('root'); app.mount(root); await settleMonitoring();
+  await router.push('/gis-workbench'); await router.isReady(); const root = node('root'); app.mount(root); await settleMonitoring();
   gis.mapMode = 'resource'; await nextTick();
   const map = () => find(root, n => n.tag === 'page-map')!.props;
   return { root, map, read, gis, auth, storage, editor: useResourceEditStore() };
@@ -114,6 +121,8 @@ async function mountMap(enabled = true, count = 1) {
   vi.stubGlobal('window', Object.assign(new EventTarget(), { matchMedia: () => Object.assign(new EventTarget(), { matches: true }) }));
   vi.stubGlobal('document', Object.assign(new EventTarget(), { hidden: false }));
   vi.stubGlobal('ResizeObserver', class { constructor(fn: () => void) { probes.resize = fn; } observe() {} disconnect() {} });
+  vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => setTimeout(() => callback(performance.now()), 16));
+  vi.stubGlobal('cancelAnimationFrame', (handle: ReturnType<typeof setTimeout>) => clearTimeout(handle));
   pinia = createPinia(); setActivePinia(pinia);
   const raw = initialResources(), points = gisDevicePoints(raw).points.slice(0, count);
   points.forEach(row => { row.coordinate = [114.65, 37.5]; });
@@ -121,7 +130,8 @@ async function mountMap(enabled = true, count = 1) {
     hoverPreview: enabled ? { key: 'resource/1', source: '已保存资源', models: raw.models } as GisHoverContext : undefined,
     gisDeviceFrame: { points, settings: defaultGisDeviceSettings(), selectedDeviceId: '', version: 1 } as GisDeviceMapFrame });
   const select = vi.fn(), cluster = vi.fn(), station = vi.fn(), detail = vi.spyOn(previewService, 'getResourceObject'), save = vi.spyOn(previewService, 'commitResources'), planning = vi.spyOn(previewService, 'submitPlanning');
-  app = renderer.createApp({ render: () => h(MapCanvas, { ...props, onSelectDevice: select, onSelectDeviceCluster: cluster, onSelect: station }) });
+  const canvas=Vue.ref<InstanceType<typeof MapCanvas>>();
+  app = renderer.createApp({ render: () => h(MapCanvas, { ...props,ref:canvas, onSelectDevice: select, onSelectDeviceCluster: cluster, onSelect: station }) });
   app.use(pinia); app.provide(ssrContextKey, {}); const root = node('root'); app.mount(root); await nextTick();
   const map = probes.maps[0]!, event: MapEvent = { pixel: [940, 620], coordinate: [0, 0] };
   const refresh = () => {
@@ -134,10 +144,32 @@ async function mountMap(enabled = true, count = 1) {
   const hover = async (duration = 200) => { fire('pointermove'); await vi.advanceTimersByTimeAsync(duration); await nextTick(); };
   const tooltip = () => find(root, n => n.props.role === 'tooltip');
   const host = () => find(root, n => n.props.class === 'map-host')!;
-  return { props, map, root, fire, hover, tooltip, host, refresh, select, cluster, station, detail, save, planning };
+  return { props, map, root, fire, hover, tooltip, host, refresh, select, cluster, station, detail, save, planning,canvas };
 }
 
 describe('GIS 实际地图悬浮入口', () => {
+  it('单设备聚焦隐藏无关网络、保留比例，悬停含未达标原值，返回全网恢复节点',async()=>{
+    const s=await mountMap(),f=coverageV5Case();f.anchor.engine_version='V01-6';f.result.provenance.engine_version='V01-6';
+    const device=f.result.devices[0]!,part=device.computations[0]!;
+    part.sampling_grid={origin:[114,37.5],cell_m:2000,radius_m:10000,samples:[[0,0,40,30,null,-44,false],[1,0,60,50,null,null,true],[0,1,20,10,null,null,true],[1,1,0,-10,null,-44,false]]};
+    const network={identity:{...f.anchor,state:'SAVED',source_changed:false,source:'SR4',data_origin:'SYNTHETIC_INTEGRATION'},nodes:[{id:'N1',name:'冻结台站',coordinate:[114,37.5],status:null,alert:null}],devices:[{id:'D1',station_id:'N1',model_id:'M1',device_class:'VUHF',frequency_khz:30000,tx_power_dbm:30,antenna_height_m:10}],links:[],demands:[],routes:[],paths_state:'missing',paths_message:''};
+    const overlay:FrozenCoverageOverlay={anchor:f.anchor,result:f.result,deviceId:'D1',frequencyKhz:30000,display:'field',terrainReference:false};
+    const features=()=>s.map.layers.flatMap(layer=>layer instanceof VectorLayer?layer.getSource()!.getFeatures():[]);
+    Object.assign(s.props,{resourceRead:true,richScene:false,readonlySituation:true,frozenNetwork:network,frozenCoverage:overlay});await nextTick();
+    vi.mocked(s.map.view.fit).mockClear();expect(s.canvas.value!.fitFrozenCoverage(true)).toBe(true);expect(s.map.view.fit).toHaveBeenCalledOnce();vi.mocked(s.map.view.fit).mockClear();
+    expect(features().some(f=>f.get('kind')==='frozen-plan-node')).toBe(false);
+    expect(features().filter(f=>f.get('kind')==='frozen-coverage-device')).toHaveLength(1);
+    expect(features().some(f=>f.get('kind')==='frozen-coverage-isoline')).toBe(true);
+    s.map.picked=undefined;s.map.coordinate=fromLonLat([114+2000/(111320*Math.cos(37.5*Math.PI/180)),37.5+2000/111320]);
+    await s.hover();expect(textOf(s.root)).toContain('原始采样 0.0 dBμV/m');expect(textOf(s.root)).toContain('未达标');expect(textOf(s.root)).toContain('最小净空 -44.0 m');
+    const animate=vi.spyOn(s.map.view,'animate').mockImplementation(()=>{});
+    Object.assign(s.props,{frozenCoverage:{...overlay}});await nextTick();expect(s.canvas.value!.fitFrozenCoverage(true)).toBe(true);
+    expect(s.map.view.fit).not.toHaveBeenCalled();expect(animate).toHaveBeenLastCalledWith(expect.not.objectContaining({zoom:expect.anything()}));
+    s.canvas.value!.fit();expect(s.map.view.fit).toHaveBeenCalledOnce();expect(features().some(f=>f.get('kind')==='frozen-plan-node')).toBe(true);
+    expect(s.save).not.toHaveBeenCalled();expect(s.planning).not.toHaveBeenCalled();
+    Object.assign(s.props,{frozenCoverage:null,interferenceProjection:{taskId:'T',planId:'P',sceneVersionId:'I',runId:'run',sourceHash:'hash',phase:'BEFORE',nodes:[{node_id:'X',lon:113,lat:36},{node_id:'Y',lon:113.2,lat:36.1}],links:[],sources:[],impact:{affected_nodes:[],affected_links:[],affected_area:{type:'FeatureCollection',features:[]}}}});await nextTick();
+    const a=fromLonLat([113,36]),b=fromLonLat([113.2,36.1]);expect(vi.mocked(s.map.view.fit).mock.lastCall![0]).toEqual([a[0],a[1],b[0],b[1]]);
+  });
   it('停留 200ms 展示单设备摘要，移动不抢选中项、不发详情或计算请求', async () => {
     const s = await mountMap(), layerCount = s.map.layers.length;
     await s.hover(199); expect(s.tooltip()).toBeUndefined();
@@ -157,6 +189,7 @@ describe('GIS 实际地图悬浮入口', () => {
   });
   it.each(['leave', 'drag', 'move', 'zoom', 'center', 'rotate', 'resize', 'escape', 'context', 'version', 'filter', 'picking', 'disabled'] as const)('%s 关闭已显示摘要并取消迟到提示', async reason => {
     const s = await mountMap(); await s.hover(); expect(s.tooltip()).toBeDefined();
+    let resizeHeight = 640;
     const clear = async () => {
       if (reason === 'leave') (s.host().props.onPointerleave as () => void)();
       if (reason === 'drag') s.fire('pointermove', { pixel: [100, 100], coordinate: [0, 0], dragging: true });
@@ -164,7 +197,10 @@ describe('GIS 实际地图悬浮入口', () => {
       if (reason === 'zoom') s.map.view.setZoom((s.map.view.getZoom() ?? 10) + 1);
       if (reason === 'center') s.map.view.setCenter([s.map.view.getCenter()![0] + 100, 100]);
       if (reason === 'rotate') s.map.view.setRotation(s.map.view.getRotation() + 0.1);
-      if (reason === 'resize') probes.resize!();
+      if (reason === 'resize') {
+        Object.assign(s.host(), { clientWidth: 960, clientHeight: ++resizeHeight });
+        probes.resize!(); await vi.advanceTimersByTimeAsync(16);
+      }
       if (reason === 'escape') window.dispatchEvent(Object.assign(new Event('keydown'), { key: 'Escape' }));
       if (reason === 'context') s.props.hoverPreview!.key += '/new';
       if (reason === 'version') s.props.gisDeviceFrame.version++;

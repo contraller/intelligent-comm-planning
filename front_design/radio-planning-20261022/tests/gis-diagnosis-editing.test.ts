@@ -68,10 +68,10 @@ async function fixture(query?: Record<string, string>, transfer = true) {
     return () => h('p', state.error.value);
   } });
   const router = createRouter({ history: createMemoryHistory(), routes: [
-    { path: '/situation', component: Probe }, { path: '/diagnosis', component: { render: () => null } }, { path: '/other', component: { render: () => null } },
+    { path: '/gis-workbench', component: Probe }, { path: '/diagnosis', component: { render: () => null } }, { path: '/other', component: { render: () => null } },
   ] });
   const destination = query ?? { faultEdit: '1', scenarioId: version.scenarioId, versionId: version.id };
-  await router.push({ path: '/situation', query: destination }); await router.isReady();
+  await router.push({ path: '/gis-workbench', query: destination }); await router.isReady();
   async function mount() {
     app = renderer.createApp({ render: () => h(RouterView) }); app.use(pinia!); app.use(router); app.mount(host()); await settle(); return state;
   }
@@ -106,7 +106,7 @@ describe('GIS 故障场景接力与保存', () => {
   it('未应用表单不能被保存遗漏，取消关闭保留输入；应用后保存返回精确版本', async () => {
     const s = await fixture(), state = await s.mount(), writes = s.storage.writes;
     state.openEditor(); state.actions.value.dirty(true);
-    expect(await state.saveAndReturn()).toBe(false); expect(s.router.currentRoute.value.path).toBe('/situation'); expect(s.storage.writes).toBe(writes);
+    expect(await state.saveAndReturn()).toBe(false); expect(s.router.currentRoute.value.path).toBe('/gis-workbench'); expect(s.storage.writes).toBe(writes);
     const closing = state.closeEditor(); await settle(); s.diagnosis.answer('cancel'); expect(await closing).toBe(false);
     expect(state.drawerOpen.value).toBe(true); expect(s.diagnosis.formDirty).toBe(true);
     const input = copy(s.diagnosis.draft!); input.description = '应用并返回'; state.actions.value.apply(input);
@@ -120,8 +120,8 @@ describe('GIS 故障场景接力与保存', () => {
     vi.spyOn(previewService, 'saveDiagnosisReceipt').mockRejectedValueOnce(new Error('保存失败'));
     expect(await state.saveAndReturn()).toBe(false); expect(s.diagnosis.draft!.description).toBe('失败保留'); expect(s.diagnosis.error).toBe('保存失败');
     const leaving = s.router.push('/other'); await settle(); s.diagnosis.answer('cancel'); await leaving;
-    expect(s.router.currentRoute.value.path).toBe('/situation'); expect(s.diagnosis.draft!.description).toBe('失败保留');
-    const updating = s.router.push('/situation'); await settle(); s.diagnosis.answer('cancel'); await updating;
+    expect(s.router.currentRoute.value.path).toBe('/gis-workbench'); expect(s.diagnosis.draft!.description).toBe('失败保留');
+    const updating = s.router.push('/gis-workbench'); await settle(); s.diagnosis.answer('cancel'); await updating;
     expect(s.router.currentRoute.value.query.faultEdit).toBe('1');
     const discard = s.router.push('/other'); await settle(); s.diagnosis.answer('discard'); await discard;
     expect(s.router.currentRoute.value.path).toBe('/other'); expect(s.diagnosis.draft!.description).toBe(''); expect(s.diagnosis.dirty).toBe(false);
@@ -163,7 +163,7 @@ describe('GIS 标绘来源、身份与旧事件保护', () => {
     const saving = state.saveAndReturn(); await settle();
     s.auth.accept({ ...copy(s.auth.identity!), sessionId: 'replacement-session' }); s.diagnosis.clearForSession(); await settle();
     waiting.resolve({} as Awaited<ReturnType<typeof s.service.saveDiagnosisScenario>>); expect(await saving).toBe(false);
-    expect(s.diagnosis.draft).toBeNull(); expect(state.network.value).toBeNull(); expect(s.router.currentRoute.value.path).toBe('/situation'); expect(s.diagnosis.busy).toBe(false);
+    expect(s.diagnosis.draft).toBeNull(); expect(state.network.value).toBeNull(); expect(s.router.currentRoute.value.path).toBe('/gis-workbench'); expect(s.diagnosis.busy).toBe(false);
   });
   it('同账号权限刷新拒绝迟到保存但释放忙碌锁，仍保留可重试草稿', async () => {
     const s = await fixture(), state = await s.mount(), identity = copy(s.auth.identity!), input = copy(s.diagnosis.draft!);
@@ -173,7 +173,7 @@ describe('GIS 标绘来源、身份与旧事件保护', () => {
     const saving = state.saveAndReturn(); await settle();
     s.auth.accept({ ...identity, permissions: identity.permissions.filter(value => value !== 'diagnosis.scenario') }); await settle();
     waiting.resolve(); expect(await saving).toBe(false); expect(s.diagnosis.busy).toBe(false); expect(s.diagnosis.versionId).toBe(s.version.id);
-    expect(s.diagnosis.draft!.description).toBe('权限刷新保留'); expect(s.router.currentRoute.value.path).toBe('/situation');
+    expect(s.diagnosis.draft!.description).toBe('权限刷新保留'); expect(s.router.currentRoute.value.path).toBe('/gis-workbench');
     s.auth.accept(identity); await settle(); expect(state.canEdit.value).toBe(true); expect(s.diagnosis.dirty).toBe(true);
     expect(await state.save()).toBe(true); expect(s.diagnosis.workspace!.scenarios[0].versions).toHaveLength(2);
     expect((await s.service.loadDiagnosisWorkspace()).workspace!.scenarios[0].versions).toHaveLength(2);
@@ -181,7 +181,7 @@ describe('GIS 标绘来源、身份与旧事件保护', () => {
   it('错误目标不借用当前草稿或历史报告；普通入口不接管诊断', async () => {
     const s = await fixture({ faultEdit: '1', diagnosisId: 'DG-HW' }, false), state = await s.mount();
     expect(state.ready.value).toBe(false); expect(state.network.value).toBeNull(); expect(state.error.value).toContain('参数无效');
-    expect(await state.saveAndReturn()).toBe(false); expect(s.router.currentRoute.value.path).toBe('/situation');
+    expect(await state.saveAndReturn()).toBe(false); expect(s.router.currentRoute.value.path).toBe('/gis-workbench');
   });
   it('普通资源入口不加载或切换诊断场景', async () => {
     const s = await fixture({}, false), before = JSON.stringify(s.diagnosis.draft);

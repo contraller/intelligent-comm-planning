@@ -83,9 +83,17 @@ def test_v6_default_real_dem_validation_projection_and_readonly_restart(context,
     cached = service.cache("P1", "T1", BODY["snapshot_id"], SMALL)
     assert cached["state"] == "HIT"
     assert validations and set(validations) == {"V01-6"}
-    for device in cached["result"]["devices"]:
-        for part in device["computations"]:
+    for device, original in zip(cached["result"]["devices"], result["devices"]):
+        for part, raw in zip(device["computations"], original["computations"]):
             assert not {"cells", "radial_samples", "rings"} & set(part)
+            grid = part["sampling_grid"]
+            assert {key: grid[key] for key in ("origin", "cell_m", "radius_m")} == {
+                key: raw[key] for key in ("origin", "cell_m", "radius_m")}
+            # 包含未达标样本，查询不得将原始预测值改成插值结果。
+            assert grid["samples"] == [[cell["gx"], cell["gy"], cell["field_strength_dbuvm"],
+                cell["margin_db"], cell.get("terrain_loss_db"), cell.get("clearance_m"), cell.get("los")]
+                for cell in raw["cells"]]
+            assert len(grid["samples"]) == part["evaluated_samples"]
     assert service._job(record["job_id"])["result"] == result
     service.close()
     before = {path.name: path.read_bytes() for path in service.root.iterdir()}

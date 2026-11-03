@@ -7,6 +7,8 @@ import { clientTemplate } from './helpers/vue-client';
 import { createMemoryHistory, createRouter, RouterView } from 'vue-router';
 import { router as applicationRouter } from '../src/router';
 import { previewService, releasePageSessionBinding } from '../src/services';
+import { collaborationHttp } from '../src/services/http';
+import { ApiError } from '../src/services/types';
 import { useAuthStore } from '../src/stores/auth';
 import { useResourceReadStore } from '../src/stores/resource-read';
 import { decodeObject } from '../src/services/resource-read-validation';
@@ -19,7 +21,6 @@ import DeviceConfigurationDrawer from '../src/components/DeviceConfigurationDraw
 import ResourceLedgerTree from '../src/components/ResourceLedgerTree.vue';
 import ResourceLedgerFilters from '../src/components/ResourceLedgerFilters.vue';
 import SpectrumConfigPanel from '../src/components/SpectrumConfigPanel.vue';
-import { useSpectrumStore } from '../src/stores/spectrum';
 import MapPage from '../src/views/SituationView.vue';
 import GisResourceTree from '../src/components/GisResourceTree.vue';
 import GisObjectInfoPanel from '../src/components/GisObjectInfoPanel.vue';
@@ -33,7 +34,7 @@ import ReadStatus from '../src/components/ResourceReadStatus.vue';
 vi.mock('../src/config/env',async original=>{const module=await original<typeof import('../src/config/env')>();return{...module,env:{...module.env,mode:'http'}};});
 vi.mock('vue-router',async original=>{const module=await original<typeof import('vue-router')>();return{...module,createWebHashHistory:module.createMemoryHistory};});
 vi.mock('../src/components/DecisionDialog.vue',()=>({default:{render:()=>null}}));
-vi.mock('../src/components/ResourceStatusPanel.vue',()=>({default:{render:()=>null}}));
+vi.mock('../src/components/ResourceStatusPanel.vue',async()=>{const {defineComponent}=await import('vue');return{default:defineComponent({setup(_props,{expose}){expose({requestLeave:async()=>true});return()=>null;}})};});
 vi.mock('primevue/dialog',async()=>{const {h}=await import('vue');return{default:{props:['visible'],setup:(props:any,{slots}:any)=>()=>props.visible?h('dialog',{},[slots.header?.(),slots.default?.(),slots.footer?.()]):null}};});
 vi.mock('primevue/drawer',async()=>{const {h}=await import('vue');return{default:{props:['visible'],setup:(props:any,{slots}:any)=>()=>props.visible?h('aside',{},[slots.default?.(),slots.footer?.()]):null}};});
 // 信息分组保留真实设备字段，PrimeVue 页签在独立组件测试验证。
@@ -94,14 +95,14 @@ beforeEach(()=>{
 afterEach(()=>{for(const app of apps)app.unmount();disposePinia(pinia);releasePageSessionBinding();vi.restoreAllMocks();vi.unstubAllGlobals();});
 async function mount(path='/resources',component:Component={render:()=>Vue.h(RouterView)}){
   const auth=useAuthStore();await auth.check();auth.currentPath=path.split('?')[0];
-  const router=createRouter({history:createMemoryHistory(),routes:[{path:'/',component:AppShell,children:[{path:'resources',component:Ledger},{path:'situation',component:MapPage}]}]});
+  const router=createRouter({history:createMemoryHistory(),routes:[{path:'/',component:AppShell,children:[{path:'resources',component:Ledger},{path:'gis-workbench',component:MapPage}]}]});
   await router.push(path);const app=renderer.createApp(component),root=node('root');app.use(pinia);app.use(router);app.provide(ssrContextKey,{});apps.push(app);app.mount(root);
   await vi.waitFor(()=>expect(useResourceReadStore().workspace).not.toBeNull());await nextTick();return{root,router,store:useResourceReadStore()};
 }
 describe('资源 HTTP 页面组合',()=>{
   it('路由复用共用 GIS 页，进入台账不加载 Preview/规划/频谱或写接口',async()=>{
     const ledger=applicationRouter.getRoutes().find(r=>r.path==='/resources')?.components?.default as ()=>Promise<{default:Component}>;
-    const map=applicationRouter.getRoutes().find(r=>r.path==='/situation')?.components?.default as ()=>Promise<{default:Component}>;
+    const map=applicationRouter.getRoutes().find(r=>r.path==='/gis-workbench')?.components?.default as ()=>Promise<{default:Component}>;
     expect((await ledger()).default).toBe(Ledger);expect((await map()).default).toBe(MapPage);
     const preview=vi.spyOn(previewService,'loadPreview'),planning=vi.spyOn(previewService,'loadPlanningWorkspace'),{root,store}=await mount();
     expect(preview).not.toHaveBeenCalled();expect(planning).not.toHaveBeenCalled();expect(text(root)).toContain('设备 21 台');expect(text(root)).toContain('21');
@@ -112,25 +113,22 @@ describe('资源 HTTP 页面组合',()=>{
     expect(text(root)).not.toContain('资源接口');expect(text(root)).not.toContain('资源版本 v1');
     expect(find(root,n=>n.props.class==='read-status')).toBeUndefined();
   });
-  it('HTTP 使用同一筛选和维护入口；未实现服务显示错误，不注入 Mock 工作区',async()=>{
-    permissions.push('resources.edit'); const {root}=await mount(),load=vi.spyOn(previewService,'querySpectrumSources'),maintenance=vi.spyOn(previewService,'loadResourceMaintenanceContext');
+  it('HTTP 使用同一筛选和维护入口；读取失败显示错误，不注入 Mock 工作区',async()=>{
+    permissions.push('resources.edit','resources.spectrum.edit'); const {root}=await mount(),load=vi.spyOn(collaborationHttp.spectrumSources,'querySources').mockRejectedValue(new Error('采集源读取失败')),maintenance=vi.spyOn(previewService,'loadResourceMaintenanceContext');
     expect(find(root,n=>n.props['aria-label']==='频率下限（kHz）')?.props.disabled).toBe(false);
     expect(text(root)).not.toContain('HTTP 部署分类');
+    // 维护协议已有实现；显式注入读取失败，继续验证错误可见且不回落 Mock。
+    maintenance.mockRejectedValueOnce(new ApiError('维护上下文读取失败', 'NETWORK_ERROR'));
     find(root,n=>n.tag==='button'&&text(n).trim()==='新增设备')!.props.onClick();
-    await vi.waitFor(()=>expect(maintenance).toHaveBeenCalled()); await nextTick(); expect(text(root)).toContain('资源维护上下文尚未接入');
+    await vi.waitFor(()=>expect(maintenance).toHaveBeenCalled()); await nextTick(); expect(text(root)).toContain('维护上下文读取失败');
     find(root,n=>n.tag==='button'&&text(n).trim()==='关闭')!.props.onClick(); await nextTick();
     find(root,n=>n.tag==='button'&&text(n).trim()==='频谱接口配置')!.props.onClick();
     await vi.waitFor(()=>expect(load).toHaveBeenCalled()); await nextTick();
-    expect(text(root)).not.toContain('资源分类'); expect(text(root)).toContain('HTTP 频谱配置读取及回执协议尚未接入');
-    expect(find(root,n=>n.tag==='table-stub')?.props.value).toEqual([]);
-    expect(find(root,n=>n.tag==='button'&&text(n).trim()==='新增配置')?.props.disabled).toBe(false);
-    const spectrum=useSpectrumStore(),table=find(root,n=>n.tag==='table-stub')!,calls=load.mock.calls.length;
-    // 模拟底层旧排序事件，频谱列表不得改查询或重新读取。
-    expect(table.props.sortField).toBeUndefined();expect(table.props.sortOrder).toBeUndefined();
-    table.props.onTestSort({sortField:'intervalSeconds',sortOrder:-1});await nextTick();
-    expect(load).toHaveBeenCalledTimes(calls);expect(spectrum.query).toMatchObject({sort:'name',order:'asc'});
-    await spectrum.open(); expect(spectrum.workspace).toBeNull(); expect(spectrum.dirty).toBe(false);
-    expect(await spectrum.leave()).toBe(true); expect(spectrum.decision).toBeNull();
+    // 页面现用独立采集源协议，读取失败保留空列表，不调用废弃的 Mock 频谱入口。
+    expect(text(root)).not.toContain('资源分类'); expect(text(root)).toContain('采集源读取失败');expect(text(root)).toContain('暂无采集源');
+    expect(load).toHaveBeenCalledWith(expect.objectContaining({page:1,pageSize:10}));
+    expect(find(root,n=>n.tag==='button'&&text(n).trim()==='新增来源')?.props.disabled).toBe(false);
+    expect(fetcher.mock.calls.every(([,init])=>(init?.method??'GET')==='GET')).toBe(true);
   });
   it('台账不响应排序，分页与搜索沿用默认顺序',async()=>{
     const {root,store}=await mount();
@@ -156,7 +154,7 @@ describe('资源 HTTP 页面组合',()=>{
     expect(store.context).toBe('gis');
   });
   it('完整目录显示重叠聚合成员，拖图独立按最后视野读取',async()=>{
-    const {root,store}=await mount('/situation');
+    const {root,store}=await mount('/gis-workbench');
     find(root,n=>n.tag==='button'&&text(n)==='按站点浏览')!.props.onClick();await nextTick();
     await vi.waitFor(()=>expect(text(root)).toContain('节点N1'));
     const map=find(root,n=>n.tag==='map-stub')!,cluster=store.frame!.clusters[0];
@@ -178,7 +176,7 @@ describe('资源 HTTP 页面组合',()=>{
     await vi.waitFor(()=>expect(store.workspace?.revision).toBe('v2'));expect(store.ledger?.revision).toBe('v2');expect(store.stale).toBe(false);
   });
   it('恶意/错关联定位参数可见拒绝，不把其他节点当作设备位置',async()=>{
-    const {root,store}=await mount('/situation?stationId=N9&deviceId=D1');
+    const {root,store}=await mount('/gis-workbench?stationId=N9&deviceId=D1');
     await vi.waitFor(()=>expect(store.notice).toBe('设备与定位节点不匹配'));expect(store.detail).toBeNull();expect(mapCalls.locate).not.toHaveBeenCalled();expect(text(root)).toContain('不匹配');
   });
 });
