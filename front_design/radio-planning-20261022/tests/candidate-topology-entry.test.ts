@@ -12,6 +12,8 @@ import ResourceImportDrawer from '../src/components/ResourceImportDrawer.vue';
 import ResourceExportDrawer from '../src/components/ResourceExportDrawer.vue';
 import { previewService } from '../src/services';
 import { createMockService } from '../src/services/mock';
+import { createResourceMock } from '../src/services/resource-mock';
+import Papa from 'papaparse';
 import { usePreviewStore } from '../src/stores/preview';
 import { useGisWorkspaceStore } from '../src/stores/gis-workspace';
 import { useResourceEditStore } from '../src/stores/resource-edit';
@@ -175,12 +177,72 @@ describe('GIS 候选维护真实页面入口',()=>{
     expect(s.storage.writes).toBe(0);
   });
 
-  it('GIS 导入抽屉显示候选模板、非阻断提示和应用草稿语义',async()=>{
-    const s=await mountEntry();await click(s.root,'编辑资源');await click(s.root,'导入资源');
+  it('GIS 候选导入保留手工草稿保护，预检不写入，确认后整批保存并刷新来源版本',async()=>{
+    const s=await mountEntry();await click(s.root,'编辑资源');
+    const before=await s.raw.loadPreview(),baseRevision=s.editor.baseRevision;
+    const original=before.resources.candidateLinks!.find(row=>row.id==='LK-0001')!;
+    const other=before.resources.candidateLinks!.find(row=>row.id==='LK-0002')!;
+    const importedBandwidth=original.bandwidthKhz===1?2:1;
+    const manualBandwidth=other.bandwidthKhz===1?2:1;
+    const exported=await s.raw.exportResources({format:'csv',kinds:['topology_links'],context:'gis',ids:{topology_links:[original.id]}});
+    const csv=Papa.parse<string[]>(new TextDecoder().decode(exported.bytes));expect(csv.errors).toEqual([]);
+    csv.data[1]![csv.data[0]!.indexOf('bandwidth_khz')]=String(importedBandwidth);
+    const file={...exported,name:'candidate-batch-save.csv',bytes:new TextEncoder().encode(Papa.unparse(csv.data))};
+    const preview=vi.mocked(previewService.previewResourceImport);
+    // 旧 Mock 的导入端点只支持台账；本组件成功夹具复用既有资源校验/持久化实现，
+    // 不把本测试记为真实 HTTP，也不新增另一套保存逻辑。
+    const resource=createResourceMock(()=>s.storage);
+    const commit=vi.mocked(previewService.commitResourceImport).mockImplementation(request=>resource.commit({
+      ...request.preview.changes,baseRevision:request.baseRevision,requestId:request.requestId,context:'gis',
+    }));
+    await selectCandidate(s.root,other.id);await click(s.root,'编辑候选链路');
+    await model(find(s.root,row=>row.props.id==='resource-bandwidthKhz')!,String(manualBandwidth));
+    const form=find(s.root,row=>row.tag==='form'&&row.props.class==='edit-fields')!;
+    await(form.props.onSubmit as Function)({preventDefault(){}});await settleMonitoring();
+    expect(s.editor.draftDirty).toBe(true);expect(s.storage.writes).toBe(0);
+    await click(s.root,'导入资源');
     expect(find(s.root,row=>row.tag==='option'&&row.props.value==='topology_links')).toBeDefined();
     await model(selectByLabel(s.root,'导入资源类型'),'topology_links');expect(button(s.root,'XLSX 候选模板')).toBeDefined();expect(textOf(s.root)).toContain('结果来自文件，页面不计算');
-    const file=await s.raw.exportResources({format:'csv',kinds:['topology_links'],context:'gis',ids:{topology_links:['LK-0001']}});
-    await s.editor.previewImport(file);await nextTick();expect(s.editor.importPreview?.issues).toEqual([]);expect(textOf(s.root)).toContain('来源提示');
-    await click(s.root,'确认应用到草稿');expect(s.editor.draftDirty).toBe(true);expect(s.storage.writes).toBe(0);expect((s.map().links as NetworkLink[])).toHaveLength(7);
-  });
+    await s.editor.previewImport(file);await nextTick();
+    expect(s.editor.error).toContain('请先保存或放弃资源草稿');expect(s.editor.importPreview).toBeNull();
+    expect(preview).not.toHaveBeenCalled();expect(commit).not.toHaveBeenCalled();
+    expect(button(s.root,'确认整批保存').props.disabled).toBe(true);
+    expect(s.editor.resources.candidateLinks!.find(row=>row.id===other.id)!.bandwidthKhz).toBe(manualBandwidth);
+    expect((await s.raw.loadPreview()).resources).toEqual(before.resources);expect(s.storage.writes).toBe(0);
+    // 用户明确撤销手工草稿后才允许预检，导入没有静默吞掉该草稿。
+    await click(s.root,'撤销');expect(s.editor.draftDirty).toBe(false);
+    await click(s.root,'导入资源');expect(s.editor.importOpen).toBe(true);
+    await s.editor.previewImport(file);await nextTick();
+    const checked=s.editor.importPreview!;
+    expect(checked.issues).toEqual([]);expect(checked.rows).toEqual([expect.objectContaining({id:original.id,sheet:'topology_links',action:'UPDATE'})]);
+    expect(checked.candidate.candidateLinks!.find(row=>row.id===original.id)!.bandwidthKhz).toBe(importedBandwidth);
+    expect(textOf(s.root)).toContain('来源提示');expect(preview).toHaveBeenCalledOnce();expect(commit).not.toHaveBeenCalled();
+    expect((await s.raw.loadPreview()).resources).toEqual(before.resources);expect(s.editor.baseRevision).toBe(baseRevision);
+    expect(s.editor.draftDirty).toBe(false);expect(s.storage.writes).toBe(0);
+    expect(button(s.root,'确认整批保存').props.disabled).toBe(false);
+    await click(s.root,'确认整批保存');
+    expect(commit).toHaveBeenCalledOnce();
+    const request=commit.mock.calls[0]![0],saved=await commit.mock.results[0]!.value;
+    expect(request).toMatchObject({baseRevision,requestId:expect.any(String),preview:{signature:checked.signature,request:{baseRevision,context:'gis',kind:'topology_links',file}}});
+    expect(request.requestId).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i);
+    expect(saved.changed).toBe(true);expect(saved.meta.revision).not.toBe(baseRevision);expect(saved.meta.savedAt).not.toBeNull();
+    expect(saved.meta.receipts).toEqual([expect.objectContaining({requestId:request.requestId,revision:saved.meta.revision,changed:true,signature:expect.any(String)})]);
+    expect(s.storage.writes).toBe(1);
+    const reloaded=await createMockService(()=>s.storage).loadPreview();
+    const imported=reloaded.resources.candidateLinks!.find(row=>row.id===original.id)!;
+    expect(imported).toMatchObject({id:original.id,bandwidthKhz:importedBandwidth,assessmentState:'REFERENCE',source:{kind:'IMPORT',file:file.name,row:2}});
+    expect(imported.reference).toMatchObject({data:{bandwidthKhz:importedBandwidth},source:{kind:'IMPORT',file:file.name,row:2}});
+    expect(reloaded.resourceMeta.revision).toBe(saved.meta.revision);expect(reloaded.resourceMeta.receipts).toEqual(saved.meta.receipts);
+    expect(reloaded.resources.candidateLinks!.filter(row=>row.id!==original.id)).toEqual(before.resources.candidateLinks!.filter(row=>row.id!==original.id));
+    expect(reloaded.resources.stations).toEqual(before.resources.stations);expect(reloaded.resources.devices).toEqual(before.resources.devices);
+    expect(reloaded.resourceMeta.taskWorkspace).toEqual(before.resourceMeta.taskWorkspace);
+    expect(s.editor.baseRevision).toBe(saved.meta.revision);expect(s.editor.saved?.baseRevision).toBe(saved.meta.revision);
+    expect(s.editor.saved?.validationSource.candidateLinks!.find(row=>row.id===original.id)).toEqual(imported);
+    expect(s.editor.draftDirty).toBe(false);expect(s.editor.formDirty).toBe(false);expect(s.editor.undoStack).toEqual([]);
+    expect(s.editor.importPreview).toBeNull();expect(s.editor.importFile).toBeNull();expect(s.editor.importOpen).toBe(false);
+    expect(s.editor.message).toBe('资源已整批保存');expect(s.editor.error).toBe('');
+    const current=await s.raw.loadResourceReadContext({context:'gis'});
+    expect(useResourceReadStore().workspace?.revision).toBe(current.revision);
+    expect((s.map().links as NetworkLink[])).toHaveLength(7);
+  },15000);
 });
