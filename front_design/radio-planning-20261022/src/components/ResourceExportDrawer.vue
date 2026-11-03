@@ -109,8 +109,9 @@
       >
       <button v-if="!boundCounts" class="btn" :disabled="busy || checking || !canExport" @click="preflight">{{ checking ? '预检中…' : '重试预检' }}</button>
     </div>
-    <template #footer
-      ><div class="toolbar"
+    <template #footer>
+      <div :class="{ 'gis-resource-footer': context === 'gis' }">
+        <div :class="context === 'gis' ? 'gis-resource-footer-actions' : 'toolbar'"
         ><button
           class="btn"
           :disabled="busy"
@@ -118,11 +119,13 @@
           >关闭</button
         ><button
           class="btn primary"
+          :class="{ 'gis-resource-footer-submit': context === 'gis' }"
           :disabled="!canDownload"
           @click="download"
           >{{ busy ? '生成中…' : '下载文件' }}</button
-        ></div
-      ></template
+        ></div>
+      </div>
+    </template
     >
   </AppDrawer>
 </template>

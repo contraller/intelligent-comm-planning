@@ -21,6 +21,7 @@
         >{{ editor.pickNotice }}</p
       ><form
         ref="fieldRoot"
+        :id="gisFooter ? formId : undefined"
         tabindex="-1"
         class="fields"
         @submit.prevent="editor.applyForm()"
@@ -50,6 +51,7 @@
             :required="['name', 'longitude', 'latitude', 'antennaHeightM', 'centerFreqKhz', 'bandwidthKhz', 'txPowerDbm', 'antennaGainDbi'].includes(key) || key === 'azimuthDeg' && editor.form.fields.patternType === 'DIRECTIONAL'"
             :inputmode="key === 'name' ? 'text' : 'decimal'" /></label
         ><button
+          v-if="!gisFooter"
           class="btn primary"
           :disabled="!editor.canEdit || editor.busy"
           >应用到 GIS 草稿</button
@@ -111,8 +113,27 @@
       v-if="editing && gis.saveState === 'validation-failed'"
       role="alert"
       >校验失败，请检查错误清单。</p
-    ><template #footer
-      ><div class="toolbar"
+    ><template #footer>
+      <div v-if="gisFooter" class="gis-resource-footer">
+        <div class="gis-resource-footer-actions">
+          <button class="btn" :disabled="editor.busy" @click="close">关闭</button>
+          <div class="gis-resource-footer-main">
+            <!-- 移到表单外仍按原表单提交，不能绕过必填字段校验。 -->
+            <button
+              type="submit"
+              :form="formId"
+              class="btn"
+              :disabled="!editor.canEdit || editor.busy"
+            >应用到 GIS 草稿</button>
+            <button
+              class="btn primary"
+              :disabled="!editor.canEdit || editor.busy"
+              @click="editor.save()"
+            >{{ gis.busy ? '保存中…' : '保存全部草稿' }}</button>
+          </div>
+        </div>
+      </div>
+      <div v-else class="toolbar"
         ><button
           v-if="editing"
           class="btn primary"
@@ -130,7 +151,7 @@
   >
 </template>
 <script setup lang="ts">
-import { computed } from 'vue';
+import { computed, useId } from 'vue';
 import { useGisIssueFocus } from '../composables/useGisIssueFocus';
 import AppDrawer from './AppDrawer.vue';
 import { useGisWorkspaceStore } from '../stores/gis-workspace';
@@ -143,6 +164,8 @@ const gis = useGisWorkspaceStore();
 const editor = useResourceEditStore();
 const { fieldRoot, focusIssue, locateField } = useGisIssueFocus(editor);
 const editing = computed(() => editor.form?.kind === 'interference');
+const formId = `interference-edit-${useId()}`;
+const gisFooter = computed(() => editor.context === 'gis' && editing.value);
 const labels: Record<string, string> = {
   name: '名称',
   longitude: '经度 / ° E',

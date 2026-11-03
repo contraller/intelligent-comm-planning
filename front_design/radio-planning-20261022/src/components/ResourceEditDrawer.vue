@@ -102,6 +102,7 @@
       <!-- 表单只应用到 GIS 草稿，持久化统一由页脚保存入口处理。 -->
       <form
         ref="fieldRoot"
+        :id="gisFooter ? formId : undefined"
         tabindex="-1"
         class="edit-fields"
         @submit.prevent="editor.applyForm()"
@@ -261,6 +262,7 @@
           >
         </label>
         <button
+          v-if="!gisFooter"
           type="submit"
           class="btn primary"
           :disabled="!editor.canEdit || editor.busy"
@@ -308,7 +310,31 @@
       >校验失败，请检查错误清单。</p
     >
     <template #footer>
-      <div class="edit-footer">
+      <div v-if="gisFooter" class="gis-resource-footer">
+        <p class="gis-resource-footer-note muted">{{ editor.formDirty ? '当前输入未应用' : '当前表单无未提交输入' }}</p>
+        <div class="gis-resource-footer-actions">
+          <button
+            class="btn"
+            :disabled="!editor.canEdit || editor.busy"
+            @click="editor.closeForm()"
+          >关闭</button>
+          <div class="gis-resource-footer-main">
+            <!-- 底栏提交仍关联原表单，保留回车提交和原生校验。 -->
+            <button
+              type="submit"
+              :form="formId"
+              class="btn"
+              :disabled="!editor.canEdit || editor.busy"
+            >{{ editor.busy ? '保存中…' : '应用到草稿' }}</button>
+            <button
+              class="btn primary"
+              :disabled="!editor.canEdit || editor.busy"
+              @click="editor.save()"
+            >{{ gis.busy ? '保存中…' : '保存全部草稿' }}</button>
+          </div>
+        </div>
+      </div>
+      <div v-else class="edit-footer">
         <span class="muted">{{ editor.formDirty ? '当前输入未应用' : '当前表单无未提交输入' }}</span
         ><button
           v-if="editor.context === 'gis'"
@@ -328,7 +354,7 @@
   </AppDrawer>
 </template>
 <script setup lang="ts">
-import { computed } from 'vue';
+import { computed, useId } from 'vue';
 import { useGisIssueFocus } from '../composables/useGisIssueFocus';
 import AppDrawer from './AppDrawer.vue';
 import { useGisWorkspaceStore } from '../stores/gis-workspace';
@@ -339,6 +365,10 @@ import { validPlanningBounds } from '../services/resource-geography';
 import { maintenanceModes } from '../services/device-maintenance';
 const gis = useGisWorkspaceStore();
 const editor = useResourceEditStore();
+const formId = `resource-edit-${useId()}`;
+// 同类新建与编辑共用底栏，应用草稿后不切回旧布局；设备参数保持原样。
+const gisFooter = computed(() => editor.context === 'gis' &&
+  (editor.form?.kind === 'station' || editor.form?.kind === 'candidate'));
 const httpMode = computed(() => env.mode === 'http');
 const planningBounds = computed(() => {
   const bounds = editor.saved?.validationSource?.planningBounds;
