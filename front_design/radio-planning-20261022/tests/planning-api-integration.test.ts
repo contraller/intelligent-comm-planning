@@ -16,6 +16,7 @@ import AppShell from '../src/layouts/AppShell.vue';
 import PlanningPage from '../src/views/PlanningApiView.vue';
 import GisPage from '../src/views/SituationView.vue';
 import TaskPanel from '../src/components/TaskApiPanel.vue';
+import TaskQuickStart from '../src/components/TaskQuickStart.vue';
 import TaskForm from '../src/components/TaskApiForm.vue';
 import TaskLibrary from '../src/components/TaskApiLibraryDrawer.vue';
 import TaskImport from '../src/components/TaskApiImportDrawer.vue';
@@ -44,7 +45,7 @@ vi.mock('primevue/column',()=>({default:{render:()=>null}}));
 vi.mock('primevue/datatable',async()=>{const {h}=await import('vue');return{default:{inheritAttrs:false,props:['value','selection'],emits:['update:selection'],setup:(p:any,{emit}:any)=>()=>h('table-stub',{rows:p.value,selection:p.selection,select:(row:unknown)=>emit('update:selection',row)})}};});
 vi.mock('../src/components/MapCanvas.vue',async()=>{const {h}=await import('vue');return{default:{props:['frozenCoverage','planningOverlay','showCoverage','coverageDisplay','selectedId','selectedLinkId','highlightStationIds','highlightLinkIds'],emits:['viewport','selectCluster','selectResource','select'],setup:(p:any,{emit,expose}:any)=>{expose({locate:()=>{},locateResource:()=>{},expandResource:()=>{}});return()=>h('map-stub',{overlay:p.planningOverlay,frozenCoverage:p.frozenCoverage,showCoverage:p.showCoverage,coverageDisplay:p.coverageDisplay,selectedId:p.selectedId,selectedLinkId:p.selectedLinkId,highlightStationIds:p.highlightStationIds,highlightLinkIds:p.highlightLinkIds,onTestSelect:(id:string)=>emit('select',id),onTestViewport:(bbox:any,zoom:number)=>emit('viewport',bbox,zoom)});}}};});
 const components = [[FrozenCoveragePanel,'components/FrozenCoveragePanel'],[FrozenCoverageBandwidthEditor,'components/FrozenCoverageBandwidthEditor'],[AppShell,'layouts/AppShell'],[PlanningPage,'views/PlanningApiView'],[GisPage,'views/SituationView'],[TaskPanel,'components/TaskApiPanel'],[TaskForm,'components/TaskApiForm'],[TaskLibrary,'components/TaskApiLibraryDrawer'],[TaskImport,'components/TaskApiImportDrawer'],[DemandEditor,'components/TaskDemandEditor'],[ProgressPanel,'components/PlanningApiProgressPanel'],[FeedbackPanel,'components/PlanningApiFeedback'],[ResultPanel,'components/PlanningApiResultPanel'],[VersionsPanel,'components/PlanningApiVersionsPanel'],[PlanExport,'components/PlanExportDrawer'],[AppTable,'components/AppTable'],[AppDrawer,'components/AppDrawer'],[DecisionDialog,'components/DecisionDialog'],[ReadStatus,'components/ResourceReadStatus'],[ReadTree,'components/GisResourceTree']] as const;
-for(const [component,file] of components){
+for(const [component,file] of [[TaskQuickStart, 'components/TaskQuickStart'], ...components] as const){
   const filename=`src/${file}.vue`;
   await clientTemplate(component,filename,'planning-template.ts',{hoistStatic:false});
 }
@@ -92,7 +93,7 @@ beforeEach(()=>{
 afterEach(()=>{for(const app of apps)app.unmount();disposePinia(pinia);releasePageSessionBinding();vi.restoreAllMocks();vi.unstubAllGlobals();});
 async function mount(path='/planning?taskId=T1'){
   const auth=useAuthStore(pinia);await auth.check();auth.currentPath=path.split('?')[0];
-  const router=createRouter({history:createMemoryHistory(),routes:[{path:'/',component:AppShell,children:[{path:'planning',component:PlanningPage},{path:'situation',component:GisPage}]}]});await router.push(path);
+  const router=createRouter({history:createMemoryHistory(),routes:[{path:'/',component:AppShell,children:[{path:'planning',component:PlanningPage},{path:'gis-workbench',component:GisPage}]}]});await router.push(path);
   const app=renderer.createApp({setup(){useSessionAccess();return()=>Vue.h(RouterView);}}),root=node('root');app.use(pinia);app.use(router);app.provide(Vue.ssrContextKey,{});apps.push(app);app.mount(root);await vi.waitFor(()=>expect(useTaskInputStore(pinia).saved?.taskId).toBe('T1'));await vi.waitFor(()=>expect(useTaskInputStore(pinia).nodes).toHaveLength(2));await nextTick();return{root,router,auth,task:useTaskInputStore(pinia),planning:usePlanningApiStore(pinia)};
 }
 // 此夹具只描述接口提供的结果明细，数值和结论不会由页面重新推算。
@@ -315,9 +316,12 @@ describe('网络规划与 GIS HTTP 页面组合',()=>{
     await vi.waitFor(()=>expect(planning.selectedPlan?.id).toBe('P-1'));
     const map=()=>find(root,n=>n.tag==='map-stub')!;
     const control=()=>find(root,n=>n.tag==='select'&&n.props['aria-label']==='预测覆盖显示方式')!;
+    // 本夹具提供V5历史缓存，不能冒充默认V6结果。
+    find(root,n=>n.props['aria-label']==='覆盖结果版本')!.props['onUpdate:modelValue']('V01-5');await nextTick();
     expect(map().props.frozenCoverage).toBeNull();
+    await vi.waitFor(()=>expect(button(root,'读取覆盖缓存').props.disabled).toBe(false));
     await button(root,'读取覆盖缓存').props.onClick();await nextTick();
-    expect(map().props.frozenCoverage).toMatchObject({anchor:{plan_id:'P-1',task_id:'T1',snapshot_id:data.query.snapshotId,resource_revision:'r1'},display:'strength',deviceId:'D1'});
+    await vi.waitFor(()=>expect(map().props.frozenCoverage).toMatchObject({anchor:{plan_id:'P-1',task_id:'T1',snapshot_id:data.query.snapshotId,resource_revision:'r1'},display:'strength',deviceId:'D1'}));
     const calls=fetcher.mock.calls.length;
     control().props['onUpdate:modelValue']('boundary');await nextTick();
     expect(map().props.frozenCoverage.display).toBe('boundary');
@@ -331,8 +335,10 @@ describe('网络规划与 GIS HTTP 页面组合',()=>{
     expect(map().props.frozenCoverage?.anchor.snapshot_id).toBe(data.query.snapshotId);
     await button(root,'查看方案').props.onClick();await nextTick();
     expect(map().props.frozenCoverage?.display).toBe('field');
-    await router.push('/situation');await nextTick();await router.push('/planning?taskId=T1&planId=P-1');
-    await vi.waitFor(()=>{expect(planning.selectedPlan?.id).toBe('P-1');expect(planning.step).toBe(2);expect(button(root,'读取覆盖缓存').props.disabled).toBe(false);});await nextTick();
+    await router.push('/gis-workbench');await nextTick();await router.push('/planning?taskId=T1&planId=P-1');
+    await vi.waitFor(()=>{expect(planning.selectedPlan?.id).toBe('P-1');expect(planning.step).toBe(2);});await nextTick();
+    find(root,n=>n.props['aria-label']==='覆盖结果版本')!.props['onUpdate:modelValue']('V01-5');await nextTick();
+    await vi.waitFor(()=>expect(button(root,'读取覆盖缓存').props.disabled).toBe(false));
     expect(map().props.frozenCoverage).toBeNull();
     await button(root,'读取覆盖缓存').props.onClick();await nextTick();
     expect(map().props.frozenCoverage.display).toBe('strength');
@@ -344,23 +350,25 @@ describe('网络规划与 GIS HTTP 页面组合',()=>{
     const {root,planning}=await mount('/planning?taskId=T1&planId=P-1');
     await vi.waitFor(()=>expect(planning.selectedPlan?.id).toBe('P-1'));
     const map=()=>find(root,n=>n.tag==='map-stub')!;
+    find(root,n=>n.props['aria-label']==='覆盖结果版本')!.props['onUpdate:modelValue']('V01-5');await nextTick();
+    await vi.waitFor(()=>expect(button(root,'读取覆盖缓存').props.disabled).toBe(false));
     expect(map().props.frozenCoverage).toBeNull();
     expect(text(root)).toContain('当前方案尚无已读取且匹配的覆盖结果');
     expect(find(root,n=>n.props['aria-label']==='覆盖显示方式')).toBeUndefined();
     // 合法 MISS 不从规划旧字段补图，也不显示成功覆盖。
     data.cache.state='MISS';data.cache.result=null as any;data.cache.reason='当前冻结版本尚无覆盖缓存';
     await button(root,'读取覆盖缓存').props.onClick();await nextTick();
-    expect(text(root)).toContain('当前冻结版本尚无覆盖缓存');expect(map().props.frozenCoverage).toBeNull();
+    await vi.waitFor(()=>expect(text(root)).toContain('当前冻结版本尚无覆盖缓存'));expect(map().props.frozenCoverage).toBeNull();
     // 独立新版覆盖无需旧轮廓与PNG，明确显示传播预测来源。
     data.cache.state='HIT';data.cache.result=data.result;
     await button(root,'读取覆盖缓存').props.onClick();await nextTick();
-    expect(map().props.frozenCoverage?.anchor.snapshot_id).toBe(data.query.snapshotId);
+    await vi.waitFor(()=>expect(map().props.frozenCoverage?.anchor.snapshot_id).toBe(data.query.snapshotId));
     expect(text(root)).toContain('预测场强。');expect(text(root)).toContain('资源版本');
     expect(planning.result!.coverage).toMatchObject({contour:null,rasterPng:null});
     const control=find(root,n=>n.props['aria-label']==='预测覆盖显示方式')!;
     control.props['onUpdate:modelValue']('boundary');await nextTick();
     expect(map().props.frozenCoverage.display).toBe('boundary');
-    expect(text(root)).toContain('仅显示已计算格面与环带的边界');
+    expect(text(root)).toContain('仅显示历史计算格面与径向预算环带的边界');
     // 换快照必须撤去旧覆盖，不能将旧图挂到新方案。
     planning.selectedPlan!.result.snapshotId='SNP-NEW';await nextTick();
     expect(map().props.frozenCoverage).toBeNull();
@@ -430,11 +438,11 @@ describe('网络规划与 GIS HTTP 页面组合',()=>{
   });
   it('前往 GIS 先处理任务草稿，取消保留现场，保存成功才离开；视野变化不提交规划',async()=>{
     const {root,task,router}=await mount();task.draft!.description='规划未保存的草稿';
-    let leaving=router.push('/situation');await vi.waitFor(()=>expect(task.decision).not.toBeNull());task.answer('cancel');await leaving;
+    let leaving=router.push('/gis-workbench');await vi.waitFor(()=>expect(task.decision).not.toBeNull());task.answer('cancel');await leaving;
     expect(router.currentRoute.value.path).toBe('/planning');expect(task.draft!.description).toBe('规划未保存的草稿');
-    leaving=router.push('/situation');await vi.waitFor(()=>expect(task.decision).not.toBeNull());task.answer('save');await leaving;
+    leaving=router.push('/gis-workbench');await vi.waitFor(()=>expect(task.decision).not.toBeNull());task.answer('save');await leaving;
     // 页面就绪以当前 GIS 主标题与实际路由为准，继续核对保存后才离开的业务结果。
-    await vi.waitFor(()=>expect(find(root,n=>n.tag==='h1'&&text(n).trim()==='GIS 态势')).toBeDefined());expect(router.currentRoute.value.path).toBe('/situation');expect(serverTask.input.description).toBe('规划未保存的草稿');expect(task.dirty).toBe(false);
+    await vi.waitFor(()=>expect(find(root,n=>n.tag==='h1'&&text(n).trim()==='GIS 工作台')).toBeDefined());expect(router.currentRoute.value.path).toBe('/gis-workbench');expect(serverTask.input.description).toBe('规划未保存的草稿');expect(task.dirty).toBe(false);
     await router.push('/planning');await vi.waitFor(()=>expect(task.context).toBe('planning'));find(root,n=>n.tag==='map-stub')!.props.onTestViewport([114,37,115,38],12);await new Promise(r=>setTimeout(r,280));expect(fetcher.mock.calls.some(([url])=>String(url).endsWith('/plan/sr4-flow'))).toBe(false);
   });
   it('GIS 编辑入口明确进入第一步，已有作业和方案定位仍进入原结果',async()=>{

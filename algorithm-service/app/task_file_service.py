@@ -10,7 +10,7 @@ from typing import Annotated, Literal
 from pydantic import Field, StrictStr
 
 from . import frontend_integration, task_input_service
-from .task_input_schemas import InputModel, PlanningInput, TaskValidationRequest
+from .task_input_schemas import Identifier, InputModel, PlanningInput, TaskValidationRequest
 
 
 MAX_FILE_BYTES = 5 * 1024 * 1024
@@ -29,6 +29,7 @@ class TaskFileTemplateRequest(InputModel):
     context: Literal["gis", "planning"]
     format: Literal["csv", "xlsx"]
     kind: Literal["task_scenarios", "task_links"] = "task_scenarios"
+    task_id: Identifier = "TASK-NEW"
     input: dict[str, object]
 
 
@@ -121,4 +122,4 @@ def task_file_template(request: TaskFileTemplateRequest) -> dict:
 
     # 模板来自当前输入而非Mock案例；结构不合法时明确拒绝，不补造资源引用。
     PlanningInput.model_validate(request.input)
-    return build_task_template(request.format, request.kind, request.input)
+    return build_task_template(request.format, request.kind, request.input, task_id=request.task_id)

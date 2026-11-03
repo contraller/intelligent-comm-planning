@@ -34,7 +34,7 @@ export interface TaskApiServices {
   saveTaskInput(input: TaskApiSave): Promise<ApiTask>;
   validateTaskInputApi(input: TaskApiValidation): Promise<TaskValidationResult>;
   previewTaskInputImport(input: TaskApiImport): Promise<ApiTaskImportPreview>;
-  getTaskInputTemplate(input: TaskApiOptions & { format: 'csv' | 'xlsx'; kind?: 'task_scenarios' | 'task_links'; input: PlanningInput }): Promise<ResourceFile>;
+  getTaskInputTemplate(input: TaskApiOptions & { format: 'csv' | 'xlsx'; kind?: 'task_scenarios' | 'task_links'; taskId?: string; input: PlanningInput }): Promise<ResourceFile>;
   getPlanningOperation(input: TaskApiOptions & { requestId: string; taskId: string; kind: OperationKind }): Promise<ApiReceipt>;
 }
 

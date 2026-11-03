@@ -20,7 +20,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "algorithm-service"))
 from app import frontend_integration, resource_dataset_service, task_input_service
 from app.database import Base
-from app.task_file_parser import build_task_template
+from app.task_file_parser import build_task_template, parse_task_files
 from app.task_file_router import create_task_file_router
 from app.task_file_service import _row_issue
 from app.task_input_models import PlanningTask, PlanningTaskRevision, PlanningOperationReceipt
@@ -95,6 +95,58 @@ def test_template_returns_attachment_not_mock_or_write(api, format):
     assert response.status_code == 200, response.text
     assert "attachment" in response.headers["content-disposition"]
     assert response.content.startswith(b"PK\x03\x04" if format == "xlsx" else b"demand_id,task_id,")
+    assert counts(factory) == (0, 0, 0)
+
+
+@pytest.mark.parametrize("format", ["csv", "xlsx"])
+def test_template_explicit_task_id_survives_both_tables_and_preview_without_saving(api, format):
+    from openpyxl import load_workbook
+    client, factory, calls = api
+    task_id = "EXAMPLE-VUHF-20261103-本地A01"
+    current = task_input()
+    current["demands"].append({**current["demands"][0], "id": "D2", "sourceId": "N2", "targetId": "N1"})
+    files = []
+    kinds = ("task_scenarios", "task_links") if format == "csv" else ("task_scenarios",)
+    for kind in kinds:
+        response = client.post("/api/v1/task-files/template", json={"context": "gis", "format": format,
+            "kind": kind, "task_id": task_id, "input": current})
+        assert response.status_code == 200, response.text
+        assert "attachment" in response.headers["content-disposition"]
+        files.append((kind+"."+format, response.content))
+    if format == "csv":
+        for _, data in files:
+            rows = list(csv.DictReader(io.StringIO(data.decode("utf-8-sig"))))
+            assert rows and {row["task_id"] for row in rows} == {task_id}
+        assert len(list(csv.DictReader(io.StringIO(files[1][1].decode("utf-8-sig"))))) == 2
+    else:
+        book = load_workbook(io.BytesIO(files[0][1]), read_only=True)
+        try:
+            for kind in ("task_scenarios", "task_links"):
+                sheet = book[kind]
+                rows = list(sheet.values)
+                column = rows[0].index("task_id")
+                assert {row[column] for row in rows[1:]} == {task_id}
+            assert book["task_links"].max_row == 3
+        finally:
+            book.close()
+    parsed = parse_task_files(files, current)
+    assert parsed["issues"] == [] and parsed["taskId"] == task_id and parsed["input"] == current
+    body = {**payload(), "input": current,
+            "files": [{"name": name, "bytes_base64": base64.b64encode(data).decode("ascii")} for name, data in files]}
+    preview = client.post("/api/v1/task-files/preview", json=body)
+    assert preview.status_code == 200, preview.text
+    result = preview.json()["data"]
+    assert result["taskId"] == task_id and result["issues"] == [] and result["existing"] is False
+    assert result["input"] == current and counts(factory) == (0, 0, 0)
+    assert calls == [(permission, True) for _ in kinds for permission in ("planning.view", "situation.view")] + [("planning.view", True)]
+
+
+@pytest.mark.parametrize("task_id", [None, "", " ", " TASK-A", "TASK A", "TASK\nA", "TASK\x00A", "TASK\x7fA", "T"*121, 12, True, [], {}])
+def test_template_rejects_invalid_or_non_string_explicit_task_id_without_writes(api, task_id):
+    client, factory, _ = api
+    response = client.post("/api/v1/task-files/template", json={"context": "planning", "format": "xlsx",
+        "task_id": task_id, "input": task_input()})
+    assert response.status_code == 422 and response.json()["code"] == 1001
     assert counts(factory) == (0, 0, 0)
 
 

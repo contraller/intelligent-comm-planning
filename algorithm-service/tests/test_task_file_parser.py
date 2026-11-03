@@ -111,6 +111,12 @@ def test_templates_roundtrip_exact_contract_and_do_not_mutate(input_data, format
     assert set(build_task_template(format, "task_links", input_data)) == {"name", "mime", "bytes"}
 
 
+@pytest.mark.parametrize("task_id", [None, "", "TASK A", "TASK\nA", "T"*121, 12, True])
+def test_template_pure_function_rejects_invalid_task_id(input_data, task_id):
+    with pytest.raises(TaskFileError, match="任务编号"):
+        build_task_template("xlsx", "task_scenarios", input_data, task_id=task_id)
+
+
 @pytest.mark.parametrize("format", ["csv", "xlsx"])
 def test_real_extended_columns_zero_false_null_and_device_endpoints(input_data, format):
     input_data.update(startTime="2026-10-23T08:30:00+08:00", durationH=8,

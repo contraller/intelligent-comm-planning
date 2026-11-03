@@ -1,11 +1,13 @@
 <template>
   <AppDrawer
     :visible="visible"
-    title="已保存任务"
+    title="打开任务或从例程开始"
     width="900px"
-    subtitle="按任务 ID 打开服务端保存版本。"
+    subtitle="内置例程载入为新草稿；已保存任务按任务编号打开服务端版本。"
     @update:visible="emit('update:visible', $event)"
-    ><div class="toolbar"
+    ><TaskQuickStart :active="visible && !opening" @started="started" />
+    <h3>已保存任务</h3>
+    <div class="toolbar"
       ><input
         v-model="task.libraryQuery.search"
         placeholder="任务编号或名称"
@@ -31,7 +33,7 @@
       ><template #actions="{ row }"
         ><button
           class="text-link"
-          :disabled="!!opening || task.busy || task.running || !!task.pendingSave"
+          :disabled="!!opening || task.busy || task.running || !!task.pendingSave || task.referencesRefreshing"
           @click.stop="open(row.taskId)"
           >{{ opening===row.taskId ? '正在打开' : '打开' }}</button
         ></template
@@ -61,6 +63,7 @@
 import { ref, watch } from 'vue';
 import AppDrawer from './AppDrawer.vue';
 import AppTable from './AppTable.vue';
+import TaskQuickStart from './TaskQuickStart.vue';
 import { useTaskInputStore } from '../stores/task-input';
 const props = defineProps<{ visible: boolean }>();
 const emit = defineEmits<{ 'update:visible': [value: boolean]; opened: [] }>();
@@ -78,11 +81,12 @@ const columns = [
   { field: 'updatedAt', header: '保存时间', sortable: false },
 ];
 async function open(id: string) {
-  if(opening.value)return;
+  if(opening.value || task.referencesRefreshing)return;
   opening.value=id;
   try{if (await task.open(id)) {emit('update:visible', false);emit('opened');}}
   finally{opening.value='';}
 }
+function started() { emit('update:visible', false); emit('opened'); }
 </script>
 <style scoped>
 /* 窄屏保留表格横向滚动，操作列与任务名称通过显式打开入口保持可达。 */
