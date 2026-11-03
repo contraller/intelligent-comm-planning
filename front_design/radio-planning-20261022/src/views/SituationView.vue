@@ -15,7 +15,7 @@
         </button>
         <button v-if="frozenView && analysisReturn" class="btn small" :onClick="analysisReturn.open">返回规划方案</button>
         <!-- 页面标题与导航同名，沿用业务页面共享的标题样式。 -->
-        <h1>GIS 态势</h1>
+        <h1>GIS 工作台</h1>
         <span class="divider" /><span class="muted">太行山地区域通信保障</span
         ><span
           class="chip blue"
@@ -2075,7 +2075,7 @@ async function chooseSideTab(tab: string) {
 }
 async function returnToResources() {
   if (fault.active.value) {
-    if (await router.push('/situation')) return;
+    if (await router.push('/gis-workbench')) return;
     sideTab.value = '资源树';
     taskPreview.value = false;
     gis.mapMode = 'resource';
@@ -2143,7 +2143,7 @@ async function locateTaskDemand(id: string) {
 async function beginFaultEditing() {
   if (fault.active.value || !auth.can('diagnosis.scenario') || editor.picking) return;
   // 同页路由守卫统一处理资源及配置决策，按钮与深链共用一次进入事务。
-  await router.push({ path: '/situation', query: { faultEdit: '1' } });
+  await router.push({ path: '/gis-workbench', query: { faultEdit: '1' } });
 }
 function selectFaultVersion(id: string) {
   const version = fault.scenes.value

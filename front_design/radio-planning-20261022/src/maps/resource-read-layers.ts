@@ -5,6 +5,7 @@ import VectorLayer from 'ol/layer/Vector';
 import { Circle, Fill, Stroke, Style, Text } from 'ol/style';
 import type { Bounds, ResourceMapFrame } from '../types/resource-read';
 import { projectCoordinate, unprojectCoordinate } from './layers';
+import { gisNodeSymbol,gisSymbol } from './gis-symbols';
 
 // 服务端聚合点直接渲染，不再按浏览器像素聚合或重新计算其数量。
 export function resourceReadLayer(frame: ResourceMapFrame | null, selectedId = '', selectedKind = '') {
@@ -16,7 +17,7 @@ export function resourceReadLayer(frame: ResourceMapFrame | null, selectedId = '
     const selected = point?.id === selectedId && point?.kind === selectedKind;
     const unknown = point?.kind === 'node' && point.alert === null;
     const color = cluster ? '#4f99c4' : point.kind === 'interference' ? point.active ? '#e4a859' : '#8192a8' : point.status === 'FAULT' ? '#f27887' : point.status === 'OFFLINE' ? '#8192a8' : point.alert ? '#f0bd67' : '#45c9af';
-    return new Style({ image: new Circle({ radius: cluster ? 15 : selected ? 9 : 6, fill: new Fill({ color: cluster ? '#173c58' : color }), stroke: new Stroke({ color: selected ? '#fff' : color, width: selected ? 3 : 1.5 }) }),
+    return new Style({ image: cluster?new Circle({ radius:15, fill:new Fill({color:'#173c58'}),stroke:new Stroke({color,width:1.5}) }):gisSymbol(point.kind==='interference'?'interference-source':gisNodeSymbol(point),selected,color),
       text: new Text({ text: cluster ? String(cluster.count) : selected ? point.name + (unknown ? ' · 告警未提供' : '') : unknown ? '?' : '', offsetY: cluster ? 0 : -19, fill: new Fill({ color: '#e2f0fa' }), font: '12px Microsoft YaHei', backgroundFill: cluster ? undefined : new Fill({ color: '#0b182be0' }), padding: [3, 4, 3, 4] }), zIndex: selected ? 30 : 10 });
   } });
 }

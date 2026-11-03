@@ -253,10 +253,17 @@
           ></template
         > </div
       ><button
+        v-if="reportReady && auth.can('diagnosis.export')"
+        class="btn primary report"
+        :disabled="exporting"
+        @click="$emit('download', 'pdf')"
+        >{{ exporting ? '正在生成文件…' : '导出 PDF 报告' }}</button
+      ><button
         class="btn primary report"
         :disabled="!reportReady"
         @click="$emit('report')"
         >{{ legacy ? '预览历史诊断报告' : '预览与下载完整报告' }}</button
+      ><p v-if="reportExportError" class="error" role="alert">{{ reportExportError }}</p
       ></template
     ></section
   >
@@ -285,15 +292,17 @@ const props = withDefaults(
     exporting: boolean;
     impactExporting?: boolean;
     exportError?: string;
+    reportExportError?: string;
     symptoms?: DiagnosisSymptomLabel[];
     contextKey?: string;
     legacy?: boolean;
   }>(),
-  { symptoms: () => [], contextKey: '', legacy: false, impactExporting: false, exportError: '' },
+  { symptoms: () => [], contextKey: '', legacy: false, impactExporting: false, exportError: '', reportExportError: '' },
 );
 defineEmits<{
   locate: [type: 'NODE' | 'DEVICE' | 'LINK', id: string];
   report: [];
+  download: [format: 'pdf'];
   exportImpact: [format: 'xlsx' | 'png'];
 }>();
 const index = ref(0),

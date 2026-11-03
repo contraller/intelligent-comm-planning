@@ -39,10 +39,14 @@ _ACTIONS = {
 
 
 class SystemManagementService:
-    def __init__(self, *, session_factory, permission_registry: list[dict], request_key: bytes, clock=time.time):
+    def __init__(self, *, session_factory, permission_registry: list[dict], request_key: bytes, clock=time.time,
+                 auth_source="LOCAL_PASSWORD"):
         if type(request_key) is not bytes or len(request_key) < 32:
             raise SystemManagementError("系统请求签名密钥未安全配置", 5001, 503)
         self.factory, self.clock, self._request_key = session_factory, clock, request_key
+        if auth_source not in ("LOCAL_PASSWORD", "LOCAL_SINGLE_USER"):
+            raise SystemManagementError("本地身份来源无效", 5001, 503)
+        self.auth_source = auth_source
         self.registry = {}
         for item in permission_registry:
             code = safe_text(item.get("code"))
@@ -74,7 +78,7 @@ class SystemManagementService:
         return "SYS-" + str(state.revision)
 
     def check_actor(self, session, actor: SystemActor, permission: str | None = None):
-        if type(actor) is not SystemActor or actor.auth_source != "LOCAL_PASSWORD":
+        if type(actor) is not SystemActor or actor.auth_source != self.auth_source:
             raise SystemManagementError("需要正式本地身份", 1101, 401)
         account = session.get(LocalAccount, actor.account_id)
         if account is None or not account.enabled:
@@ -117,7 +121,7 @@ class SystemManagementService:
             raise SystemManagementError("权限重复或未登记")
         if any(required not in codes for code in codes for required in self.registry[code]["requires"]):
             raise SystemManagementError("权限缺少必要依赖")
-        if "knowledge.edit" in codes and any(code in codes for code in ("knowledge.review", "knowledge.publish", "knowledge.rollback")):
+        if self.auth_source != "LOCAL_SINGLE_USER" and "knowledge.edit" in codes and any(code in codes for code in ("knowledge.review", "knowledge.publish", "knowledge.rollback")):
             raise SystemManagementError("知识编辑与审核权限必须分离")
         return sorted(codes)
 
@@ -188,7 +192,7 @@ class SystemManagementService:
             revision = self.revision(state)
             if kind == "options":
                 return dict(revision=revision, roles=[{"id": r.id, "name": r.name} for r in session.scalars(select(LocalRole).order_by(LocalRole.name, LocalRole.id))],
-                    permissions=copy.deepcopy(list(self.registry.values())), capabilities={"authSource": "LOCAL_PASSWORD", "passwordMaintenance": True, "nonDestructiveReset": True})
+                    permissions=copy.deepcopy(list(self.registry.values())), capabilities={"authSource": self.auth_source, "passwordMaintenance": self.auth_source == "LOCAL_PASSWORD", "nonDestructiveReset": True})
             if kind == "operations":
                 row = session.scalar(select(SystemOperation).where(SystemOperation.actor_id == actor.account_id, SystemOperation.request_id == object_id))
                 if row is None:
@@ -236,7 +240,7 @@ class SystemManagementService:
         fingerprint = self.fingerprint(action, actor.account_id, {**raw, "objectId": object_id})
         with self.factory() as check:
             self.check_actor(check, actor, permission)
-        if action == "account.password":
+        if action == "account.password" and self.auth_source != "LOCAL_SINGLE_USER":
             self._verify_operator_password(actor, raw["operatorPassword"])
         encoded = hash_password(raw["initialPassword"] if action == "account.create" else raw["newPassword"]) if action in ("account.create", "account.password") else None
         try:
@@ -311,6 +315,10 @@ class SystemManagementService:
 
     def _mutate(self, session, action, actor, value, object_id, encoded):
         now = int(self.clock())
+        # 自动入口是本地部署身份，不允许账号管理把它改成可密码登录的普通账号。
+        from .local_single_user_service import SINGLE_ACCOUNT_ID, SINGLE_ROLE_ID
+        if object_id in (SINGLE_ACCOUNT_ID, SINGLE_ROLE_ID):
+            raise SystemManagementError("本地统一入口由运行模式管理", 1104, 403, reason="MANAGED_LOCAL_IDENTITY")
         if action.startswith("account."):
             account = session.get(LocalAccount, object_id) if object_id else None
             if action == "account.create":

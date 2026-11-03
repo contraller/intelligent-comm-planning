@@ -18,6 +18,7 @@ export async function readLocalIdentityCapabilities(options: { baseUrl: string; 
   const url = resolveAuthApiBaseUrl(options.baseUrl, options.origin ?? globalThis.location?.origin);
   const v = object(await createHttpClient(url, options.fetcher)('/auth/capabilities', { credentials: 'same-origin', mode: 'same-origin', cache: 'no-store', redirect: 'error', signal: options.signal }));
   const p = object(v.passwordPolicy), c = object(v.capabilities);
-  if (v.authMode !== 'LOCAL_PASSWORD' || typeof v.initialized !== 'boolean' || typeof v.passwordChangeRequired !== 'boolean' || c.passwordMaintenance !== true || c.anonymousRecovery !== false || integer(p.minScalars, 1) > integer(p.maxScalars, 1)) throw new ApiError('本地认证能力响应无效', 'INVALID_AUTH_RESPONSE');
-  return { authMode: 'LOCAL_PASSWORD', initialized: v.initialized, passwordChangeRequired: v.passwordChangeRequired, passwordPolicy: { minScalars: p.minScalars as number, maxScalars: p.maxScalars as number }, capabilities: { passwordMaintenance: true, anonymousRecovery: false } };
+  const single = v.authMode === 'LOCAL_SINGLE_USER';
+  if ((!single && v.authMode !== 'LOCAL_PASSWORD') || typeof v.initialized !== 'boolean' || typeof v.passwordChangeRequired !== 'boolean' || c.passwordMaintenance !== !single || c.anonymousRecovery !== false || (single && (c.automaticLocalSession !== true || c.unifiedPermissions !== true || c.selfReview !== true)) || integer(p.minScalars, 1) > integer(p.maxScalars, 1)) throw new ApiError('本地认证能力响应无效', 'INVALID_AUTH_RESPONSE');
+  return { authMode: single ? 'LOCAL_SINGLE_USER' : 'LOCAL_PASSWORD', initialized: v.initialized, passwordChangeRequired: v.passwordChangeRequired, passwordPolicy: { minScalars: p.minScalars as number, maxScalars: p.maxScalars as number }, capabilities: { passwordMaintenance: !single, anonymousRecovery: false, ...(single ? { automaticLocalSession: true as const, unifiedPermissions: true as const, selfReview: true as const } : {}) } };
 }

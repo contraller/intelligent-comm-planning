@@ -41,6 +41,9 @@ class FrozenNode(InputModel):
     coordinate: Annotated[list[FiniteNumber], Field(min_length=2, max_length=2)]
     status: Literal["NORMAL", "FAULT", "OFFLINE"] | None
     alert: StrictBool | None
+    mobility: Literal['FIXED', 'VEHICLE', 'MANPACK'] | None = None
+    node_role: StrictStr | None = None
+    node_subtype: StrictStr | None = None
 
     @field_validator("coordinate")
     @classmethod
@@ -92,6 +95,32 @@ class FrozenRoute(InputModel):
     backup: StrictBool
 
 
+class FrozenInterference(InputModel):
+    """与资源展示同义的只读字段，来源只能是方案关联的冻结资源版本。"""
+    id: Identifier
+    name: Annotated[StrictStr, Field(min_length=1, max_length=512)]
+    coordinate: Annotated[list[FiniteNumber], Field(min_length=2, max_length=2)]
+    elevationM: FiniteNumber | None
+    antennaHeightM: NonNegative
+    centerFreqKhz: Frequency
+    bandwidthKhz: Frequency
+    txPowerDbm: FiniteNumber
+    antennaGainDbi: FiniteNumber | None
+    interferenceType: Annotated[StrictStr, Field(min_length=1, max_length=120)]
+    patternType: StrictStr | None
+    azimuthDeg: Annotated[FiniteNumber, Field(ge=0, le=360)] | None
+    dutyCycle: Reliability | None
+    active: StrictBool
+    origin: Literal["SOURCE", "MANUAL", "IMPORT"]
+
+    @field_validator("coordinate")
+    @classmethod
+    def valid_coordinate(cls, value):
+        if abs(value[0]) > 180 or abs(value[1]) > 90:
+            raise ValueError("冻结干扰源坐标超出经纬度范围")
+        return value
+
+
 class NetworkProjection(InputModel):
     identity: PlanIdentity
     nodes: Annotated[list[FrozenNode], Field(min_length=1)]
@@ -101,3 +130,5 @@ class NetworkProjection(InputModel):
     routes: list[FrozenRoute]
     paths_state: Literal["ready", "missing"]
     paths_message: StrictStr
+    interferences: list[FrozenInterference] = Field(default_factory=list)
+    interferences_notice: StrictStr = ""

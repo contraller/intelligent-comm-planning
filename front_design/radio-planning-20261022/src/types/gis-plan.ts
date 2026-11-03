@@ -30,6 +30,9 @@ export interface GisFrozenNode {
   coordinate: [number, number];
   status: 'NORMAL' | 'FAULT' | 'OFFLINE' | null;
   alert: boolean | null;
+  mobility?: 'FIXED'|'VEHICLE'|'MANPACK'|null;
+  node_role?: string|null;
+  node_subtype?: string|null;
 }
 export interface GisFrozenDevice {
   id: string;
@@ -80,7 +83,10 @@ export interface GisNetwork extends GisPaths {
   nodes: GisFrozenNode[];
   devices: GisFrozenDevice[];
   links: GisFrozenLink[];
+  interferences?: GisFrozenInterference[];
+  interferences_notice?: string;
 }
+export type GisFrozenInterference = import('./domain').InterferenceSource;
 export interface GisLinkDetail {
   identity: GisPlanIdentity;
   link: GisFrozenLink;

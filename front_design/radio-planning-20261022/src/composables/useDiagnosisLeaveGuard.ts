@@ -17,7 +17,7 @@ export function useDiagnosisLeaveGuard() {
   // 正常离开沿用原提示；失效时留在原组件，由统一对话框处理。
   onBeforeRouteLeave(async(to)=>{if(auth.bypassLeave)return true;await auth.check();if(auth.blocked)return false;
     // 只有页面事先登记且内容未变的 GIS 接力保留草稿，其余导航仍需明确处理输入。
-    if(to.path==='/situation'&&diagnosis.allowsGisTransfer(to.query))return true;
+    if(['/situation','/gis-workbench'].includes(to.path)&&diagnosis.allowsGisTransfer(to.query))return true;
     diagnosis.clearGisTransfer();return diagnosis.allowDiscard();});
   onBeforeUnmount(() => { diagnosis.stopPolling(); diagnosis.answer('cancel'); window.removeEventListener('beforeunload',beforeUnload); window.removeEventListener('focus',focus); });
 }

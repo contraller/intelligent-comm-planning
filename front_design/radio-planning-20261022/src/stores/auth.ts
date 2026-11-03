@@ -53,6 +53,7 @@ export const useAuthStore=defineStore('auth',()=>{
   function firstPath(target?:unknown){
     const safe=safeReturnPath(target),path=safe?.split('?')[0];
     if(path&&can(routePermissions[path]))return safe!;
+    if(identity.value?.singleUserMode&&can('situation.view'))return '/situation';
     return Object.entries(routePermissions).find(([,p])=>can(p))?.[0]??'/system';
   }
   async function login(username:string,password:string){

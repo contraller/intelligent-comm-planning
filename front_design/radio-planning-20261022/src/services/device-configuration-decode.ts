@@ -30,7 +30,7 @@ export interface ConfigurationSystemAcceptance {
   context: 'ledger'; device_id: string; model_id: string; base_revision: string; resource_content_hash: string;
   requested_values: RequestValues; device_snapshot: DeviceSnapshot; model_constraints: ModelConstraints; provenance: Provenance;
   actor: { account_id: string; display_name: string; role_id: string; identity_revision: string } &
-    ({ integration_mode: true } | { authentication_mode: 'LOCAL_PASSWORD' | 'INTEGRATION' });
+    ({ integration_mode: true } | { authentication_mode: 'LOCAL_PASSWORD' | 'LOCAL_SINGLE_USER' | 'INTEGRATION' });
   accepted_at: string; status: 'ACCEPTED'; receipt_scope: 'SYSTEM_ACCEPTANCE'; dispatch_status: 'NOT_DISPATCHED';
   device_execution_status: 'UNKNOWN'; applied_values: null; online: null; effective: null; device_reported_at: null; message: string;
 }
@@ -152,7 +152,7 @@ export function readConfigurationAcceptance(v: unknown, expected: ConfigurationD
   const a1 = row.schema_version === deviceConfigurationSchema;
   const actor = object(row.actor, ['account_id', 'display_name', 'role_id', 'identity_revision', a1 ? 'integration_mode' : 'authentication_mode']);
   if (![actor.account_id, actor.role_id, actor.identity_revision].every(isId) || typeof actor.display_name !== 'string' || !actor.display_name.trim()
-    || (a1 ? actor.integration_mode !== true : !['LOCAL_PASSWORD', 'INTEGRATION'].includes(actor.authentication_mode as string))) fail();
+    || (a1 ? actor.integration_mode !== true : !['LOCAL_PASSWORD', 'LOCAL_SINGLE_USER', 'INTEGRATION'].includes(actor.authentication_mode as string))) fail();
   if ('base_revision' in expected && (row.base_revision !== expected.base_revision || row.device_id !== expected.device_id || row.model_id !== expected.model_id
     || requested.tx_power_dbm !== expected.values.tx_power_dbm || requested.work_freq_khz !== expected.values.work_freq_khz)) fail();
   return structuredClone(row) as unknown as ConfigurationSystemAcceptance;

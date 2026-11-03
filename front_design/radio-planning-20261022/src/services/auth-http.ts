@@ -28,6 +28,10 @@ function identityFromDto(value: unknown): AuthIdentity {
   if (keys.some(key => !nonempty(value[key])) || !Array.isArray(value.permissions)
     || value.permissions.some(p => typeof p !== 'string' || !allPermissions.includes(p as Permission))
     || new Set(value.permissions).size !== value.permissions.length) throw invalid();
+  const single = value.auth_source === 'LOCAL_SINGLE_USER';
+  if (('auth_source' in value && !['LOCAL_PASSWORD', 'LOCAL_SINGLE_USER'].includes(String(value.auth_source)))
+    || (single && (value.single_user_mode !== true || value.allow_self_review !== true || value.integration_mode === true))
+    || (!single && (value.single_user_mode === true || value.allow_self_review === true))) throw invalid();
   return {
     sessionId: value.session_id as string, id: value.account_id as string,
     username: value.username as string, name: value.display_name as string,
@@ -35,6 +39,8 @@ function identityFromDto(value: unknown): AuthIdentity {
     permissions: [...value.permissions] as Permission[],
     revision: value.identity_revision as string, epoch: value.session_generation as string,
     ...(value.integration_mode === true ? { integrationMode: true } : {}),
+    ...(single ? { authSource: 'LOCAL_SINGLE_USER' as const, singleUserMode: true, allowSelfReview: true }
+      : value.auth_source === 'LOCAL_PASSWORD' ? { authSource: 'LOCAL_PASSWORD' as const } : {}),
   };
 }
 

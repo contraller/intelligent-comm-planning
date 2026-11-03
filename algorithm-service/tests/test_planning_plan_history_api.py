@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import sys
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
@@ -162,6 +162,43 @@ def test_resource_change_only_changes_display_and_never_confirmation(api, monkey
     assert row["state"] == "CONFIRMED" and row["source_changed"] is True and row["current"] is False
     with factory() as session:
         assert session.get(PlanningCurrentPlan, "T2").plan_id == "P7"
+
+
+def test_confirmed_history_uses_confirmation_time_and_preserves_each_task_current_pointer(api):
+    client, factory, _, _ = api
+    seed(factory)
+    now = datetime(2026, 10, 23, tzinfo=timezone.utc)
+    with factory.begin() as session:
+        old_saved = session.get(PlanningPlan, "P1")
+        old_saved.saved_at = now - timedelta(days=3)
+        old_saved.state = "CONFIRMED"
+        old_saved.confirmed_at = now + timedelta(days=1)
+        session.add(PlanningCurrentPlan(task_id="T1", plan_id="P1", updated_at=now + timedelta(days=1)))
+    result = page(client, context="gis", state="CONFIRMED").json()["data"]
+    assert [row["plan_id"] for row in result["items"]] == ["P1", "P7"]
+    assert all(row["current"] is True for row in result["items"])
+    assert page(client).json()["data"]["items"][0]["plan_id"] == "P7", "普通保存目录仍按保存时间排序"
+    with factory() as session:
+        assert session.get(PlanningCurrentPlan, "T1").plan_id == "P1"
+        assert session.get(PlanningCurrentPlan, "T2").plan_id == "P7"
+
+
+def test_confirmed_history_ties_use_saved_time_then_id_without_making_a_current_pointer(api):
+    client, factory, _, _ = api
+    seed(factory)
+    now = datetime(2026, 10, 23, tzinfo=timezone.utc)
+    with factory.begin() as session:
+        for plan_id in ("P1", "P2", "P3"):
+            plan = session.get(PlanningPlan, plan_id)
+            plan.state = "CONFIRMED"; plan.confirmed_at = now + timedelta(days=1)
+            plan.saved_at = now if plan_id != "P1" else now - timedelta(days=1)
+        legacy = session.get(PlanningPlan, "P4")
+        legacy.state = "CONFIRMED"; legacy.confirmed_at = None; legacy.saved_at = now + timedelta(days=2)
+    result = page(client, state="CONFIRMED").json()["data"]
+    assert [row["plan_id"] for row in result["items"]] == ["P3", "P2", "P1", "P7", "P4"]
+    assert [row["current"] for row in result["items"]] == [False, False, False, True, False]
+    with factory() as session:
+        assert session.get(PlanningCurrentPlan, "T1") is None
 
 
 def test_reopen_and_detail_ownership(api, monkeypatch):

@@ -27,7 +27,7 @@ export const permissions = (Object.keys(names) as Permission[]).map(code => {
 export const allPermissions = permissions.map(p => p.code);
 export const adminPermissions = allPermissions.filter(p => p.startsWith('system.'));
 export const routePermissions: Record<string,Permission> = {
-  '/situation':'situation.view','/resources':'resources.view','/planning':'planning.view',
+  '/situation':'situation.view','/gis-workbench':'situation.view','/resources':'resources.view','/planning':'planning.view',
   '/diagnosis':'diagnosis.view','/knowledge':'knowledge.view','/system':'system.view',
 };
 export const servicePermissions: Record<string, { any?: Permission[]; all?: Permission[] }> = {
@@ -197,22 +197,24 @@ export function safeReturnPath(value: unknown): string | null {
   if(typeof value!=='string'||value.length>1000||/[\\#\r\n]/.test(value))return null;
   const [path,search='']=value.split('?');
   if(!routePermissions[path])return null;
-  const query=new URLSearchParams(search), allowed:Record<string,string[]>={'/situation':['stationId','deviceId','interferenceId','taskId','diagnosisId','faultEdit','scenarioId','versionId','analysisTaskId','analysisPlanId'],'/planning':['taskId','jobId','planId','editTask','history','from'],'/diagnosis':['scenarioId','versionId'],'/knowledge':['entityId']};
+  const query=new URLSearchParams(search), workbench = path === '/situation' || path === '/gis-workbench';
+  const gisFields = ['stationId','deviceId','interferenceId','taskId','diagnosisId','faultEdit','scenarioId','versionId','analysisTaskId','analysisPlanId'];
+  const allowed:Record<string,string[]>={'/situation':gisFields,'/gis-workbench':gisFields,'/planning':['taskId','jobId','planId','editTask','history','from'],'/diagnosis':['scenarioId','versionId'],'/knowledge':['entityId']};
   for(const [key,val]of query)if(!(allowed[path]??[]).includes(key)||!val||val.length>120||/[\u0000-\u001f\u007f]/.test(val))return null;
   // 仅接受固定用途；历史入口独立于任务恢复，不能成为通用返回地址。
   if(path==='/planning'&&(query.has('from')&&query.get('from')!=='diagnosis'||query.has('history')&&(!['references','saved'].includes(query.get('history')!)||query.size!==1)))return null;
   // 分析入口绑定完整任务与方案，不与资源、任务只读查看或诊断定位混用。
-  if(path==='/situation'&&(query.has('analysisTaskId')||query.has('analysisPlanId'))&&(!query.has('analysisTaskId')||!query.has('analysisPlanId')||[...query.keys()].some(key=>!['analysisTaskId','analysisPlanId'].includes(key))))return null;
+  if(workbench&&(query.has('analysisTaskId')||query.has('analysisPlanId'))&&(!query.has('analysisTaskId')||!query.has('analysisPlanId')||[...query.keys()].some(key=>!['analysisTaskId','analysisPlanId'].includes(key))))return null;
   if(path==='/planning'&&((query.has('jobId')||query.has('planId'))&&!query.has('taskId')||query.has('jobId')&&query.has('planId')))return null;
   // 编辑任务与结果恢复是不同入口，不能混用目标或省略任务身份。
   if(path==='/planning'&&query.has('editTask')&&(query.get('editTask')!=='1'||!query.has('taskId')||query.has('jobId')||query.has('planId')))return null;
   // 故障编辑和保存返回只接受成对场景身份，不允许混入资源或报告定位。
-  if(path==='/situation'&&query.has('faultEdit')&&(query.get('faultEdit')!=='1'||[...query.keys()].some(key=>!['faultEdit','scenarioId','versionId'].includes(key))||query.has('scenarioId')!==query.has('versionId')))return null;
-  if(path==='/situation'&&!query.has('faultEdit')&&(query.has('scenarioId')||query.has('versionId')))return null;
+  if(workbench&&query.has('faultEdit')&&(query.get('faultEdit')!=='1'||[...query.keys()].some(key=>!['faultEdit','scenarioId','versionId'].includes(key))||query.has('scenarioId')!==query.has('versionId')))return null;
+  if(workbench&&!query.has('faultEdit')&&(query.has('scenarioId')||query.has('versionId')))return null;
   if(path==='/diagnosis'&&query.has('scenarioId')!==query.has('versionId'))return null;
   // 诊断快照只能绑定一份报告，不能与当前资源或任务定位混用。
-  if(path==='/situation'&&query.has('diagnosisId')&&['stationId','deviceId','interferenceId','taskId'].some(key=>query.has(key)))return null;
+  if(workbench&&query.has('diagnosisId')&&['stationId','deviceId','interferenceId','taskId'].some(key=>query.has(key)))return null;
   // 完整定位允许不透明 ID；历史单设备返回地址仍限制为简单标识，拒绝路径和混合/重复参数。
-  if(new Set([...query.keys()]).size!==query.size||path==='/situation'&&(query.has('deviceId')&&!query.has('stationId')&&!/^[\w-]+$/.test(query.get('deviceId')??'')||query.has('interferenceId')&&(query.has('stationId')||query.has('deviceId'))))return null;
+  if(new Set([...query.keys()]).size!==query.size||workbench&&(query.has('deviceId')&&!query.has('stationId')&&!/^[\w-]+$/.test(query.get('deviceId')??'')||query.has('interferenceId')&&(query.has('stationId')||query.has('deviceId'))))return null;
   return path+(query.size?'?'+query.toString():'');
 }

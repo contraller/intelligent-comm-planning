@@ -5,6 +5,7 @@ import Cluster from 'ol/source/Cluster';
 import VectorLayer from 'ol/layer/Vector';
 import { Circle, Fill, RegularShape, Stroke, Style, Text } from 'ol/style';
 import { projectCoordinate } from './layers';
+import { gisSymbol } from './gis-symbols';
 import { GIS_DEVICE_COLORS, GIS_DEVICE_TYPES, gisDeviceStatus, gisDeviceSummary, gisDeviceTone } from './gis-device-display';
 import type { GisDeviceMapFrame, GisDevicePoint, GisDeviceSettings } from './gis-device-display';
 
@@ -21,8 +22,7 @@ export function gisDeviceStyles(points: readonly GisDevicePoint[], settings: Gis
   const manual = points.some(row => row.manualStation), styles: Style[] = [];
   if (points.length === 1) {
     const row = points[0], opacity = settings[row.deviceClass].opacity, color = GIS_DEVICE_COLORS[gisDeviceTone(row)];
-    const icon = new RegularShape({ points: 4, radius: selected ? 12 : 10, angle: row.deviceClass === 'HF' ? 0 : Math.PI / 4, declutterMode: 'none',
-      fill: new Fill({ color: '#10283d' }), stroke: new Stroke({ color, width: row.status === 'FAULT' ? 3 : 2 }) });
+    const icon = gisSymbol('radio',selected,color);
     icon.setOpacity(opacity);
     styles.push(new Style({ image: icon, zIndex }));
     styles.push(caption(`${row.deviceClass} · ${gisDeviceStatus(row)}${row.offShelf ? ' · 已下架' : ''}`, color, -24, zIndex, 0, opacity));

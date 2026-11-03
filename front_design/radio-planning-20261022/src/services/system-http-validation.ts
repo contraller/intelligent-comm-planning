@@ -44,8 +44,8 @@ export function parameterDto(value: unknown): SystemParameter {
 }
 export function eventDto(value: unknown): OperationEvent {
   safe(value); const v = object(value), a = v.actor === null ? null : object(v.actor);
-  if (!['SUCCESS', 'FAILED', 'DENIED', 'UNCHANGED'].includes(String(v.outcome)) || v.authSource !== 'LOCAL_PASSWORD' || !Number.isFinite(Date.parse(text(v.time)))) throw invalid();
-  return { id: text(v.id), epoch: text(v.epoch), sequence: integer(v.sequence, 1), time: text(v.time), actor: a && { id: text(a.id), name: text(a.name), roleId: text(a.roleId), roleName: text(a.roleName) }, attemptedUsername: text(v.attemptedUsername, true), module: text(v.module), action: text(v.action), objectId: text(v.objectId, true), requestId: v.requestId === null ? null : text(v.requestId), outcome: v.outcome as OperationEvent['outcome'], summary: text(v.summary), errorCode: text(v.errorCode, true), dedupeKey: text(v.dedupeKey), changes: structuredClone(object(v.changes)), authSource: 'LOCAL_PASSWORD' };
+  if (!['SUCCESS', 'FAILED', 'DENIED', 'UNCHANGED'].includes(String(v.outcome)) || !['LOCAL_PASSWORD', 'LOCAL_SINGLE_USER'].includes(String(v.authSource)) || !Number.isFinite(Date.parse(text(v.time)))) throw invalid();
+  return { id: text(v.id), epoch: text(v.epoch), sequence: integer(v.sequence, 1), time: text(v.time), actor: a && { id: text(a.id), name: text(a.name), roleId: text(a.roleId), roleName: text(a.roleName) }, attemptedUsername: text(v.attemptedUsername, true), module: text(v.module), action: text(v.action), objectId: text(v.objectId, true), requestId: v.requestId === null ? null : text(v.requestId), outcome: v.outcome as OperationEvent['outcome'], summary: text(v.summary), errorCode: text(v.errorCode, true), dedupeKey: text(v.dedupeKey), changes: structuredClone(object(v.changes)), authSource: v.authSource as OperationEvent['authSource'] };
 }
 export function optionsDto(value: unknown): SystemOptions {
   safe(value); const v = object(value);

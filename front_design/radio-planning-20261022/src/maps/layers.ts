@@ -11,6 +11,7 @@ import type { Coordinate, MapRegion, NetworkLink, Station } from '../types/domai
 import type { PlanningDemand } from '../types/planning';
 import { LINK_STATUS_STYLES } from '../config/link-status';
 import { shouldDisplayLink, type LinkDisplayState } from './link-display';
+import { gisNodeSymbol,gisSymbol } from './gis-symbols';
 
 export const projectCoordinate = (point: Coordinate) => fromLonLat(point);
 // 地图反投影也集中处理，对外始终保持经度在前。
@@ -45,14 +46,7 @@ export function nodeLayer(stations: Station[], selectedId?: string, highlightIds
       const color =
         station.status === 'NORMAL' && station.alert ? '#f0bd67' : station.status === null ? '#91a0ae' : colors[station.status];
       return new Style({
-        image: new Circle({
-          radius: selected ? 8 : station.key ? 5.5 : 4,
-          fill: new Fill({ color }),
-          stroke: new Stroke({
-            color: selected ? '#ffffff' : resourceMarkers&&station.origin==='MANUAL'?'#dcb976':'#102232',
-            width: selected ? 3 : resourceMarkers&&station.origin==='MANUAL'?3:1.5,
-          }),
-        }),
+        image: gisSymbol(gisNodeSymbol(station),selected,color),
         text:
           selected || station.key
             ? new Text({

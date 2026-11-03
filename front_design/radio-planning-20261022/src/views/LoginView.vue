@@ -187,7 +187,7 @@
                 /> </button></div></label
           ><button
             class="btn primary login-enter"
-            :disabled="submitting || auth.transition || !!auth.busy || recovering || (!isMock && (!capabilities?.initialized || capabilityLoading || capabilities.passwordChangeRequired))"
+            :disabled="submitting || auth.transition || !!auth.busy || recovering || (!isMock && (!!auth.identity || !capabilities?.initialized || capabilityLoading || capabilities.passwordChangeRequired))"
             >登录工作区<i class="pi pi-arrow-right"
           /></button>
           <p
@@ -385,7 +385,7 @@ onMounted(async () => {
   }
 });
 async function login() {
-  if (submitting.value || !isMock && (!capabilities.value?.initialized || capabilities.value.passwordChangeRequired)) return;
+  if (submitting.value || !isMock && (!!auth.identity || !capabilities.value?.initialized || capabilities.value.passwordChangeRequired)) return;
   submitting.value = true;
   message.value = '';
   recoverable.value = false;

@@ -5,6 +5,9 @@
       <div class="toolbar kg-heading-tools">
         <span class="chip cyan">当前账号</span>
         <span class="chip">{{ auth.identity?.name }} · {{ auth.identity?.roleName }}</span>
+        <button class="btn" :disabled="store.locked || !store.workspace || !auth.can('knowledge.edit')" @click="caseBuilderOpen = true">
+          <i class="pi pi-sitemap" />结构化构建
+        </button>
         <button
           class="btn primary"
           :disabled="store.locked || !store.workspace || !auth.can('knowledge.edit')"
@@ -265,6 +268,10 @@
             ><p class="eyebrow">{{ store.detail.entity.category }}</p
             ><h3>{{ knowledgeEntityName(store.detail.entity) }}</h3
             ><small>{{ store.detail.entity.id }}</small
+            ><figure v-if="detailPhoto && !photoFailed" class="knowledge-photo">
+              <img :src="detailPhoto.url" :alt="detailPhoto.label" @error="photoFailed = true" />
+              <figcaption>{{ detailPhoto.label }}<small>{{ detailPhoto.credit }}</small></figcaption>
+            </figure
             ><dl class="kv section-gap"
               ><dt>类型</dt><dd>{{ typeName(store.detail.entity.type) }}</dd
               ><dt>发布快照</dt><dd>{{ store.detail.versionId }}</dd
@@ -463,6 +470,7 @@
         >
       </template>
     </section>
+    <KnowledgeCaseBuilderDialog ref="caseBuilder" :visible="caseBuilderOpen" @close="caseBuilderOpen = false" />
     <KnowledgeChangeDrawer /><KnowledgeVersionDrawer /><DecisionDialog
       :request="store.decision"
       @answer="store.answer"
@@ -486,6 +494,8 @@ import KnowledgeGraphPanel from '../components/KnowledgeGraphPanel.vue';
 import KnowledgeChangeDrawer from '../components/KnowledgeChangeDrawer.vue';
 import KnowledgeVersionDrawer from '../components/KnowledgeVersionDrawer.vue';
 import KnowledgeStateBadge from '../components/KnowledgeStateBadge.vue';
+import KnowledgeCaseBuilderDialog from '../components/KnowledgeCaseBuilderDialog.vue';
+import { knowledgeMedia } from '../config/knowledge-media';
 // 与设备面板共用流程图，避免同一知识在不同入口呈现不同步骤。
 import KnowledgePrincipleFlow from '../components/KnowledgePrincipleFlow.vue';
 // 网络规则按当前详情的发布版本展示。
@@ -496,8 +506,13 @@ const auth = useAuthStore();
 // 教学清空仅适用于本地Mock；HTTP知识历史通过发布/回滚保留，不暴露物理重置。
 const demoResetEnabled = env.mode === 'mock' && env.sampleData;
 const store = useKnowledgeStore();
+const caseBuilderOpen = ref(false);
+const caseBuilder = ref<InstanceType<typeof KnowledgeCaseBuilderDialog>>();
+const photoFailed = ref(false);
+const detailPhoto = computed(() => store.detail ? knowledgeMedia(store.detail.entity) : null);
+watch(() => detailPhoto.value?.url, () => { photoFailed.value = false; });
 const route = useRoute();
-useKnowledgeLeaveGuard();
+useKnowledgeLeaveGuard(() => caseBuilder.value?.requestLeave() ?? Promise.resolve(true));
 // 页签与维护筛选只保留一份状态，离开再返回时显示与读取目标一致。
 const tab = computed<string>({
   get: () =>
@@ -669,6 +684,10 @@ watch(
 );
 </script>
 <style scoped>
+.knowledge-photo { margin:16px 0; padding:14px; background:#f5f7fa; border-radius:8px; color:#304963; }
+.knowledge-photo img { width:100%; max-height:145px; object-fit:contain; }
+.knowledge-photo figcaption { margin-top:9px; font-size:11px; line-height:1.6; }
+.knowledge-photo small { display:block; font-size:10px; color:#60758a; }
 .knowledge-page {
   /* 工作区跟随公共内容容器伸缩，避免继续扣减已移除的顶部栏高度。 */
   height: 100%;
@@ -933,6 +952,10 @@ watch(
 }
 </style>
 <style scoped>
+.knowledge-photo { margin:16px 0; padding:14px; background:#f5f7fa; border-radius:8px; color:#304963; }
+.knowledge-photo img { width:100%; max-height:145px; object-fit:contain; }
+.knowledge-photo figcaption { margin-top:9px; font-size:11px; line-height:1.6; }
+.knowledge-photo small { display:block; font-size:10px; color:#60758a; }
 .kg-workspace {
   flex: 1;
   min-height: 0;

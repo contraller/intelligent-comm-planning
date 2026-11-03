@@ -19,7 +19,7 @@
       ></dl
     >
     <p class="source">{{ summary.source }}</p>
-    <p>{{
+    <p v-if="!readonly">{{
       summary.kind === 'device' || summary.kind === 'station'
         ? '点击地图对象查看完整详情'
         : '点击地图对象展开或查看成员'
@@ -32,6 +32,7 @@ import type { GisHoverSummary } from '../maps/gis-hover';
 defineProps<{
   summary: GisHoverSummary;
   position: { left: number; top: number; width: number; maxHeight: number };
+  readonly?: boolean;
 }>();
 </script>
 <style scoped>

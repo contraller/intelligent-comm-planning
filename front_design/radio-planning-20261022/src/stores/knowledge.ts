@@ -10,6 +10,7 @@ import type { KnowledgeReadWorkspace, KnowledgeVersionSummary, KnowledgeChangeSu
 import { knowledgeClone, knowledgeDiff, knowledgeEqual, knowledgeSignature } from '../services/knowledge-validation';
 import type { Decision, DecisionRequest } from '../types/resource-edit';
 import type { KnowledgeCatalog, KnowledgeCategory, KnowledgeChange, KnowledgeDetail, KnowledgeDraft, KnowledgeEntity, KnowledgeGraph, KnowledgeIssue, KnowledgeMutation, KnowledgeMutationResult, KnowledgeRelation, KnowledgeSearch, KnowledgeVersion, KnowledgeWorkspace } from '../types/knowledge';
+import type { KnowledgeCaseContext } from '../types/knowledge-case';
 
 export const useKnowledgeStore = defineStore('knowledge',() => {
   const auth=useAuthStore(),requests=createReadCancellation();
@@ -249,6 +250,38 @@ export const useKnowledgeStore = defineStore('knowledge',() => {
   async function closeDrawer() { if (await allowLeave()) {const reread=receiptPending.value;drawerOpen.value=false;selectedChange.value=null;editBase.value=null;changeId.value='';receiptChangeId.value='';setDraft(null);
     // 用户已完成保存或明确放弃本次输入，关闭后不再显示该表单的旧校验错误。
     if(!reread)error.value='';if(reread)await refreshTab();} }
+  async function readCaseBase(): Promise<KnowledgeCaseContext> {
+    if (!auth.can('knowledge.edit')) throw new Error('当前没有知识构建权限');
+    const session = auth.generation;
+    const { workspace: metadata, error: failure, ...values } = await previewService.loadKnowledgeMetadata();
+    if (failure || !metadata) throw new Error(failure || '知识工作区不可用，输入已保留');
+    if (session !== auth.generation || !auth.can('knowledge.edit')) throw new Error('身份已变化，请重新预检');
+    const value = await previewService.getKnowledgeVersion({ id: metadata.currentVersionId });
+    if (session !== auth.generation || !auth.can('knowledge.edit')) throw new Error('身份已变化，请重新预检');
+    if (value.id !== metadata.currentVersionId) throw new Error('知识基线响应不一致，请重新预检');
+    return { base: value, catalog: values, metadata };
+  }
+  let applyingCases = false;
+  async function applyCaseDraft(content: KnowledgeDraft, context: KnowledgeCaseContext) {
+    if (applyingCases) throw new Error('正在生成知识草稿，请勿重复应用');
+    applyingCases = true;
+    const session = auth.generation;
+    try {
+      if (!auth.can('knowledge.edit') || locked.value || receiptPending.value || !(await allowLeave(false, true))) throw new Error('当前不能应用知识构建，输入已保留');
+      const { workspace: metadata, error: failure, ...values } = await previewService.loadKnowledgeMetadata();
+      if (failure || !metadata) throw new Error(failure || '知识工作区不可用，原草稿和结构化输入已保留');
+      if (session !== auth.generation || !auth.can('knowledge.edit') || locked.value || receiptPending.value) throw new Error('身份或工作区已变化，输入已保留');
+      if (content.baseVersionId !== metadata.currentVersionId || context.base.id !== content.baseVersionId) throw new Error('知识版本已变化，请保留输入并重新预检');
+      const before = workspace.value;
+      workspace.value = { ...metadata, versions: before?.versions ?? [], changes: before?.changes ?? [], logs: before?.logs ?? [] };
+      catalog.value = values; loadError.value = '';
+      editBase.value = knowledgeClone(context.base); selectedChange.value = null; changeId.value = ''; receiptChangeId.value = '';
+      // 新草稿与空基线比较，尚未保存的构建结果仍受离开保护。
+      setDraft({ summary: '', baseVersionId: context.base.id, entities: [], relations: [] });
+      draft.value = knowledgeClone(content); drawerOpen.value = true; error.value = '';
+      notice.value = '结构化草稿已生成，请继续保存、提交审核和发布';
+    } finally { applyingCases = false; }
+  }
   function request(kind:string,payload:unknown): KnowledgeMutation {
     const signature=knowledgeSignature({kind,payload,actorId:actorId.value,revision:workspace.value?.revision??null});
     if (!pending || pending.signature!==signature) pending={signature,request:{actorId:actorId.value,baseRevision:workspace.value?.revision??null,requestId:randomUuid()}};
@@ -340,5 +373,5 @@ export const useKnowledgeStore = defineStore('knowledge',() => {
   async function closeVersion(){if(await allowLeave()){historyVersionId.value='';versionDetail.value=null;historyParent.value=null;versionChange.value=null;}}
 
   function clearForSession(){mutationSerial++;busy.value=false;browseVersionId='';stopQueries();logKey='';logPage.value=1;logTotal.value=0;selectedChange.value=null;editBase.value=null;versionDetail.value=null;historyParent.value=null;versionChange.value=null;receiptChangeId.value='';activeTab.value='browse';historyPage.value=1;historyTotal.value=0;changeState.value=undefined;searchKey='';graphKey='';detailKey='';workspace.value=null;catalog.value={actors:[],types:[],relationTypes:[],models:[]};draft.value=null;baseline.value=null;changeId.value='';drawerOpen.value=false;opinion.value='';issues.value=[];categories.value=['设备知识','网络态势知识','故障运维知识'];query.value='';type.value='';page.value=1;selectedId.value='';relationId.value='';focusId.value='';expandedIds.value=[];search.value=null;graph.value=null;detail.value=null;queryError.value='';historyVersionId.value='';rollbackReason.value='';loadError.value='';error.value='';notice.value='';pending=null;highlightMatches.value=false;}
-  return {openingChangeId,openingChangeStage,historyChange,logPage,logTotal,queryLogs,ensureMetadata,counts,activeTab,historyPage,historyTotal,changeState,changeTab,refreshTab,historyParent,versionChange,receiptPending,clearForSession,actorName,workspace,catalog,actorId,actor,loading,busy,loadError,error,notice,draft,baseline,changeId,change,drawerOpen,opinion,issues,decision,categories,query,type,page,selectedId,relationId,focusId,expandedIds,matchedIds,search,graph,detail,queryError,querying,current,historyVersionId,historyVersion,rollbackReason,dirtyDraft,dirty,locked,stale,canEdit,base,ask,answer,allowLeave,load,applyFilters,refreshBrowse,retryBrowse,stopQueries,selectEntity,selectRelation,resetGraph,expand,collapse,openChange,newChange,closeDrawer,saveDraft,submit,withdraw,review,publish,rollback,reset,showVersion,closeVersion};
+  return {readCaseBase,applyCaseDraft,openingChangeId,openingChangeStage,historyChange,logPage,logTotal,queryLogs,ensureMetadata,counts,activeTab,historyPage,historyTotal,changeState,changeTab,refreshTab,historyParent,versionChange,receiptPending,clearForSession,actorName,workspace,catalog,actorId,actor,loading,busy,loadError,error,notice,draft,baseline,changeId,change,drawerOpen,opinion,issues,decision,categories,query,type,page,selectedId,relationId,focusId,expandedIds,matchedIds,search,graph,detail,queryError,querying,current,historyVersionId,historyVersion,rollbackReason,dirtyDraft,dirty,locked,stale,canEdit,base,ask,answer,allowLeave,load,applyFilters,refreshBrowse,retryBrowse,stopQueries,selectEntity,selectRelation,resetGraph,expand,collapse,openChange,newChange,closeDrawer,saveDraft,submit,withdraw,review,publish,rollback,reset,showVersion,closeVersion};
 });

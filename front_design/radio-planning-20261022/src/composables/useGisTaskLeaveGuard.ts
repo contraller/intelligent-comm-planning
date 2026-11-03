@@ -29,7 +29,7 @@ export function useGisTaskLeaveGuard(options: GisLeaveOptions){
   // 其他守卫拒绝导航时仍保留输入，实际离页后才提交放弃决定。
   const releaseNavigation=router.afterEach((to,from,failure)=>{
     if(!leaving)return;leaving=false;
-    if(!failure&&from.path==='/situation'&&to.path!=='/situation'){
+    if(!failure&&['/situation','/gis-workbench'].includes(from.path)&&!['/situation','/gis-workbench'].includes(to.path)){
       configuration.clearForSession();editor.clearSession();gis.clearHistory();
     }
   });

@@ -6,7 +6,9 @@ import { createRenderer, nextTick, ssrContextKey, type App, type Component } fro
 import { clientTemplate } from './helpers/vue-client';
 import { createMemoryHistory, createRouter, RouterView } from 'vue-router';
 import { router as applicationRouter } from '../src/router';
+import { safeReturnPath } from '../src/config/permissions';
 import { previewService, releasePageSessionBinding } from '../src/services';
+import { collaborationHttp } from '../src/services/http';
 import { useAuthStore } from '../src/stores/auth';
 import { useResourceReadStore } from '../src/stores/resource-read';
 import { decodeObject } from '../src/services/resource-read-validation';
@@ -21,6 +23,7 @@ import ResourceLedgerFilters from '../src/components/ResourceLedgerFilters.vue';
 import SpectrumConfigPanel from '../src/components/SpectrumConfigPanel.vue';
 import { useSpectrumStore } from '../src/stores/spectrum';
 import MapPage from '../src/views/SituationView.vue';
+import GisSituationView from '../src/views/GisSituationView.vue';
 import GisResourceTree from '../src/components/GisResourceTree.vue';
 import GisObjectInfoPanel from '../src/components/GisObjectInfoPanel.vue';
 import DeviceInfoPanel from '../src/components/DeviceInfoPanel.vue';
@@ -33,7 +36,11 @@ import ReadStatus from '../src/components/ResourceReadStatus.vue';
 vi.mock('../src/config/env',async original=>{const module=await original<typeof import('../src/config/env')>();return{...module,env:{...module.env,mode:'http'}};});
 vi.mock('vue-router',async original=>{const module=await original<typeof import('vue-router')>();return{...module,createWebHashHistory:module.createMemoryHistory};});
 vi.mock('../src/components/DecisionDialog.vue',()=>({default:{render:()=>null}}));
-vi.mock('../src/components/ResourceStatusPanel.vue',()=>({default:{render:()=>null}}));
+const statusPanelContract=vi.hoisted(()=>({requestLeave:vi.fn(async()=>true)}));
+// 空导入面板可以离开；保留真实组件公开的守卫方法，不能用缺方法的替身截断维护/详情回调。
+vi.mock('../src/components/ResourceStatusPanel.vue',()=>({default:{setup(_props:unknown,{expose}:{expose:(value:unknown)=>void}){
+  expose({requestLeave:statusPanelContract.requestLeave});return()=>null;
+}}}));
 vi.mock('primevue/dialog',async()=>{const {h}=await import('vue');return{default:{props:['visible'],setup:(props:any,{slots}:any)=>()=>props.visible?h('dialog',{},[slots.header?.(),slots.default?.(),slots.footer?.()]):null}};});
 vi.mock('primevue/drawer',async()=>{const {h}=await import('vue');return{default:{props:['visible'],setup:(props:any,{slots}:any)=>()=>props.visible?h('aside',{},[slots.default?.(),slots.footer?.()]):null}};});
 // 信息分组保留真实设备字段，PrimeVue 页签在独立组件测试验证。
@@ -60,12 +67,14 @@ function insert(child:Host,parent:Host,anchor?:Host|null){remove(child);child.pa
 const renderer=createRenderer<Host,Host>({insert,remove,createElement:tag=>node(tag),createText:text=>node('#text',text),createComment:text=>node('#comment',text),setText:(el,text)=>{el.text=text;},setElementText:(el,text)=>{el.text=text;el.children=[];},parentNode:el=>el.parent,nextSibling:el=>el.parent?.children[el.parent.children.indexOf(el)+1]??null,patchProp:(el,key,_old,value)=>{el.props[key]=value;},insertStaticContent:(text,parent,anchor)=>{const el=node('#static',text);insert(el,parent,anchor);return[el,el];}});
 function text(root:Host):string{return root.text+root.children.map(text).join('');}
 function find(root:Host,predicate:(node:Host)=>boolean):Host|undefined{if(predicate(root))return root;for(const child of root.children){const match=find(child,predicate);if(match)return match;}}
-const response=(data:unknown,code=0,status=200)=>new Response(JSON.stringify({code,message:code?'版本过期':'ok',data}),{status});
+const response=(data:unknown,code=0,status=200,message=code?'版本过期':'ok')=>new Response(JSON.stringify({code,message,data}),{status});
 const device=(id='D1')=>({device_id:id,node_id:'N1',model_id:'M1',antenna_id:'A1',node_name:'节点一',node_lon:114,node_lat:37,model_name:'短波设备',antenna_name:'天线一',device_class:'HF',status:'NORMAL'});
 const readNode=(id='N1')=>({node_id:id,node_name:'节点'+id,lon:114,lat:37,parent_node_id:'',echelon:'营',mobility:'固定',device_class:'HF;VUHF',status:'NORMAL',relay_capable:true,is_key:false,child_count:0,device_count:1});
+const REVISION_1='resource-1111111111111111',REVISION_2='resource-2222222222222222';
 let pinia:ReturnType<typeof createPinia>,fetcher:ReturnType<typeof vi.fn<typeof fetch>>,version:string,conflict:boolean,apps:App[],permissions:string[];
 beforeEach(()=>{
-  releasePageSessionBinding();pinia=createPinia();setActivePinia(pinia);version='v1';conflict=false;apps=[];permissions=['resources.view','situation.view'];mapCalls.locate.mockClear();mapCalls.expand.mockClear();
+  releasePageSessionBinding();pinia=createPinia();setActivePinia(pinia);version=REVISION_1;conflict=false;apps=[];permissions=['resources.view','situation.view'];mapCalls.locate.mockClear();mapCalls.expand.mockClear();
+  statusPanelContract.requestLeave.mockReset().mockResolvedValue(true);
   // 新目录传输待确认，仅注入共同轻目录契约；地图和聚合仍走真实 HTTP 适配。
   vi.spyOn(previewService, 'loadGisResourceDirectory').mockImplementation(async input => ({ revision: input.revision, resources: {
     stations: Array.from({ length: 12 }, (_, i) => decodeObject('node', readNode('N' + (i + 1)))).filter(row => row.kind === 'node'),
@@ -77,7 +86,9 @@ beforeEach(()=>{
     const url=new URL(String(input),'http://local'),path=url.pathname,p=url.searchParams;
     if(path.endsWith('/auth/session'))return response({session_id:'S1',account_id:'U1',username:'reader',display_name:'资源浏览者',role_id:'R1',role_name:'只读',permissions,identity_revision:'a1',session_generation:'e1'});
     if(path.endsWith('/resource/context'))return response({revision:version,bounds:[113,36,115,38],updated_at:'2026-10-05T00:00:00Z',source:'资源接口',stats:{nodes:12,devices:21,models:1,interferences:0,hf:21,vuhf:0}});
+    if(path.endsWith('/spectrum/sources'))return response(null,5002,503,'频谱采集源暂时不可用');
     if(conflict||p.get('revision')!==version)return response({},1201,409);
+    if(path.endsWith('/resource/edit-context'))return response(null,5002,503,'维护上下文暂时不可用');
     if(path.endsWith('/resource/map'))return response({revision:version,bbox:p.get('bbox')!.split(',').map(Number),zoom:Number(p.get('zoom')),points:[],clusters:p.get('show_nodes')==='true'?[{kind:'node',cluster_id:'C1',lon:114,lat:37,count:12,bounds:[113.9,36.9,114.1,37.1],expansion_zoom:null}]:[],total_nodes:p.get('show_nodes')==='true'?12:0,total_interferences:0});
     if(path.endsWith('/resource/devices')||path.endsWith('/resource/nodes')||path.endsWith('/resource/interference-sources')){
       const page=Number(p.get('page')),size=Number(p.get('page_size')),isDevices=path.endsWith('devices'),total=path.endsWith('interference-sources')?0:isDevices?21:12;
@@ -94,43 +105,68 @@ beforeEach(()=>{
 afterEach(()=>{for(const app of apps)app.unmount();disposePinia(pinia);releasePageSessionBinding();vi.restoreAllMocks();vi.unstubAllGlobals();});
 async function mount(path='/resources',component:Component={render:()=>Vue.h(RouterView)}){
   const auth=useAuthStore();await auth.check();auth.currentPath=path.split('?')[0];
-  const router=createRouter({history:createMemoryHistory(),routes:[{path:'/',component:AppShell,children:[{path:'resources',component:Ledger},{path:'situation',component:MapPage}]}]});
+  const router=createRouter({history:createMemoryHistory(),routes:[{path:'/',component:AppShell,children:[{path:'resources',component:Ledger},{path:'gis-workbench',component:MapPage},{path:'situation',component:{render:()=>null}}]}]});
+  // 独立宿主也保留正式路由的旧定位深链兼容；无参数态势入口不转到可编辑工作台。
+  router.beforeEach(to=>to.path==='/situation'&&Object.keys(to.query).length&&safeReturnPath(to.fullPath)
+    ? {path:'/gis-workbench',query:to.query,replace:true}:true);
   await router.push(path);const app=renderer.createApp(component),root=node('root');app.use(pinia);app.use(router);app.provide(ssrContextKey,{});apps.push(app);app.mount(root);
-  await vi.waitFor(()=>expect(useResourceReadStore().workspace).not.toBeNull());await nextTick();return{root,router,store:useResourceReadStore()};
+  const store=useResourceReadStore();
+  await vi.waitFor(()=>{
+    expect(store.workspace).not.toBeNull();expect(store.refreshing).toBe(false);expect(auth.blocked).toBe(false);
+    if(path.split('?')[0]==='/resources'){
+      expect(store.pending.ledger).not.toBe(true);expect(find(root,n=>n.tag==='table-stub')?.props.loading).toBe(false);
+    }
+  });await nextTick();return{root,router,store};
 }
 describe('资源 HTTP 页面组合',()=>{
   it('路由复用共用 GIS 页，进入台账不加载 Preview/规划/频谱或写接口',async()=>{
     const ledger=applicationRouter.getRoutes().find(r=>r.path==='/resources')?.components?.default as ()=>Promise<{default:Component}>;
-    const map=applicationRouter.getRoutes().find(r=>r.path==='/situation')?.components?.default as ()=>Promise<{default:Component}>;
+    const map=applicationRouter.getRoutes().find(r=>r.path==='/gis-workbench')?.components?.default as ()=>Promise<{default:Component}>;
+    const situation=applicationRouter.getRoutes().find(r=>r.path==='/situation')?.components?.default as ()=>Promise<{default:Component}>;
     expect((await ledger()).default).toBe(Ledger);expect((await map()).default).toBe(MapPage);
+    expect((await situation()).default).toBe(GisSituationView);
     const preview=vi.spyOn(previewService,'loadPreview'),planning=vi.spyOn(previewService,'loadPlanningWorkspace'),{root,store}=await mount();
     expect(preview).not.toHaveBeenCalled();expect(planning).not.toHaveBeenCalled();expect(text(root)).toContain('设备 21 台');expect(text(root)).toContain('21');
     expect(find(root,n=>n.tag==='table-stub')?.props).toMatchObject({lazy:true,totalRecords:21,first:0});
     expect(find(root,n=>n.tag==='button'&&text(n).trim()==='新增设备')?.props.disabled).toBe(true);
     expect(store.ledger?.items).toHaveLength(10);expect(fetcher.mock.calls.every(([,init])=>(init?.method??'GET')==='GET')).toBe(true);
     // 正常 HTTP 页面不展示传输来源或技术版本，也不保留空的状态条。
-    expect(text(root)).not.toContain('资源接口');expect(text(root)).not.toContain('资源版本 v1');
+    expect(text(root)).not.toContain('资源接口');expect(text(root)).not.toContain('资源版本 '+REVISION_1);
     expect(find(root,n=>n.props.class==='read-status')).toBeUndefined();
   });
-  it('HTTP 使用同一筛选和维护入口；未实现服务显示错误，不注入 Mock 工作区',async()=>{
-    permissions.push('resources.edit'); const {root}=await mount(),load=vi.spyOn(previewService,'querySpectrumSources'),maintenance=vi.spyOn(previewService,'loadResourceMaintenanceContext');
+  it('HTTP 使用同一筛选和维护入口；服务失败显示错误，不注入 Mock 工作区',async()=>{
+    permissions.push('resources.edit'); const {root}=await mount(),load=vi.spyOn(collaborationHttp.spectrumSources,'querySources'),legacyLoad=vi.spyOn(previewService,'querySpectrumSources'),maintenance=vi.spyOn(previewService,'loadResourceMaintenanceContext');
+    const ledgerTable=find(root,n=>n.tag==='table-stub')!;
     expect(find(root,n=>n.props['aria-label']==='频率下限（kHz）')?.props.disabled).toBe(false);
     expect(text(root)).not.toContain('HTTP 部署分类');
-    find(root,n=>n.tag==='button'&&text(n).trim()==='新增设备')!.props.onClick();
-    await vi.waitFor(()=>expect(maintenance).toHaveBeenCalled()); await nextTick(); expect(text(root)).toContain('资源维护上下文尚未接入');
-    find(root,n=>n.tag==='button'&&text(n).trim()==='关闭')!.props.onClick(); await nextTick();
-    find(root,n=>n.tag==='button'&&text(n).trim()==='频谱接口配置')!.props.onClick();
-    await vi.waitFor(()=>expect(load).toHaveBeenCalled()); await nextTick();
-    expect(text(root)).not.toContain('资源分类'); expect(text(root)).toContain('HTTP 频谱配置读取及回执协议尚未接入');
-    expect(find(root,n=>n.tag==='table-stub')?.props.value).toEqual([]);
-    expect(find(root,n=>n.tag==='button'&&text(n).trim()==='新增配置')?.props.disabled).toBe(false);
-    const spectrum=useSpectrumStore(),table=find(root,n=>n.tag==='table-stub')!,calls=load.mock.calls.length;
-    // 模拟底层旧排序事件，频谱列表不得改查询或重新读取。
-    expect(table.props.sortField).toBeUndefined();expect(table.props.sortOrder).toBeUndefined();
-    table.props.onTestSort({sortField:'intervalSeconds',sortOrder:-1});await nextTick();
+    await find(root,n=>n.tag==='button'&&text(n).trim()==='新增设备')!.props.onClick();
+    await vi.waitFor(()=>expect(maintenance).toHaveBeenCalled()); await nextTick(); expect(text(root)).toContain('维护上下文暂时不可用');
+    expect(fetcher.mock.calls.some(([url])=>String(url).includes('/resource/edit-context?'))).toBe(true);
+    await find(root,n=>n.tag==='button'&&text(n).trim()==='关闭')!.props.onClick(); await nextTick();
+    await find(root,n=>n.tag==='button'&&text(n).trim()==='频谱接口配置')!.props.onClick();
+    await vi.waitFor(()=>expect(load).toHaveBeenCalled());
+    await vi.waitFor(()=>expect(text(root)).toContain('频谱采集源暂时不可用'));
+    expect(text(root)).not.toContain('资源分类'); expect(text(root)).toContain('频谱采集源暂时不可用');expect(text(root)).toContain('暂无采集源');
+    expect(fetcher.mock.calls.some(([url])=>String(url).includes('/spectrum/sources?'))).toBe(true);expect(legacyLoad).not.toHaveBeenCalled();
+    // 新采集源表独立采用细粒度权限；台账维护权限不能自动变成频谱维护权限。
+    expect(find(root,n=>n.tag==='button'&&text(n).trim()==='新增来源')?.props.disabled).toBe(true);
+    const spectrum=useSpectrumStore(),calls=load.mock.calls.length;
+    // 模拟已离开的旧台账排序事件，不得改变当前采集源查询或创建旧Mock工作区。
+    expect(ledgerTable.props.sortField).toBeUndefined();expect(ledgerTable.props.sortOrder).toBeUndefined();
+    ledgerTable.props.onTestSort({sortField:'intervalSeconds',sortOrder:-1});await nextTick();
     expect(load).toHaveBeenCalledTimes(calls);expect(spectrum.query).toMatchObject({sort:'name',order:'asc'});
     await spectrum.open(); expect(spectrum.workspace).toBeNull(); expect(spectrum.dirty).toBe(false);
     expect(await spectrum.leave()).toBe(true); expect(spectrum.decision).toBeNull();
+  });
+  it('状态面板拒绝切换时不读取维护或详情，空面板明确放行后继续真实HTTP错误处理',async()=>{
+    permissions.push('resources.edit');const {root,store}=await mount(),maintenance=vi.spyOn(previewService,'loadResourceMaintenanceContext'),detail=vi.spyOn(previewService,'getResourceObject');
+    statusPanelContract.requestLeave.mockResolvedValue(false);
+    const add=find(root,n=>n.tag==='button'&&text(n).trim()==='新增设备')!;
+    await add.props.onClick();expect(maintenance).not.toHaveBeenCalled();expect(statusPanelContract.requestLeave).toHaveBeenCalledOnce();
+    find(root,n=>n.tag==='table-stub')!.props.onTestSelect(store.ledger!.items[0]);
+    await vi.waitFor(()=>expect(statusPanelContract.requestLeave).toHaveBeenCalledTimes(2));expect(detail).not.toHaveBeenCalled();
+    statusPanelContract.requestLeave.mockResolvedValue(true);await add.props.onClick();
+    expect(maintenance).toHaveBeenCalledOnce();expect(text(root)).toContain('维护上下文暂时不可用');
   });
   it('台账不响应排序，分页与搜索沿用默认顺序',async()=>{
     const {root,store}=await mount();
@@ -156,7 +192,7 @@ describe('资源 HTTP 页面组合',()=>{
     expect(store.context).toBe('gis');
   });
   it('完整目录显示重叠聚合成员，拖图独立按最后视野读取',async()=>{
-    const {root,store}=await mount('/situation');
+    const {root,store}=await mount('/gis-workbench');
     find(root,n=>n.tag==='button'&&text(n)==='按站点浏览')!.props.onClick();await nextTick();
     await vi.waitFor(()=>expect(text(root)).toContain('节点N1'));
     const map=find(root,n=>n.tag==='map-stub')!,cluster=store.frame!.clusters[0];
@@ -170,15 +206,15 @@ describe('资源 HTTP 页面组合',()=>{
   });
   it('服务版本变化保留原页，刷新按钮才接纳新版本',async()=>{
     const {root,store}=await mount();conflict=true;find(root,n=>n.tag==='table-stub')!.props.onTestPage({first:10,rows:10});
-    await vi.waitFor(()=>expect(store.stale).toBe(true));expect(store.ledger?.revision).toBe('v1');expect(text(root)).toContain('请刷新资源');
+    await vi.waitFor(()=>expect(store.stale).toBe(true));expect(store.ledger?.revision).toBe(REVISION_1);expect(text(root)).toContain('请刷新资源');
     // 版本冻结只禁用查询与维护，迁入页头的刷新仍须可用。
     const refresh=find(root,n=>n.tag==='button'&&text(n)==='刷新资源')!;
     expect(refresh.parent?.props.class).toBe('toolbar');expect(refresh.props.disabled).toBe(false);
-    conflict=false;version='v2';refresh.props.onClick();
-    await vi.waitFor(()=>expect(store.workspace?.revision).toBe('v2'));expect(store.ledger?.revision).toBe('v2');expect(store.stale).toBe(false);
+    conflict=false;version=REVISION_2;refresh.props.onClick();
+    await vi.waitFor(()=>expect(store.workspace?.revision).toBe(REVISION_2));expect(store.ledger?.revision).toBe(REVISION_2);expect(store.stale).toBe(false);
   });
   it('恶意/错关联定位参数可见拒绝，不把其他节点当作设备位置',async()=>{
-    const {root,store}=await mount('/situation?stationId=N9&deviceId=D1');
+    const {root,store}=await mount('/gis-workbench?stationId=N9&deviceId=D1');
     await vi.waitFor(()=>expect(store.notice).toBe('设备与定位节点不匹配'));expect(store.detail).toBeNull();expect(mapCalls.locate).not.toHaveBeenCalled();expect(text(root)).toContain('不匹配');
   });
 });

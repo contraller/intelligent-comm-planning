@@ -219,7 +219,7 @@ def _interference_save_proof(session, payload, request):
             or accepted[0].get("planning_request_id") != row.planning_request_id):
         raise PlanningPlanError(1203, "后台保存缺少唯一不可变采纳受理证明", 409)
     snapshot = None
-    if os.environ.get("AUTH_MODE") == "LOCAL_PASSWORD":
+    if os.environ.get("AUTH_MODE") in ("LOCAL_PASSWORD", "LOCAL_SINGLE_USER"):
         account = session.get(LocalAccount, row.actor_id, populate_existing=True)
         role = session.get(LocalRole, account.role_id, populate_existing=True) if account is not None else None
         permissions = {"planning.view", "situation.view", "planning.execute", "planning.save"}
@@ -399,12 +399,14 @@ def list_saved_plan_history(page: int, page_size: int, search: str | None = None
     with factory() as session:
         total = session.scalar(select(func.count()).select_from(PlanningPlan).where(*filters)) or 0
         # 一次联查当前指针；分页不读取 JSON 快照，也不逐条访问资源文件。
+        order = ((PlanningPlan.confirmed_at.desc().nulls_last(), PlanningPlan.saved_at.desc(), PlanningPlan.plan_id.desc())
+                 if state == "CONFIRMED" else (PlanningPlan.saved_at.desc(), PlanningPlan.plan_id.desc()))
         rows = session.execute(select(
             PlanningPlan.plan_id, PlanningPlan.task_id, PlanningPlan.name,
             PlanningPlan.version_no, PlanningPlan.state, PlanningPlan.resource_revision,
             PlanningPlan.saved_at, PlanningCurrentPlan.plan_id.label("current_plan_id"),
         ).outerjoin(PlanningCurrentPlan, PlanningCurrentPlan.task_id == PlanningPlan.task_id)
-          .where(*filters).order_by(PlanningPlan.saved_at.desc(), PlanningPlan.plan_id.desc())
+          .where(*filters).order_by(*order)
           .offset((page - 1) * page_size).limit(page_size)).all()
         revision = frontend_integration.resource_revision()
         items = []

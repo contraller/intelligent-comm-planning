@@ -1,7 +1,7 @@
 <template>
   <div
     class="map-wrap"
-    :class="{ compact, picking }"
+    :class="{ compact, picking, 'readonly-situation': readonlySituation }"
   >
     <!-- 地图本体可直接获得键盘焦点，沿用 OpenLayers 的平移和缩放，不自动抢焦点。 -->
     <div
@@ -10,24 +10,26 @@
       tabindex="0"
       role="region"
       @pointerdown.capture="
-        clearHoverPreview();
-        startPick();
+        if (!readonlySituation) { clearHoverPreview(); startPick(); }
       "
       @pointerleave="
         clearPickHover();
         clearHoverPreview();
       "
       :aria-label="
-        resourceRead
+        readonlySituation ? 'GIS态势地图，可拖动和缩放；移动光标查看节点、设备与覆盖，此页只读' : resourceRead
           ? '资源地图，可拖动、缩放并选择资源或聚合点；方向键平移，加减键缩放'
           : '太行山地区域地图，可拖动、缩放并选择节点；方向键平移，加减键缩放'
       "
     />
+    <canvas v-if="gisSurface && radioWaves && !picking" ref="radioWaveCanvas" class="gis-radio-waves" aria-hidden="true" />
     <GisHoverPreview
       v-if="hoverSummary && hoverPosition"
       :summary="hoverSummary"
       :position="hoverPosition"
+      :readonly="readonlySituation"
     />
+    <div v-if="readonlySituation" class="situation-area-caption">规划区域为120kmx120km</div>
     <div
       v-if="picking"
       :key="gisPick?.key"
@@ -62,7 +64,7 @@
         >取消取点并返回表单（Esc）</button
       >
     </div>
-    <div class="map-caption" :class="{ 'with-terrain': !!terrainBasemap }"
+    <div v-if="!readonlySituation" class="map-caption" :class="{ 'with-terrain': !!terrainBasemap }"
       ><span class="map-dot" /> WGS84
       <span>{{ mapCaption ?? (terrainBasemap ? 'DEM 地形' : gisSurface || resourceRead ? '本地道路底图' : '本地演示地图') }}</span
       ><span v-if="terrainRenderError" role="status" class="terrain-error">地形图片显示失败；站点和链路仍可浏览。</span
@@ -89,6 +91,7 @@
       ></div
     >
     <button
+      v-if="!readonlySituation"
       class="map-reset btn small"
       :title="resourceRead ? '返回资源范围' : '显示全部节点'"
       @click="fit"
@@ -96,7 +99,7 @@
       <i class="pi pi-expand" />全域
     </button>
     <div
-      v-if="!resourceRead"
+      v-if="!resourceRead && !readonlySituation"
       class="map-watermark"
       >太 行 山 地 区<span>{{
         watermarkCaption ?? (gisSurface ? 'TAIHANG REGION' : 'TAIHANG REGION · DEMO')
@@ -404,6 +407,8 @@ import {
 import { splitGisRegions, type GisResultLayerSettings } from '../maps/gis-result-layers';
 import { createGisDeviceLayer } from '../maps/gis-device-layers';
 import GisHoverPreview from './GisHoverPreview.vue';
+import { situationAreaExtent } from '../maps/situation-area';
+import { collectRadioWaveAnchors, createRadioWaveOverlay, visibleRadioWavePoints } from '../maps/gis-radio-waves';
 import {
   gisHoverSummary,
   gisHoverPlacement,
@@ -438,7 +443,7 @@ import type { TerrainBasemap } from '../services/terrain-basemap';
 import { defaults, ScaleLine } from 'ol/control';
 import { boundingExtent } from 'ol/extent';
 import { resourceReadLayer, resourceViewport } from '../maps/resource-read-layers';
-import { Style, Circle as CircleStyle } from 'ol/style';
+import { Style, Stroke, Circle as CircleStyle } from 'ol/style';
 import { planningApiLayer, type PlanningMapOverlay } from '../maps/planning-api-layers';
 import { gisPlanLayer } from '../maps/gis-plan-layers';
 import { interferenceWorkbenchLayer, workbenchCoordinates, workbenchMapKey } from '../maps/interference-workbench-layers';
@@ -495,11 +500,14 @@ const props = withDefaults(
   defineProps<{
     stations: Station[];
     resourceRead?: boolean;
+    readonlySituation?: boolean;
     terrainBasemap?: TerrainBasemap | null;
     // 公共资源底层可与完整 GIS 图层组合，编辑/冻结网络自行提供底层。
     richScene?: boolean;
     // GIS 文案作用域独立于分页渲染能力，其他地图维持原展示。
     gisSurface?: boolean;
+    // 像素级装饰波弧，不表示传播距离、真实覆盖或运行状态。
+    radioWaves?: boolean;
     // 诊断可独立指定中性文案，其他地图调用沿用默认展示。
     mapCaption?: string;
     watermarkCaption?: string;
@@ -565,6 +573,7 @@ const props = withDefaults(
     resourceRead: false,
     terrainBasemap: null,
     richScene: false,
+    radioWaves: true,
     resourceFrame: null,
     planningOverlay: null,
     frozenNetwork: null,
@@ -591,7 +600,7 @@ const props = withDefaults(
     diagnosisRegions: () => [],
     diagnosisPaths: () => [],
     diagnosisDevices: () => [],
-    showRoads: true,
+    showRoads: false,
     showNodes: true,
     showLinks: true,
     showCoverage: true,
@@ -605,6 +614,7 @@ const emit = defineEmits<{
   selectFrozenLink: [id: string];
   selectFrozenDemand: [id: string];
   selectFrozenDevice: [id: string];
+  hoverFrozenDevices: [ids: string[]];
   deviceStatusRendered: [value: GisDeviceStatusRender];
   selectPlanningCandidate: [selection: CandidateSelection];
   gisPick: [result: GisPickResult];
@@ -626,6 +636,7 @@ const emit = defineEmits<{
   selectFault: [type: FaultInput['objectType'], id: string];
 }>();
 const host = ref<HTMLDivElement>();
+const radioWaveCanvas = ref<HTMLCanvasElement>();
 const interferenceGeometryNotice = ref('');
 const readClicks = new WeakMap<object, string>();
 let readPress = '';
@@ -805,6 +816,40 @@ const coverageImage = usePlanningCoverage(
   () => props.planningContext,
 );
 let map: Map | undefined;
+let radioWaveOverlay: ReturnType<typeof createRadioWaveOverlay> | undefined;
+let radioWaveRenderListener: EventsKey | undefined;
+function refreshRadioWavePoints() {
+  if (!map || !radioWaveOverlay) return;
+  const size = map.getSize() ?? [0, 0];
+  // Existing source/layer events already schedule normal OL rendering. Read only
+  // those layers; never build an animation network from unrendered props.
+  const layers = map.getLayers?.().getArray() ?? [];
+  const anchors = collectRadioWaveAnchors(layers, {
+    frozenNetwork: !fullScene.value && !props.interferenceProjection ? props.frozenNetwork : null,
+    interferenceProjection: !fullScene.value ? props.interferenceProjection : null,
+    stations: fullScene.value ? props.stations : [],
+    deviceFrame: devicePointFrame.value,
+    resourceFrame: props.resourceRead && (!props.frozenNetwork || fullScene.value) && !props.interferenceProjection ? props.resourceFrame : null,
+    planningOverlay: !fullScene.value ? props.planningOverlay : null,
+    interferences: props.interferences,
+  }, map.getView().getResolution() ?? 1, map.getView().getZoom() ?? 0);
+  const points = typeof map.getPixelFromCoordinate === 'function'
+    ? visibleRadioWavePoints(anchors, coordinate => map!.getPixelFromCoordinate(coordinate), size) : [];
+  radioWaveOverlay.update(points, size);
+}
+function stopRadioWaves() {
+  if (radioWaveRenderListener) unByKey(radioWaveRenderListener);
+  radioWaveRenderListener = undefined;
+  radioWaveOverlay?.dispose();
+  radioWaveOverlay = undefined;
+}
+function syncRadioWaves() {
+  stopRadioWaves();
+  if (!map || !props.gisSurface || !props.radioWaves || props.picking || !radioWaveCanvas.value) return;
+  radioWaveOverlay = createRadioWaveOverlay(radioWaveCanvas.value);
+  radioWaveRenderListener = map.on('postrender', refreshRadioWavePoints);
+  refreshRadioWavePoints();
+}
 const hoverSummary = ref<GisHoverSummary | null>(null),
   hoverPosition = ref<ReturnType<typeof gisHoverPlacement> | null>(null);
 let hoverTimer: ReturnType<typeof setTimeout> | undefined,
@@ -826,6 +871,8 @@ function previewAt(pixel: number[]) {
   return (
     map.forEachFeatureAtPixel(pixel, (feature) => {
       const kind = feature.get('kind');
+      if(kind==='interference-source')return gisHoverSummary(feature,{context:props.hoverPreview!,stations:[],frozenInterferences:props.interferences})||undefined;
+      if(kind==='frozen-plan-node')return gisHoverSummary(feature,{context:props.hoverPreview!,stations:[],frozenNetwork:props.frozenNetwork})||undefined;
       // 只命中当前可见资源点；业务层不借当前资源补出悬浮信息。
       if (kind === 'gis-device-cluster') {
         return (
@@ -876,7 +923,8 @@ function moveHoverPreview(pixel: number[], dragging: boolean) {
       hoverEnabled.value &&
       owner === props.hoverPreview?.key
     )
-      hoverSummary.value = summary;
+      { hoverSummary.value = summary;
+        if(props.readonlySituation)emit('hoverFrozenDevices',summary.deviceIds??[]); }
   }, 200);
 }
 watch([() => props.hoverPreview, () => props.picking], clearHoverPreview, {
@@ -1025,7 +1073,7 @@ function paint() {
   updateTerrain();
   const frozenLayer=updateFrozenCoverage();
   updateRoadClip();
-  clearHoverPreview();
+  if(!props.readonlySituation)clearHoverPreview();
   clearPickHover();
   pickClustered.value = false;
   if (pickClusterListener) unByKey(pickClusterListener);
@@ -1104,6 +1152,7 @@ function paint() {
       if (statusDevices.key()) layers.push(statusDevices.layer);
     }
     else layers.push(resourceReadLayer(props.resourceFrame, props.selectedId, props.resourceSelectedKind));
+    if(props.frozenNetwork&&props.showInterferences&&props.interferences.length)layers.push(interferenceLayer(props.interferences,props.selectedInterferenceId));
     if (props.planningOverlay)
       layers.push(
         planningApiLayer(props.planningOverlay, props.selectedId, props.selectedLinkId, [
@@ -1114,6 +1163,7 @@ function paint() {
     if (props.planningCandidates) layers.push(planningCandidatePoints.layer);
     if (props.deploymentConstraints) layers.push(deploymentLayer.layer);
     map.setLayers(layers);
+    refreshRadioWavePoints();
     return;
   }
   // 按快照复用图片层；切换页签、缩放、节点选择不重新加载图片。
@@ -1239,6 +1289,7 @@ function paint() {
           image.getStroke()?.setWidth(3);
         }
       }
+      copy.push(new Style({image:new CircleStyle({radius:17,stroke:new Stroke({color:'#dcb976',width:2})})}));
       return copy;
     });
   }
@@ -1271,6 +1322,7 @@ function paint() {
     propagation,
   ]);
   updateLinkDisplay();
+  refreshRadioWavePoints();
 }
 function updateLinkDisplay() {
   linkDisplay.zoom = map?.getView().getZoom() ?? 9;
@@ -1358,6 +1410,7 @@ function fitDeviceCoverage(snapshotId: string) {
     );
 }
 function fit() {
+  if(map&&props.readonlySituation){map.getView().fit(situationAreaExtent(),{padding:[24,24,24,24]});return;}
   if(map&&props.frozenCoverage){
     const layer=updateFrozenCoverage(),source=layer?.getSource(),extent=source?.getExtent();
     if(source?.getFeatures().length&&extent&&extent.every(Number.isFinite)){
@@ -1457,8 +1510,9 @@ onMounted(() => {
       minZoom: props.resourceRead ? 0 : 6,
       maxZoom: 17,
     }),
-    controls: defaults({ attributionOptions: { collapsible: false } }).extend([new ScaleLine()]),
+    controls: props.readonlySituation ? [] : defaults({ attributionOptions: { collapsible: false } }).extend([new ScaleLine()]),
   });
+  syncRadioWaves();
   releaseStatusRender = observeGisDeviceStatusRender(map, statusDevices, () => props.interferenceProjection ? null : props.frozenDeviceStatus,
     value => emit('deviceStatusRendered', value));
   // 闪烁只使当前链路层重绘；不调用 paint、重建覆盖图或请求业务数据。
@@ -1512,6 +1566,7 @@ onMounted(() => {
   // singleclick 延迟期间可能换方案；按原始点击携带的代次核对。
   map.getViewport().addEventListener('pointerdown', captureReadPress, true);
   map.on('click', (event) => {
+    if(props.readonlySituation){moveHoverPreview(event.pixel,false);return;}
     if (event.originalEvent && readPress) readClicks.set(event.originalEvent, readPress);
     readPress = '';
     clearHoverPreview();
@@ -1525,6 +1580,7 @@ onMounted(() => {
     candidatePress = undefined;
   });
   map.on('singleclick', (event) => {
+    if(props.readonlySituation)return;
     const press = event.originalEvent && pickClicks.get(event.originalEvent);
     if (props.gisPick && (props.picking || press?.picking)) {
       if (
@@ -1729,6 +1785,7 @@ watch(
 // 显示偏好只更新已有图层，保留图片源与当前业务快照。
 // 冻结覆盖是不可变大快照，不加入旧深监听，避免遍历每个原生采样点。
 watch(()=>props.frozenCoverage,paint);
+watch(() => [props.gisSurface, props.radioWaves, props.picking, radioWaveCanvas.value], syncRadioWaves, { flush: 'post' });
 watch(() => props.frozenDeviceStatus, updateStatusDevices);
 watch(
   () => props.deploymentConstraints,
@@ -1761,7 +1818,7 @@ watch(() => props.coverageDisplay, updateHttpCoverage);
 watch(() => props.mockCoverageDisplay, updateMockCoverage);
 watch(() => props.deviceCoverageDisplay, updateDeviceCoverage);
 watch(() => props.selectedId, locate);
-watch(() => props.frozenNetwork?.identity.snapshot_id, () => { if (props.frozenNetwork) fit(); });
+watch(() => props.frozenNetwork?.identity.snapshot_id, () => { if (props.frozenNetwork && !props.readonlySituation) fit(); });
 watch(() => props.interferenceProjection ? workbenchMapKey(props.interferenceProjection) : '', () => { if (props.interferenceProjection) fit(); });
 watch(
   () => props.planningOverlay?.snapshotId,
@@ -1780,6 +1837,9 @@ watch(() => props.selectedCandidateLinkId, locate);
 defineExpose({
   // 任务查看复用地图现有全域定位，仅调整显示范围。
   fit,
+  fitAll: fit,
+  returnFrozenNetwork: fit,
+  focusFrozenCoverage: () => {const source=updateFrozenCoverage()?.getSource(),extent=source?.getExtent();if(map&&source?.getFeatures().length&&extent)map.getView().fit(extent,{padding:[50,50,50,50],maxZoom:13,duration:200});},
   locate,
   locateCandidate,
   locateResource,
@@ -1788,6 +1848,7 @@ defineExpose({
   retryDeviceCoverage,
 });
 onBeforeUnmount(() => {
+  stopRadioWaves();
   hoverAlive = false;
   clearHoverPreview();
   unByKey(hoverViewListeners);
@@ -1821,6 +1882,12 @@ onBeforeUnmount(() => {
 });
 </script>
 <style scoped>
+.gis-radio-waves { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 1; pointer-events: none; }
+.situation-area-caption { position:absolute; bottom:14px; left:50%; transform:translateX(-50%); z-index:5; padding:5px 12px; background:#0c1c2cd9; color:#c8dce9; border-radius:4px; font-size:12px; pointer-events:none; white-space:nowrap; }
+.readonly-situation { border: 0; border-radius: 0; }
+.readonly-situation :deep(.ol-attribution), .readonly-situation .map-legend,
+.readonly-situation .map-legend-toggle, .readonly-situation .candidate-map-legend,
+.readonly-situation .deployment-map-legend { display: none; }
 .deployment-map-legend {
   position: absolute;
   z-index: 3;

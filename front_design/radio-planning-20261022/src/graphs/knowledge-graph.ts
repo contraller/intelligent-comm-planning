@@ -1,13 +1,11 @@
 import type { KnowledgeGraph } from '../types/knowledge';
 import { knowledgeEntityName, knowledgeRelationName } from '../services/knowledge-display';
+import { knowledgeIcon, knowledgeMedia } from '../config/knowledge-media';
 
 const categories=['设备知识','网络态势知识','故障运维知识'];
-const colors=['#4798d1','#6db9ee','#e4a15c','#a8c2dc','#5fbfb6','#7d9fe1','#bb91d9','#d6ba6a','#4bbda0','#78cc89','#91b7ed','#c7d879','#73c6d3','#d8ad79','#d47c89','#ea9e77','#d7a7d9','#bb90e5','#829ee0','#7ac2b1','#9bb6cb','#d3bd8c'];
-const symbols=['circle','roundRect','diamond','triangle','rect'];
-const glyphs=['●','▰','◆','▲','■'];
 export interface KnowledgeGraphViewport { width:number; height:number }
 // 只计算显示位置、标签和样式，不推导业务关系或状态。
-export function knowledgeGraphModel(graph:KnowledgeGraph,selectedId:string,typeIds:string[],relationNames:Record<string,string>,matchedIds:readonly string[] = [],viewport?:KnowledgeGraphViewport) {
+export function knowledgeGraphModel(graph:KnowledgeGraph,selectedId:string,_typeIds:string[],relationNames:Record<string,string>,matchedIds:readonly string[] = [],viewport?:KnowledgeGraphViewport,availableMedia?:ReadonlySet<string>) {
   const selected=graph.entities.find(e=>e.id===selectedId);
   const matches=new Set(matchedIds);
   const others=graph.entities.filter(e=>e.id!==selected?.id);
@@ -18,18 +16,19 @@ export function knowledgeGraphModel(graph:KnowledgeGraph,selectedId:string,typeI
   const columns=groups.map(group=>Math.ceil(Math.sqrt(group.length)));
   const width=Math.max(0,...columns.map(count=>(count-1)*130))+210;
   const height=Math.max(0,...groups.map((group,i)=>(Math.ceil(group.length/columns[i])-1)*130))+200;
-  const style=(type:string)=>{const index=Math.max(0,typeIds.indexOf(type));return {color:colors[index%colors.length],symbol:symbols[index%symbols.length],glyph:glyphs[index%symbols.length]};};
+  const style=(type:string)=>knowledgeIcon(type);
   const nodes=graph.entities.map(e=>{
     const displayName=knowledgeEntityName(e);
     const index=others.findIndex(n=>n.id===e.id),ring=Math.floor(index/12),count=Math.min(12,others.length-ring*12),angle=(index%12)/Math.max(count,1)*Math.PI*2;
     const active=e.id===selectedId;
+    const photo=knowledgeMedia(e),photoLoaded=photo&&(!availableMedia||availableMedia.has(photo.url));
     // 明确点选优先于命中高亮；概览仍保留分类颜色与实体形状。
     const matched=!selected&&matches.has(e.id);
     const category=visibleCategories.indexOf(e.category),group=groups[category],local=group.findIndex(n=>n.id===e.id),countColumns=columns[category];
     const offsetX=category===2?width/2:(category%2)*width;
     const x=selected?(active?450:450+Math.cos(angle)*(180+ring*105)):offsetX+100+(local%countColumns)*130;
     const y=selected?(active?300:300+Math.sin(angle)*(160+ring*85)):100+Math.floor(category/2)*height+Math.floor(local/countColumns)*130;
-    return {id:e.id,name:displayName,x,y,symbol:style(e.type).symbol,symbolSize:active?76:matched?58:48,category:categories.indexOf(e.category),itemStyle:{color:style(e.type).color,opacity:(selected&&!active)||(!selected&&matches.size>0&&!matched)?0.55:1,borderWidth:active||matched?3:1,borderColor:active?'#eef9ff':matched?'#f0ce79':'#416883'},label:{show:!dense||active||(matched&&matches.size<=12),position:'bottom',color:'#def0ff',fontSize:11,formatter:displayName.length>8?displayName.slice(0,7)+'…':displayName},emphasis:{label:{show:true,formatter:displayName,backgroundColor:'#102439',padding:5}}};
+    return {id:e.id,name:displayName,x,y,symbol:'image://'+(photoLoaded?photo.url:style(e.type).url),symbolKeepAspect:true,symbolSize:active?76:matched?58:48,category:categories.indexOf(e.category),itemStyle:{color:style(e.type).color,opacity:(selected&&!active)||(!selected&&matches.size>0&&!matched)?0.55:1,borderWidth:active||matched?3:1,borderColor:active?'#eef9ff':matched?'#f0ce79':'#416883',shadowBlur:active?14:matched?10:0,shadowColor:active?'#eef9ff':matched?'#f0ce79':'transparent'},label:{show:!dense||active||(matched&&matches.size<=12),position:'bottom',color:'#def0ff',fontSize:11,formatter:displayName.length>8?displayName.slice(0,7)+'…':displayName},emphasis:{label:{show:true,formatter:displayName,backgroundColor:'#102439',padding:5}}};
   });
   const legend=visibleCategories.map(name=>({name,items:[...new Set(graph.entities.filter(e=>e.category===name).map(e=>e.type))].map(type=>({type,...style(type)}))}));
   // 图坐标随画布缩放，符号以像素绘制；限制最近邻占比以留出关系线通道。

@@ -38,7 +38,8 @@ def _version(value):
 def identity_snapshot(identity):
     return {"id": identity["account_id"], "name": identity["display_name"],
             "roleId": identity["role_id"], "roleName": identity["role_name"],
-            "role": "EDITOR" if "knowledge.edit" in identity["permissions"] else "REVIEWER"}
+            "role": "EDITOR" if "knowledge.edit" in identity["permissions"] else "REVIEWER",
+            **({"authSource": "LOCAL_SINGLE_USER"} if identity.get("auth_source") == "LOCAL_SINGLE_USER" else {})}
 
 
 def _category(entity):
@@ -207,7 +208,16 @@ def browse(kind, query):
                 related_relations.setdefault(eid, []).append(relation)
     matches = [e for e in selected if term in json.dumps(e, ensure_ascii=False).casefold()
                or any(term in alias.casefold() for alias in search_aliases(e, related_relations.get(e["id"], ())))]
-    summary = lambda e: {k: e[k] for k in ("id", "name", "category", "type")}
+    def summary(e):
+        result = {k: e[k] for k in ("id", "name", "category", "type")}
+        if e["type"] == "DeviceModel":
+            # 型号来自所选不可变知识版本，不能用当前资源表补写历史实体。
+            model_name = next((a.get("value") for a in e.get("attributes", [])
+                               if isinstance(a, dict) and a.get("name") == "model_name"
+                               and isinstance(a.get("value"), str) and a["value"].strip()), None)
+            if model_name is not None:
+                result["modelName"] = model_name
+        return result
     if kind == "search":
         page = KnowledgePage.model_validate({k: query[k] for k in ("pageNum", "pageSize") if k in query})
         similar = []
@@ -344,7 +354,13 @@ def mutate(action, request: KnowledgeMutation, identity):
     else:
         if not request.changeId or request.revision is None:
             _fail("缺少变更编号或修订")
-        result = workflow.transition(kg.STORE_PATH, request.changeId, payload, action.upper())
+        from .local_single_user_service import SINGLE_ACCOUNT_ID
+        local_self_review = (identity.get("auth_source") == "LOCAL_SINGLE_USER"
+                             and identity.get("single_user_mode") is True
+                             and identity.get("allow_self_review") is True
+                             and identity["account_id"] == SINGLE_ACCOUNT_ID)
+        result = workflow.transition(kg.STORE_PATH, request.changeId, payload, action.upper(),
+                                     allow_self_review=local_self_review)
     current = f"KGV-{result['version']}"
     eid = result.get("change_id") or current
     return {"objectId": eid, "entityId": eid, "changed": True,

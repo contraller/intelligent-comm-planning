@@ -11,7 +11,8 @@ import type { DiagnosisCapabilities, DiagnosisDataOrigin } from '../types/diagno
 import type { Decision, DecisionRequest } from '../types/resource-edit';
 import type { DiagnosisDemo, DiagnosisDraft, DiagnosisImportPreview, DiagnosisIssue, DiagnosisLoaded, DiagnosisPreset, DiagnosisRecord, DiagnosisRunView, DiagnosisScenarioVersion, DiagnosisSources, DiagnosisWorkspace, FaultInput, ReportFormat } from '../types/diagnosis';
 import { DIAGNOSIS_POLL_MS, DIAGNOSIS_MAX_FILE_BYTES } from '../config/demo';
-import { downloadDiagnosisFile } from '../reports/diagnosis-export';
+import { createDiagnosisExport, downloadDiagnosisFile } from '../reports/diagnosis-export';
+import { assertDiagnosisReportIdentity } from '../services/diagnosis-http-validation';
 import { useAuthStore } from './auth';
 import type { PlanVersion } from '../types/domain';
 import type { DiagnosisContext, DiagnosisReadSources, DiagnosisScenarioSummary, DiagnosisRunSummary, DiagnosisVersionSummary, DiagnosisPresetOption, DiagnosisLegacySummary, DiagnosisReadView, DiagnosisResult, DiagnosisReceipt } from '../types/diagnosis';
@@ -343,10 +344,23 @@ export const useDiagnosisStore = defineStore('diagnosis', () => {
   async function download(format: ReportFormat | 'xlsx' | 'png',filters = '') {
     if (!auth.can('diagnosis.export') || !record.value || exporting.value) return;
     const impact=format==='xlsx'||format==='png',id=record.value.id,session=auth.generation,serial=++exportSerial;
+    const frozenReport=clone(record.value);
+    const stillSelected=()=>session===auth.generation&&serial===exportSerial&&record.value?.id===id;
     exporting.value=true;exportTarget.value=impact?'impact':'report';
     if(impact)impactExportError.value='';else exportError.value='';
     if(notice.value==='文件已生成并发起下载')notice.value='';
-    try { const file = impact ? await previewService.exportDiagnosisImpact(id,format as 'xlsx'|'png',filters) : await previewService.exportDiagnosisReport(id,format as ReportFormat); if(!(await auth.check())||session!==auth.generation||!auth.can('diagnosis.export'))return;downloadDiagnosisFile(file); notice.value = '文件已生成并发起下载'; }
+    try {
+      let file;
+      if(format==='pdf') {
+        // 重新授权读取完整报告；只允许同一冻结运行的图、表和结果一起导出。
+        const authorized=await previewService.getDiagnosisReport(id);
+        if(!stillSelected()||!auth.can('diagnosis.export'))return;
+        assertDiagnosisReportIdentity(authorized,frozenReport);
+        file=await createDiagnosisExport(authorized,'pdf');
+      } else file=impact ? await previewService.exportDiagnosisImpact(id,format as 'xlsx'|'png',filters) : await previewService.exportDiagnosisReport(id,format as ReportFormat);
+      if(!(await auth.check())||!stillSelected()||!auth.can('diagnosis.export'))return;
+      downloadDiagnosisFile(file); notice.value = '文件已生成并发起下载';
+    }
     catch (reason) { if(session===auth.generation&&serial===exportSerial&&record.value?.id===id){const message=reason instanceof Error ? reason.message : '诊断文件导出失败';if(impact)impactExportError.value=message;else exportError.value=message;} } finally { if(serial===exportSerial)exporting.value = false; }
   }
   async function template(format: 'csv' | 'xlsx',planId: string) { if(!auth.can('diagnosis.scenario'))return;const session=auth.generation;importError.value='';try { if(!planId)throw new Error('请先选择导入网络');const file=await previewService.getDiagnosisTemplate(format, planId);if(await auth.check()&&session===auth.generation&&auth.can('diagnosis.scenario'))downloadDiagnosisFile(file); } catch (reason) { if(session===auth.generation)importError.value=reason instanceof Error ? reason.message : '模板下载失败'; } }

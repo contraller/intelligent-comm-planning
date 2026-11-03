@@ -6,6 +6,8 @@ import VectorLayer from 'ol/layer/Vector';
 import { Circle, Fill, Stroke, Style, Text } from 'ol/style';
 import type { GisNetwork } from '../types/gis-plan';
 import { projectCoordinate } from './layers';
+import { LINK_STATUS_STYLES } from '../config/link-status';
+import { gisNodeSymbol, gisSymbol } from './gis-symbols';
 
 // 冻结计划使用独立要素身份，点击不能落到当前资源同名对象。
 export function gisPlanLayer(
@@ -34,6 +36,7 @@ export function gisPlanLayer(
       b = positions.get(link.b);
     if (!a || !b) continue;
     const active = link.id === selected.link || routeLinks.has(link.id);
+    const quality=link.planned_state?LINK_STATUS_STYLES[link.planned_state]:null;
     const feature = new Feature({
       geometry: new LineString([projectCoordinate(a), projectCoordinate(b)]),
       kind: 'frozen-plan-link',
@@ -43,8 +46,8 @@ export function gisPlanLayer(
     feature.setStyle(
       new Style({
         stroke: new Stroke({
-          color: active ? [255, 224, 138, opacity] : [80, 182, 219, opacity],
-          width: active ? 4 : 2,
+          color: active ? [255, 224, 138, opacity] : quality?quality.color+Math.round(opacity*255).toString(16).padStart(2,'0'):[149,162,176,opacity],
+          width: active ? 4 : quality?.width??1.5,
           lineDash: link.backup ? [7, 5] : undefined,
         }),
       }),
@@ -89,11 +92,7 @@ export function gisPlanLayer(
     });
     feature.setStyle(
       new Style({
-        image: new Circle({
-          radius: active ? 8 : 5,
-          fill: new Fill({ color }),
-          stroke: new Stroke({ color: '#152d40', width: 2 }),
-        }),
+        image: gisSymbol(gisNodeSymbol(node),active,color),
         text: active
           ? new Text({
               text: node.name,
@@ -104,7 +103,9 @@ export function gisPlanLayer(
           : undefined,
       }),
     );
+    const devices=network.devices.filter(device=>device.station_id===node.id),hf=devices.filter(device=>device.device_class==='HF').length,vu=devices.length-hf;
+    if(devices.length)feature.setStyle([...(Array.isArray(feature.getStyle())?feature.getStyle() as Style[]:[feature.getStyle() as Style]),new Style({text:new Text({text:`HF ${hf} · VUHF ${vu}`,offsetY:23,font:'10px Microsoft YaHei',fill:new Fill({color:'#d6e9f4'}),backgroundFill:new Fill({color:'#102638d9'}),padding:[2,4,2,4]})})]);
     features.push(feature);
   }
-  return new VectorLayer({ source: new VectorSource({ features }), zIndex: 45 });
+  return new VectorLayer({ source: new VectorSource({ features }), zIndex: 45, declutter:'frozen-plan-captions' });
 }

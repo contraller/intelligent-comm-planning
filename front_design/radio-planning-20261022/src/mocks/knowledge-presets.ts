@@ -12,13 +12,13 @@ export const knowledgeActors: KnowledgeActor[] = [
 export const knowledgeTypes: KnowledgeCatalog['types'] = [
   ...[['Device','设备'],['DeviceModel','设备型号'],['Component','部件'],['Interface','接口'],['Antenna','天线'],['Function','功能'],['Parameter','参数'],['Manufacturer','厂家']].map(([id,name]) => ({id,name,category:'设备知识' as const})),
   ...[['Node','节点'],['Link','链路'],['Metric','运行指标'],['LinkState','链路状态'],['NetworkRole','网络角色'],['NetRule','组网规则']].map(([id,name]) => ({id,name,category:'网络态势知识' as const})),
-  ...[['Fault','故障'],['FaultType','故障类型'],['Symptom','现象'],['Cause','原因'],['DiagnosisStep','诊断步骤'],['Solution','处置方案'],['Tool','工具'],['Spare','备件']].map(([id,name]) => ({id,name,category:'故障运维知识' as const})),
+  ...[['Fault','故障'],['FaultType','故障类型'],['Symptom','现象'],['Cause','原因'],['DiagnosisStep','诊断步骤'],['Solution','处置方案'],['Tool','工具'],['Spare','备件'],['Case','故障案例'],['ObjectType','故障对象类型']].map(([id,name]) => ({id,name,category:'故障运维知识' as const})),
 ];
 export const knowledgeRelationTypes = [
   ['hasComponent','包含部件'],['hasInterface','具有接口'],['hasAntenna','配接天线'],['hasFunction','具有功能'],['hasParameter','具有参数'],['producedBy','生产方'],['supportsMode','支持模式'],['constrainedBy','受约束于'],
   // 定义关系描述规则包含的等级，不表示某条链路同时处于这些状态。
   ['connects','连接'],['measuredBy','测量指标'],['indicates','指示'],['evaluatedAs','评估为'],['followsRule','遵循规则'],['definesState','定义状态等级'],
-  ['hasSymptom','具有现象'],['causedBy','原因是'],['locatedAt','定位于'],['diagnosedBy','诊断步骤'],['resolvedBy','处置方式'],['affects','影响'],['propagatesTo','传播至'],['requiresTool','所需工具'],['requiresSpare','所需备件'],
+  ['hasSymptom','具有现象'],['causedBy','原因是'],['locatedAt','定位于'],['diagnosedBy','诊断步骤'],['resolvedBy','处置方式'],['affects','影响'],['propagatesTo','传播至'],['requiresTool','所需工具'],['requiresSpare','所需备件'],['instanceOf','实例属于'],['occursOn','发生于'],['recordedIn','记录于'],
 ].map(([id,name]) => ({id,name}));
 export const knowledgeModels = source.models.map(({id,name}) => ({id,name}));
 export function knowledgeCatalog(): KnowledgeCatalog {

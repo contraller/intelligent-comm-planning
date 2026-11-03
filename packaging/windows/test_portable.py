@@ -26,6 +26,17 @@ def test_archive_paths_cannot_escape(name):
     assert not load("build_portable").safe_member(name)
 
 
+def test_local_runtime_module_is_included_without_untracked_private_files(tmp_path, monkeypatch):
+    builder = load("build_portable")
+    app = tmp_path / "algorithm-service/app"
+    app.mkdir(parents=True)
+    (app / "local_single_user_service.py").write_text("MODE = 'LOCAL_SINGLE_USER'", encoding="utf-8")
+    (app / "environment.private.json").write_text("{}", encoding="utf-8")
+    monkeypatch.setattr(builder, "ROOT", tmp_path)
+    monkeypatch.setattr(builder.subprocess, "check_output", lambda *a, **k: b"algorithm-service/app/main.py\0")
+    assert builder.source_files() == ["algorithm-service/app/local_single_user_service.py", "algorithm-service/app/main.py"]
+
+
 def test_valid_archive_path():
     assert load("build_portable").safe_member("Lib/site-packages/a/__init__.py")
 
@@ -50,7 +61,7 @@ def first_use_source(tmp_path, monkeypatch):
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(text, encoding="utf-8")
     for suffix in ("docx", "pdf"):
-        manual = tmp_path / ("docs/output/短波超短波智能规划系统用户手册_V1.0_20261028." + suffix)
+        manual = tmp_path / ("docs/output/短波超短波智能规划系统用户手册." + suffix)
         manual.parent.mkdir(parents=True, exist_ok=True)
         manual.write_bytes(b"public-manual-fixture")
         record = tmp_path / ("docs/output/测试用例_实际结果_逐项对应版_20261029." + suffix)
@@ -161,7 +172,7 @@ def test_configuration_does_not_use_developer_database(tmp_path, monkeypatch):
         assert entry.os.environ["DATABASE_URL"] == "sqlite:///" + (tmp_path / "r2.sqlite").as_posix()
         assert "FRONTEND_INTEGRATION_DEMO" not in entry.os.environ
         assert entry.os.environ["SR5_REPORT_DIR"] == str(tmp_path / "r2/portable/reports")
-        assert entry.os.environ["AUTH_MODE"] == "LOCAL_PASSWORD"
+        assert entry.os.environ["AUTH_MODE"] == "LOCAL_SINGLE_USER"
     finally:
         entry.sys.path[:] = original
 
@@ -450,7 +461,7 @@ def test_http_verifies_only_current_asset_closure(frontend, failure):
                 status = 404
             if failure == "html-fallback":
                 mime = "text/html"
-        return httpx.Response(status, text="fixture", headers={"content-type": mime})
+        return httpx.Response(status, text="fixture", headers={"content-type": mime, **({"cache-control": "no-store, no-cache"} if path == "/" else {})})
 
     verifier = load("verify_portable")
     with httpx.Client(base_url="http://portable.invalid", transport=httpx.MockTransport(respond)) as client:

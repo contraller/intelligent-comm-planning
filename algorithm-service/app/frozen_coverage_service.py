@@ -114,7 +114,7 @@ def _source_loader(factory, plan_id, task_id, snapshot_id, *, audit_context=None
     try:
         with (factory or get_session_factory()).begin() as session:
             context = None
-            if not internal and (audit_context is not None or os.environ.get("AUTH_MODE") == "LOCAL_PASSWORD"):
+            if not internal and (audit_context is not None or os.environ.get("AUTH_MODE") in ("LOCAL_PASSWORD", "LOCAL_SINGLE_USER")):
                 from .planning_operation_service import _business_context, _require_owner
                 context = _business_context(audit_context)
                 context._authenticate(session, "planning.execute" if context._writing else "planning.view")
@@ -380,7 +380,7 @@ class FrozenCoverageService:
         for value in (plan_id, task_id, snapshot_id):
             _id(value)
         if self.source_loader is not None:
-            if not internal and (audit_context is not None or os.environ.get("AUTH_MODE") == "LOCAL_PASSWORD"):
+            if not internal and (audit_context is not None or os.environ.get("AUTH_MODE") in ("LOCAL_PASSWORD", "LOCAL_SINGLE_USER")):
                 raise CoverageServiceError("LOCAL覆盖禁止使用测试source loader绕过归属事务", 5001, 503)
             value = self.source_loader(plan_id, task_id, snapshot_id)
         else:

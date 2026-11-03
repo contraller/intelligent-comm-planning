@@ -15,9 +15,13 @@ export const router = createRouter({
         { path: '', redirect: '/situation' },
         {
           path: 'situation',
-          // 数据模式只切换服务适配，GIS 产品页面保持一致。
-          component: () => import('../views/SituationView.vue'),
+          component: () => import('../views/GisSituationView.vue'),
           meta: { title: 'GIS 态势' },
+        },
+        {
+          path: 'gis-workbench',
+          component: () => import('../views/SituationView.vue'),
+          meta: { title: 'GIS 工作台' },
         },
         {
           path: 'resources',
@@ -53,6 +57,9 @@ export const router = createRouter({
 });
 // 直达路由与导航共用权限；已挂载的失效现场由全局冻结层保留。
 router.beforeEach(async(to,from)=>{
+  // 原有资源定位、故障及干扰分析深链继续进入工作台；无参数态势入口始终是只读大地图。
+  if (to.path === '/situation' && Object.keys(to.query).length && safeReturnPath(to.fullPath))
+    return { path: '/gis-workbench', query: to.query, replace: true };
   const auth=useAuthStore();
   if(!auth.bypassLeave)await auth.check();
   // HTTP 共享会话换号时留在原页处理现场，不自动跳转并接纳新账号。

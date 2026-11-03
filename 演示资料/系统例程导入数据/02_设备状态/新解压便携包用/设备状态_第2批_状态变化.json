@@ -1,0 +1,3739 @@
+{
+  "request_id": "496e06f8-42b2-57cb-92bf-07cb5d113d15",
+  "schema_version": "device-status-snapshot-a1",
+  "context": "ledger",
+  "base_revision": "resource-e4a642d6ea91744b",
+  "data_origin": "SYNTHETIC_INTEGRATION",
+  "source_label": "例程设备状态 · 第2批 · 构造演示",
+  "provenance_note": "人工构造例程，非生产、非实测。仅用于学习导入、状态切换和结果查看，不表示真实设备采集或执行。本批展示恢复、新故障和未知变化，不表示真实维修。",
+  "records": [
+    {
+      "device_id": "DV-0001",
+      "node_id": "ND-0001",
+      "model_id": "DM-0004",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0002",
+      "node_id": "ND-0001",
+      "model_id": "DM-0004",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "FAULT",
+      "alert": true,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0003",
+      "node_id": "ND-0001",
+      "model_id": "DM-0004",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0004",
+      "node_id": "ND-0001",
+      "model_id": "DM-0004",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0005",
+      "node_id": "ND-0001",
+      "model_id": "DM-0004",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "OFFLINE",
+      "alert": true,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0006",
+      "node_id": "ND-0001",
+      "model_id": "DM-0004",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0007",
+      "node_id": "ND-0001",
+      "model_id": "DM-0004",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "FAULT",
+      "alert": true,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0008",
+      "node_id": "ND-0001",
+      "model_id": "DM-0004",
+      "observed_at": null,
+      "status": null,
+      "alert": null,
+      "unknown_reasons": [
+        "构造例程：本批未提供该设备的状态、告警及观测时间"
+      ]
+    },
+    {
+      "device_id": "DV-0009",
+      "node_id": "ND-0002",
+      "model_id": "DM-0004",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0010",
+      "node_id": "ND-0002",
+      "model_id": "DM-0004",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0011",
+      "node_id": "ND-0002",
+      "model_id": "DM-0004",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0012",
+      "node_id": "ND-0002",
+      "model_id": "DM-0004",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0013",
+      "node_id": "ND-0002",
+      "model_id": "DM-0004",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0014",
+      "node_id": "ND-0002",
+      "model_id": "DM-0004",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0015",
+      "node_id": "ND-0002",
+      "model_id": "DM-0004",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0016",
+      "node_id": "ND-0002",
+      "model_id": "DM-0004",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0017",
+      "node_id": "ND-0002",
+      "model_id": "DM-0004",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0018",
+      "node_id": "ND-0002",
+      "model_id": "DM-0004",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0019",
+      "node_id": "ND-0002",
+      "model_id": "DM-0004",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0020",
+      "node_id": "ND-0002",
+      "model_id": "DM-0004",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0021",
+      "node_id": "ND-0002",
+      "model_id": "DM-0004",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0022",
+      "node_id": "ND-0002",
+      "model_id": "DM-0004",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0023",
+      "node_id": "ND-0002",
+      "model_id": "DM-0004",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0024",
+      "node_id": "ND-0002",
+      "model_id": "DM-0004",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0025",
+      "node_id": "ND-0002",
+      "model_id": "DM-0004",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0026",
+      "node_id": "ND-0002",
+      "model_id": "DM-0004",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0027",
+      "node_id": "ND-0003",
+      "model_id": "DM-0005",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0028",
+      "node_id": "ND-0003",
+      "model_id": "DM-0005",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0029",
+      "node_id": "ND-0003",
+      "model_id": "DM-0005",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0030",
+      "node_id": "ND-0003",
+      "model_id": "DM-0005",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0031",
+      "node_id": "ND-0003",
+      "model_id": "DM-0005",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0032",
+      "node_id": "ND-0003",
+      "model_id": "DM-0005",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0033",
+      "node_id": "ND-0003",
+      "model_id": "DM-0013",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0034",
+      "node_id": "ND-0003",
+      "model_id": "DM-0013",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0035",
+      "node_id": "ND-0003",
+      "model_id": "DM-0013",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0036",
+      "node_id": "ND-0003",
+      "model_id": "DM-0013",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0037",
+      "node_id": "ND-0004",
+      "model_id": "DM-0006",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0038",
+      "node_id": "ND-0004",
+      "model_id": "DM-0006",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0039",
+      "node_id": "ND-0004",
+      "model_id": "DM-0006",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0040",
+      "node_id": "ND-0004",
+      "model_id": "DM-0006",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0041",
+      "node_id": "ND-0004",
+      "model_id": "DM-0006",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0042",
+      "node_id": "ND-0004",
+      "model_id": "DM-0006",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0043",
+      "node_id": "ND-0004",
+      "model_id": "DM-0014",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0044",
+      "node_id": "ND-0004",
+      "model_id": "DM-0014",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0045",
+      "node_id": "ND-0004",
+      "model_id": "DM-0014",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0046",
+      "node_id": "ND-0004",
+      "model_id": "DM-0014",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0047",
+      "node_id": "ND-0005",
+      "model_id": "DM-0007",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0048",
+      "node_id": "ND-0005",
+      "model_id": "DM-0007",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0049",
+      "node_id": "ND-0005",
+      "model_id": "DM-0007",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0050",
+      "node_id": "ND-0005",
+      "model_id": "DM-0007",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0051",
+      "node_id": "ND-0005",
+      "model_id": "DM-0007",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0052",
+      "node_id": "ND-0005",
+      "model_id": "DM-0007",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0053",
+      "node_id": "ND-0005",
+      "model_id": "DM-0013",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0054",
+      "node_id": "ND-0005",
+      "model_id": "DM-0013",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0055",
+      "node_id": "ND-0005",
+      "model_id": "DM-0013",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0056",
+      "node_id": "ND-0005",
+      "model_id": "DM-0013",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0057",
+      "node_id": "ND-0006",
+      "model_id": "DM-0004",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0058",
+      "node_id": "ND-0006",
+      "model_id": "DM-0004",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0059",
+      "node_id": "ND-0006",
+      "model_id": "DM-0004",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0060",
+      "node_id": "ND-0006",
+      "model_id": "DM-0004",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0061",
+      "node_id": "ND-0006",
+      "model_id": "DM-0004",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0062",
+      "node_id": "ND-0006",
+      "model_id": "DM-0004",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0063",
+      "node_id": "ND-0006",
+      "model_id": "DM-0014",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0064",
+      "node_id": "ND-0006",
+      "model_id": "DM-0014",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0065",
+      "node_id": "ND-0006",
+      "model_id": "DM-0014",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0066",
+      "node_id": "ND-0006",
+      "model_id": "DM-0014",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0067",
+      "node_id": "ND-0007",
+      "model_id": "DM-0005",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0068",
+      "node_id": "ND-0007",
+      "model_id": "DM-0013",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0069",
+      "node_id": "ND-0007",
+      "model_id": "DM-0013",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0070",
+      "node_id": "ND-0008",
+      "model_id": "DM-0006",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0071",
+      "node_id": "ND-0008",
+      "model_id": "DM-0014",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0072",
+      "node_id": "ND-0008",
+      "model_id": "DM-0014",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0073",
+      "node_id": "ND-0009",
+      "model_id": "DM-0007",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0074",
+      "node_id": "ND-0009",
+      "model_id": "DM-0013",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0075",
+      "node_id": "ND-0009",
+      "model_id": "DM-0013",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0076",
+      "node_id": "ND-0009",
+      "model_id": "DM-0013",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0077",
+      "node_id": "ND-0009",
+      "model_id": "DM-0013",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0078",
+      "node_id": "ND-0009",
+      "model_id": "DM-0013",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0079",
+      "node_id": "ND-0010",
+      "model_id": "DM-0008",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0080",
+      "node_id": "ND-0010",
+      "model_id": "DM-0014",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0081",
+      "node_id": "ND-0010",
+      "model_id": "DM-0014",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0082",
+      "node_id": "ND-0010",
+      "model_id": "DM-0014",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0083",
+      "node_id": "ND-0010",
+      "model_id": "DM-0014",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0084",
+      "node_id": "ND-0010",
+      "model_id": "DM-0014",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0085",
+      "node_id": "ND-0011",
+      "model_id": "DM-0004",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0086",
+      "node_id": "ND-0011",
+      "model_id": "DM-0013",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0087",
+      "node_id": "ND-0011",
+      "model_id": "DM-0013",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0088",
+      "node_id": "ND-0012",
+      "model_id": "DM-0005",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0089",
+      "node_id": "ND-0012",
+      "model_id": "DM-0014",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0090",
+      "node_id": "ND-0012",
+      "model_id": "DM-0014",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0091",
+      "node_id": "ND-0013",
+      "model_id": "DM-0006",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0092",
+      "node_id": "ND-0013",
+      "model_id": "DM-0013",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0093",
+      "node_id": "ND-0013",
+      "model_id": "DM-0013",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0094",
+      "node_id": "ND-0013",
+      "model_id": "DM-0013",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0095",
+      "node_id": "ND-0013",
+      "model_id": "DM-0013",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0096",
+      "node_id": "ND-0013",
+      "model_id": "DM-0013",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0097",
+      "node_id": "ND-0014",
+      "model_id": "DM-0007",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0098",
+      "node_id": "ND-0014",
+      "model_id": "DM-0014",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0099",
+      "node_id": "ND-0014",
+      "model_id": "DM-0014",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0100",
+      "node_id": "ND-0014",
+      "model_id": "DM-0014",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0101",
+      "node_id": "ND-0014",
+      "model_id": "DM-0014",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0102",
+      "node_id": "ND-0014",
+      "model_id": "DM-0014",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0103",
+      "node_id": "ND-0015",
+      "model_id": "DM-0008",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0104",
+      "node_id": "ND-0015",
+      "model_id": "DM-0013",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0105",
+      "node_id": "ND-0015",
+      "model_id": "DM-0013",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0106",
+      "node_id": "ND-0016",
+      "model_id": "DM-0004",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0107",
+      "node_id": "ND-0016",
+      "model_id": "DM-0014",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0108",
+      "node_id": "ND-0016",
+      "model_id": "DM-0014",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0109",
+      "node_id": "ND-0017",
+      "model_id": "DM-0005",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0110",
+      "node_id": "ND-0017",
+      "model_id": "DM-0013",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0111",
+      "node_id": "ND-0017",
+      "model_id": "DM-0013",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0112",
+      "node_id": "ND-0017",
+      "model_id": "DM-0013",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0113",
+      "node_id": "ND-0017",
+      "model_id": "DM-0013",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0114",
+      "node_id": "ND-0017",
+      "model_id": "DM-0013",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0115",
+      "node_id": "ND-0018",
+      "model_id": "DM-0006",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0116",
+      "node_id": "ND-0018",
+      "model_id": "DM-0014",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0117",
+      "node_id": "ND-0018",
+      "model_id": "DM-0014",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0118",
+      "node_id": "ND-0018",
+      "model_id": "DM-0014",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0119",
+      "node_id": "ND-0018",
+      "model_id": "DM-0014",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0120",
+      "node_id": "ND-0018",
+      "model_id": "DM-0014",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0121",
+      "node_id": "ND-0019",
+      "model_id": "DM-0007",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0122",
+      "node_id": "ND-0019",
+      "model_id": "DM-0013",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0123",
+      "node_id": "ND-0019",
+      "model_id": "DM-0013",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0124",
+      "node_id": "ND-0020",
+      "model_id": "DM-0008",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0125",
+      "node_id": "ND-0020",
+      "model_id": "DM-0014",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0126",
+      "node_id": "ND-0020",
+      "model_id": "DM-0014",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0127",
+      "node_id": "ND-0021",
+      "model_id": "DM-0004",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0128",
+      "node_id": "ND-0021",
+      "model_id": "DM-0013",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0129",
+      "node_id": "ND-0021",
+      "model_id": "DM-0013",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0130",
+      "node_id": "ND-0021",
+      "model_id": "DM-0013",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0131",
+      "node_id": "ND-0021",
+      "model_id": "DM-0013",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0132",
+      "node_id": "ND-0021",
+      "model_id": "DM-0013",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0133",
+      "node_id": "ND-0022",
+      "model_id": "DM-0005",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0134",
+      "node_id": "ND-0022",
+      "model_id": "DM-0014",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0135",
+      "node_id": "ND-0022",
+      "model_id": "DM-0014",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0136",
+      "node_id": "ND-0022",
+      "model_id": "DM-0014",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0137",
+      "node_id": "ND-0022",
+      "model_id": "DM-0014",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0138",
+      "node_id": "ND-0022",
+      "model_id": "DM-0014",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0139",
+      "node_id": "ND-0023",
+      "model_id": "DM-0006",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0140",
+      "node_id": "ND-0023",
+      "model_id": "DM-0013",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0141",
+      "node_id": "ND-0023",
+      "model_id": "DM-0013",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0142",
+      "node_id": "ND-0023",
+      "model_id": "DM-0013",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0143",
+      "node_id": "ND-0023",
+      "model_id": "DM-0013",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0144",
+      "node_id": "ND-0024",
+      "model_id": "DM-0007",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0145",
+      "node_id": "ND-0024",
+      "model_id": "DM-0014",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0146",
+      "node_id": "ND-0024",
+      "model_id": "DM-0014",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0147",
+      "node_id": "ND-0024",
+      "model_id": "DM-0014",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0148",
+      "node_id": "ND-0024",
+      "model_id": "DM-0014",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0149",
+      "node_id": "ND-0025",
+      "model_id": "DM-0008",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0150",
+      "node_id": "ND-0025",
+      "model_id": "DM-0013",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0151",
+      "node_id": "ND-0025",
+      "model_id": "DM-0013",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0152",
+      "node_id": "ND-0025",
+      "model_id": "DM-0013",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0153",
+      "node_id": "ND-0025",
+      "model_id": "DM-0013",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0154",
+      "node_id": "ND-0026",
+      "model_id": "DM-0004",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0155",
+      "node_id": "ND-0026",
+      "model_id": "DM-0014",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0156",
+      "node_id": "ND-0026",
+      "model_id": "DM-0014",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0157",
+      "node_id": "ND-0026",
+      "model_id": "DM-0014",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0158",
+      "node_id": "ND-0026",
+      "model_id": "DM-0014",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0159",
+      "node_id": "ND-0027",
+      "model_id": "DM-0005",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0160",
+      "node_id": "ND-0027",
+      "model_id": "DM-0013",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0161",
+      "node_id": "ND-0027",
+      "model_id": "DM-0013",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0162",
+      "node_id": "ND-0027",
+      "model_id": "DM-0013",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0163",
+      "node_id": "ND-0027",
+      "model_id": "DM-0013",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0164",
+      "node_id": "ND-0028",
+      "model_id": "DM-0006",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0165",
+      "node_id": "ND-0028",
+      "model_id": "DM-0014",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0166",
+      "node_id": "ND-0028",
+      "model_id": "DM-0014",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0167",
+      "node_id": "ND-0028",
+      "model_id": "DM-0014",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0168",
+      "node_id": "ND-0028",
+      "model_id": "DM-0014",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0169",
+      "node_id": "ND-0029",
+      "model_id": "DM-0007",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0170",
+      "node_id": "ND-0029",
+      "model_id": "DM-0013",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0171",
+      "node_id": "ND-0029",
+      "model_id": "DM-0013",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0172",
+      "node_id": "ND-0029",
+      "model_id": "DM-0013",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0173",
+      "node_id": "ND-0029",
+      "model_id": "DM-0013",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0174",
+      "node_id": "ND-0030",
+      "model_id": "DM-0008",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0175",
+      "node_id": "ND-0030",
+      "model_id": "DM-0014",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0176",
+      "node_id": "ND-0030",
+      "model_id": "DM-0014",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0177",
+      "node_id": "ND-0030",
+      "model_id": "DM-0014",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0178",
+      "node_id": "ND-0030",
+      "model_id": "DM-0014",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0179",
+      "node_id": "ND-0031",
+      "model_id": "DM-0004",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0180",
+      "node_id": "ND-0031",
+      "model_id": "DM-0013",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0181",
+      "node_id": "ND-0031",
+      "model_id": "DM-0013",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0182",
+      "node_id": "ND-0031",
+      "model_id": "DM-0013",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0183",
+      "node_id": "ND-0031",
+      "model_id": "DM-0013",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0184",
+      "node_id": "ND-0032",
+      "model_id": "DM-0005",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0185",
+      "node_id": "ND-0032",
+      "model_id": "DM-0014",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0186",
+      "node_id": "ND-0032",
+      "model_id": "DM-0014",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0187",
+      "node_id": "ND-0032",
+      "model_id": "DM-0014",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0188",
+      "node_id": "ND-0032",
+      "model_id": "DM-0014",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0189",
+      "node_id": "ND-0033",
+      "model_id": "DM-0006",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0190",
+      "node_id": "ND-0033",
+      "model_id": "DM-0013",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0191",
+      "node_id": "ND-0033",
+      "model_id": "DM-0013",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0192",
+      "node_id": "ND-0033",
+      "model_id": "DM-0013",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0193",
+      "node_id": "ND-0033",
+      "model_id": "DM-0013",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0194",
+      "node_id": "ND-0034",
+      "model_id": "DM-0007",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0195",
+      "node_id": "ND-0034",
+      "model_id": "DM-0014",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0196",
+      "node_id": "ND-0034",
+      "model_id": "DM-0014",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0197",
+      "node_id": "ND-0034",
+      "model_id": "DM-0014",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0198",
+      "node_id": "ND-0034",
+      "model_id": "DM-0014",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0199",
+      "node_id": "ND-0035",
+      "model_id": "DM-0008",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0200",
+      "node_id": "ND-0035",
+      "model_id": "DM-0013",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0201",
+      "node_id": "ND-0035",
+      "model_id": "DM-0013",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0202",
+      "node_id": "ND-0035",
+      "model_id": "DM-0013",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0203",
+      "node_id": "ND-0035",
+      "model_id": "DM-0013",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0204",
+      "node_id": "ND-0036",
+      "model_id": "DM-0004",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0205",
+      "node_id": "ND-0036",
+      "model_id": "DM-0014",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0206",
+      "node_id": "ND-0036",
+      "model_id": "DM-0014",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0207",
+      "node_id": "ND-0036",
+      "model_id": "DM-0014",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0208",
+      "node_id": "ND-0036",
+      "model_id": "DM-0014",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0209",
+      "node_id": "ND-0037",
+      "model_id": "DM-0005",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0210",
+      "node_id": "ND-0037",
+      "model_id": "DM-0013",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0211",
+      "node_id": "ND-0037",
+      "model_id": "DM-0013",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0212",
+      "node_id": "ND-0037",
+      "model_id": "DM-0013",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0213",
+      "node_id": "ND-0037",
+      "model_id": "DM-0013",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0214",
+      "node_id": "ND-0038",
+      "model_id": "DM-0006",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0215",
+      "node_id": "ND-0038",
+      "model_id": "DM-0014",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0216",
+      "node_id": "ND-0038",
+      "model_id": "DM-0014",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0217",
+      "node_id": "ND-0038",
+      "model_id": "DM-0014",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0218",
+      "node_id": "ND-0038",
+      "model_id": "DM-0014",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0219",
+      "node_id": "ND-0039",
+      "model_id": "DM-0007",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0220",
+      "node_id": "ND-0039",
+      "model_id": "DM-0013",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0221",
+      "node_id": "ND-0039",
+      "model_id": "DM-0013",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0222",
+      "node_id": "ND-0039",
+      "model_id": "DM-0013",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0223",
+      "node_id": "ND-0039",
+      "model_id": "DM-0013",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0224",
+      "node_id": "ND-0040",
+      "model_id": "DM-0008",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0225",
+      "node_id": "ND-0040",
+      "model_id": "DM-0014",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0226",
+      "node_id": "ND-0040",
+      "model_id": "DM-0014",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0227",
+      "node_id": "ND-0040",
+      "model_id": "DM-0014",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0228",
+      "node_id": "ND-0040",
+      "model_id": "DM-0014",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0229",
+      "node_id": "ND-0041",
+      "model_id": "DM-0004",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0230",
+      "node_id": "ND-0041",
+      "model_id": "DM-0013",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0231",
+      "node_id": "ND-0041",
+      "model_id": "DM-0013",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0232",
+      "node_id": "ND-0041",
+      "model_id": "DM-0013",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0233",
+      "node_id": "ND-0041",
+      "model_id": "DM-0013",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0234",
+      "node_id": "ND-0042",
+      "model_id": "DM-0005",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0235",
+      "node_id": "ND-0042",
+      "model_id": "DM-0014",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0236",
+      "node_id": "ND-0042",
+      "model_id": "DM-0014",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0237",
+      "node_id": "ND-0042",
+      "model_id": "DM-0014",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0238",
+      "node_id": "ND-0042",
+      "model_id": "DM-0014",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0239",
+      "node_id": "ND-0043",
+      "model_id": "DM-0006",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0240",
+      "node_id": "ND-0043",
+      "model_id": "DM-0013",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0241",
+      "node_id": "ND-0043",
+      "model_id": "DM-0013",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0242",
+      "node_id": "ND-0043",
+      "model_id": "DM-0013",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0243",
+      "node_id": "ND-0043",
+      "model_id": "DM-0013",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0244",
+      "node_id": "ND-0044",
+      "model_id": "DM-0007",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0245",
+      "node_id": "ND-0044",
+      "model_id": "DM-0014",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0246",
+      "node_id": "ND-0044",
+      "model_id": "DM-0014",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0247",
+      "node_id": "ND-0044",
+      "model_id": "DM-0014",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0248",
+      "node_id": "ND-0044",
+      "model_id": "DM-0014",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0249",
+      "node_id": "ND-0045",
+      "model_id": "DM-0008",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0250",
+      "node_id": "ND-0045",
+      "model_id": "DM-0013",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0251",
+      "node_id": "ND-0045",
+      "model_id": "DM-0013",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0252",
+      "node_id": "ND-0045",
+      "model_id": "DM-0013",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0253",
+      "node_id": "ND-0045",
+      "model_id": "DM-0013",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0254",
+      "node_id": "ND-0046",
+      "model_id": "DM-0004",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0255",
+      "node_id": "ND-0046",
+      "model_id": "DM-0014",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0256",
+      "node_id": "ND-0046",
+      "model_id": "DM-0014",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0257",
+      "node_id": "ND-0046",
+      "model_id": "DM-0014",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0258",
+      "node_id": "ND-0046",
+      "model_id": "DM-0014",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0259",
+      "node_id": "ND-0047",
+      "model_id": "DM-0005",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0260",
+      "node_id": "ND-0047",
+      "model_id": "DM-0013",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0261",
+      "node_id": "ND-0047",
+      "model_id": "DM-0013",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0262",
+      "node_id": "ND-0047",
+      "model_id": "DM-0013",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0263",
+      "node_id": "ND-0047",
+      "model_id": "DM-0013",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0264",
+      "node_id": "ND-0048",
+      "model_id": "DM-0006",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0265",
+      "node_id": "ND-0048",
+      "model_id": "DM-0014",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0266",
+      "node_id": "ND-0048",
+      "model_id": "DM-0014",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0267",
+      "node_id": "ND-0048",
+      "model_id": "DM-0014",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0268",
+      "node_id": "ND-0048",
+      "model_id": "DM-0014",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0269",
+      "node_id": "ND-0049",
+      "model_id": "DM-0007",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0270",
+      "node_id": "ND-0049",
+      "model_id": "DM-0013",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0271",
+      "node_id": "ND-0049",
+      "model_id": "DM-0013",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0272",
+      "node_id": "ND-0049",
+      "model_id": "DM-0013",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0273",
+      "node_id": "ND-0049",
+      "model_id": "DM-0013",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0274",
+      "node_id": "ND-0050",
+      "model_id": "DM-0008",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0275",
+      "node_id": "ND-0050",
+      "model_id": "DM-0014",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0276",
+      "node_id": "ND-0050",
+      "model_id": "DM-0014",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0277",
+      "node_id": "ND-0050",
+      "model_id": "DM-0014",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0278",
+      "node_id": "ND-0050",
+      "model_id": "DM-0014",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0279",
+      "node_id": "ND-0051",
+      "model_id": "DM-0013",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0280",
+      "node_id": "ND-0052",
+      "model_id": "DM-0014",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0281",
+      "node_id": "ND-0053",
+      "model_id": "DM-0013",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0282",
+      "node_id": "ND-0054",
+      "model_id": "DM-0014",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0283",
+      "node_id": "ND-0055",
+      "model_id": "DM-0013",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0284",
+      "node_id": "ND-0056",
+      "model_id": "DM-0014",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0285",
+      "node_id": "ND-0057",
+      "model_id": "DM-0013",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0286",
+      "node_id": "ND-0058",
+      "model_id": "DM-0014",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0287",
+      "node_id": "ND-0059",
+      "model_id": "DM-0013",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0288",
+      "node_id": "ND-0060",
+      "model_id": "DM-0014",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0289",
+      "node_id": "ND-0061",
+      "model_id": "DM-0013",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0290",
+      "node_id": "ND-0062",
+      "model_id": "DM-0014",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0291",
+      "node_id": "ND-0063",
+      "model_id": "DM-0013",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0292",
+      "node_id": "ND-0064",
+      "model_id": "DM-0014",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0293",
+      "node_id": "ND-0065",
+      "model_id": "DM-0013",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0294",
+      "node_id": "ND-0066",
+      "model_id": "DM-0014",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0295",
+      "node_id": "ND-0067",
+      "model_id": "DM-0013",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0296",
+      "node_id": "ND-0068",
+      "model_id": "DM-0014",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0297",
+      "node_id": "ND-0069",
+      "model_id": "DM-0013",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0298",
+      "node_id": "ND-0070",
+      "model_id": "DM-0014",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0299",
+      "node_id": "ND-0071",
+      "model_id": "DM-0013",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0300",
+      "node_id": "ND-0072",
+      "model_id": "DM-0014",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0301",
+      "node_id": "ND-0073",
+      "model_id": "DM-0013",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0302",
+      "node_id": "ND-0074",
+      "model_id": "DM-0014",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0303",
+      "node_id": "ND-0075",
+      "model_id": "DM-0013",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0304",
+      "node_id": "ND-0076",
+      "model_id": "DM-0014",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0305",
+      "node_id": "ND-0077",
+      "model_id": "DM-0013",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0306",
+      "node_id": "ND-0078",
+      "model_id": "DM-0014",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0307",
+      "node_id": "ND-0079",
+      "model_id": "DM-0013",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0308",
+      "node_id": "ND-0080",
+      "model_id": "DM-0014",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0309",
+      "node_id": "ND-0081",
+      "model_id": "DM-0013",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0310",
+      "node_id": "ND-0082",
+      "model_id": "DM-0014",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0311",
+      "node_id": "ND-0083",
+      "model_id": "DM-0013",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0312",
+      "node_id": "ND-0084",
+      "model_id": "DM-0014",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0313",
+      "node_id": "ND-0085",
+      "model_id": "DM-0013",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0314",
+      "node_id": "ND-0086",
+      "model_id": "DM-0014",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0315",
+      "node_id": "ND-0087",
+      "model_id": "DM-0013",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0316",
+      "node_id": "ND-0088",
+      "model_id": "DM-0014",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0317",
+      "node_id": "ND-0089",
+      "model_id": "DM-0013",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0318",
+      "node_id": "ND-0090",
+      "model_id": "DM-0014",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0319",
+      "node_id": "ND-0091",
+      "model_id": "DM-0013",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0320",
+      "node_id": "ND-0092",
+      "model_id": "DM-0014",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0321",
+      "node_id": "ND-0093",
+      "model_id": "DM-0013",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0322",
+      "node_id": "ND-0094",
+      "model_id": "DM-0014",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0323",
+      "node_id": "ND-0095",
+      "model_id": "DM-0013",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0324",
+      "node_id": "ND-0096",
+      "model_id": "DM-0014",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0325",
+      "node_id": "ND-0097",
+      "model_id": "DM-0013",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0326",
+      "node_id": "ND-0098",
+      "model_id": "DM-0014",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0327",
+      "node_id": "ND-0099",
+      "model_id": "DM-0013",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0328",
+      "node_id": "ND-0100",
+      "model_id": "DM-0014",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0329",
+      "node_id": "ND-0101",
+      "model_id": "DM-0013",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0330",
+      "node_id": "ND-0102",
+      "model_id": "DM-0014",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0331",
+      "node_id": "ND-0103",
+      "model_id": "DM-0013",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0332",
+      "node_id": "ND-0104",
+      "model_id": "DM-0014",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0333",
+      "node_id": "ND-0105",
+      "model_id": "DM-0013",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0334",
+      "node_id": "ND-0106",
+      "model_id": "DM-0014",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0335",
+      "node_id": "ND-0107",
+      "model_id": "DM-0004",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0336",
+      "node_id": "ND-0107",
+      "model_id": "DM-0004",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0337",
+      "node_id": "ND-0107",
+      "model_id": "DM-0004",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0338",
+      "node_id": "ND-0107",
+      "model_id": "DM-0004",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0339",
+      "node_id": "ND-0108",
+      "model_id": "DM-0005",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0340",
+      "node_id": "ND-0108",
+      "model_id": "DM-0005",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0341",
+      "node_id": "ND-0108",
+      "model_id": "DM-0005",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0342",
+      "node_id": "ND-0108",
+      "model_id": "DM-0005",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0343",
+      "node_id": "ND-0109",
+      "model_id": "DM-0006",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0344",
+      "node_id": "ND-0109",
+      "model_id": "DM-0006",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0345",
+      "node_id": "ND-0109",
+      "model_id": "DM-0006",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0346",
+      "node_id": "ND-0109",
+      "model_id": "DM-0006",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0347",
+      "node_id": "ND-0110",
+      "model_id": "DM-0007",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0348",
+      "node_id": "ND-0110",
+      "model_id": "DM-0007",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0349",
+      "node_id": "ND-0110",
+      "model_id": "DM-0007",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0350",
+      "node_id": "ND-0110",
+      "model_id": "DM-0007",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0351",
+      "node_id": "ND-0111",
+      "model_id": "DM-0008",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0352",
+      "node_id": "ND-0111",
+      "model_id": "DM-0008",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0353",
+      "node_id": "ND-0111",
+      "model_id": "DM-0008",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0354",
+      "node_id": "ND-0111",
+      "model_id": "DM-0008",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0355",
+      "node_id": "ND-0112",
+      "model_id": "DM-0004",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0356",
+      "node_id": "ND-0112",
+      "model_id": "DM-0004",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0357",
+      "node_id": "ND-0112",
+      "model_id": "DM-0004",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0358",
+      "node_id": "ND-0112",
+      "model_id": "DM-0004",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0359",
+      "node_id": "ND-0113",
+      "model_id": "DM-0005",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0360",
+      "node_id": "ND-0113",
+      "model_id": "DM-0005",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0361",
+      "node_id": "ND-0113",
+      "model_id": "DM-0005",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0362",
+      "node_id": "ND-0113",
+      "model_id": "DM-0005",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0363",
+      "node_id": "ND-0114",
+      "model_id": "DM-0006",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0364",
+      "node_id": "ND-0114",
+      "model_id": "DM-0006",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0365",
+      "node_id": "ND-0114",
+      "model_id": "DM-0006",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0366",
+      "node_id": "ND-0114",
+      "model_id": "DM-0006",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0367",
+      "node_id": "ND-0115",
+      "model_id": "DM-0007",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0368",
+      "node_id": "ND-0115",
+      "model_id": "DM-0007",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0369",
+      "node_id": "ND-0115",
+      "model_id": "DM-0007",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0370",
+      "node_id": "ND-0115",
+      "model_id": "DM-0007",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0371",
+      "node_id": "ND-0116",
+      "model_id": "DM-0008",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0372",
+      "node_id": "ND-0116",
+      "model_id": "DM-0008",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0373",
+      "node_id": "ND-0116",
+      "model_id": "DM-0008",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0374",
+      "node_id": "ND-0116",
+      "model_id": "DM-0008",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0375",
+      "node_id": "ND-0117",
+      "model_id": "DM-0004",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0376",
+      "node_id": "ND-0117",
+      "model_id": "DM-0004",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0377",
+      "node_id": "ND-0117",
+      "model_id": "DM-0004",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0378",
+      "node_id": "ND-0117",
+      "model_id": "DM-0004",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0379",
+      "node_id": "ND-0118",
+      "model_id": "DM-0005",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0380",
+      "node_id": "ND-0118",
+      "model_id": "DM-0005",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0381",
+      "node_id": "ND-0118",
+      "model_id": "DM-0005",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0382",
+      "node_id": "ND-0118",
+      "model_id": "DM-0005",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0383",
+      "node_id": "ND-0119",
+      "model_id": "DM-0006",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0384",
+      "node_id": "ND-0119",
+      "model_id": "DM-0006",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0385",
+      "node_id": "ND-0119",
+      "model_id": "DM-0006",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0386",
+      "node_id": "ND-0119",
+      "model_id": "DM-0006",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0387",
+      "node_id": "ND-0120",
+      "model_id": "DM-0007",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0388",
+      "node_id": "ND-0120",
+      "model_id": "DM-0007",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0389",
+      "node_id": "ND-0120",
+      "model_id": "DM-0007",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0390",
+      "node_id": "ND-0120",
+      "model_id": "DM-0007",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0391",
+      "node_id": "ND-0121",
+      "model_id": "DM-0001",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0392",
+      "node_id": "ND-0121",
+      "model_id": "DM-0001",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0393",
+      "node_id": "ND-0122",
+      "model_id": "DM-0002",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0394",
+      "node_id": "ND-0122",
+      "model_id": "DM-0002",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0395",
+      "node_id": "ND-0123",
+      "model_id": "DM-0003",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0396",
+      "node_id": "ND-0123",
+      "model_id": "DM-0003",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0397",
+      "node_id": "ND-0124",
+      "model_id": "DM-0001",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0398",
+      "node_id": "ND-0124",
+      "model_id": "DM-0001",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0399",
+      "node_id": "ND-0125",
+      "model_id": "DM-0002",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0400",
+      "node_id": "ND-0125",
+      "model_id": "DM-0002",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0401",
+      "node_id": "ND-0126",
+      "model_id": "DM-0003",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0402",
+      "node_id": "ND-0126",
+      "model_id": "DM-0003",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0403",
+      "node_id": "ND-0127",
+      "model_id": "DM-0001",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0404",
+      "node_id": "ND-0127",
+      "model_id": "DM-0001",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0405",
+      "node_id": "ND-0128",
+      "model_id": "DM-0002",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0406",
+      "node_id": "ND-0128",
+      "model_id": "DM-0002",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0407",
+      "node_id": "ND-0129",
+      "model_id": "DM-0003",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0408",
+      "node_id": "ND-0129",
+      "model_id": "DM-0003",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0409",
+      "node_id": "ND-0130",
+      "model_id": "DM-0001",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0410",
+      "node_id": "ND-0130",
+      "model_id": "DM-0001",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0411",
+      "node_id": "ND-0131",
+      "model_id": "DM-0002",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0412",
+      "node_id": "ND-0131",
+      "model_id": "DM-0002",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0413",
+      "node_id": "ND-0132",
+      "model_id": "DM-0003",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    },
+    {
+      "device_id": "DV-0414",
+      "node_id": "ND-0132",
+      "model_id": "DM-0003",
+      "observed_at": "2026-11-03T01:05:00Z",
+      "status": "NORMAL",
+      "alert": false,
+      "unknown_reasons": []
+    }
+  ]
+}

@@ -38,7 +38,7 @@ def first_use_materials(root=None):
     )
     materials = [(examples / source, destination) for source, destination in names]
     for suffix in ("docx", "pdf"):
-        materials.append((root / ("docs/output/短波超短波智能规划系统用户手册_V1.0_20261028." + suffix),
+        materials.append((root / ("docs/output/短波超短波智能规划系统用户手册." + suffix),
                           "用户手册/用户手册." + suffix))
         # 验收记录与手册共同装配，避免源码已更新而便携包仍带旧文档。
         materials.append((root / ("docs/output/测试用例_实际结果_逐项对应版_20261029." + suffix),
@@ -109,7 +109,12 @@ def safe_member(name):
 def source_files():
     values = subprocess.check_output(["git", "ls-files", "-z"], cwd=ROOT).decode("utf-8").split("\0")
     prefixes = ("algorithm-service/", "scripts/", "alt_steiner/", "data/")
-    return [value for value in values if value.startswith(prefixes) and not value.endswith(".pyc")]
+    files = {value for value in values if value.startswith(prefixes) and not value.endswith(".pyc")}
+    # 本地受控修改可新增运行模块；只补应用Python源码，不纳入未登记配置、测试库或凭据。
+    for path in (ROOT / "algorithm-service/app").rglob("*.py"):
+        if "__pycache__" not in path.parts and path.is_file() and not path.is_symlink():
+            files.add(path.relative_to(ROOT).as_posix())
+    return sorted(files)
 
 
 def copy_dependencies(site, target):
@@ -236,8 +241,9 @@ def build(args):
     check_frontend_assets(static)
     # 清单不包含运行时凭据；任何 user_data 都不进入 ZIP。
     files = {path.relative_to(target).as_posix(): digest(path) for path in sorted(target.rglob("*")) if path.is_file()}
-    manifest = {"schema": 1, "platform": "Windows 10/11 x64", "source_commit": subprocess.check_output(
-        ["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip(), "python": {"version": "3.12.4", "url": EMBED_URL, "sha256": EMBED_SHA256},
+    controlled_hash = hashlib.sha256(json.dumps(files, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
+    manifest = {"schema": 1, "platform": "Windows 10/11 x64", "controlled_version": "LOCAL-20261103-" + controlled_hash[:12],
+        "content_snapshot_sha256": controlled_hash, "python": {"version": "3.12.4", "sha256": EMBED_SHA256},
         "database": "FIRST_START_NEW_DATABASE_NO_DEVELOPER_HISTORY", "data_origin": "SYNTHETIC_INTEGRATION",
         "first_use_examples": {"entry": "首次使用演示.html", "files": example_files,
                                "policy": "IMPORT_AND_COMPUTE_ON_FRESH_DATABASE"},

@@ -466,9 +466,11 @@
           :exporting="diagnosis.exporting"
           :impact-exporting="diagnosis.exporting && diagnosis.exportTarget === 'impact'"
           :export-error="diagnosis.impactExportError"
+          :report-export-error="diagnosis.exportError"
           :legacy="diagnosis.record?.legacy ?? false"
           @locate="locate"
           @report="reportDrawer = true"
+          @download="diagnosis.download($event)"
           @export-impact="diagnosis.download($event, filters)"
         >
           <!-- 收起入口放入标题行，避免面板外占行造成顶边错位。 -->

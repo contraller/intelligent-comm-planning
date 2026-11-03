@@ -5,12 +5,13 @@ import VectorLayer from 'ol/layer/Vector';
 import { Circle,Fill,Stroke,Style,Text } from 'ol/style';
 import type { Coordinate,InterferenceSource } from '../types/domain';
 import { projectCoordinate } from './layers';
+import { gisSymbol } from './gis-symbols';
 
 // 仅显示资源点位和取点预览，绝不推算干扰影响范围。
 export function interferenceLayer(rows:InterferenceSource[],selectedId=''){
   return new VectorLayer({source:new VectorSource({features:rows.map(row=>new Feature({geometry:new Point(projectCoordinate(row.coordinate)),kind:'interference-source',objectId:row.id,source:row}))}),
     style:feature=>{const row=feature.get('source') as InterferenceSource;return new Style({
-      image:new Circle({radius:row.id===selectedId?9:6,fill:new Fill({color:row.active?'#e4a859':'#6b7c91'}),stroke:new Stroke({color:row.id===selectedId?'#ffffff':'#462e24',width:2})}),
+      image:gisSymbol('interference-source',row.id===selectedId,row.active?'#e4a859':'#6b7c91'),
       text:row.id===selectedId?new Text({text:row.name+' · 干扰源',offsetY:-20,fill:new Fill({color:'#ffda9d'}),backgroundFill:new Fill({color:'#162238'}),padding:[4,4,4,4]}):undefined,zIndex:20,
     });}});
 }

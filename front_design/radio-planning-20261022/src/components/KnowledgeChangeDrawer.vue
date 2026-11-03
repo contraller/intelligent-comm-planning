@@ -489,11 +489,12 @@ watch(
   () => keywordInputs.value.clear(),
   { flush: 'sync' },
 );
-// 页面与 Mock 服务使用同一身份例外；HTTP 仍保留原有自审限制。
+// 单人模式由服务端明确授权；普通账号仍遵守独立审核规则。
 const canReview = computed(
   () =>
     auth.can('knowledge.review') &&
     (store.change?.authorId !== store.actorId ||
+      auth.identity?.allowSelfReview === true ||
       (env.mode === 'mock' && canSelfReviewKnowledge(auth.identity))) &&
     store.change?.state === 'PENDING' &&
     !store.stale,

@@ -37,6 +37,7 @@ vi.mock('ol/Map', () => ({ default: class implements Probe {
   dispose = vi.fn();
   constructor(options: { view: View }) { this.view = options.view; vi.spyOn(this.view, 'fit').mockImplementation(() => {}); probes.maps.push(this); }
   getView() { return this.view; } getSize() { return [960, 640]; } updateSize() {}
+  getViewport() { return { addEventListener() {}, removeEventListener() {} }; }
   setLayers(layers: BaseLayer[]) { this.layers = layers; }
   on(type: string, fn: (event: MapEvent) => void) { this.handlers.set(type, [...this.handlers.get(type) ?? [], fn]); }
   forEachFeatureAtPixel(_pixel: number[], fn: (feature: Feature) => unknown) { if (this.picked) return fn(this.picked); }
@@ -44,8 +45,8 @@ vi.mock('ol/Map', () => ({ default: class implements Probe {
 vi.mock('ol/control', () => ({ defaults: () => ({ extend: () => [] }), ScaleLine: class {} }));
 await clientTemplate(MapCanvas, 'src/components/MapCanvas.vue', 'hover-render.ts');
 await clientTemplate(GisHoverPreview, 'src/components/GisHoverPreview.vue', 'hover-render.ts');
-interface HostNode { tag: string; tagName: string; text: string; parent: HostNode | null; children: HostNode[]; props: Record<string, unknown>; style: Record<string, string>; addEventListener: () => void; removeEventListener: () => void; getRootNode: () => Document }
-const node = (tag: string, text = ''): HostNode => ({ tag, tagName: tag.toUpperCase(), text, parent: null, children: [], props: {}, style: {}, addEventListener() {}, removeEventListener() {}, getRootNode: () => document });
+interface HostNode { tag: string; tagName: string; text: string; parent: HostNode | null; children: HostNode[]; props: Record<string, unknown>; style: Record<string, string>; clientWidth: number; clientHeight: number; addEventListener: () => void; removeEventListener: () => void; getRootNode: () => Document }
+const node = (tag: string, text = ''): HostNode => ({ tag, tagName: tag.toUpperCase(), text, parent: null, children: [], props: {}, style: {}, clientWidth: 960, clientHeight: 640, addEventListener() {}, removeEventListener() {}, getRootNode: () => document });
 function remove(child: HostNode) { if (child.parent) child.parent.children.splice(child.parent.children.indexOf(child), 1); child.parent = null; }
 function insert(child: HostNode, parent: HostNode, anchor?: HostNode | null) { remove(child); child.parent = parent; const i = anchor ? parent.children.indexOf(anchor) : -1; parent.children.splice(i < 0 ? parent.children.length : i, 0, child); }
 const renderer = createRenderer<HostNode, HostNode>({ insert, remove, createElement: tag => node(tag), createText: text => node('#text', text), createComment: text => node('#comment', text),
@@ -56,11 +57,7 @@ const renderer = createRenderer<HostNode, HostNode>({ insert, remove, createElem
 });
 
 let pageComponent: Component | undefined;
-async function mountPage() {
-  vi.useFakeTimers();
-  vi.stubGlobal('window', Object.assign(new EventTarget(), { matchMedia: () => ({ matches: false }) }));
-  class TestDocument extends EventTarget { hidden = false; activeElement = null; }
-  vi.stubGlobal('Document', TestDocument); vi.stubGlobal('document', new TestDocument());
+async function preparePage() {
   if (!pageComponent) {
     // 页面接线与地图事件分别验证；此处仅隔离无关侧栏，保留真实页面来源和权限判断。
     const source = readFileSync('src/views/SituationView.vue', 'utf8');
@@ -74,15 +71,23 @@ async function mountPage() {
     pageComponent = (await import('../src/views/SituationView.vue')).default;
     await clientTemplate(pageComponent, 'src/views/SituationView.vue', 'hover-render.ts');
   }
+}
+// 与实际地图模板一样，在业务计时开始前完成页面编译。
+await preparePage();
+async function mountPage() {
+  vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
+  vi.stubGlobal('window', Object.assign(new EventTarget(), { matchMedia: () => ({ matches: false }) }));
+  class TestDocument extends EventTarget { hidden = false; activeElement = null; }
+  vi.stubGlobal('Document', TestDocument); vi.stubGlobal('document', new TestDocument());
   pinia = createPinia(); setActivePinia(pinia); const auth = authorizeStore();
   const storage = new TestStorage(), raw = createMockService(() => storage);
   for (const key of ['loadResourceReadContext', 'queryResourceDevices', 'queryResourceNodes', 'queryResourceInterferences', 'getResourceObject', 'queryResourceMap', 'loadGisResourceDirectory', 'loadGisResourceScene', 'loadGisResourceEditContext', 'loadPreview', 'loadDeviceStatusContext', 'loadInterferenceWorkspace', 'getMonitoringObservation'] as const) vi.spyOn(previewService, key).mockImplementation(raw[key] as never);
   bindMonitoring(raw);
   await usePreviewStore().load(); const read = useResourceReadStore(); await read.activate('gis');
   const gis = useGisWorkspaceStore(); await gis.loadScene();
-  const router = createRouter({ history: createMemoryHistory(), routes: [{ path: '/situation', component: pageComponent }] });
+  const router = createRouter({ history: createMemoryHistory(), routes: [{ path: '/gis-workbench', component: pageComponent! }] });
   app = renderer.createApp({ render: () => h(RouterView) }); app.use(pinia); app.use(router); app.provide(ssrContextKey, {});
-  await router.push('/situation'); await router.isReady(); const root = node('root'); app.mount(root); await settleMonitoring();
+  await router.push('/gis-workbench'); await router.isReady(); const root = node('root'); app.mount(root); await settleMonitoring();
   gis.mapMode = 'resource'; await nextTick();
   const map = () => find(root, n => n.tag === 'page-map')!.props;
   return { root, map, read, gis, auth, storage, editor: useResourceEditStore() };
@@ -113,6 +118,8 @@ async function mountMap(enabled = true, count = 1) {
   vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval'] });
   vi.stubGlobal('window', Object.assign(new EventTarget(), { matchMedia: () => Object.assign(new EventTarget(), { matches: true }) }));
   vi.stubGlobal('document', Object.assign(new EventTarget(), { hidden: false }));
+  vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => setTimeout(() => callback(performance.now()), 0));
+  vi.stubGlobal('cancelAnimationFrame', (id: ReturnType<typeof setTimeout>) => clearTimeout(id));
   vi.stubGlobal('ResizeObserver', class { constructor(fn: () => void) { probes.resize = fn; } observe() {} disconnect() {} });
   pinia = createPinia(); setActivePinia(pinia);
   const raw = initialResources(), points = gisDevicePoints(raw).points.slice(0, count);
@@ -142,7 +149,7 @@ describe('GIS 实际地图悬浮入口', () => {
     const s = await mountMap(), layerCount = s.map.layers.length;
     await s.hover(199); expect(s.tooltip()).toBeUndefined();
     await vi.advanceTimersByTimeAsync(1); await nextTick(); expect(textOf(s.tooltip()!)).toContain(s.props.gisDeviceFrame.points[0].id);
-    expect(s.tooltip()!.props.style).toMatchObject({ left: '646px', top: '386px' });
+    expect(s.tooltip()!.props.style).toMatchObject({ left: '606px', top: '286px', width: '320px', maxHeight: '320px' });
     s.fire('pointermove'); await nextTick(); expect(s.tooltip()).toBeDefined(); expect(s.map.layers).toHaveLength(layerCount);
     expect(s.select).not.toHaveBeenCalled(); expect(s.cluster).not.toHaveBeenCalled(); expect(s.station).not.toHaveBeenCalled();
     expect(s.detail).not.toHaveBeenCalled(); expect(s.save).not.toHaveBeenCalled(); expect(s.planning).not.toHaveBeenCalled();
@@ -164,7 +171,7 @@ describe('GIS 实际地图悬浮入口', () => {
       if (reason === 'zoom') s.map.view.setZoom((s.map.view.getZoom() ?? 10) + 1);
       if (reason === 'center') s.map.view.setCenter([s.map.view.getCenter()![0] + 100, 100]);
       if (reason === 'rotate') s.map.view.setRotation(s.map.view.getRotation() + 0.1);
-      if (reason === 'resize') probes.resize!();
+      if (reason === 'resize') { s.host().clientWidth++; probes.resize!(); await vi.advanceTimersByTimeAsync(0); }
       if (reason === 'escape') window.dispatchEvent(Object.assign(new Event('keydown'), { key: 'Escape' }));
       if (reason === 'context') s.props.hoverPreview!.key += '/new';
       if (reason === 'version') s.props.gisDeviceFrame.version++;

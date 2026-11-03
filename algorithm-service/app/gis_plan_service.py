@@ -6,10 +6,11 @@ import re
 
 from pydantic import ValidationError
 
-from . import frontend_integration
+from . import frontend_integration, resource_dataset_service as datasets
 from .database import get_session_factory
 from .gis_plan_schemas import NetworkProjection
 from .planning_plan_models import PlanningPlan
+from .resource_dataset_models import ResourceDatasetVersion
 
 
 class GisPlanError(ValueError):
@@ -42,6 +43,7 @@ def _check_references(network):
     links = _unique(network["links"], "links")
     demands = _unique(network["demands"], "demands")
     _unique(network["routes"], "routes")
+    _unique(network["interferences"], "interferences")
     if any(row["station_id"] not in nodes for row in devices.values()):
         raise GisPlanError("冻结设备所属节点不存在")
     for link in links.values():
@@ -76,7 +78,79 @@ def _check_references(network):
                 raise GisPlanError("冻结路径节点顺序与链路不一致")
 
 
-def _project(result, input_data, identity):
+def _frozen_rows(tables, name, id_field):
+    if tables is None:
+        return None
+    if not isinstance(tables, dict):
+        raise GisPlanError("方案关联的冻结资源表结构无效")
+    if name not in tables:
+        return None
+    rows = _rows(tables[name], name)
+    if any(any(not isinstance(key, str) or not isinstance(value, str)
+               for key, value in row.items()) for row in rows):
+        raise GisPlanError("方案关联的冻结CSV字段类型无效：" + name)
+    ids = [row.get(id_field) for row in rows]
+    if any(not isinstance(value, str) or not value or len(value) > 120
+           or re.search(r"\s|[\x00-\x1f\x7f]", value) for value in ids) or len(set(ids)) != len(ids):
+        raise GisPlanError("方案关联的冻结CSV编号无效或重复：" + name)
+    return rows
+
+
+def _source_number(row, field, optional=False):
+    value = row.get(field)
+    if optional and value in (None, ""):
+        return None
+    if not isinstance(value, str) or not value or value != value.strip():
+        raise GisPlanError("冻结干扰源数值缺失或无效：" + field)
+    try:
+        result = float(value)
+    except (ValueError, OverflowError) as exc:
+        raise GisPlanError("冻结干扰源数值无效：" + field) from exc
+    if not math.isfinite(result):
+        raise GisPlanError("冻结干扰源数值必须有限：" + field)
+    return result
+
+
+def _source_interferences(tables):
+    rows = _frozen_rows(tables, "interference_source.csv", "interference_id")
+    if rows is None:
+        return [], "该方案未保留同版本干扰源资料，未使用当前资源替代。"
+    result = []
+    for row in rows:
+        if row.get("active") not in ("true", "false"):
+            raise GisPlanError("冻结干扰源启用标识无效")
+        result.append({
+            "id": row["interference_id"], "name": row.get("name"),
+            "coordinate": [_source_number(row, "lon"), _source_number(row, "lat")],
+            "elevationM": _source_number(row, "elevation_m", True),
+            "antennaHeightM": _source_number(row, "antenna_height_m"),
+            "centerFreqKhz": _source_number(row, "center_freq_khz"),
+            "bandwidthKhz": _source_number(row, "bandwidth_khz"),
+            "txPowerDbm": _source_number(row, "tx_power_dbm"),
+            "antennaGainDbi": _source_number(row, "antenna_gain_dbi", True),
+            "interferenceType": row.get("interference_type"),
+            "patternType": row.get("pattern_type") or None,
+            "azimuthDeg": _source_number(row, "azimuth_deg", True),
+            "dutyCycle": _source_number(row, "duty_cycle", True),
+            "active": row["active"] == "true", "origin": row.get("origin") or "SOURCE",
+        })
+    return result, ""
+
+
+def _node_classifications(tables):
+    rows = _frozen_rows(tables, "node.csv", "node_id")
+    result = {}
+    for row in rows or []:
+        mobility = row.get("mobility") or None
+        if mobility not in (None, "FIXED", "VEHICLE", "MANPACK"):
+            raise GisPlanError("冻结节点机动类型无效")
+        result[row["node_id"]] = {"mobility": mobility,
+                                  "node_role": row.get("node_role") or None,
+                                  "node_subtype": row.get("node_subtype") or None}
+    return result
+
+
+def _project(result, input_data, identity, frozen_tables=None):
     if not isinstance(result, dict) or not isinstance(input_data, dict):
         raise GisPlanError("方案缺少冻结结果或任务输入")
     configuration = result.get("configuration")
@@ -84,11 +158,15 @@ def _project(result, input_data, identity):
         raise GisPlanError("方案冻结配置结构无效")
     route_data = (configuration or {}).get("routes")
     paths_present = route_data is not None
+    classifications = _node_classifications(frozen_tables)
+    interferences, interferences_notice = _source_interferences(frozen_tables)
     projected = {
         "identity": identity,
         "nodes": [{"id": row.get("id"), "name": row.get("name"),
                    "coordinate": row.get("coordinate"), "status": row.get("status"),
-                   "alert": row.get("alert")}
+                   "alert": row.get("alert"),
+                   **{field: row.get(field) if row.get(field) is not None else classifications.get(row.get("id"), {}).get(field)
+                      for field in ("mobility", "node_role", "node_subtype")}}
                   for row in _rows(result.get("nodes"), "nodes")],
         "devices": [{"id": row.get("id"), "station_id": row.get("stationId"),
                      "model_id": row.get("modelId"), "device_class": row.get("deviceClass"),
@@ -114,6 +192,7 @@ def _project(result, input_data, identity):
                    for row in _rows(route_data, "routes")] if paths_present else [],
         "paths_state": "ready" if paths_present and route_data else "missing",
         "paths_message": "" if paths_present and route_data else "该冻结结果未提供完整业务路径，不代表已计算零影响或零需求。",
+        "interferences": interferences, "interferences_notice": interferences_notice,
     }
     try:
         network = NetworkProjection.model_validate(projected).model_dump(mode="json")
@@ -139,7 +218,15 @@ def network(plan_id, task_id, snapshot_id=None, *, factory=None):
                     "condition_version": plan.condition_version, "resource_revision": plan.resource_revision,
                     "state": plan.state, "source_changed": plan.resource_revision != frontend_integration.resource_revision(),
                     "data_origin": "SYNTHETIC_INTEGRATION", "source": plan.source}
-    return _project(result, input_data, identity)
+        # 旧方案可能早于资源版本留存；缺失保持可查看，存在但损坏的同版资料明确拒绝。
+        version = session.get(ResourceDatasetVersion, plan.resource_revision)
+        frozen_tables = None
+        if version is not None:
+            try:
+                frozen_tables = datasets._decode(version)["tables"]
+            except datasets.ResourceDatasetError as exc:
+                raise GisPlanError("方案关联的同版本资源快照校验失败，未使用当前资源替代") from exc
+    return _project(result, input_data, identity, frozen_tables)
 
 
 def link_detail(plan_id, task_id, snapshot_id, link_id, *, factory=None):

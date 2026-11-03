@@ -1,4 +1,4 @@
-"""当前 DEM 与算法边界回归；旧 HTML 检查原文保留在 old_front/reference_tests。"""
+"""当前 DEM 与算法边界回归；旧 HTML 检查原文可从 Git 历史追溯。"""
 import json
 import math
 from pathlib import Path

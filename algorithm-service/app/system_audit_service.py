@@ -25,6 +25,7 @@ class PreparedAudit:
     _transaction: SessionTransaction
     _snapshot: tuple[str, str, str, str]
     _token: object
+    _auth_source: str
 
 
 def _active_transaction(session: Session) -> SessionTransaction:
@@ -48,7 +49,7 @@ def prepare_audit(session: Session, *, actor: SystemActor, permission: str, chec
     transaction = _active_transaction(session)
     if not callable(check_actor):
         raise SystemManagementError("审计身份检查未配置", 5001, 503)
-    if type(actor) is not SystemActor or actor.auth_source != "LOCAL_PASSWORD":
+    if type(actor) is not SystemActor or actor.auth_source not in ("LOCAL_PASSWORD", "LOCAL_SINGLE_USER"):
         raise SystemManagementError("审计需要正式本地主体", 1101, 401)
     permission = safe_text(permission)
     with session.no_autoflush:
@@ -59,7 +60,7 @@ def prepare_audit(session: Session, *, actor: SystemActor, permission: str, chec
     # Session复用时只清理已结束事务的内存票据，不触碰数据库历史。
     tickets.difference_update(item for item in tuple(tickets) if not item[0].is_active)
     tickets.add((transaction, token))
-    return PreparedAudit(session, transaction, tuple(snapshot[key] for key in _SNAPSHOT_KEYS), token)
+    return PreparedAudit(session, transaction, tuple(snapshot[key] for key in _SNAPSHOT_KEYS), token, actor.auth_source)
 
 
 def append_business_audit(session: Session, prepared: PreparedAudit, *, now: int, module: str, action: str,
@@ -77,8 +78,11 @@ def append_business_audit(session: Session, prepared: PreparedAudit, *, now: int
     tickets.remove(ticket)
     if type(now) is not int or now < 0:
         raise SystemManagementError("审计时间无效")
+    if changes is not None and type(changes) is not dict:
+        raise SystemManagementError("审计变更必须为对象")
     row = append_system_audit(session, None, now=now, module=safe_text(module, maximum=40), action=action,
-        object_id=object_id, request_id=request_id, outcome=outcome, error_code=error_code, changes=changes,
+        object_id=object_id, request_id=request_id, outcome=outcome, error_code=error_code,
+        changes={**(changes or {}), **({"authSource": "LOCAL_SINGLE_USER"} if prepared._auth_source == "LOCAL_SINGLE_USER" else {})},
         snapshot=dict(zip(_SNAPSHOT_KEYS, prepared._snapshot)), summary=summary)
     return row.id
 
@@ -130,7 +134,8 @@ def append_system_audit(session, actor: SystemActor | None, *, now: int, action:
         request_id=safe_text(request_id) if request_id is not None else None,
         outcome=outcome, error_code=safe_text(error_code, maximum=40, empty=True),
         summary=safe_text(summary, maximum=500) if summary is not None else {"SUCCESS": "请求已完成", "FAILED": "请求失败", "DENIED": "请求被拒绝", "UNCHANGED": "内容未变化"}[outcome],
-        changes=_safe_changes(changes or {}))
+        changes=_safe_changes({**(changes or {}), **({"authSource": "LOCAL_SINGLE_USER"}
+                              if actor is not None and actor.auth_source == "LOCAL_SINGLE_USER" else {})}))
     session.add(row)
     session.flush()
     return row
@@ -146,7 +151,7 @@ def event_dto(row: SystemAuditEvent) -> dict:
         "attemptedUsername": "", "module": row.module, "action": row.action, "objectId": row.object_id,
         "requestId": row.request_id, "outcome": row.outcome, "summary": row.summary,
         "errorCode": row.error_code, "dedupeKey": row.id, "changes": row.changes,
-        "authSource": "LOCAL_PASSWORD"}
+        "authSource": "LOCAL_SINGLE_USER" if (row.changes or {}).get("authSource") == "LOCAL_SINGLE_USER" else "LOCAL_PASSWORD"}
 
 
 def log_rows(session, query: dict):

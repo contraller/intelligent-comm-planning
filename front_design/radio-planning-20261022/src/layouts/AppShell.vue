@@ -1,48 +1,40 @@
 <template>
   <div
     class="app-shell"
-    @click="closeResourceMenus"
-    @keydown.esc="closeResourceMenus"
+    :class="{ 'situation-home-shell': route.path === '/situation' }"
+    @click="closeMenus"
+    @keydown.esc="closeMenus"
   >
-    <header class="app-header">
-      <RouterLink
-        :to="auth.firstPath()"
-        class="brand"
-        ><span class="brand-symbol"><i class="pi pi-wifi" /></span
-        ><span
-          ><strong>无线网络智能规划系统</strong><small>RADIO NETWORK PLANNING</small></span
-        ></RouterLink
-      >
-      <nav aria-label="主导航">
-        <RouterLink
-          v-for="item in visibleNavigation"
-          :key="item.path"
-          :to="item.path"
-          :class="{ active: route.path === item.path }"
-          ><i
-            class="pi"
-            :class="item.icon"
-          />{{ item.title }}</RouterLink
-        >
-      </nav>
-      <div class="header-tools">
-        <IntegrationIdentitySwitcher />
-        <!-- 使用界面保留当前身份，数据来源由各业务记录保存。 -->
-        <span class="user-entry"
-          ><span class="avatar">{{ auth.identity?.name.slice(0, 1) }}</span
-          ><span
-            class="user-label"
-            :title="auth.identity ? auth.identity.name + ' · ' + auth.identity.roleName : undefined"
-            >{{ auth.identity?.name }} · {{ auth.identity?.roleName }}</span
-          ></span
-        ><button
-          class="btn"
-          :disabled="!!auth.busy || auth.transition"
-          @click="logout"
-          >退出</button
-        >
+    <button
+      class="application-menu-toggle"
+      type="button"
+      aria-label="展开功能菜单"
+      :aria-expanded="menuOpen"
+      aria-controls="application-menu"
+      @mouseenter="menuOpen = true"
+      @click.stop="menuOpen = true"
+    ><i class="pi pi-bars" /></button>
+    <section id="application-menu" v-show="menuOpen" class="application-menu" aria-label="功能菜单" @click.stop>
+      <div class="menu-heading"><strong class="menu-brand">无线网络智能规划系统</strong>
+        <button class="menu-close" type="button" aria-label="收起功能菜单" @click="menuOpen = false"><i class="pi pi-times" /></button>
       </div>
-    </header>
+      <nav aria-label="主导航">
+        <RouterLink v-for="item in visibleNavigation" :key="item.path" :to="item.path"
+          :class="{ active: route.path === item.path }" @click="menuOpen = false">
+          <i class="pi" :class="item.icon" />{{ item.title }}
+        </RouterLink>
+      </nav>
+      <template v-if="!auth.identity?.singleUserMode">
+        <IntegrationIdentitySwitcher />
+        <div class="menu-identity"><span>{{ auth.identity?.name }} · {{ auth.identity?.roleName }}</span>
+          <button class="btn small" :disabled="!!auth.busy || auth.transition" @click="logout">退出</button>
+        </div>
+      </template>
+      <p v-if="runtime.error && !auth.blocked" class="runtime-notice" role="status">运行参数未就绪
+        <button class="text-link" title="重新读取运行参数" aria-label="重新读取运行参数" :disabled="runtime.loading" @click="runtime.refresh().catch(() => {})"><i class="pi pi-refresh" /></button>
+      </p>
+      <div ref="menuTarget" />
+    </section>
     <div
       v-if="resetError || auth.notice"
       class="reset-error"
@@ -79,22 +71,15 @@
         @retry="store.load"
       /><RouterView v-else-if="store.data" />
     </main>
-    <footer class="app-footer">
-      <span><i class="pi pi-database" />资源与业务结果以各自版本及采集时间为准
-        <template v-if="runtime.error && !auth.blocked"> · 运行参数未就绪
-          <button class="text-link" title="重新读取运行参数" aria-label="重新读取运行参数" :disabled="runtime.loading" @click="runtime.refresh().catch(() => {})"><i class="pi pi-refresh" /></button>
-        </template>
-      </span><span>WGS84 / EPSG:4326 <b>·</b> 资源编辑与规划方案管理</span>
-    </footer>
     <ResourceEditDrawer
       v-if="
-        route.path === '/situation' ||
-        (!['/resources', '/planning'].includes(route.path) && env.mode === 'mock' && store.data)
+        route.path === '/gis-workbench' ||
+        (!['/resources', '/planning', '/situation'].includes(route.path) && env.mode === 'mock' && store.data)
       "
     /><ResourceImportDrawer
       v-if="
-        route.path === '/situation' ||
-        (!['/resources', '/planning'].includes(route.path) && env.mode === 'mock' && store.data)
+        route.path === '/gis-workbench' ||
+        (!['/resources', '/planning', '/situation'].includes(route.path) && env.mode === 'mock' && store.data)
       "
     />
     <DecisionDialog />
@@ -129,6 +114,8 @@ const route = useRoute(),
 const visibleNavigation = computed(() =>
   navigation.filter((n) => auth.can(routePermissions[n.path])),
 );
+const menuOpen = ref(false), menuTarget = ref<HTMLElement | null>(null);
+provide('applicationMenuTarget', menuTarget);
 const runtime = useRuntimeParametersStore();
 const runtimeSession = () => env.mode === 'http' && auth.identity && !auth.transition && !auth.blocked
   ? JSON.stringify([auth.generation, auth.identity.id, auth.identity.sessionId, auth.identity.revision]) : null;
@@ -152,11 +139,11 @@ onBeforeUnmount(() => { runtime.unbind(); applyHttpRuntimeParameters(null); });
 const resourceRead = useResourceReadStore();
 const ledger = useResourceLedgerEditStore();
 const httpResource = computed(
-  () => env.mode === 'http' && ['/resources', '/situation'].includes(route.path),
+  () => env.mode === 'http' && ['/resources', '/gis-workbench'].includes(route.path),
 );
 const independent = computed(
   () =>
-    route.path === '/situation' ||
+    ['/situation', '/gis-workbench'].includes(route.path) ||
     httpResource.value ||
     route.path === '/resources' ||
     route.path === '/planning' ||
@@ -189,6 +176,10 @@ const resourceResetDisabled = computed(
 );
 provide('resourceResetAction', { disabled: resourceResetDisabled, run: resetResources });
 // 原生折叠菜单保留键盘行为；外部点击、选择操作及 Esc 统一收起。
+function closeMenus(event: Event) {
+  menuOpen.value = false;
+  closeResourceMenus(event);
+}
 function closeResourceMenus(event: Event) {
   if (typeof Element === 'undefined' || !(event.target instanceof Element)) return;
   const menu = event.target.closest<HTMLDetailsElement>('.resource-more');
@@ -201,7 +192,7 @@ function closeResourceMenus(event: Event) {
 }
 async function resetResources() {
   if (
-    !['/resources', '/situation'].includes(route.path) ||
+    !['/resources', '/gis-workbench'].includes(route.path) ||
     !auth.can('resources.reset') ||
     resourceResetDisabled.value
   )
@@ -270,6 +261,7 @@ async function resetResources() {
 watch(() => auth.generation, () => { resetPending = null; resetError.value = ''; resetNotice.value = ''; });
 const navigation = [
   { path: '/situation', title: 'GIS 态势', icon: 'pi-globe' },
+  { path: '/gis-workbench', title: 'GIS 工作台', icon: 'pi-map' },
   { path: '/resources', title: '资源管理', icon: 'pi-server' },
   { path: '/planning', title: '网络规划', icon: 'pi-share-alt' },
   { path: '/diagnosis', title: '故障诊断', icon: 'pi-wave-pulse' },
@@ -282,13 +274,28 @@ watch(
   () => {
     entered.value = auth.can(routePermissions[route.path]);
     if (entered.value && !independent.value && !store.data) void store.load();
-    if (route.path === '/situation' && auth.can('planning.view'))
+    menuOpen.value = false;
+    if (route.path === '/gis-workbench' && auth.can('planning.view'))
       void planning.refreshReadContext();
   },
   { immediate: true },
 );
 </script>
 <style scoped>
+.application-menu-toggle { position: fixed; z-index: 70; left: 16px; top: 16px; width: 40px; height: 40px; display: grid; place-items: center; border: 1px solid #42677e; border-radius: 8px; background: #10263aef; color: #d2eafb; box-shadow: 0 4px 18px #0005; cursor: pointer; }
+.application-menu-toggle:hover { background: #1d3b52; border-color: #73a8c7; }
+.application-menu { position: fixed; z-index: 69; left: 16px; top: 66px; width: min(360px, calc(100vw - 32px)); max-height: calc(100dvh - 86px); overflow: auto; padding: 16px; border: 1px solid #3b5b72; border-radius: 10px; background: #0d2032f7; box-shadow: 0 12px 40px #0006; box-sizing: border-box; }
+.menu-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 13px; }
+.menu-brand { display: block; color: #d5e9f7; font-size: 14px; }
+.menu-close { display: grid; place-items: center; flex: 0 0 auto; width: 28px; height: 28px; border: 1px solid #42677e; border-radius: 5px; background: #142c40; color: #c7dfef; cursor: pointer; }
+.menu-close:hover { border-color: #86b7d3; background: #24465e; }
+.application-menu nav { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
+.application-menu nav a { padding: 10px 8px; border: 1px solid #2b465b; border-radius: 5px; font-size: 12px; justify-content: flex-start; }
+.application-menu nav a.active { border-color: #6ca5c5; background: #23465d; }
+.menu-identity { display: flex; align-items: center; justify-content: space-between; gap: 8px; color: #92acc1; font-size: 11px; margin-top: 12px; }
+.runtime-notice { color: #d6b987; font-size: 11px; }
+.situation-home-shell .app-content { overflow: hidden; scrollbar-gutter: auto; }
+.app-shell:not(.situation-home-shell) .app-content { padding-top: 56px; box-sizing: border-box; }
 .reset-error {
   padding: 10px 28px;
   color: #ffb4b4;
@@ -303,7 +310,7 @@ watch(
 }
 .app-shell {
   height: 100vh;
-  min-height: 640px;
+  min-height: 0;
   display: flex;
   flex-direction: column;
 }

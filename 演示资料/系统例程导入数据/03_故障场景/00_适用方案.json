@@ -1,0 +1,39 @@
+{
+  "来源": "人工构造例程，非生产、非实测。仅用于学习导入、状态切换和结果查看，不表示真实设备采集或执行。",
+  "适用冻结方案": {
+    "plan_id": "PLAN-2204963f889c4b1982244cfe80025e95",
+    "task_id": "DEMO-FIRST-PLAN",
+    "snapshot_id": "SNP-PL-2C3FC433",
+    "input_version": "TREV-25600cd299ef4e0d83757651bcb44d0d",
+    "condition_version": "TCOND-e1cd3df0a56345cc97bc52e9fcad63d4",
+    "resource_revision": "resource-a2736f3fe68c66b4",
+    "state": "CONFIRMED",
+    "source_changed": false,
+    "data_origin": "SYNTHETIC_INTEGRATION",
+    "source": "SR4"
+  },
+  "场景条数": 3,
+  "完整三类例程": true,
+  "对象": [
+    {
+      "场景": "例程短波设备功放故障",
+      "类别": "DEVICE",
+      "编号": "DV-0001",
+      "现象": "SY-0001;SY-0002"
+    },
+    {
+      "场景": "例程超短波链路中断",
+      "类别": "LINK",
+      "编号": "OL-0001",
+      "现象": "SY-0005;SY-0007"
+    },
+    {
+      "场景": "例程超短波频率配置不一致",
+      "类别": "DEVICE",
+      "编号": "DV-0033",
+      "现象": "SY-0012"
+    }
+  ],
+  "条件说明": [],
+  "导入约束": "导入时必须选择本清单中的方案；重新规划或更换方案后，须按新冻结网络重新生成，不凭编号相同推定可通用。"
+}

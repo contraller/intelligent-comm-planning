@@ -7,6 +7,7 @@ import Point from 'ol/geom/Point';
 import { projectCoordinate } from './layers';
 import { isLocalTerrainCell } from '../services/frozen-coverage-decode';
 import type { FrozenCoverageOverlay,FrozenCoverageFeature } from '../types/frozen-coverage';
+import { attachCoverageRaster,cachedCoverageRaster } from './frozen-coverage-raster';
 
 // 消去相邻格/色带的共享边，保留盲区内孔；不使用凸包或圆形补面。
 export function coverageOutline(features:readonly FrozenCoverageFeature[]){
@@ -35,9 +36,11 @@ function selectedCoverageDevice(overlay:FrozenCoverageOverlay,snapshotId:string,
   const selectionMatches=['V01-3','V01-4','V01-5','V01-6'].includes(overlay.anchor.engine_version)
     ?provenance.bandwidth_selection_id===(selection?.selectionId??null)&&provenance.bandwidth_selection_hash===(selection?.selectionHash??null)
     :!selection;
+  const frozenSourceMatches=overlay.anchor.engine_version!=='V01-6'||provenance.raw_snapshot_sha256===overlay.anchor.raw_snapshot_sha256
+    &&provenance.frozen_tables_sha256===overlay.anchor.frozen_tables_sha256&&provenance.terrain_fingerprint===overlay.anchor.terrain_fingerprint;
   return overlay.anchor.snapshot_id===snapshotId&&(!planId||overlay.anchor.plan_id===planId)
     &&overlay.result.solution_id===snapshotId.slice(4)&&provenance.engine_version===overlay.anchor.engine_version
-    &&overlay.result.schema_version===(['V01-4','V01-5','V01-6'].includes(overlay.anchor.engine_version)?2:1)&&selectionMatches
+    &&overlay.result.schema_version===(['V01-4','V01-5','V01-6'].includes(overlay.anchor.engine_version)?2:1)&&selectionMatches&&frozenSourceMatches
     ?overlay.result.devices.find(row=>row.device_id===overlay.deviceId&&row.status==='COMPLETE'):undefined;
 }
 
@@ -46,8 +49,8 @@ export function frozenCoverageDeviceLayer(overlay:FrozenCoverageOverlay,snapshot
   const features:Feature[]=[];
   if(device&&Number.isFinite(device.lon)&&Number.isFinite(device.lat)) {
     const marker=new Feature({geometry:new Point(projectCoordinate([device.lon,device.lat])),kind:'frozen-coverage-device',objectId:device.node_id,deviceId:device.device_id});
-    marker.setStyle(new Style({image:new Circle({radius:13,fill:new Fill({color:'#ff69db44'}),stroke:new Stroke({color:'#ff69db',width:4})}),
-      text:new Text({text:`覆盖设备 ${device.device_id} · ${device.node_id}`,offsetY:24,font:'bold 13px Microsoft YaHei',fill:new Fill({color:'#ffb6ee'}),stroke:new Stroke({color:'#102132',width:4})})}));
+    marker.setStyle(new Style({image:new Circle({radius:6,fill:new Fill({color:'#174a50'}),stroke:new Stroke({color:'#ffffff',width:2})}),
+      text:new Text({text:device.device_id,offsetX:15,offsetY:-18,textAlign:'left',font:'12px Microsoft YaHei',fill:new Fill({color:'#174453'}),backgroundFill:new Fill({color:'#f4f8fbef'}),padding:[3,5,3,5]})}));
     features.push(marker);
   }
   return new VectorLayer({source:new VectorSource({features}),zIndex:75});
@@ -57,7 +60,8 @@ export function frozenCoverageLayer(overlay:FrozenCoverageOverlay,snapshotId:str
   const modern=['V01-5','V01-6'].includes(overlay.anchor.engine_version),local=overlay.anchor.engine_version==='V01-6';
   const device=selectedCoverageDevice(overlay,snapshotId,planId),provenance=overlay.result.provenance;
   const features=device?.computations.flatMap(part=>local&&part.shape!=='CELLS'?[]:part.geojson.features.filter(feature=>feature.geometry&&feature.properties.is_coverage
-    &&(!local||isLocalTerrainCell(feature,device,provenance.parameters,provenance.dem_bbox))))??[];
+    &&(!local||feature.properties.device_id===device.device_id&&feature.properties.node_id===device.node_id&&feature.properties.freq_khz===part.freq_khz
+      &&isLocalTerrainCell(feature,device,provenance.parameters,provenance.dem_bbox))))??[];
   const drawable=modern&&overlay.display==='boundary'?coverageOutline(features):features;
   const source=new VectorSource({features:new GeoJSON().readFeatures({type:'FeatureCollection',features:drawable},{dataProjection:'EPSG:4326',featureProjection:'EPSG:3857'})});
   let fieldMin=Infinity,fieldMax=-Infinity;
@@ -82,5 +86,11 @@ export function frozenCoverageLayer(overlay:FrozenCoverageOverlay,snapshotId:str
       style=new Style({image:new Circle({radius:3,fill:new Fill({color}),stroke:new Stroke({color:'#102538',width:0.5})}),fill:new Fill({color:bucket<0?'#67bed026':'#67bed03a'}),stroke:new Stroke({color,width:1})});styles.set(key,style);
     }return style;
   }});
+  // 仅同版、已筛选的V6真实矩形cell采用展示平滑；旧几何及无画布环境沿原路径。
+  if(local&&device&&features.length){
+    const key=JSON.stringify([overlay.anchor,overlay.bandwidthSelection??null,device.device_id]);
+    const raster=cachedCoverageRaster(key,features,overlay.display??'strength',provenance.dem_bbox);
+    if(raster)attachCoverageRaster(layer,raster);
+  }
   layer.set('frozenCoverageSnapshot',snapshotId);return layer;
 }
