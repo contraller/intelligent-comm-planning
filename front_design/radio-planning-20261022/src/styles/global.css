@@ -233,6 +233,39 @@ hr {
   min-height: 28px;
   font-size: 12px;
 }
+/* 仅 GIS 资源操作底栏启用，避免影响其他抽屉和通用工具栏。 */
+.gis-resource-footer {
+  display: grid;
+  gap: 12px;
+  border-top: 1px solid #2a3d57;
+  padding-top: 12px;
+}
+.gis-resource-footer .gis-resource-footer-note {
+  margin: 0;
+}
+.gis-resource-footer-actions,
+.gis-resource-footer-main {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.gis-resource-footer-main {
+  justify-content: flex-end;
+  min-width: 0;
+  max-width: 100%;
+}
+.gis-resource-footer-main,
+.gis-resource-footer-submit {
+  margin-left: auto;
+}
+.gis-resource-footer-actions .btn {
+  flex: 0 0 auto;
+  min-width: 80px;
+  height: 36px;
+  min-height: 36px;
+  white-space: nowrap;
+}
 .icon-btn {
   display: inline-grid;
   place-items: center;
