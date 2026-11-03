@@ -158,7 +158,7 @@
             role="status"
             >当前查看或编辑的设备不在当前页，详情和输入已保留。</p
           >
-          <div class="panel-body toolbar">
+          <div class="panel-body toolbar ledger-selection-toolbar">
             <label class="page-selection"
               ><input
                 type="checkbox"
@@ -1115,6 +1115,9 @@ const columns = [
 .resource-summary strong {
   color: var(--text);
   font-size: 15px;
+}
+.ledger-selection-toolbar {
+  padding: 8px 18px;
 }
 .page-selection {
   display: inline-flex;

@@ -4,14 +4,18 @@
     <p class="muted">配置声明 · 未核实采集连接</p>
     <p v-if="!canView" role="alert">无权读取采集源</p>
     <template v-else>
-      <form class="toolbar" @submit.prevent="store.load(1)">
+      <form class="toolbar source-toolbar" @submit.prevent="store.load(1)">
         <input v-model="s.search" aria-label="搜索采集源" maxlength="120" placeholder="来源编号或名称" />
         <select v-model="s.enabled" aria-label="启停筛选"><option :value="undefined">全部</option><option :value="true">启用</option><option :value="false">停用</option></select>
         <button class="btn" :disabled="s.loading || locked" title="搜索" aria-label="搜索"><i class="pi pi-search" /></button>
         <button class="btn" type="button" :disabled="s.loading || locked" title="刷新" aria-label="刷新" @click="store.load()"><i class="pi pi-refresh" /></button>
         <button class="btn primary" type="button" :disabled="!canEdit || locked" @click="open()"><i class="pi pi-plus" /> 新增来源</button>
-        <label class="config-file">配置 JSON<input type="file" accept=".json,application/json" :disabled="!canEdit || locked" @change="readConfiguration" /></label>
+        <div class="config-import">
+          <label class="btn config-file" :class="{ 'is-disabled': !canEdit || locked }">导入配置<input type="file" aria-label="导入配置" aria-describedby="spectrum-config-file-hint" accept=".json,application/json" :disabled="!canEdit || locked" @change="readConfiguration" /></label>
+          <span v-if="configFileName" class="config-file-name" :title="configFileName">{{ configFileName }}</span>
+        </div>
       </form>
+      <p id="spectrum-config-file-hint" class="muted config-file-hint">JSON，最大 2MiB；读取后填入草稿，保存后生效。</p>
       <p v-if="configReading || s.fileLoading" role="status">读取配置文件来源中</p>
       <p v-if="s.loading" role="status">读取中</p>
       <p v-if="s.error" class="error" role="alert">{{ s.error }}</p>
@@ -85,6 +89,7 @@ const props = defineProps<{ services: SpectrumSourceServices; canView: boolean; 
 const emit = defineEmits<{ 'dirty-change': [value: boolean]; 'busy-change': [value: boolean]; saved: [value: { sourceId: string; configRevision: string }]; 'select-source': [value: { sourceId: string; configRevision: string }] }>();
 const store = createSpectrumSourcesStore(props.services, () => props), s = store.state;
 const configReading = ref(false);
+const configFileName = ref('');
 const locked = computed(() => s.busy || !!s.pending || s.fileLoading || configReading.value);
 const historical = ref<SpectrumSourceVersion | null>(null), decision = ref<DecisionRequest | null>(null);
 let resolve: ((value: Decision) => void) | undefined, configFileSerial = 0;
@@ -105,6 +110,7 @@ async function readConfiguration(event: Event) {
   if (!props.canView || !props.canEdit || locked.value) return;
   const input = event.target as HTMLInputElement, file = input.files?.[0]; input.value = '';
   if (!file) return;
+  configFileName.value = file.name;
   const serial = ++configFileSerial, generation = props.sessionGeneration;
   const current = () => serial === configFileSerial && generation === props.sessionGeneration && props.canView && props.canEdit;
   configReading.value = true; s.error = '';
@@ -126,7 +132,7 @@ async function download(row: SpectrumSourceVersion) {
   } catch (reason) { if (generation === props.sessionGeneration) s.error = reason instanceof Error ? reason.message : '导出失败'; }
 }
 function stop() { configFileSerial++; configReading.value = false; store.stop(); }
-function clearForSession() { stop(); answer('cancel'); historical.value = null; store.clearForSession(); }
+function clearForSession() { stop(); answer('cancel'); historical.value = null; configFileName.value = ''; store.clearForSession(); }
 watch(() => [props.sessionGeneration, props.canView, props.canEdit], () => { clearForSession(); if (props.canView) void store.load(1); }, { immediate: true });
 watch(() => store.dirty, value => emit('dirty-change', value), { immediate: true });
 watch(locked, value => emit('busy-change', value), { immediate: true });
@@ -136,5 +142,11 @@ defineExpose({ requestLeave, stop, clearForSession });
 </script>
 <style scoped>
 .source-panel{padding:16px;min-width:0}.source-panel h3{font-size:16px;margin:0 0 8px}.toolbar{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:10px 0}.toolbar input{max-width:260px}.table-scroll{overflow:auto}table{width:100%;border-collapse:collapse;font-size:12px}th,td{text-align:left;border-bottom:1px solid var(--line);padding:10px;vertical-align:top;overflow-wrap:anywhere}td{max-width:260px}small{display:block;color:var(--muted);font-size:11px;margin-top:5px;overflow-wrap:anywhere}.muted{color:var(--muted);font-size:12px}.error{color:#eeb0aa}.fields,fieldset{display:grid;gap:12px}fieldset{border:0;padding:0;min-width:0}.fields label{display:grid;gap:6px}.fields .toggle{display:flex;align-items:center}.toggle input{width:auto}.pending{border-left:3px solid #cfb568;padding:8px;overflow-wrap:anywhere}.revision,.history{font-size:12px;overflow-wrap:anywhere}.history dd{margin:0 0 8px}.version{white-space:normal;text-align:left;overflow-wrap:anywhere}ul{padding-left:18px;font-size:12px;overflow-wrap:anywhere}.pager{justify-content:flex-end}@media(max-width:700px){.source-panel{padding:10px}th,td{padding:8px}.toolbar input{max-width:100%}}
-.config-file{display:flex;align-items:center;gap:8px;font-size:12px}.config-file input{max-width:220px}
+.source-toolbar > input{flex:1 1 180px}.source-toolbar > input,.source-toolbar > select,.source-toolbar > .btn,.config-file{height:36px}
+.config-import{display:flex;align-items:center;gap:8px;flex:1 1 160px;min-width:0;max-width:380px}
+.config-file{position:relative;flex:none;flex-direction:row;margin:0;color:var(--text);cursor:pointer;overflow:hidden}
+.config-file input{position:absolute;inset:0;width:100%;height:100%;max-width:none;margin:0;padding:0;opacity:0;cursor:inherit}
+.config-file:focus-within{outline:2px solid var(--blue);outline-offset:2px}.config-file.is-disabled{opacity:.45;cursor:not-allowed}
+.config-file-name{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px;color:var(--muted)}
+.config-file-hint{margin:6px 0 10px}
 </style>

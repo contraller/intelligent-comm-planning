@@ -501,11 +501,16 @@ const outcomeLabel = (value: string) =>
 }
 .filters input[type='checkbox'] {
   width: auto;
+  flex-shrink: 0;
+  margin: 0;
 }
 .filters label {
   display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
   gap: 6px;
   align-items: center;
+  white-space: nowrap;
 }
 pre {
   max-height: 250px;

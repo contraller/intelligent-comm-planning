@@ -8,12 +8,13 @@ import type { GisNetwork } from '../types/gis-plan';
 import { projectCoordinate } from './layers';
 import { LINK_STATUS_STYLES } from '../config/link-status';
 import { gisSymbol, stationSymbol } from './gis-symbols';
+import type { GIS_DEVICE_COLORS } from './gis-device-display';
 
 // 冻结计划使用独立要素身份，点击不能落到当前资源同名对象。
 export function gisPlanLayer(
   network: GisNetwork,
   selected: { node?: string; link?: string; demand?: string } = {},
-  display: { linksVisible?: boolean; topologyOpacity?: number } = {},
+  display: { linksVisible?: boolean; topologyOpacity?: number; nodeColors?: typeof GIS_DEVICE_COLORS } = {},
 ) {
   const positions = new Map(network.nodes.map((node) => [node.id, node.coordinate]));
   const features: Feature[] = [],
@@ -71,20 +72,22 @@ export function gisPlanLayer(
     );
     features.push(feature);
   }
+  // 配色仅作用于显式传入的态势页，其他冻结网络保留原样；不改写状态数据。
+  const nodeColors = display.nodeColors ?? { NORMAL: '#60ccbb', FAULT: '#ed7184', OFFLINE: '#8093a9', ALERT: '#efa84c', UNKNOWN: '#bac4cf' };
   for (const node of network.nodes) {
     const active = selected.node === node.id;
     const unknown = node.status === null || node.alert === null;
     const color = active
       ? '#ffe08a'
       : node.status === 'FAULT'
-        ? '#ed7184'
+        ? nodeColors.FAULT
         : node.status === 'OFFLINE'
-          ? '#8093a9'
+          ? nodeColors.OFFLINE
           : unknown
-            ? '#bac4cf'
+            ? nodeColors.UNKNOWN
             : node.alert
-              ? '#efa84c'
-              : '#60ccbb';
+              ? nodeColors.ALERT
+              : nodeColors.NORMAL;
     const feature = new Feature({
       geometry: new Point(projectCoordinate(node.coordinate)),
       kind: 'frozen-plan-node',

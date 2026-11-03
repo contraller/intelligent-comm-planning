@@ -1,6 +1,6 @@
 <template>
   <section class="resource-status-panel" aria-label="设备状态快照">
-    <div class="toolbar">
+    <div class="toolbar snapshot-toolbar">
       <strong>设备状态快照</strong>
       <label>显示来源
         <select aria-label="状态显示来源" :value="status.mode" :disabled="!entry.available.value || status.busy" @change="status.setMode(($event.target as HTMLSelectElement).value as 'baseline' | 'observed')">
@@ -9,13 +9,13 @@
       </label>
       <button class="btn small" :disabled="!entry.available.value || status.busy" @click="refreshDirectory">读取批次</button>
       <button class="btn small" :disabled="!status.batch || status.busy" @click="clear">清除选择</button>
-      <span>当前资源设备 {{ total ?? '未知' }} 台</span>
+      <span class="device-count">当前资源设备 {{ total ?? '未知' }} 台</span>
     </div>
-    <fieldset v-if="allowFollow" class="toolbar" aria-label="状态刷新方式">
+    <fieldset v-if="allowFollow" class="toolbar refresh-options" aria-label="状态刷新方式">
       <label><input type="radio" :name="modeName" value="fixed" :checked="status.refreshMode === 'fixed'" @change="status.setRefreshMode('fixed')" />固定批次</label>
       <label><input type="radio" :name="modeName" value="latest" :checked="status.refreshMode === 'latest'" :disabled="!directoryEligible" @change="status.setRefreshMode('latest')" />跟随最新</label>
     </fieldset>
-    <p role="status" data-testid="gis-status-refresh" :data-mode="status.refreshMode" :data-checked-at="status.refreshMode === 'latest' ? status.checkedAt : directoryCheckedAt">
+    <p class="status-summary" role="status" data-testid="gis-status-refresh" :data-mode="status.refreshMode" :data-checked-at="status.refreshMode === 'latest' ? status.checkedAt : directoryCheckedAt">
       {{ status.refreshMode === 'latest' ? '跟随最新' : '固定批次' }} · 最近检查成功 {{ (status.refreshMode === 'latest' ? status.checkedAt : directoryCheckedAt) || '尚无' }}
       <span v-if="status.following"> · 正在读取最新状态</span><span v-if="stagedDirectory"> · 有待应用的目录检查结果</span>
     </p>
@@ -36,7 +36,7 @@
           <span>{{ item.snapshot_id }} · 导入 {{ item.imported_at }} · {{ item.total }} 台</span>
         </li>
       </ul>
-      <div v-if="status.snapshots" class="toolbar">
+      <div v-if="status.snapshots && (status.snapshots.total > status.snapshots.page_size || status.snapshots.page > 1)" class="toolbar">
         <button class="btn small" :disabled="status.busy || status.snapshots.page <= 1" @click="status.list(status.snapshots.page - 1)">上一批次页</button>
         <span>{{ status.snapshots.page }}</span>
         <button class="btn small" :disabled="status.busy || status.snapshots.page * status.snapshots.page_size >= status.snapshots.total" @click="status.list(status.snapshots.page + 1)">下一批次页</button>
@@ -217,14 +217,28 @@ defineExpose({ requestLeave, canRefreshDirectoryInBackground, refreshDirectoryIn
 onScopeDispose(() => { disposed = true; fileSerial++; discardDirectoryRefresh(); });
 </script>
 <style scoped>
-.resource-status-panel { padding: 12px 0; font-size: 12px; border-top: 1px solid var(--line, #d5d9de); }
+.resource-status-panel { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; padding: 12px 18px; font-size: 12px; border-top: 1px solid var(--line, #d5d9de); }
+.resource-status-panel > * { flex-basis: 100%; min-width: 0; }
+/* 折叠入口与检查信息共用紧凑次行，展开内容和异常提示仍占整行。 */
+.resource-status-panel > .status-summary,
+.resource-status-panel > .refresh-options,
+.resource-status-panel > details:not([open]) { flex-basis: auto; }
+.resource-status-panel > p { margin: 0; }
 .toolbar { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin: 8px 0; }
+.snapshot-toolbar, .refresh-options { margin: 0; }
+.snapshot-toolbar > strong, .device-count { white-space: nowrap; }
+.device-count { margin-left: auto; }
+.toolbar > label { flex-direction: row; flex-wrap: nowrap; margin: 0; white-space: nowrap; }
+.toolbar input[type='radio'] { flex-shrink: 0; margin: 0; }
+.snapshot-toolbar select { min-height: 33px; padding: 7px 9px; }
 label { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 8px 0; }
 fieldset { border: 0; padding: 0; min-width: 0; }
 textarea { width: 100%; min-width: 0; resize: vertical; }
-summary { cursor: pointer; margin: 10px 0; }
+summary { cursor: pointer; margin: 0; }
+details[open] > summary { margin-bottom: 8px; }
+details > p { margin: 6px 0; }
 h3 { font-size: 14px; }
-ul { list-style: none; padding: 0; max-height: 240px; overflow: auto; }
+ul { list-style: none; padding: 0; margin: 0; max-height: 240px; overflow: auto; }
 li { display: flex; gap: 8px; flex-wrap: wrap; margin: 8px 0; }
 p, td, li { overflow-wrap: anywhere; }
 .table-scroll { overflow: auto; }

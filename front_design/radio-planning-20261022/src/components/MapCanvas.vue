@@ -31,7 +31,7 @@
       :position="hoverPosition"
       :interactive="readonlySituation"
       :selected-device-id="frozenSelectedDeviceId"
-      @device="$emit('selectFrozenDevice',$event)"
+      @device="hoverDeviceSelection"
       @close="clearHoverPreview"
     />
     <div v-if="coverageCell" class="coverage-cell-info" role="status">
@@ -204,6 +204,22 @@
       v-else-if="frozenNetwork"
       class="map-legend"
       ><span>冻结方案 · 算法预测</span><span><b class="normal" />冻结状态正常</span><span><b class="offline" />灰色：状态／告警未提供或离线</span><span>虚线：备用链路</span></div
+    >
+    <div
+      v-else-if="planningOverlay"
+      class="map-legend mock-legend planning-legend"
+      ><span>{{ planningOverlay.links ? '规划节点' : '任务节点' }}</span>
+      <template v-for="(item, tone) in PLANNING_NODE_STYLES" :key="tone">
+        <span v-if="tone !== 'NEW' || planningOverlay.nodes.some((node) => node.isNewDeployment)"
+          ><b :style="{ background: item.color }" />{{ item.label }}</span>
+      </template>
+      <template v-if="planningOverlay.links?.length">
+        <span v-for="item in LINK_STATUS_STYLES" :key="item.label"
+          ><i class="link-key" :style="{ borderColor: item.color }" />链路{{ item.label }}</span>
+        <span v-if="planningOverlay.links.some((link) => link.backup)"><i class="link-key dashed" />备用链路</span>
+      </template>
+      <span v-if="planningOverlay.demands?.length"><i class="link-key planning-demand-key" />通信需求</span>
+      <span v-if="resourceFrame">数字圆点：资源节点聚合</span></div
     >
     <div
       v-else-if="resourceRead && !richScene"
@@ -431,6 +447,7 @@ import { candidateEndpoints, candidateLinkLayer } from '../maps/candidate-link-l
 import type { CandidateLink } from '../types/candidate-link';
 import {
   GIS_DEVICE_COLORS,
+  defaultGisDeviceSettings,
   gisDeviceSummary,
   type GisDeviceMapFrame,
 } from '../maps/gis-device-display';
@@ -456,7 +473,7 @@ import { defaults, ScaleLine } from 'ol/control';
 import { boundingExtent, containsCoordinate, getIntersection } from 'ol/extent';
 import { resourceReadLayer, resourceViewport } from '../maps/resource-read-layers';
 import { Style, Fill, Stroke, Circle as CircleStyle } from 'ol/style';
-import { planningApiLayer, type PlanningMapOverlay } from '../maps/planning-api-layers';
+import { planningApiLayer, PLANNING_NODE_STYLES, type PlanningMapOverlay } from '../maps/planning-api-layers';
 import { gisPlanLayer } from '../maps/gis-plan-layers';
 import { MAP_DISPLAY_BOUNDS } from '../maps/planning-bounds-layer';
 import { interferenceWorkbenchLayer, workbenchMapKey } from '../maps/interference-workbench-layers';
@@ -655,11 +672,17 @@ function captureReadPress() { readPress = readOwner(); }
 function readOwner() {
   if (props.interferenceProjection) return workbenchMapKey(props.interferenceProjection);
   const source = props.frozenNetwork?.identity;
-  return source ? `${source.task_id}:${source.plan_id}:${source.snapshot_id}` : '';
+  return source ? `${source.task_id}:${source.plan_id}:${source.snapshot_id}${props.readonlySituation ? ':' + frozenDeviceVersion.value : ''}` : '';
 }
 const legendOpen = ref(false);
 // 普通 GIS 传入设备实例，站点参考点继续使用独立图层。
 const devicePoints = createGisDeviceLayer();
+// 青蓝表示观测未提供，与工作台正常状态的青绿色区分；聚合数量继续使用蓝色。
+const situationColors = { ...GIS_DEVICE_COLORS, UNKNOWN: '#58c5d8' };
+// 态势聚合只接收同一保存方案，独立实例避免与工作台当前资源相互覆盖。
+const frozenDevicePoints = createGisDeviceLayer({ compact: true, unknownColor: situationColors.UNKNOWN });
+frozenDevicePoints.layer.setZIndex(55);
+const frozenDeviceVersion = ref(0);
 const statusDevices = createGisDeviceStatusLayer();
 let releaseStatusRender: (() => void) | undefined;
 function updateStatusDevices() {
@@ -700,6 +723,21 @@ const manualStationLegend = computed(
     !!devicePointFrame.value?.points.some((point) => point.manualStation),
 );
 const devicePointFrame = computed(() => (fullScene.value ? props.gisDeviceFrame : undefined));
+const frozenDeviceFrame = computed<(GisDeviceMapFrame & { network: GisNetwork }) | undefined>(() => {
+  const network = props.readonlySituation ? props.frozenNetwork : undefined;
+  if (!network) return;
+  const nodes = new globalThis.Map(network.nodes.map(node => [node.id, node]));
+  const points: GisDeviceMapFrame['points'] = [];
+  for (const device of network.devices) {
+    const node = nodes.get(device.station_id);
+    if (!node) continue;
+    points.push({ id: device.id, stationId: node.id, stationName: node.name, modelId: device.model_id,
+      deviceClass: device.device_class, coordinate: [...node.coordinate], status: null, alert: null,
+      offShelf: false, manualStation: false });
+  }
+  return { network, points, settings: defaultGisDeviceSettings(), version: frozenDeviceVersion.value,
+    selectedDeviceId: props.frozenSelectedDeviceId ?? '' };
+});
 const devicePointSummary = computed(() => gisDeviceSummary(devicePointFrame.value?.points ?? []));
 // GIS 区域控制独立接入，其他页面继续使用共用显隐设置。
 const gisLayers = computed(() => (fullScene.value ? props.gisResultLayers : undefined));
@@ -862,6 +900,14 @@ let hoverTimer: ReturnType<typeof setTimeout> | undefined,
   hoverSerial = 0,
   hoverKey = '';
 let hoverAlive = true;
+const hoverDeviceSelection = computed(() => {
+  const summary = hoverSummary.value, network = props.frozenNetwork;
+  return (id: string) => {
+    // 旧浮卡事件不能在切方案后选中新网络里的同名设备。
+    if (props.readonlySituation && network && props.frozenNetwork === network && hoverSummary.value === summary
+      && summary?.devices?.some(device => device.id === id)) emit('selectFrozenDevice', id);
+  };
+});
 const hoverViewListeners: EventsKey[] = [];
 const hoverEnabled = computed(() => !!props.hoverPreview && !props.picking);
 function clearHoverPreview() {
@@ -878,7 +924,8 @@ function previewAt(pixel: number[]) {
     map.forEachFeatureAtPixel(pixel, (feature) => {
       const kind = feature.get('kind');
       if(props.readonlySituation && props.frozenNetwork)
-        return gisHoverSummary(feature,{context:props.hoverPreview!,stations:[],frozenNetwork:props.frozenNetwork}) || undefined;
+        return gisHoverSummary(feature,{context:props.hoverPreview!,stations:[],frozenNetwork:props.frozenNetwork,
+          frozenDevices:frozenDeviceFrame.value,deviceTarget:kind === 'gis-device-cluster' ? frozenDevicePoints.pick(feature as Feature) : undefined}) || undefined;
       // 只命中当前可见资源点；业务层不借当前资源补出悬浮信息。
       if (kind === 'gis-device-cluster') {
         return (
@@ -937,6 +984,11 @@ watch([() => props.hoverPreview, () => props.picking], clearHoverPreview, {
   deep: true,
   flush: 'sync',
 });
+watch([() => props.frozenNetwork, () => props.readonlySituation], () => {
+  frozenDeviceVersion.value++;
+  frozenDevicePoints.update();
+  clearHoverPreview();
+}, { flush: 'sync' });
 const pickHighlight = createPickHighlight(),
   pickHover = ref<GisPickTarget>();
 const pickEpoch = ref(0),
@@ -1099,6 +1151,7 @@ function paint() {
     rasterRenderState.value = 'idle';
   }
   devicePoints.update(devicePointFrame.value);
+  frozenDevicePoints.update(frozenDeviceFrame.value);
   planningCandidatePoints.update(props.planningCandidates);
   updateDeployment();
   if (!fullScene.value) {
@@ -1162,7 +1215,11 @@ function paint() {
       layers.push(layer);
     }
     else if (props.frozenNetwork) {
-      layers.push(gisPlanLayer(props.frozenNetwork, { node: props.selectedId, link: props.selectedLinkId, demand: props.selectedDemandId }, { linksVisible: props.showLinks, topologyOpacity: props.topologyOpacity }));
+      const selectedNode = props.readonlySituation
+        ? props.frozenNetwork.devices.find(device => device.id === props.frozenSelectedDeviceId)?.station_id
+        : props.selectedId;
+      layers.push(gisPlanLayer(props.frozenNetwork, { node: selectedNode, link: props.selectedLinkId, demand: props.selectedDemandId }, { linksVisible: props.showLinks, topologyOpacity: props.topologyOpacity, nodeColors: props.readonlySituation ? situationColors : undefined }));
+      if (frozenDeviceFrame.value) layers.push(frozenDevicePoints.layer);
       statusDevices.update(props.frozenNetwork, props.frozenDeviceStatus);
       if (statusDevices.key()) layers.push(statusDevices.layer);
     }
@@ -1590,7 +1647,19 @@ onMounted(() => {
   });
   map.on('singleclick', (event) => {
     // 宽屏留白不属于地图，不能在被裁剪区域选点或选中隐藏对象。
-    if(props.readonlySituation || !containsCoordinate(displayExtent, event.coordinate))return;
+    if(!containsCoordinate(displayExtent, event.coordinate))return;
+    if (props.readonlySituation) {
+      // 只读点击仅打开现有浮卡，不向工作台派发选中事件或打开抽屉。
+      if (!event.originalEvent || readClicks.get(event.originalEvent) !== readOwner()) return;
+      const summary = previewAt(event.pixel), size = map?.getSize();
+      if (summary && size) {
+        clearHoverPreview();
+        hoverKey = summary.key;
+        hoverPosition.value = gisHoverPlacement(event.pixel, size);
+        hoverSummary.value = summary;
+      }
+      return;
+    }
     const press = event.originalEvent && pickClicks.get(event.originalEvent);
     if (props.gisPick && (props.picking || press?.picking)) {
       if (
@@ -1795,6 +1864,7 @@ watch(
 // 显示偏好只更新已有图层，保留图片源与当前业务快照。
 // 冻结覆盖是不可变大快照，不加入旧深监听，避免遍历每个原生采样点。
 watch(()=>props.frozenCoverage,paint);
+watch(() => props.frozenSelectedDeviceId, () => { if (props.readonlySituation) paint(); });
 watch(() => props.frozenDeviceStatus, updateStatusDevices);
 watch(
   () => props.deploymentConstraints,
@@ -1876,6 +1946,7 @@ onBeforeUnmount(() => {
   renderedCoverage = null;
   deviceLayers.dispose();
   devicePoints.dispose();
+  frozenDevicePoints.dispose();
   releaseStatusRender?.();
   statusDevices.dispose();
   planningCandidatePoints.dispose();
@@ -2060,6 +2131,13 @@ onBeforeUnmount(() => {
 }
 .mock-legend span {
   white-space: nowrap;
+}
+/* 规划图例独立解释节点与链路，给左下角比例尺保留空间。 */
+.planning-legend {
+  max-width: calc(100% - 175px);
+}
+.planning-legend .planning-demand-key {
+  border-top: 2px dashed #c79bef;
 }
 /* 说明在地图内受限滚动，按钮独立常驻，避免展开后挡住收起入口。 */
 .map-legend-toggle {

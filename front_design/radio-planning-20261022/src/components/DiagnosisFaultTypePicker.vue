@@ -61,9 +61,13 @@ function select(value: FaultType) {
 }
 .fault-picker label {
   display: flex;
+  /* 覆盖全局表单标签的纵向排列，保留整项点击与原生键盘选择。 */
+  flex-direction: row;
   align-items: center;
   gap: 7px;
-  padding: 10px 7px;
+  min-width: 0;
+  min-height: 36px;
+  padding: 7px;
   border: 1px solid #30465e;
   border-radius: 4px;
   color: #bbd0e4;
@@ -81,12 +85,15 @@ function select(value: FaultType) {
 }
 .fault-picker input {
   width: auto;
+  flex-shrink: 0;
   margin: 0;
   accent-color: var(--fault-color);
 }
 .fault-glyph {
+  flex-shrink: 0;
   color: var(--fault-color);
   font-size: 18px;
+  line-height: 1;
 }
 .fault-picker small {
   grid-column: 1 / -1;

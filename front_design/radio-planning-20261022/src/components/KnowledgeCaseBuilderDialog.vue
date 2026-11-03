@@ -12,7 +12,13 @@
       <label>设备类别（选填）<select v-model="form.deviceClass"><option value="">不限定 HF/VUHF</option><option>HF</option><option>VUHF</option></select></label>
       <label>知识来源<input v-model="form.source" maxlength="200" placeholder="填写规程、资料或经核对的案例来源" /></label>
     </fieldset>
-    <div v-else class="file-area"><button class="btn" :disabled="working" @click="template">下载 Excel 模板</button><label class="file-picker">选择填好的 .xlsx 文件<input type="file" accept=".xlsx" :disabled="working" @change="readFile" /></label><p>{{ fileName || '三张业务表：知识条目、故障现象、排故步骤。按条目标识关联，最多5MiB。' }}</p></div>
+    <div v-else class="file-area">
+      <button class="btn" :disabled="working" @click="template">下载 Excel 模板</button>
+      <!-- 保留原生文件选择与键盘操作，只隐藏原生外观，文件名由右侧统一显示。 -->
+      <label class="btn file-picker" :class="{disabled:working}">选择 Excel 文件<input type="file" accept=".xlsx" aria-label="选择 Excel 文件" :disabled="working" @change="readFile" /></label>
+      <span class="file-name" :title="fileName || undefined">{{ fileName || '尚未选择文件' }}</span>
+      <p class="file-hint">仅支持 .xlsx，最多5MiB。三张业务表：知识条目、故障现象、排故步骤，按条目标识关联。</p>
+    </div>
       <p class="boundary">部件未知时留空。新现象可加入图谱，但不会自动成为当前诊断页的现象选项；发布案例是否命中仍由现有诊断规则决定。</p>
     <p v-if="message" role="alert" class="error">{{ message }}</p>
     <div v-if="preview" class="preview"><div class="summary"><strong>构建预览</strong><span>{{ preview.caseCount }} 条案例</span><span>新增 {{ preview.entityCount }} 实体 / {{ preview.relationCount }} 关系</span><span>复用 {{ preview.reusedEntities }} 实体 / 跳过 {{ preview.skippedRelations }} 重复关系</span><span>{{ preview.entityCount+preview.relationCount }}/100 项</span></div>
@@ -64,5 +70,15 @@ const relationName=(type:string)=>store.catalog.relationTypes.find(t=>t.id===typ
 const entityName=(id:string)=>preview.value?.draft?.entities.find(e=>e.id===id)?.name||base.value?.entities.find(e=>e.id===id)?.name||id;
 </script>
 <style scoped>
-.intro,.boundary{font-size:12px;color:#9fb6cb;line-height:1.7}.case-form{display:grid;grid-template-columns:1fr 1fr;gap:13px 18px;margin:18px 0;border:0;padding:0;min-width:0}.case-form label{display:flex;flex-direction:column;gap:6px;font-size:12px}.wide{grid-column:1/-1}.case-form textarea{resize:vertical;min-height:90px}.boundary{padding:10px 13px;border-left:3px solid #479bc1;background:#10273a}.file-area{padding:25px 10px;display:flex;flex-wrap:wrap;align-items:center;gap:18px}.file-picker{font-size:12px}.file-picker input{display:block;margin-top:8px}.file-area p{width:100%;color:#9fb6cb}.preview{border:1px solid #35516b;border-radius:6px;padding:13px;margin-top:13px}.summary{display:flex;gap:16px;flex-wrap:wrap;align-items:center;color:#b7d4e8;font-size:12px}.entity-list{display:flex;flex-wrap:wrap;gap:7px;margin:12px 0;max-height:150px;overflow:auto}.entity-list span{border:1px solid #335975;background:#132c43;padding:5px 8px;border-radius:4px;font-size:11px}.preview details{font-size:12px}.preview li{margin:6px 0}table{width:100%;font-size:12px;margin-top:12px;text-align:left}td,th{padding:8px;border-bottom:1px solid #2d4157}.error{color:#f9a8b5}.footer-note{font-size:11px;color:#9fb0c0;margin-right:auto}@media(max-width:650px){.case-form{grid-template-columns:1fr}.wide{grid-column:auto}}
+.intro,.boundary{font-size:12px;color:#9fb6cb;line-height:1.7}.case-form{display:grid;grid-template-columns:1fr 1fr;gap:13px 18px;margin:18px 0;border:0;padding:0;min-width:0}.case-form label{display:flex;flex-direction:column;gap:6px;font-size:12px}.wide{grid-column:1/-1}.case-form textarea{resize:vertical;min-height:90px}.boundary{padding:10px 13px;border-left:3px solid #479bc1;background:#10273a}
+.file-area{padding:18px 10px;display:flex;flex-wrap:wrap;align-items:center;gap:10px 12px;min-width:0}
+.file-area>.btn{flex-shrink:0}
+.file-picker{position:relative;flex-direction:row;justify-content:center;margin:0;overflow:hidden}
+.file-picker input{position:absolute;inset:0;width:100%;height:100%;margin:0;padding:0;opacity:0;cursor:pointer}
+.file-picker:focus-within{outline:2px solid #9dd8ff;outline-offset:2px}
+.file-picker.disabled{opacity:.5;cursor:not-allowed}
+.file-picker input:disabled{cursor:not-allowed}
+.file-name{flex:1 1 180px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#c9d9e9;font-size:12px}
+.file-hint{flex-basis:100%;margin:0;color:#9fb6cb;font-size:12px;line-height:1.6}
+.preview{border:1px solid #35516b;border-radius:6px;padding:13px;margin-top:13px}.summary{display:flex;gap:16px;flex-wrap:wrap;align-items:center;color:#b7d4e8;font-size:12px}.entity-list{display:flex;flex-wrap:wrap;gap:7px;margin:12px 0;max-height:150px;overflow:auto}.entity-list span{border:1px solid #335975;background:#132c43;padding:5px 8px;border-radius:4px;font-size:11px}.preview details{font-size:12px}.preview li{margin:6px 0}table{width:100%;font-size:12px;margin-top:12px;text-align:left}td,th{padding:8px;border-bottom:1px solid #2d4157}.error{color:#f9a8b5}.footer-note{font-size:11px;color:#9fb0c0;margin-right:auto}@media(max-width:650px){.case-form{grid-template-columns:1fr}.wide{grid-column:auto}}
 </style>

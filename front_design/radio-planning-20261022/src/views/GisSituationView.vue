@@ -25,7 +25,7 @@
       <div v-if="loading && frame" class="loading-pill" role="status">正在刷新，保留当前画面…</div>
     </div>
     <aside class="legend"><strong>图例</strong>
-      <template v-if="!mapCanvas?.coverageFocus"><div><span v-for="row in qualities" :key="row.label"><b :style="{background:row.color}" />{{ row.label }}</span></div><p>实线 主链路 · 虚线 备用链路 · 灰色 状态未提供 · 外圈 选中对象</p></template>
+      <template v-if="!mapCanvas?.coverageFocus"><div><span v-for="row in qualities" :key="row.label"><b :style="{background:row.color}" />{{ row.label }}</span></div><p title="图标：青绿正常、青蓝状态未提供、橙色告警、红色故障、灰色离线。聚合数字统计设备而非节点；悬停查看成员及缺失信息。">实线 主链路 · 虚线 备用链路 · 蓝色数字 设备数（HF / VUHF 分类） · 青蓝图标 状态未提供 · 外圈 选中对象</p></template>
       <template v-if="coverageOverlay && coverageView">
         <CoverageLineLegend :display="display" :has-grid="!!coverageView.grid" :boundary-status="coverageView.boundaryStatus" :margin-min-db="coverageOverlay.result.provenance.parameters.margin_min_db" />
         <div v-if="display==='strength'"><span><b style="background:#22a05a" />强 ≥20 dB</span><span><b style="background:#f0c541" />中 ≥10 dB</span><span><b style="background:#ee8735" />弱（其余达标格）</span></div>
@@ -52,7 +52,7 @@ const {frame,rows,loading,error,notice,newest,autoRefresh,page,total,deviceId,co
 const mapCanvas=ref<InstanceType<typeof MapCanvas>>();
 const stateLabel={SAVED:'已保存',REFERENCE:'参考方案 · 未达标或来源变化',CONFIRMED:'已确认'};
 const qualities=Object.values(LINK_STATUS_STYLES);
-const hoverContext=computed(()=>frame.value?{key:frame.value.network.identity.snapshot_id,source:frame.value.plan.name+' · '+frame.value.plan.version,models:[]}:undefined);
+const hoverContext=computed(()=>frame.value?{key:JSON.stringify([frame.value.network.identity.task_id,frame.value.network.identity.plan_id,frame.value.network.identity.snapshot_id]),source:frame.value.plan.name+' · '+frame.value.plan.version,models:[]}:undefined);
 const time=(value:string)=>new Date(value).toLocaleString('zh-CN',{hour12:false});
 const selectedCoverage=computed(()=>frame.value?.coverage?.result?.devices.find(d=>d.device_id===deviceId.value));
 const frequencies=computed(()=>coverageFrequencies(selectedCoverage.value));
