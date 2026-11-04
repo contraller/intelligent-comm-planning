@@ -1,5 +1,6 @@
 import type { DiagnosisConclusion } from '../types/diagnosis';
 import { confidenceText, reportValue } from '../reports/diagnosis-report';
+import { uiCode, uiText } from './ui-copy';
 
 // 只描述场景注入标识；配色不代表设备运行状态或影响等级。
 export const diagnosisFaultTypes = [
@@ -27,8 +28,8 @@ export function diagnosisBranchSummary(conclusion: DiagnosisConclusion) {
   return branchSources.map(item => {
     const matches = conclusion.branches.filter(branch => branch.source === item.source);
     const branch = matches.length === 1 ? matches[0] : undefined;
-    return { ...item, conclusion: reportValue(branch?.conclusion), confidence: confidenceText(branch?.confidence ?? null),
+    return { ...item, conclusion: uiCode(branch?.conclusion), confidence: confidenceText(branch?.confidence ?? null),
       weight: reportValue(branch?.weight), contribution: reportValue(branch?.contribution),
-      reason: branch?.disabledReason || (matches.length > 1 ? '分路资料重复，请查看详细依据' : branch ? '' : '分路资料未提供') };
+      reason: uiText(branch?.disabledReason || (matches.length > 1 ? '分路资料重复，请查看详细依据' : branch ? '' : '分路资料未提供')) };
   });
 }

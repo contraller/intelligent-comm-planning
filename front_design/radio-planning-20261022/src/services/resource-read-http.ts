@@ -3,8 +3,9 @@ import type { ReadDevice, ReadInterference, ReadNode, ReadOptions, ResourcePageQ
 import { assertMapQuery, assertPageQuery, assertReadOptions, decodeMap, decodeModel, decodeObject, decodeObservedDevice, decodePage, decodeWorkspace, readRecord, readText, requireRevision } from './resource-read-validation';
 import { createHttpClient } from './http-client';
 import { ApiError } from './types';
+import type { AuthenticatedRequest } from './auth-http';
 
-interface Options { baseUrl: () => string; fetcher?: typeof fetch; origin?: () => string | undefined; timeoutMs?: number | (() => number) }
+interface Options { baseUrl: () => string; fetcher?: typeof fetch; origin?: () => string | undefined; timeoutMs?: number | (() => number); authenticatedRequest?: AuthenticatedRequest }
 const paths = { node: 'nodes', device: 'devices', interference: 'interference-sources' } as const;
 // 只读适配不复用全量 PreviewData；所有路径/传输差异集中在本文件。
 export function createResourceReadHttp(options: Options): ResourceReadServices {
@@ -13,14 +14,17 @@ export function createResourceReadHttp(options: Options): ResourceReadServices {
     assertReadOptions(input);
     const timeout = typeof options.timeoutMs === 'function' ? options.timeoutMs() : options.timeoutMs ?? 15000;
     if (!Number.isFinite(timeout) || timeout <= 0) throw new ApiError('资源读取超时设置无效', 'INVALID_REQUEST_TIMEOUT');
-    const base = resolveAuthApiBaseUrl(options.baseUrl(), options.origin?.() ?? globalThis.location?.origin);
+    const base = options.authenticatedRequest ? '' : resolveAuthApiBaseUrl(options.baseUrl(), options.origin?.() ?? globalThis.location?.origin);
     const query = new URLSearchParams();
     for (const [key, value] of Object.entries({ context: input.context, ...params })) if (value !== undefined) query.set(key, String(value));
     const controller = new AbortController();
     let timer: ReturnType<typeof setTimeout> | undefined, abort: () => void = () => {};
     try {
       return await Promise.race([
-        createHttpClient(base, fetcher)(`${path}?${query}`, { method: 'GET', credentials: 'same-origin', mode: 'same-origin', redirect: 'error', cache: 'no-store', headers: { Accept: 'application/json' }, signal: controller.signal }),
+        // 交付组合注入原认证出口，GET只核验sid，不额外发CSRF；外层仍保持整次资源读取的原时限/取消语义。
+        options.authenticatedRequest
+          ? options.authenticatedRequest(`${path}?${query}`, { method: 'GET', signal: controller.signal })
+          : createHttpClient(base, fetcher)(`${path}?${query}`, { method: 'GET', credentials: 'same-origin', mode: 'same-origin', redirect: 'error', cache: 'no-store', headers: { Accept: 'application/json' }, signal: controller.signal }),
         new Promise<never>((_, reject) => {
           abort = () => { reject(new ApiError('资源读取已取消', 'REQUEST_ABORTED')); controller.abort(); };
           input.signal?.addEventListener('abort', abort, { once: true });
@@ -30,6 +34,7 @@ export function createResourceReadHttp(options: Options): ResourceReadServices {
       ]);
     } catch (reason) {
       if (!(reason instanceof ApiError)) throw reason;
+      if (['AUTH_REQUIRED','AUTH_EXPIRED','AUTH_DISABLED','FORBIDDEN','SESSION_REPLACED','SESSION_CHANGED','HTTP_AUTH_BUSY','CSRF_REJECTED'].includes(String(reason.code))) throw reason;
       // 沿用认证业务码，身份失效不能因 HTTP 200 或 409 被当成普通资源错误。
       const codes: Record<number, string> = { 1102: 'AUTH_EXPIRED', 1103: 'AUTH_DISABLED', 1104: 'FORBIDDEN', 1106: 'SESSION_REPLACED', 1201: 'RESOURCE_VERSION_CHANGED', 1202: 'RESOURCE_VERSION_CHANGED' };
       const code = typeof reason.code === 'number' ? codes[reason.code] : undefined;

@@ -49,7 +49,7 @@
       />
       <p role="status" data-testid="gis-status-cycle" :data-interval-seconds="runtime.snapshot?.values['PAR-01']" :data-parameter-revision="runtime.snapshot?.revision" :data-parameter-epoch="runtime.snapshot?.epoch">
         {{ status.refreshMode === 'latest' ? '最新状态应用周期' : '状态目录检查周期' }} {{ runtime.snapshot?.values['PAR-01'] ?? '未知' }} s · 参数 {{ runtime.snapshot?.revision ?? '未就绪' }} · {{ status.following ? '正在刷新' : refreshPauseReason ? '刷新已暂停' : '刷新已启用' }}
-        <span v-if="(runtime.snapshot?.values['PAR-01'] ?? 0) > 60"> · 验收风险：配置周期超过 60 秒</span>
+        <span v-if="(runtime.snapshot?.values['PAR-01'] ?? 0) > 60"> · 状态刷新间隔超过 60 秒</span>
         <span> · 周期不包含请求及地图绘制用时</span>
       </p>
       <p
@@ -217,7 +217,7 @@
         >
         <p v-if="selectedImpact"
           >SNR {{ selectedImpact.snr_before_db }} dB / SINR {{ selectedImpact.sinr_after_db }} dB ·
-          {{ selectedImpact.level }}</p
+          {{ uiCode(selectedImpact.level) }}</p
         >
         <InterferenceAnalysisPanel
           :source-editable="false"
@@ -248,6 +248,7 @@
 </template>
 
 <script setup lang="ts">
+import { uiCode } from '../services/ui-copy';
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import MapCanvas from './MapCanvas.vue';
 import InterferenceAnalysisPanel from './InterferenceAnalysisPanel.vue';

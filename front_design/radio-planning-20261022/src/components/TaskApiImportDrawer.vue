@@ -75,11 +75,8 @@
           ['frequencyConstraints', 'deploymentSolve'].includes(row.field),
         )"
         :key="diff.field"
-        ><summary>{{ diff.field }} 前后值</summary
-        ><pre>
-之前：{{ JSON.stringify(diff.before, null, 2) }}
-之后：{{ JSON.stringify(diff.after, null, 2) }}</pre
-        >
+        ><summary>{{ uiField(diff.field) }}变更</summary
+        ><ReadableData :value="{ before: diff.before, after: diff.after }" />
       </details>
       <template
         v-for="diff in task.importPreview.differences.filter(
@@ -109,7 +106,7 @@
             task.importPreview.input?.demands.length
           }}
           条需求。</p
-        ><p>变化字段：{{ task.importPreview.differences.map((d) => d.field).join('、') || '无' }}</p
+        ><p>变化字段：{{ task.importPreview.differences.map((d) => uiField(d.field)).join('、') || '无' }}</p
         ><button
           class="btn primary"
           :disabled="!task.editable || task.importBusy"
@@ -121,6 +118,8 @@
   </AppDrawer>
 </template>
 <script setup lang="ts">
+import { uiField } from '../services/ui-copy';
+import ReadableData from './ReadableData.vue';
 // 文件预览、应用到草稿和保存任务是三个独立动作。
 import { ref, toRaw } from 'vue';
 import TaskQuickStart from './TaskQuickStart.vue';

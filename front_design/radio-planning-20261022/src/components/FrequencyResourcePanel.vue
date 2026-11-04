@@ -100,7 +100,7 @@
     <section v-if="store.changesPreview" class="frequency-receipt" aria-label="构造维护预检">
       <h3>构造维护预检</h3>
       <dl v-for="entry in store.changesPreview.items" :key="entry.freqId" class="frequency-details">
-        <dt>{{ entry.kind }} {{ entry.freqId }}</dt><dd>{{ !entry.before ? '未创建' : entry.before.isAvailable ? '可用' : '已停用' }} → {{ entry.after.isAvailable ? '可用' : '已停用' }}</dd>
+        <dt>{{ uiCode(entry.kind) }} {{ entry.freqId }}</dt><dd>{{ !entry.before ? '未创建' : entry.before.isAvailable ? '可用' : '已停用' }} → {{ entry.after.isAvailable ? '可用' : '已停用' }}</dd>
         <template v-for="field in detailColumns" :key="field.field"><dt>{{ field.header }}</dt>
           <dd>{{ entry.before?.[field.field] ?? '未提供' }} → {{ entry.after[field.field] ?? '未提供' }}</dd></template>
       </dl>
@@ -112,6 +112,7 @@
   </section>
 </template>
 <script setup lang="ts">
+import { uiCode } from '../services/ui-copy';
 import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue';
 import AppTable from './AppTable.vue';
 import AppDrawer from './AppDrawer.vue';

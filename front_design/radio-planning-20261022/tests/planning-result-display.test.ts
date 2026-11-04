@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { planningPresets } from '../src/mocks/planning-presets';
-import { planningMetricCards } from '../src/services/planning-result-display';
+import { planningCheckDisplay, planningConstraintSummary, planningMetricCards } from '../src/services/planning-result-display';
 import type { PlanningCheck, PlanningResult } from '../src/types/planning';
 import { detailCollection, deviceDetailCells, routeDetailCells, frequencyDetailSummary, unreachableDemandText, resolveFrequencyFocus } from '../src/services/planning-result-details-display';
 import type { FrequencyDisplayContext } from '../src/services/planning-result-details-display';
@@ -23,20 +23,22 @@ describe('规划三项目标展示', () => {
     const cards = planningMetricCards(preset.metrics, preset.checks);
     expect(cards.map(row => row.value)).toEqual([preset.metrics.connectivityPercent, preset.metrics.totalRadiatedPowerW, preset.metrics.survivabilityPercent]);
     expect(cards.map(row => row.unit)).toEqual(['%', 'W', '%']);
-    expect(cards[0].state).toBe('passed');
+    expect(cards[0]).toMatchObject({ label: '全网连通率', state: 'statistic', status: '全网统计指标' });
     expect(cards[1]).toMatchObject({ state: 'objective', status: '最小化目标' });
     expect(cards[2].state).toBe(id === 'constrained' ? 'failed' : 'passed');
   });
   it.each([null, undefined, 'true', 1, {}])('无有效校验 %s 时不从数值推断', passed => {
     const c = fixture(), checks = [{ id: 'connectivity', passed }, { id: 'survivability', passed }] as PlanningCheck[];
-    expect(planningMetricCards(c.metrics, checks).filter(row => row.id !== 'power').every(row => row.state === 'unknown')).toBe(true);
+    expect(planningCheckDisplay(checks, 'connectivity').state).toBe('unknown');
+    expect(planningMetricCards(c.metrics, checks)[2].state).toBe('unknown');
   });
   it('缺结论、重复结论均保持中性；零值保留，不重新计算功率', () => {
     const metrics = { ...fixture().metrics, connectivityPercent: 0, totalRadiatedPowerW: 0 };
     const check: PlanningCheck = { id: 'connectivity', label: '', detail: '', passed: true };
-    expect(planningMetricCards(metrics)[0].status).toBe('未提供校验结论');
-    expect(planningMetricCards(metrics, [check, check])[0].state).toBe('unknown');
-    expect(planningMetricCards(metrics, [check])[0]).toMatchObject({ value: 0, state: 'passed' });
+    expect(planningCheckDisplay([], 'connectivity').status).toBe('未提供校验结论');
+    expect(planningCheckDisplay([check, check], 'connectivity').state).toBe('unknown');
+    expect(planningMetricCards(metrics, [check])[0]).toMatchObject({ value: 0, state: 'statistic' });
+    expect(planningCheckDisplay([check], 'connectivity').state).toBe('passed');
     expect(planningMetricCards(metrics)[1].value).toBe(0);
     expect(planningMetricCards(undefined).every(row => row.value === null)).toBe(true);
     expect(planningMetricCards({ ...metrics, survivabilityPercent: NaN })[2].value).toBeNull();
@@ -49,7 +51,7 @@ describe('规划三项目标展示', () => {
       { id: 'survivability', label: '抗毁性', passed: false, detail: '服务返回未达标' },
     ]);
     expect(planningMetricCards(metrics, checks)).toMatchObject([
-      { value: null, state: 'passed', status: '达标', note: '服务返回达标' },
+      { value: null, state: 'unknown', status: '全网统计指标' },
       { value: 0, unit: 'W', state: 'objective', status: '最小化目标' },
       { value: 0, unit: '%', state: 'failed', status: '未达标', note: '服务返回未达标' },
     ]);
@@ -58,6 +60,27 @@ describe('规划三项目标展示', () => {
     expect(planningMetricCards(metrics, [...checks, { ...checks[1], passed: true }])[2])
       .toMatchObject({ value: 0, state: 'unknown', status: '未提供校验结论' });
     expect(metrics).toEqual({ connectivityPercent: null, totalRadiatedPowerW: 0, survivabilityPercent: 0 });
+    expect(planningCheckDisplay(checks, 'connectivity')).toMatchObject({ state: 'passed', status: '达标', detail: '服务返回达标' });
+  });
+  it('全网98.78%与必要通联达标分开显示，不将全网值改成100%', () => {
+    const metrics = { ...fixture().metrics, connectivityPercent: 98.78 };
+    const checks: PlanningCheck[] = [{ id: 'connectivity', label: '必要通联连通率', passed: true,
+      detail: '必要需求已生成主路由 1/1 条；算法值 1.0' }];
+    expect(planningMetricCards(metrics, checks)[0]).toMatchObject({ value: 98.78, state: 'statistic', status: '全网统计指标' });
+    expect(planningCheckDisplay(checks, 'connectivity')).toMatchObject({ state: 'passed', detail: checks[0].detail });
+    expect(metrics.connectivityPercent).toBe(98.78);
+  });
+});
+
+describe('完整约束服务结论', () => {
+  it('整体未通过或仍有缺口时，不把分项检查的通过当成整体通过', () => {
+    expect(planningConstraintSummary({ code: 3001, gap: [{ field: 'MARGIN_SHORTFALL' }] }))
+      .toEqual({ warning: true, message: '仍有未满足的约束，请查看具体原因' });
+    expect(planningConstraintSummary({ code: 3001, gap: [] }).warning).toBe(true);
+    expect(planningConstraintSummary({ code: 0, gap: [{ field: 'MARGIN_SHORTFALL' }] }).warning).toBe(true);
+    expect(planningConstraintSummary({ code: 0, gap: [] })).toEqual({ warning: false, message: '整体约束检查通过' });
+    expect(planningConstraintSummary(undefined)).toEqual({ warning: true, message: '未提供整体约束结论' });
+    expect(planningConstraintSummary(null).warning).toBe(true);
   });
 });
 

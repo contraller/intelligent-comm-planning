@@ -3,7 +3,7 @@
     <p class="origin">导入观测文件；本操作不建立采集连接</p>
     <fieldset :disabled="locked || !canImport">
       <label>观测 JSON<input type="file" accept=".json,application/json" @change="upload" /></label>
-      <details><summary>选择仓库既有构造预设</summary>
+      <details><summary>观测示例预设</summary>
         <div class="fields">
           <label>预设<select v-model="presetId"><option v-for="row in spectrumObservationPresets" :key="row.id" :value="row.id">{{ row.label }}</option></select></label>
           <label>观测集编号<input v-model="datasetId" maxlength="120" /></label>
@@ -11,7 +11,7 @@
           <label>导入来源说明<textarea v-model="note" maxlength="500" /></label>
           <label class="status-toggle"><input v-model="linkStatus" type="checkbox" :disabled="!deviceStatusRef" />关联已选冻结状态快照</label>
           <small v-if="deviceStatusRef">{{ deviceStatusRef.snapshotId }} · {{ deviceStatusRef.deviceIds.length }} 个声明成员</small>
-          <button class="btn" type="button" @click="choosePreset">选择该构造预设</button>
+          <button class="btn" type="button" @click="choosePreset">使用此构造示例</button>
         </div>
       </details>
     </fieldset>
@@ -57,7 +57,7 @@ import type { Decision, DecisionRequest } from '../types/resource-edit';
 const props = defineProps<{ visible: boolean; services: ObservationServices; resourceRevision: string; sourceSelection: ObservationSource | null; canImport: boolean; sessionGeneration: string; deviceStatusRef?: ObservationDeviceStatusRefInput | null }>();
 const emit = defineEmits<{ 'update:visible': [value: boolean]; 'dirty-change': [value: boolean]; 'busy-change': [value: boolean]; committed: [value: ObservationImportReceipt] }>();
 const store = createObservationImportStore(props.services, () => props.canImport, value => emit('committed', value));
-const presetId = ref(spectrumObservationPresets[0].id), datasetId = ref(''), resourceInput = ref(props.resourceRevision), note = ref('仓库既有频谱观测预设，显式构造导入，非实测');
+const presetId = ref(spectrumObservationPresets[0].id), datasetId = ref(''), resourceInput = ref(props.resourceRevision), note = ref('内置频谱观测示例（构造数据，非实测）');
 const uploading = ref(false);
 const locked = computed(() => uploading.value || store.state.busy || !!store.state.pending), decision = ref<DecisionRequest | null>(null);
 const linkStatus = ref(false), fileSource = ref<'uploaded' | 'preset' | null>(null);

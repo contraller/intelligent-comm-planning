@@ -80,7 +80,7 @@ describe('GIS首页在真实壳层中的入口', () => {
     expect(all(menu, n => n.tag === 'a')).toHaveLength(7);
     expect(textOf(menu)).toContain('GIS 工作台'); expect(textOf(menu)).toContain('刷新当前转正态势'); expect(textOf(menu)).toContain('切换已保存方案');
     expect(textOf(menu)).not.toContain('道路');
-    const picker = find(menu, n => n.tag === 'details')!, target = { open: false, closest: (_selector: string): unknown => target };
+    const picker = find(menu, n => n.tag === 'details' && String(n.props.class).includes('plan-picker'))!, target = { open: false, closest: (_selector: string): unknown => target };
     (picker.props.onMouseenter as (event: { currentTarget: unknown }) => void)({ currentTarget: target }); await settle();
     expect(target.open).toBe(true);
     const summary = find(picker, n => n.tag === 'summary')!;

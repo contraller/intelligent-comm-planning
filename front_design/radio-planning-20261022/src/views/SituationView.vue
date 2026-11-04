@@ -1221,6 +1221,7 @@ const resourceReset = inject<{
 } | null>('resourceResetAction', null);
 import DevicePortsEditDrawer from '../components/DevicePortsEditDrawer.vue';
 import { useRoute, useRouter, onBeforeRouteUpdate, onBeforeRouteLeave } from 'vue-router';
+import { modulePath } from '../config/embedded-pages';
 import { useDeviceConfigurationStore } from '../stores/device-configuration';
 import DeviceConfigurationDrawer from '../components/DeviceConfigurationDrawer.vue';
 import { useDeviceConfigurationAcceptanceStore } from '../stores/device-configuration-acceptance';
@@ -3368,7 +3369,7 @@ const analysisReturn = computed(() => {
 });
 // 配置和资源离页决定之后仍须属于原入口，不能让换号前的返回继续导航。
 onBeforeRouteLeave(
-  (to) => analysisReturnNavigation?.path !== to.fullPath || analysisReturnNavigation.current(),
+  (to) => analysisReturnNavigation?.path !== modulePath(to.fullPath) || analysisReturnNavigation.current(),
 );
 watch(
   () => [workspace.ready.value, route.fullPath, auth.generation, canInterferenceRead.value, auth.blocked],

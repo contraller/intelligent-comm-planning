@@ -62,6 +62,6 @@ export const INTERFERENCE_POLL_MS = 1000;
 // 态势只播放有限的独立观测；采集周期读取已保存配置，不修改其他轮询。
 export const MONITORING_PRESET_VERSION = 'monitoring-demo-1';
 export const SPECTRUM_MONITORING_BANDS = [
-  { id: 'hf-observation', label: 'HF 教学频段', minKhz: 6000, maxKhz: 10000 },
-  { id: 'vuhf-observation', label: 'VUHF 教学频段', minKhz: 30000, maxKhz: 88000 },
+  { id: 'hf-observation', label: '短波示例频段', minKhz: 6000, maxKhz: 10000 },
+  { id: 'vuhf-observation', label: '超短波示例频段', minKhz: 30000, maxKhz: 88000 },
 ] as const;

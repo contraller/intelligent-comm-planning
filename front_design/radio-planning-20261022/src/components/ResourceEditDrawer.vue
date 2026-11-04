@@ -34,7 +34,7 @@
           <dd>{{ model?.name }} · {{ device.modelId }}</dd>
           <!-- 观测只用于展示，不写入此配置表单。 -->
           <dt>运行状态（台账基线，只读）</dt>
-          <dd>{{ device.status ?? '未知' }}</dd>
+          <dd>{{ uiCode(device.status, '未知') }}</dd>
           <dt>功率上限</dt>
           <dd>{{ model?.txPowerMaxDbm }} dBm</dd>
           <dt>频率范围</dt>
@@ -60,7 +60,7 @@
         class="notice"
         >新登记对象的运行状态和告警均未知；固定站可稍后添加设备。</p
       >
-      <p v-if="httpMode && editor.form.kind === 'device'" class="readonly-note">工作模式协议待确认，暂不提供修改。</p>
+      <p v-if="httpMode && editor.form.kind === 'device'" class="readonly-note">当前工作模式仅供查看。</p>
       <p
         v-if="editor.form.kind === 'candidate'"
         class="notice"
@@ -354,6 +354,7 @@
   </AppDrawer>
 </template>
 <script setup lang="ts">
+import { uiCode } from '../services/ui-copy';
 import { computed, useId } from 'vue';
 import { useGisIssueFocus } from '../composables/useGisIssueFocus';
 import AppDrawer from './AppDrawer.vue';

@@ -8,7 +8,7 @@
     ><template v-if="editing && editor.form"
       ><p class="readonly-note">稳定 ID：{{ editor.form.id }}</p
       ><p class="readonly-note">天线增益必须明确填写，可填写 0 或负值；系统没有可代用的统一默认增益。高程可空，资源高程不参与当前传播计算，地面高程按冻结地形模型处理。</p
-      ><p class="readonly-note">空方向图按全向 OMNI、空占空比按连续发射 1 计算；有效值及来源保存在分析运行快照中。全向不使用方位角，切换为定向时必须填写方位角。</p
+      ><p class="readonly-note">空方向图按全向、空占空比按连续发射 1 计算；有效值及来源保存在分析运行快照中。全向不使用方位角，切换为定向时必须填写方位角。</p
       ><button
         class="btn small"
         :disabled="!editor.canEdit || editor.busy"
@@ -40,7 +40,7 @@
               v-for="value in options[key]"
               :key="value"
               :value="value"
-              >{{ value || '未提供' }}</option
+              >{{ value ? uiCode(value) : '未指定（分析按全向）' }}</option
             ></select
           ><input
             v-else
@@ -151,6 +151,7 @@
   >
 </template>
 <script setup lang="ts">
+import { uiCode } from '../services/ui-copy';
 import { computed, useId } from 'vue';
 import { useGisIssueFocus } from '../composables/useGisIssueFocus';
 import AppDrawer from './AppDrawer.vue';
@@ -177,7 +178,7 @@ const labels: Record<string, string> = {
   txPowerDbm: '功率 / dBm',
   antennaGainDbi: '天线增益 / dBi（必填，0 和负值有效）',
   interferenceType: '干扰类型',
-  patternType: '方向图（可空，分析按 OMNI）',
+  patternType: '方向图（可空，分析按全向）',
   azimuthDeg: '方位角 / °（定向必填）',
   dutyCycle: '占空比 0–1（可空，分析按 1）',
   active: '是否生效',

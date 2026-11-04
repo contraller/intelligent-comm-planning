@@ -53,8 +53,14 @@ export const useDiagnosisStore = defineStore('diagnosis', () => {
   const exportTarget=ref<'report'|'impact'|null>(null),cancelAwaitingRefresh=ref(false);
   const issues = ref<DiagnosisIssue[]>([]), decision = ref<DecisionRequest | null>(null);
   let resolver: ((value: Decision) => void) | undefined;
-  let timer: ReturnType<typeof setTimeout> | undefined, generation = 0, polling = false, queryPending = false,querySerial=0,loadSerial=0,importSerial=0,exportSerial=0,saveSerial=0,stageRetries=0;
+  let timer: ReturnType<typeof setTimeout> | undefined, generation = 0, polling = false, queryPending = false,querySerial=0,loadSerial=0,importSerial=0,exportSerial=0,saveSerial=0,cancelSerial=0,stageRetries=0;
   let pending: { signature: string; requestId: string } | null = null;
+  // 影响提交的回执确认前，工作区版本未知；保留原请求以便原号核实。
+  type ImpactOperation = { id: string; session: number; owner: NonNullable<typeof workspace.value>; input: { runId: string; baseRevision: string; requestId: string } };
+  const impactUnconfirmed = ref(false);
+  let unresolvedImpact: ImpactOperation | null = null;
+  let impactWrite: { operation: ImpactOperation; promise: Promise<boolean> } | null = null;
+  let cancelIntent: { id: string; session: number } | null = null;
   const dirty = computed(() => formDirty.value || !!importPreview.value || JSON.stringify(draft.value) !== JSON.stringify(baseline.value));
   const running = computed(() => !!view.value && ['PENDING','RUNNING'].includes(view.value.state));
   const selectedVersion = computed(() => selectedDetail.value ?? workspace.value?.scenarios.flatMap((s) => s.versions).find((v):v is DiagnosisScenarioVersion => v.id === versionId.value && 'network' in v) ?? null);
@@ -69,7 +75,7 @@ export const useDiagnosisStore = defineStore('diagnosis', () => {
   const canEdit=computed(()=>auth.can('diagnosis.scenario')&&editableSource.value);
   // 空场景先引导设置故障，保存的完整校验仍由原服务负责。
   const canExecute=computed(()=>auth.can('diagnosis.execute')&&editableSource.value&&!!draft.value?.faults.length&&((!!versionId.value&&!dirty.value)||auth.can('diagnosis.scenario')));
-  const locked = computed(() => busy.value || loading.value || importing.value);
+  const locked = computed(() => busy.value || loading.value || importing.value || impactUnconfirmed.value);
   const result = computed(() => record.value?.result ?? stageResult.value ?? (view.value?.diagnosisReady && 'result' in view.value.run ? view.value.run.result : null));
   const impactReady = computed(() => !!record.value || !!view.value?.impactReady);
   const availablePresets = computed(() => network.value ? presets.value.filter(p => diagnosisTemplateAvailable(p,network.value!.id)) : []);
@@ -111,7 +117,7 @@ export const useDiagnosisStore = defineStore('diagnosis', () => {
     return true;
   }
   function stopPolling() { requests.stop();loadSerial++;loading.value=false;polling = false; generation++; detailSerial++; if (timer) clearTimeout(timer); timer = undefined; }
-  function clearSelection() { stopPolling(); stageKey='';stageResult.value=null;selectedDetail.value=null;selectedArchived.value=false;sourceNetwork.value=null; view.value = null; record.value = null; runId.value = ''; cancelAwaitingRefresh.value=false;queryError.value = '';error.value='';exportError.value='';impactExportError.value='';exportTarget.value=null;importError.value='';notice.value=''; }
+  function clearSelection() { stopPolling(); cancelIntent=null; stageKey='';stageResult.value=null;selectedDetail.value=null;selectedArchived.value=false;sourceNetwork.value=null; view.value = null; record.value = null; runId.value = ''; cancelAwaitingRefresh.value=false;queryError.value = '';error.value='';exportError.value='';impactExportError.value='';exportTarget.value=null;importError.value='';notice.value=''; }
   function setDraft(next: DiagnosisDraft, saved: boolean) {
     draft.value = clone(next); baseline.value = saved ? clone(next) : null; formDirty.value = false; importPreview.value = null; undoStack.value = []; redoStack.value = []; issues.value = [];
   }
@@ -174,6 +180,33 @@ export const useDiagnosisStore = defineStore('diagnosis', () => {
     return {baseRevision:workspace.value.revision,requestId:pending.requestId};
   }
   function accept(w: DiagnosisReceipt) { if(workspace.value)workspace.value.revision=w.revision; pending = null; error.value = ''; issues.value = []; }
+  async function submitImpact(id: string, session: number) {
+    if (impactWrite) return impactWrite.promise;
+    if (unresolvedImpact && (unresolvedImpact.id !== id || unresolvedImpact.session !== session || unresolvedImpact.owner !== workspace.value)) {
+      throw new ApiError('会话或工作区已变化，请重新读取诊断工作区','SESSION_CHANGED');
+    }
+    const operation = unresolvedImpact ?? { id, session, owner: workspace.value!, input: { ...request('impact',{runId:id}), runId:id } };
+    unresolvedImpact = operation; impactUnconfirmed.value = true;
+    const writing = { operation, promise: Promise.resolve(false) };
+    impactWrite = writing;
+    writing.promise = (async () => {
+      const receipt = await previewService.submitDiagnosisImpactReceipt(operation.input);
+      // 离页停止轮询不能丢掉已写入的版本；换号或失权则不能接纳旧回执。
+      if (session !== auth.generation || operation.owner !== workspace.value || !auth.can('diagnosis.execute')) return false;
+      if (receipt.objectId !== id || receipt.entityIds[0] !== id) throw new ApiError('影响提交回执与当前任务不一致','INVALID_DIAGNOSIS_RESPONSE');
+      accept(receipt); unresolvedImpact = null; impactUnconfirmed.value = false;
+      return true;
+    })();
+    try { return await writing.promise; }
+    catch (reason) {
+      // 明确的服务端拒绝没有写入；允许用户重新读取工作区。网络/回执异常仍保留原号核实。
+      if (unresolvedImpact === operation && reason instanceof ApiError && reason.status && reason.status >= 400 && reason.status < 500) {
+        unresolvedImpact = null; impactUnconfirmed.value = false;
+      }
+      throw reason;
+    }
+    finally { if (impactWrite === writing) impactWrite = null; }
+  }
   async function refreshLists(scope:'all'|'scenarios'|'history'='all'){
     // 场景与运行目录可分别重试，另一目录的请求不能使本次恢复失效。
     const scenarioSerial=scope!=='history'?++scenarioListSerial:scenarioListSerial,
@@ -226,42 +259,44 @@ export const useDiagnosisStore = defineStore('diagnosis', () => {
   }
   async function query() {
     if (!auth.can('diagnosis.view') || !runId.value || queryPending || busy.value) return;
-    queryPending = true; const token = generation, id = runId.value,serial=++querySerial;let retryStage=false;
+    queryPending = true; const token = generation, id = runId.value, session=auth.generation,serial=++querySerial;let retryStage=false,writingImpact=false;
+    const current=()=>token===generation&&id===runId.value&&session===auth.generation&&auth.can('diagnosis.view');
     try {
       let next=await previewService.getDiagnosisProgress({id,signal:requests.signal('progress')});
-      if(token!==generation||id!==runId.value)return;
+      if(!current())return;
       if(!view.value||view.value.run.id!==id){
         const detail=await previewService.getDiagnosisDetail({id,signal:requests.signal('run')});
-        if(token!==generation||id!==runId.value)return;view.value=detail;
+        if(!current())return;view.value=detail;
       }
       view.value={...view.value,...next};
       // 两段异步提交是独立 POST；读取进度和结果不会在后端偷偷启动影响分析。
-      if(capabilities.value.twoStep&&next.diagnosisReady&&!next.impactReady&&!view.value.run.impactTaskId&&next.state==='RUNNING'&&auth.can('diagnosis.execute')){
-        const payload={runId:id};
-        const receipt=await previewService.submitDiagnosisImpactReceipt({...request('impact',payload),...payload});
-        if(token!==generation||id!==runId.value)return;
-        accept(receipt);
-        view.value=await previewService.getDiagnosisDetail({id,signal:requests.signal('run')});
-        if(token!==generation||id!==runId.value)return;
+      // 取消意图优先于尚未发出的影响提交；未知回执只用原号/原参数核实。
+      const recovering=unresolvedImpact?.id===id&&unresolvedImpact.session===session;
+      if(!busy.value&&auth.can('diagnosis.execute')&&(recovering||capabilities.value.twoStep&&next.diagnosisReady&&!next.impactReady&&!view.value.run.impactTaskId&&next.state==='RUNNING'&&!(cancelIntent?.id===id&&cancelIntent.session===session))){
+        writingImpact=true;
+        if(!await submitImpact(id,session)||!current()||busy.value)return;
+        writingImpact=false;
+        const detail=await previewService.getDiagnosisDetail({id,signal:requests.signal('run')});
+        if(!current()||busy.value)return;view.value=detail;
         next=await previewService.getDiagnosisProgress({id,signal:requests.signal('progress')});
-        if(token!==generation||id!==runId.value)return;
+        if(!current()||busy.value)return;
         view.value={...view.value,...next};
       }
       const stage=next.impactReady?'impact':next.diagnosisReady?'diagnosis':null,key=stage?next.resultVersion+':'+stage:'';
       if(stage&&stageKey!==key){
         const result=await previewService.getDiagnosisStage({id,stage,resultVersion:next.resultVersion,signal:requests.signal('stage')});
-        if(token!==generation||id!==runId.value)return;stageResult.value=result;stageKey=key;
+        if(!current()||busy.value)return;stageResult.value=result;stageKey=key;
       }
       if(next.state==='SUCCESS'&&!record.value){
         const report=await previewService.getDiagnosisReport(id);
-        if(token!==generation||id!==runId.value)return;record.value=report;
+        if(!current()||busy.value)return;record.value=report;
       }
       queryError.value='';
       stageRetries=0;
       if(cancelAwaitingRefresh.value){cancelAwaitingRefresh.value=false;notice.value='取消状态已刷新';}
     }
-    catch (reason) { if (token === generation && id === runId.value) {retryStage=reason instanceof ApiError&&Number(reason.code)===1203&&stageRetries++<2;queryError.value = retryStage?'':`查询失败，状态未确认：${reason instanceof Error ? reason.message : '请重试'}`;} }
-    finally { if(serial!==querySerial)return;queryPending = false; if (retryStage&&token===generation&&polling)timer=setTimeout(()=>void query(),0);else if (token !== generation && polling && runId.value) void query(); else schedule(); }
+    catch (reason) { if (current()) {retryStage=!writingImpact&&reason instanceof ApiError&&Number(reason.code)===1203&&stageRetries++<2;queryError.value = retryStage?'':`查询失败，状态未确认：${reason instanceof Error ? reason.message : '请重试'}`;} }
+    finally { if(serial!==querySerial)return;queryPending = false; if(session!==auth.generation)return; if (retryStage&&token===generation&&polling)timer=setTimeout(()=>void query(),0);else if (token !== generation && polling && runId.value) void query(); else schedule(); }
   }
   async function startPolling() { if(!auth.can('diagnosis.view'))return;polling = true; generation++; await query(); }
   async function selectRun(id: string) {
@@ -293,18 +328,38 @@ export const useDiagnosisStore = defineStore('diagnosis', () => {
   }
   async function cancel() {
     const id=runId.value,session=auth.generation;
-    if (!auth.can('diagnosis.execute') || !running.value || cancelAwaitingRefresh.value || locked.value || await ask({title:'取消诊断',message:'取消尚未完成的诊断/影响阶段；冻结输入保留，不生成完整报告。',saveLabel:'确认取消'}) !== 'save') return;
-    if(session!==auth.generation||id!==runId.value||!auth.can('diagnosis.execute'))return;
+    // 影响写入期间仍允许提出取消；其他入口继续受locked保护。
+    if (!auth.can('diagnosis.execute') || !running.value || cancelAwaitingRefresh.value || busy.value || loading.value || importing.value) return;
+    const previousIntent=cancelIntent,intent={id,session},serial=++cancelSerial;cancelIntent=intent;
     busy.value = true;
-    try { const next = await previewService.cancelDiagnosisReceipt({...request('cancel',id),runId:id});
-      if(session!==auth.generation||id!==runId.value)return;
+    const current=()=>serial===cancelSerial&&session===auth.generation&&id===runId.value&&cancelIntent===intent&&auth.can('diagnosis.execute');
+    try {
+      if(await ask({title:'取消诊断',message:'取消尚未完成的诊断/影响阶段；冻结输入保留，不生成完整报告。',saveLabel:'确认取消'})!=='save'){
+        if(current())cancelIntent=previousIntent;return;
+      }
+      if(!current())return;
+      // 已发impact先接纳回执revision；不等待后续只读详情，也不并发POST取消。
+      const writing=impactWrite;
+      if(writing&&!await writing.promise)return;
+      if(!current())return;
+      if(unresolvedImpact)throw new ApiError('影响分析提交尚未确认，请重试查询核实回执后再取消','DIAGNOSIS_IMPACT_UNCONFIRMED');
+      if(!running.value){notice.value='任务已结束，未执行取消；请核对最新状态';return;}
+      const next = await previewService.cancelDiagnosisReceipt({...request('cancel',id),runId:id});
+      if(!current())return;
+      if(next.objectId!==id||next.entityIds[0]!==id)throw new ApiError('取消回执与当前任务不一致','INVALID_DIAGNOSIS_RESPONSE');
       accept(next); record.value = null;cancelAwaitingRefresh.value=true;queryError.value='';notice.value='';stopPolling();
       // 取消回执已确认；详情失败只重查状态，不再发送取消操作。
       const token=generation;
       try{const detail=await previewService.getDiagnosisDetail({id});if(session===auth.generation&&token===generation&&id===runId.value){view.value=detail;cancelAwaitingRefresh.value=false;notice.value='取消已完成，状态已刷新';}}
       catch(e){if(session===auth.generation&&token===generation&&id===runId.value)queryError.value=`状态读取失败：${e instanceof Error?e.message:'请重试'}`;}
     }
-    catch (reason) { if(session===auth.generation&&id===runId.value)report(reason); } finally { if(session===auth.generation){busy.value = false; schedule();} }
+    catch (reason) { if(current())report(reason); } finally {
+      if(serial===cancelSerial&&session===auth.generation){
+        busy.value = false;
+        // 确认期间自然完成时，补回被busy隔离的只读结果，不把完成态留成无报告。
+        if(view.value?.state==='SUCCESS'&&!record.value)void query();else schedule();
+      }
+    }
   }
   async function refreshSources() {
     if(!auth.can('diagnosis.view'))return;const session=auth.generation,token=generation;
@@ -370,7 +425,7 @@ export const useDiagnosisStore = defineStore('diagnosis', () => {
     try { await previewService.resetDiagnosisReceipt(workspace.value?.revision ?? null); const loaded=await previewService.loadDiagnosisContext({signal:requests.signal('metadata')}); clearSelection(); draft.value = null; baseline.value = null; formDirty.value = false; importPreview.value = null; undoStack.value = []; redoStack.value = []; pending = null; hydrate(loaded); if(workspace.value)await refreshLists(); error.value = ''; notice.value = '诊断演示数据已重置'; }
     catch (reason) { report(reason); } finally { busy.value = false; }
   }
-  function clearForSession(){capabilities.value={};contextOrigin.value='UNKNOWN';selectedArchived.value=false;importError.value='';exportError.value='';impactExportError.value='';exportTarget.value=null;cancelAwaitingRefresh.value=false;scenarioQueryError.value='';historyQueryError.value='';requests.stop();scenarioListSerial++;historyListSerial++;detailSerial++;selectedDetail.value=null;sourceNetwork.value=null;stageResult.value=null;stageKey='';scenarioPage.value=1;scenarioPageSize.value=20;historyPage.value=1;historyPageSize.value=20;scenarioTotal.value=0;historyTotal.value=0;showArchived.value=false;loadSerial++;importSerial++;exportSerial++;querySerial++;saveSerial++;queryPending=false;importing.value=false;exporting.value=false;busy.value=false;stopPolling();answer('cancel');gisHandoff.value=null;workspace.value=null;presets.value=[];legacy.value=[];sources.value={plans:[],error:null};symptoms.value=[];legacyInterferenceIds.value=[];draft.value=null;baseline.value=null;scenarioId.value=null;versionId.value='';runId.value='';view.value=null;record.value=null;undoStack.value=[];redoStack.value=[];formDirty.value=false;importPreview.value=null;demo.value='normal';loading.value=false;loadError.value='';error.value='';queryError.value='';notice.value='';issues.value=[];pending=null;}
+  function clearForSession(){cancelSerial++;cancelIntent=null;unresolvedImpact=null;impactWrite=null;impactUnconfirmed.value=false;capabilities.value={};contextOrigin.value='UNKNOWN';selectedArchived.value=false;importError.value='';exportError.value='';impactExportError.value='';exportTarget.value=null;cancelAwaitingRefresh.value=false;scenarioQueryError.value='';historyQueryError.value='';requests.stop();scenarioListSerial++;historyListSerial++;detailSerial++;selectedDetail.value=null;sourceNetwork.value=null;stageResult.value=null;stageKey='';scenarioPage.value=1;scenarioPageSize.value=20;historyPage.value=1;historyPageSize.value=20;scenarioTotal.value=0;historyTotal.value=0;showArchived.value=false;loadSerial++;importSerial++;exportSerial++;querySerial++;saveSerial++;queryPending=false;importing.value=false;exporting.value=false;busy.value=false;stopPolling();answer('cancel');gisHandoff.value=null;workspace.value=null;presets.value=[];legacy.value=[];sources.value={plans:[],error:null};symptoms.value=[];legacyInterferenceIds.value=[];draft.value=null;baseline.value=null;scenarioId.value=null;versionId.value='';runId.value='';view.value=null;record.value=null;undoStack.value=[];redoStack.value=[];formDirty.value=false;importPreview.value=null;demo.value='normal';loading.value=false;loadError.value='';error.value='';queryError.value='';notice.value='';issues.value=[];pending=null;}
   return { demoEnabled,dataOrigin,selectedArchived,importError,exportError,impactExportError,exportTarget,cancelAwaitingRefresh,scenarioQueryError,historyQueryError,scenarioPage,scenarioPageSize,scenarioTotal,showArchived,historyPage,historyPageSize,historyTotal,queryScenarios,queryHistory,clearForSession,workspace,presets,legacy,sources,symptoms,interferenceIds,draft,baseline,scenarioId,versionId,runId,view,record,undoStack,redoStack,formDirty,importPreview,demo,loading,busy,exporting,importing,loadError,error,queryError,notice,issues,decision,dirty,running,selectedVersion,network,canEdit,canExecute,locked,result,impactReady,availablePresets,
     ask,answer,prepareGisEditing,allowsGisTransfer,acceptGisTransfer,clearGisTransfer,discardDraft,allowDiscard,updateDraft,applyFaults,undo,redo,newScenario,switchPlan,selectVersion,copyVersion,applyPreset,save,archive,query,startPolling,stopPolling,selectRun,selectLegacy,submit,cancel,refreshSources,load,reload,previewImport,commitImport,download,template,reset };
 });

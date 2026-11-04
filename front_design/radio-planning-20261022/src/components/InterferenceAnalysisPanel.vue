@@ -50,10 +50,11 @@
       <template v-if="store.selected">
         <h4>{{ store.selected.plan_version }} · {{ labels[store.selected.state] }}</h4>
         <p>{{ store.selected.phase }} · {{ store.selected.progress }}%</p><progress max="100" :value="store.selected.progress" />
-        <p class="muted">{{ store.selected.run_id }} · {{ store.selected.data_origin }}</p>
+        <p class="muted">数据性质：{{ uiCode(store.selected.data_origin) }} · 模型预测</p>
+        <details><summary>运行来源详情</summary><p>运行编号：{{ store.selected.run_id }}</p><p>原始数据性质：{{ store.selected.data_origin }}</p></details>
         <p>冻结场景 {{ store.selected.source.name }} · v{{ store.selected.source.versionNo }}</p>
         <details v-if="store.selected.analysis_parameters" aria-label="分析有效参数及来源"><summary>分析有效参数及来源</summary>
-          <section v-for="row in store.selected.analysis_parameters" :key="row.interference_id"><h4>{{ row.name }} · {{ row.interference_id }}</h4><dl><template v-for="(value, field) in row.parameters" :key="field"><dt>{{ interferenceParameterLabels[field] || field }}</dt><dd>{{ value === null ? '不适用或未提供' : value }} · {{ row.sources[field] }}</dd></template></dl></section>
+          <section v-for="row in store.selected.analysis_parameters" :key="row.interference_id"><h4>{{ row.name }} · {{ row.interference_id }}</h4><dl><template v-for="(value, field) in row.parameters" :key="field"><dt>{{ interferenceParameterLabels[field] || field }}</dt><dd>{{ value === null ? '不适用或未提供' : uiCode(value) }} · {{ row.sources[field] }}</dd></template></dl></section>
         </details>
         <p v-else>历史运行未记录标准化参数来源，保留原冻结快照。</p>
         <p v-if="store.selected.source_state.state !== 'CURRENT'" role="status">{{ store.selected.source_state.reasons.join('；') }}</p>
@@ -76,10 +77,10 @@
             <template v-for="target in measureTargets?.find(item => item.measureId === row.measure_id)?.targets ?? []" :key="target.kind"><button class="text-link" :disabled="!!target.reason" :title="target.reason" @click="target.locate()">{{ target.label }} · {{ target.id }}</button></template>
           </div>
           <p v-if="!store.selected.result.measures.length">未生成可采纳措施。</p>
-          <details v-if="store.selected.result.measure_review.length"><summary>五类措施逐项结论</summary><pre>{{ JSON.stringify(store.selected.result.measure_review, null, 2) }}</pre></details>
-          <details v-if="store.selected.result.unresolved.length"><summary>尚未解决的对象</summary><pre>{{ JSON.stringify(store.selected.result.unresolved, null, 2) }}</pre></details>
-          <details v-if="store.selected.result.parameter_substitutions.length"><summary>计算参数推定与依据</summary><pre>{{ JSON.stringify(store.selected.result.parameter_substitutions, null, 2) }}</pre></details>
-          <p class="muted">{{ store.selected.result.notes.join('；') }}</p>
+          <details v-if="store.selected.result.measure_review.length"><summary>五类措施逐项结论</summary><ReadableData :value="store.selected.result.measure_review" /></details>
+          <details v-if="store.selected.result.unresolved.length"><summary>尚未解决的对象</summary><ReadableData :value="store.selected.result.unresolved" /></details>
+          <details v-if="store.selected.result.parameter_substitutions.length"><summary>计算参数推定与依据</summary><ReadableData :value="store.selected.result.parameter_substitutions" /></details>
+          <div v-if="store.selected.result.notes.length" class="muted" aria-label="计算说明"><ReadableData :value="store.selected.result.notes" /></div>
         </template>
       </template>
       <p v-if="store.notice" role="status">{{ store.notice }}</p><p v-if="targetNotice" role="status">{{ targetNotice }}</p>
@@ -88,6 +89,8 @@
   </section>
 </template>
 <script setup lang="ts">
+import { uiCode } from '../services/ui-copy';
+import ReadableData from './ReadableData.vue';
 import { computed, watch } from 'vue';
 import { useInterferenceStore } from '../stores/interference';
 import InterferenceSceneDrawer from './InterferenceSceneDrawer.vue';

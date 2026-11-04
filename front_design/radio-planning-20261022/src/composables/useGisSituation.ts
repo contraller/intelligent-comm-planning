@@ -138,7 +138,7 @@ export function createGisSituation(services?: GisSituationServices) {
       return { key: network.identity.snapshot_id, label: row.name, version: row.version,
         example: false, network, terrain: surface.terrain, basemap, coverage,
         interferences: sources ?? [],
-        notice: '已保存构造规划结果 · 算法预测，未提供现场实测。' +
+        notice: '构造数据 · 算法预测 · 非实测。' +
           (network.identity.source_changed ? ' 来源已变化，按原冻结版本显示。' : '') +
           (row.state === 'REFERENCE' ? ' 未达标参考方案。' : '') +
           (network.interferences_notice ? ' ' + network.interferences_notice
@@ -234,9 +234,12 @@ export function createGisSituation(services?: GisSituationServices) {
   }
   const displayingLiveInterferences = computed(() => useLiveInterferences.value && !!liveInterferences.value);
   const interferences = computed(() => displayingLiveInterferences.value ? liveInterferences.value!.sources : frame.value.interferences);
-  const interferenceSourceLabel = computed(() => displayingLiveInterferences.value
+  const interferenceSourceDetails = computed(() => displayingLiveInterferences.value
     ? `干扰源：最新已保存资源 ${liveInterferences.value!.revision} · ${liveInterferences.value!.source}；规划链路仍为原冻结计算，未随干扰源重算。`
     : `干扰源：${frame.value.example ? '受控示例' : '冻结规划资源 ' + frame.value.network.identity.resource_revision}。`);
+  const interferenceSourceLabel = computed(() => displayingLiveInterferences.value
+    ? '干扰源：已保存构造资源；链路结果尚未随干扰源更新重算。'
+    : `干扰源：${frame.value.example ? '内置构造示例' : '方案冻结资源'}。`);
   async function queryPlans(pageNum = 1) {
     if (!services) { catalogError.value = '当前数据模式只提供内置受控示例。'; return; }
     listRead?.abort(); const controller = new AbortController(), owner = ++listSerial;
@@ -279,7 +282,7 @@ export function createGisSituation(services?: GisSituationServices) {
     frame.value.basemap?.dispose(); busy.value = false; listing.value = false;
   }
   return { frame, catalog, busy, listing, error, notice, catalogError, selectedDeviceId, coverageDisplay,
-    autoFollow, canAutoFollow, lastCheckedAt, liveInterferences, interferences, displayingLiveInterferences, interferenceSourceLabel,
+    autoFollow, canAutoFollow, lastCheckedAt, liveInterferences, interferences, displayingLiveInterferences, interferenceSourceLabel, interferenceSourceDetails,
     startAutoRefresh, setAutoFollow,
     showCoverage, showLinks, coverage, initialize, openPlan, refreshLatest, queryPlans, showExample, previewDevices, stop };
 }

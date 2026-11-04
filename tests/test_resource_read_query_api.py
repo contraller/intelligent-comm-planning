@@ -1,4 +1,7 @@
 """现有资源 GET 统一委托严格查询；使用隔离库验证页面参数。"""
+from collections import Counter
+from copy import deepcopy
+
 import pytest
 
 from test_resource_export_api import api  # noqa: F401
@@ -38,6 +41,45 @@ def test_device_filter_sort_and_detail_use_one_frozen_version(api):
     assert detail['node']['node_id'] == item['node_id']
     assert detail['model']['model_id'] == item['model_id']
     assert detail['antenna']['antenna_id'] == item['antenna_id']
+
+
+@pytest.mark.parametrize('filters', [
+    {}, {'page': 2, 'page_size': 5}, {'search': 'DV-0001'},
+    {'device_class': 'HF', 'mobility': 'VEHICLE'}, {'search': 'not-an-existing-device'},
+])
+def test_device_deployment_totals_remain_full_revision_counts(api, filters):
+    client, _, snapshot = api
+    response = get(client, snapshot, 'devices', **filters)
+    assert response.status_code == 200, response.text
+    data = response.json()['data']
+    tables = snapshot['tables']
+    nodes = {row['node_id']: row for row in tables['node.csv']}
+    models = {row['model_id']: row for row in tables['device_model.csv']}
+    groups = Counter((models[row['model_id']]['device_class'], nodes[row['node_id']]['mobility'])
+                     for row in tables['device.csv'])
+    expected = {band: {mode: groups[band, mode] for mode in ('FIXED', 'VEHICLE', 'MANPACK', 'UNKNOWN')}
+                for band in ('HF', 'VUHF')}
+    assert data['stats']['deployments'] == expected
+    assert sum(expected['HF'].values()) == data['stats']['hf'] == 174
+    assert sum(expected['VUHF'].values()) == data['stats']['vuhf'] == 240
+    context = client.get('/api/v1/resource/context', params={'context': 'ledger'}).json()['data']
+    assert context['revision'] == data['revision'] == snapshot['revision']
+    assert context['stats']['deployments'] == data['stats']['deployments']
+
+
+def test_unknown_station_deployment_is_not_counted_as_fixed(api, monkeypatch):
+    from app import resource_read_projection as projection
+    client, _, snapshot = api
+    frozen = deepcopy(snapshot)
+    node = frozen['tables']['node.csv'][0]
+    node['mobility'] = ''
+    affected = sum(device['node_id'] == node['node_id'] for device in frozen['tables']['device.csv'])
+    original = get(client, snapshot, 'devices').json()['data']['stats']['deployments']
+    monkeypatch.setattr(projection.datasets, 'current', lambda: frozen)
+    stats = get(client, snapshot, 'devices', search='not-an-existing-device').json()['data']['stats']
+    assert stats['deployments']['HF']['UNKNOWN'] == original['HF']['UNKNOWN'] + affected
+    assert stats['deployments']['HF']['FIXED'] == original['HF']['FIXED'] - affected
+    assert sum(stats['deployments']['HF'].values()) == stats['hf']
 
 
 def test_node_association_map_frequency_and_missing_object(api):

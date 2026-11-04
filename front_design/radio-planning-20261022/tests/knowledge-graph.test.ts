@@ -5,6 +5,17 @@ import { knowledgeGraphModel } from '../src/graphs/knowledge-graph';
 import type { KnowledgeGraph } from '../src/types/knowledge';
 const types=knowledgeTypes.map(t=>t.id),names=Object.fromEntries(knowledgeRelationTypes.map(t=>[t.id,t.name]));
 describe('知识图形展示数据',()=>{
+  it('23节点聚焦保留关系及高亮，关系名按悬停查看而不堆叠在中心',()=>{
+    const workspace=initialKnowledgeWorkspace(),snapshot=workspace.versions[1];
+    const entities=Array.from({length:23},(_,i)=>({...snapshot.entities[0],id:'focused-'+i}));
+    const relations=entities.slice(1).map((entity,i)=>({...snapshot.relations[0],id:'focused-edge-'+i,head:entities[0].id,tail:entity.id}));
+    const graph:KnowledgeGraph={versionId:snapshot.id,matchedIds:[],entities,relations,totalNodes:23,totalEdges:22};
+    const model=knowledgeGraphModel(graph,entities[0].id,types,names);
+    expect(model.links).toHaveLength(22);
+    expect(model.links.every(link=>!link.label.show&&link.lineStyle.opacity===0.85)).toBe(true);
+    expect(model.links.every(link=>!!link.value)).toBe(true);
+    expect(model.nodes.find(n=>n.id===entities[0].id)?.label.show).toBe(true);
+  });
   // 上限限制绘制数量，命中优先和图例仍需保持完整可辨。
   it('截断优先显示后排命中，背景保留且图中没有悬空关系',()=>{
     const w=initialKnowledgeWorkspace(),v=w.versions[1];v.entities=Array.from({length:75},(_,i)=>({...v.entities[0],id:'test-'+i}));v.relations=[];

@@ -109,6 +109,7 @@ function update() {
           edgeSymbol: ['none', 'arrow'],
           edgeSymbolSize: model.value.edgeSymbolSize,
           edgeLabel: { show: false, formatter: '{c}', color: '#96b9d5', fontSize: 10 },
+          labelLayout: { hideOverlap: true },
           lineStyle: { color: '#537f9e', width: 1.5, curveness: 0.12 },
           emphasis: {
             focus: 'adjacency',

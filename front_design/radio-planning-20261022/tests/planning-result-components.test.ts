@@ -231,9 +231,56 @@ describe('规划页面实际模板联动', () => {
     expect(find(s.root, row => row.props['aria-label'] === '当前方案服务结论')).toBeUndefined();
     expect(textOf(s.root)).not.toContain('仅找到3个合法候选');
   });
+  pageIt('四项检查通过仍保留完整余量失败；全网连通率与必要通联依据单独显示', async ({ page: s }) => {
+    const plan = s.planning.selectedPlan!;
+    plan.result.checks.forEach(check => { check.passed = true; });
+    plan.result.checks.find(check => check.id === 'connectivity')!.detail = '必要需求已生成主路由 1/1 条；算法值 1.0';
+    plan.result.metrics.connectivityPercent = 98.78;
+    plan.outcome = { code: 3001, message: '规划完成，但未满足全部硬约束',
+      gap: [{ objectId: 'LINK-A', field: 'MARGIN_SHORTFALL', message: '链路余量-0.1dB，小于门限6.0dB' }], suggestions: [] };
+    plan.result.resultDetails!.deploymentSummary = { mode: 'FIXED_COUNT', requestedCount: 1, actualCount: 1,
+      requestedSolutionCount: 1, returnedSolutionCount: 0, countSatisfied: true,
+      shortfallReasons: [], forcedSiteIds: [], lowerBound: null, provedOptimal: false };
+    await nextTick();
+    const summary = find(s.root, row => row.tag === 'summary' && textOf(row).includes('整体结论'))!;
+    expect(textOf(summary)).toContain('仍有未满足的约束');
+    expect(textOf(s.root)).not.toContain('已提供的约束均通过');
+    expect(textOf(s.root)).toContain('分项检查：必要通联、抗毁性、中继和频率');
+    expect(textOf(s.root)).toContain('链路余量-0.1dB');
+    expect(textOf(s.root)).toContain('完整结果份数（实际 / 请求）：0 / 1');
+    const global = find(s.root, row => row.tag === 'article' && textOf(row).includes('全网连通率'))!;
+    expect(textOf(global)).toContain('98.78%');expect(textOf(global)).not.toContain('达标');
+    expect(global.props.class).toContain('statistic');
+    const mandatory = find(s.root, row => row.props['aria-label'] === '必要通联满足率检查')!;
+    expect(textOf(mandatory)).toContain('必要通联满足率 · 达标');
+    expect(textOf(mandatory)).toContain('1/1 条；算法值 1.0');
+    expect(plan.result.metrics.connectivityPercent).toBe(98.78);
+  });
+  pageIt('未保存结果采用当前解结论；已选方案缺结论时不借另一作业补值', async ({ page: s }) => {
+    const plan = s.planning.selectedPlan!;
+    s.planning.job!.outcome = { code: 0, message: '另一作业已通过', gap: [], suggestions: [] };
+    delete (plan as Partial<typeof plan>).outcome;
+    await nextTick();
+    expect(textOf(s.root)).toContain('未提供整体约束结论');
+    expect(textOf(s.root)).not.toContain('整体约束检查通过');
+    expect(find(s.root, row => row.props['aria-label'] === '当前方案服务结论')).toBeUndefined();
+    s.planning.job!.solutions = [{ solutionId: 'current-candidate', label: '当前候选', radioCount: null,
+      result: structuredClone(toRaw(plan.result)), savedPlanId: null, expired: false,
+      outcome: { code: 3001, message: '当前候选余量不足', gap: [{ objectId: 'LINK-A', field: 'margin', message: '当前候选缺口' }], suggestions: [] } }];
+    s.planning.selectedSolutionId = 'current-candidate';
+    s.planning.selectedPlan = null;
+    await nextTick();
+    const reason = find(s.root, row => row.props['aria-label'] === '当前方案服务结论')!;
+    expect(textOf(reason)).toContain('当前候选余量不足');
+    expect(textOf(reason)).not.toContain('另一作业已通过');
+    expect(textOf(s.root)).toContain('仍有未满足的约束');
+  });
   pageIt('未知规划坐标和候选限制如实展示，缺少覆盖轮廓不补零', async ({ page: s }) => {
     const plan = s.planning.selectedPlan!;
     const row = plan.result.configuration.deployment[0];delete row.plannedCoordinate;
+    // 同一冻结快照节点坐标也是合法回退来源；真正缺值时须同时缺少这两处。
+    plan.result.nodes = plan.result.nodes.filter(node => node.id !== row.stationId);
+    expect(s.preview.data!.resources.stations.find(node => node.id === row.stationId)?.coordinate).toBeDefined();
     await nextTick();const probe = table(s.root, row.stationId);
     (probe.props.expand as (id: string) => void)(row.stationId);await nextTick();
     expect(textOf(s.root)).toContain('未提供规划坐标');expect(textOf(s.root)).not.toContain('沿用输入位置');
@@ -252,16 +299,24 @@ describe('规划页面实际模板联动', () => {
     expect(textOf(s.root)).toContain('候选数据限制：未提供通视资料');
     plan.result.resultDetails!.candidateScreening!.unavailableReasons = null;await nextTick();
     expect(textOf(s.root)).toContain('候选数据限制：未提供');
-    plan.result.coverage.contour = null;await click(s.root, '覆盖与场强');
-    expect(textOf(s.root)).toContain('覆盖轮廓数量：未提供');expect(textOf(s.root)).not.toContain('0 个覆盖轮廓');
+    plan.result.coverage.contour = null;await nextTick();
+    const coverage = find(s.root, row => row.props['aria-label'] === '方案覆盖结果摘要')!;
+    expect(textOf(coverage)).toContain('尚无已读取且匹配的覆盖结果');expect(textOf(s.root)).not.toContain('0 个覆盖轮廓');
     plan.result.coverage.contour = { type: 'FeatureCollection', features: [] };await nextTick();
-    expect(textOf(s.root)).toContain('覆盖轮廓数量：0');
+    expect(textOf(coverage)).toContain('尚无已读取且匹配的覆盖结果');
+    expect(map(s.root).props.showCoverage).toBe(false);
   });
-  pageIt('覆盖说明明确热力和边界含义，显示方式仍联动同一地图', async ({ page: s }) => {
-    await click(s.root,'覆盖与场强');
-    const selector=find(s.root,row=>row.props['aria-label']==='覆盖显示方式')!,body=selector.parent!.parent!;
-    expect(textOf(body)).toContain('场强热力图以颜色呈现场强空间分布');expect(textOf(body)).toContain('dBμV/m');expect(textOf(body)).toContain('覆盖轮廓显示已提供的覆盖边界');expect(textOf(body)).not.toContain('PNG');
-    (selector.props.onChange as Function)({target:{value:'raster'}});await nextTick();expect(map(s.root).props.coverageDisplay).toBe('raster');
+  pageIt('结果页覆盖入口进入独立调整工作区，保留同一冻结父方案', async ({ page: s }) => {
+    const before = JSON.stringify(s.planning.selectedPlan!.result);
+    expect(find(s.root, row => row.tag === 'button' && textOf(row) === '覆盖与场强')).toBeUndefined();
+    expect(textOf(find(s.root, row => row.props['aria-label'] === '方案覆盖结果摘要')!)).toContain('读取缓存或计算');
+    await click(s.root, '进入覆盖计算');
+    expect(s.planning.step).toBe(3);expect(s.planning.adjustmentOpen).toBe(true);
+    expect(find(s.root, row => row.props['aria-label'] === '冻结规划覆盖缓存')).toBeDefined();
+    expect(textOf(s.root)).toContain('接收带宽仅用于本次覆盖预测');
+    // 调整预览允许显示同一父方案的既有覆盖，不代表已产生本次新覆盖缓存。
+    expect(map(s.root).props.showCoverage).toBe(true);
+    expect(JSON.stringify(s.planning.adjustmentParent!.result)).toBe(before);
   });
   pageIt('配置查看随方案切换和失去查看权限关闭，重开读取当前冻结结果', async ({ page: s }) => {
     await click(s.root,'查看完整配置');expect(find(s.root,row=>row.tag==='aside')).toBeDefined();
@@ -297,7 +352,8 @@ describe('规划页面实际模板联动', () => {
     expect(table(s.root, 'LINK-C').props.selection).toBeNull();
     expect(JSON.stringify(s.preview.data)).toBe(before); expect(s.storage.writes).toBe(s.writes);
   });
-  pageIt('切换页签、清除选择恢复默认范围；覆盖偏好和冻结结果保持', async ({ page: s }) => {
+  pageIt('切换页签、清除选择恢复默认范围；未读取的覆盖保持关闭且冻结结果不变', async ({ page: s }) => {
+    const before = JSON.stringify(s.planning.selectedPlan!.result);
     await click(s.root,'路由路径');
     await select(s.root, 'ROUTE-3'); await click(s.root, '设备参数');
     expect((map(s.root).props.highlightStationIds as string[]).length).toBeGreaterThan(0);
@@ -306,12 +362,11 @@ describe('规划页面实际模板联动', () => {
     await click(s.root, '清除选择');
     expect(map(s.root).props).toMatchObject({ selectedId: '', selectedLinkId: '', highlightLinkIds: [] });
     expect(table(s.root, 'DV-0001').props.selection).toBeNull();
-    await click(s.root, '覆盖与场强');
-    const control = find(s.root, row => row.props['aria-label'] === '覆盖显示方式')!;
-    (control.props.onChange as Function)({target:{value:'contour'}});
+    await click(s.root, '部署点位');
     (map(s.root).props.select as (id: string) => void)('ND-0001'); await nextTick();
     await click(s.root, '清除选择');
-    expect(map(s.root).props).toMatchObject({ coverageDisplay: 'contour', showCoverage: true, selectedId: '', selectedLinkId: '' });
+    expect(map(s.root).props).toMatchObject({ coverageDisplay: 'auto', showCoverage: false, selectedId: '', selectedLinkId: '' });
+    expect(JSON.stringify(s.planning.selectedPlan!.result)).toBe(before);
     expect(s.storage.writes).toBe(s.writes);
   });
   pageIt('部署定位采用保存输出坐标，不读取当前资源的新坐标', async ({ page: s }) => {
@@ -427,7 +482,8 @@ describe('规划页面实际模板联动', () => {
     const connectivity = find(s.root, row => row.tag === 'article' && textOf(row).includes('连通率'))!;
     const survival = find(s.root, row => row.tag === 'article' && textOf(row).includes('抗毁性'))!;
     const power = find(s.root, row => row.tag === 'article' && textOf(row).includes('总辐射功率'))!;
-    expect(connectivity.props.class).toContain('passed'); expect(textOf(connectivity)).toContain('达标');
+    expect(connectivity.props.class).toContain('statistic'); expect(textOf(connectivity)).not.toContain('达标');
+    expect(textOf(find(s.root, row => row.props['aria-label'] === '必要通联满足率检查')!)).toContain('达标');
     expect(survival.props.class).toContain('failed'); expect(textOf(survival)).toContain('82%'); expect(textOf(survival)).toContain('未达标');
     expect(power.props.class).toContain('objective'); expect(textOf(power)).toContain('最小化目标');expect(textOf(power)).toContain('未提供单项达标结论');
     expect(textOf(power)).not.toContain('最优');

@@ -4,12 +4,14 @@ import type { AuthIdentity } from '../types/system';
 import { ApiError } from './types';
 import { createHttpClient } from './http-client';
 import { createHttpSessionBinding } from './http-session';
+import { isEmbeddedPath } from '../config/embedded-pages';
 
 interface AuthHttpOptions {
   baseUrl: () => string;
   fetcher?: typeof fetch;
   origin?: () => string | undefined;
   timeoutMs?: number | (() => number);
+  embedded?: boolean;
 }
 // 业务请求沿用当前页面的会话绑定；适配器只指定路径、数据和响应类型。
 export type AuthenticatedRequest = <T>(path: string, init?: RequestInit, responseType?: 'json' | 'blob') => Promise<T>;
@@ -46,6 +48,8 @@ function identityFromDto(value: unknown): AuthIdentity {
 
 export function createAuthHttp(options: AuthHttpOptions) {
   const binding = createHttpSessionBinding();
+  // 每个独立页面固定其模式；导航途中不更换绑定，也不把任意/embed前缀当有效入口。
+  const embedded = options.embedded ?? isEmbeddedPath((globalThis.location?.hash ?? '').replace(/^#/, ''));
   const fetcher = options.fetcher ?? ((input, init) => globalThis.fetch(input, init));
   const origin = options.origin ?? (() => globalThis.location?.origin);
   let pending: { generation: number; promise: Promise<AuthIdentity | null> } | null = null;
@@ -59,19 +63,22 @@ export function createAuthHttp(options: AuthHttpOptions) {
     const controller = new AbortController();
     let timer: ReturnType<typeof setTimeout> | undefined;
     let abort: () => void = () => {};
+    const headers = new Headers(init?.headers);
+    if (!headers.has('Accept')) headers.set('Accept','application/json');
+    if (embedded) headers.set('X-Radio-Embedded','1'); else headers.delete('X-Radio-Embedded');
     try {
       // 不跟随重定向、不缓存身份；超时包含响应体读取，不自动重试写请求。
       return await Promise.race([
         createHttpClient(baseUrl, fetcher)(path, {
           ...init, credentials: 'same-origin', mode: 'same-origin', redirect: 'error', cache: 'no-store',
-          headers: { Accept: 'application/json', ...init?.headers }, signal: controller.signal,
+          headers, signal: controller.signal,
         }, responseType),
         new Promise<never>((_, reject) => {
           abort = () => { reject(new ApiError('请求已取消', 'REQUEST_ABORTED')); controller.abort(); };
           init?.signal?.addEventListener('abort', abort, { once: true });
           if (init?.signal?.aborted) abort();
           timer = setTimeout(() => {
-            reject(new ApiError('认证请求超时，请重新校验会话后再操作', 'REQUEST_TIMEOUT'));
+            reject(new ApiError(path.startsWith('/auth/') ? '读取使用身份超时，请重试' : '数据请求超时，请重试', 'REQUEST_TIMEOUT'));
             controller.abort();
           }, timeout);
         }),

@@ -28,12 +28,15 @@
         > </div
       ><details
         class="result-checks"
-        :class="{ warn: checkWarning }"
-        ><summary>{{ checkSummary }} · 查看约束依据</summary
-        ><p
+        :class="{ warn: constraintSummary.warning }"
+        ><summary>{{ constraintSummary.message }} · 查看整体结论与分项检查</summary
+        ><p v-if="outcome">{{ outcome.message }}</p>
+        <strong>分项检查：必要通联、抗毁性、中继和频率</strong>
+        <p v-if="!result.checks.length">未提供分项检查结论。</p>
+        <p
           v-for="check in result.checks"
           :key="check.id"
-          >{{ check.label }} ·
+          >{{ check.id === 'connectivity' ? '必要通联满足率' : check.label }} ·
           {{
             check.passed === true ? '通过' : check.passed === false ? '未通过' : '未提供结论'
           }}：{{ check.detail }}</p
@@ -52,7 +55,15 @@
             }}<template v-if="m.state === 'objective'"> · 未提供单项达标结论</template></small
           ><small v-if="m.state === 'failed' || m.state === 'unknown'">{{ m.note }}</small></article
         ></div
+      ><div
+        class="required-connectivity"
+        :class="requiredConnectivity.state"
+        aria-label="必要通联满足率检查"
       >
+        <strong>必要通联满足率 · {{ requiredConnectivity.status }}</strong>
+        <p>{{ requiredConnectivity.detail || '未提供必要通联检查依据。' }}</p>
+        <p class="muted">仅评价必要通联需求，与全网连通率分开核对。</p>
+      </div>
       <div class="tabs"
         ><button
           v-for="name in tabs"
@@ -73,8 +84,16 @@
           aria-label="当前方案服务结论"
         >
           <strong>{{ outcome.message }}</strong>
-          <p v-for="(issue, index) in outcome.gap" :key="index">{{ planningIssueText(issue) }}</p>
-          <p v-for="(suggestion, index) in outcome.suggestions" :key="index">{{ suggestion }}</p>
+          <p
+            v-for="(issue, index) in outcome.gap"
+            :key="index"
+            >{{ planningIssueText(issue) }}</p
+          >
+          <p
+            v-for="(suggestion, index) in outcome.suggestions"
+            :key="index"
+            >{{ suggestion }}</p
+          >
         </div>
         <p
           v-if="!details"
@@ -89,17 +108,33 @@
               aria-label="新增部署单元数"
               >新增部署单元数：{{ radioCount ?? '未提供' }}</p
             ></div
-          ><div class="panel-body deployment-summary" aria-label="部署求解摘要">
+          ><div
+            class="panel-body deployment-summary"
+            aria-label="部署求解摘要"
+          >
             <p>求解模式：{{ deploymentSummary.mode }}</p>
-            <p>新增部署单元（实际 / 请求）：{{ deploymentSummary.actualCount }} / {{ deploymentSummary.requestedCount }}</p>
-            <p>完整结果份数（实际 / 请求）：{{ deploymentSummary.returnedSolutionCount }} / {{ deploymentSummary.requestedSolutionCount }}</p>
+            <p
+              >新增部署单元（实际 / 请求）：{{ deploymentSummary.actualCount }} /
+              {{ deploymentSummary.requestedCount }}</p
+            >
+            <p
+              >完整结果份数（实际 / 请求）：{{ deploymentSummary.returnedSolutionCount }} /
+              {{ deploymentSummary.requestedSolutionCount }}</p
+            >
             <p>数量条件：{{ deploymentSummary.countSatisfied }}</p>
-            <p>数量下界：{{ deploymentSummary.lowerBound }} · 最优性证明：{{ deploymentSummary.provedOptimal }}</p>
+            <p
+              >数量下界：{{ deploymentSummary.lowerBound }} · 最优性证明：{{
+                deploymentSummary.provedOptimal
+              }}</p
+            >
             <p>数量缺口原因：{{ deploymentSummary.shortfallReasons }}</p>
             <p>强制部署候选点：{{ deploymentSummary.forcedSiteIds }}</p>
           </div>
           <h4 class="panel-body">新增部署单元</h4>
-          <p class="panel-body deployment-legend"><span class="new-deployment-dot"></span>橙色节点为本方案新增部署；点击定位可在地图中查看。</p>
+          <p class="panel-body deployment-legend"
+            ><span class="new-deployment-dot"></span
+            >橙色节点为本方案新增部署；点击定位可在地图中查看。</p
+          >
           <AppTable
             v-if="newDeploymentRows.length"
             :sortable="false"
@@ -109,11 +144,30 @@
             :page-size="10"
             :selected="selectedRow('deployment', newDeploymentRows)"
             @select="handlers.deployment"
-          ><template #stationName="{ row }"><strong>{{ row.stationName }}</strong><small class="cell-secondary">{{ row.stationId }}</small></template>
-            <template #plannedCoordinate="{ row }">{{ row.plannedCoordinate?.join(', ') ?? '未提供规划坐标' }}</template>
-            <template #actions="{ row }"><button class="text-link" @click="handlers.deployment(row)">定位</button></template>
+            ><template #stationName="{ row }"
+              ><strong>{{ row.stationName }}</strong
+              ><small class="cell-secondary">{{ row.stationId }}</small></template
+            >
+            <template #plannedCoordinate="{ row }">{{
+              row.plannedCoordinate?.join(', ') ?? '未提供规划坐标'
+            }}</template>
+            <template #actions="{ row }"
+              ><button
+                class="text-link"
+                @click="handlers.deployment(row)"
+                >定位</button
+              ></template
+            >
           </AppTable>
-          <p v-else class="panel-body muted">{{ radioCount && !result.nodes.some(node => node.isNewDeployment !== undefined) ? '此历史结果未提供新增部署标识，请重新规划以查看新增单元明细。' : '此方案没有新增部署单元。' }}</p>
+          <p
+            v-else
+            class="panel-body muted"
+            >{{
+              radioCount && !result.nodes.some((node) => node.isNewDeployment !== undefined)
+                ? '此历史结果未提供新增部署标识，请重新规划以查看新增单元明细。'
+                : '此方案没有新增部署单元。'
+            }}</p
+          >
           <h4 class="panel-body">全部部署节点</h4>
           <AppTable
             :sortable="false"
@@ -127,7 +181,10 @@
             @select="handlers.deployment"
             ><template #stationId="{ row }"
               ><strong>{{ row.stationName }}</strong
-              ><small class="cell-secondary">{{ row.stationId }} · {{ row.role }}{{ row.isNewDeployment ? ' · 新增部署' : '' }}</small></template
+              ><small class="cell-secondary"
+                >{{ row.stationId }} · {{ uiCode(row.role)
+                }}{{ row.isNewDeployment ? ' · 新增部署' : '' }}</small
+              ></template
             ><template #deviceIds="{ row }">{{ row.deviceIds.join(' / ') }}</template
             ><template #detail-plannedCoordinate="{ row }">{{
               row.plannedCoordinate?.join(', ') ?? '未提供规划坐标'
@@ -143,12 +200,20 @@
             v-if="candidates"
             class="support-details"
             ><summary>候选筛选与依据</summary><PlanningCandidatePanel :view="candidates" /></details
-          ><p v-if="candidateSources !== null" class="panel-body" aria-label="候选数据来源">
+          ><p
+            v-if="candidateSources !== null"
+            class="panel-body"
+            aria-label="候选数据来源"
+          >
             候选数据来源：{{ candidateSources }}
           </p>
-          <p v-if="candidateLimitations !== null" class="panel-body">
+          <p
+            v-if="candidateLimitations !== null"
+            class="panel-body"
+          >
             候选数据限制：{{ candidateLimitations }}
-          </p></template>
+          </p></template
+        >
         <template v-else-if="tab === '路由路径'"
           ><p
             v-if="detailCollection(details?.routeQuality)"
@@ -326,7 +391,13 @@
     ><p
       v-else
       class="panel-body muted"
-      >{{ planning.running ? '规划正在计算，结果生成后将在此显示。' : planning.job ? '本次规划已结束，未生成可用结果。请查看上方作业结论。' : '提交规划并取得结果后，在此查看各分项。' }}</p
+      >{{
+        planning.running
+          ? '规划正在计算，结果生成后将在此显示。'
+          : planning.job
+            ? '本次规划已结束，未生成可用结果。请查看上方作业结论。'
+            : '提交规划并取得结果后，在此查看各分项。'
+      }}</p
     >
     <AppDrawer
       v-if="result"
@@ -406,11 +477,20 @@ import AppDrawer from './AppDrawer.vue';
 import PlanningCandidatePanel from './PlanningCandidatePanel.vue';
 import PlanningOptimizationPanel from './PlanningOptimizationPanel.vue';
 import type { PlanningCandidatesView } from '../types/planning-candidates';
-import { planningMetricCards } from '../services/planning-result-display';
-import type { ApiPlan, ApiPlanningResult, PlanningConfirmedConfiguration } from '../types/planning-api';
+import {
+  planningCheckDisplay,
+  planningConstraintSummary,
+  planningMetricCards,
+} from '../services/planning-result-display';
+import type {
+  ApiPlan,
+  ApiPlanningResult,
+  PlanningConfirmedConfiguration,
+} from '../types/planning-api';
 import type { CoverageDisplay } from '../types/coverage';
 import { deploymentDisplayRows } from '../services/planning-deployment-display';
 import { planningIssueText } from '../services/planning-issue-display';
+import { uiCode } from '../services/ui-copy';
 import {
   deploymentDetailCells,
   deviceDetailCells,
@@ -469,29 +549,28 @@ const tabGuides: Record<string, string> = {
   设备参数: '查看规划采用的频率、功率和天线高度，展开详情查看辅助参数。',
   优化权衡: '查看服务给出的功率与抗毁性权衡，辅助判断调整方向。',
 };
-// 只归纳服务已给出的逐项结论，不以数值推算业务达标。
-const checkWarning = computed(
-  () => !props.result?.checks.length || props.result.checks.some((row) => row.passed !== true),
-);
-const checkSummary = computed(() =>
-  !props.result?.checks.length
-    ? '未提供约束校验结论'
-    : props.result.checks.some((row) => row.passed === false)
-      ? '存在未通过的约束'
-      : checkWarning.value
-        ? '部分约束未提供结论'
-        : '已提供的约束均通过',
+const constraintSummary = computed(() => planningConstraintSummary(props.outcome));
+const requiredConnectivity = computed(() =>
+  planningCheckDisplay(props.result?.checks ?? [], 'connectivity'),
 );
 const frequencyOverview = ref(false);
 const details = computed(() => props.result?.resultDetails);
 const deploymentSummary = computed(() => deploymentDetailCells(details.value));
 const candidateSources = computed(() => {
   const sources = details.value?.candidateScreening?.dataSources;
-  return sources === undefined ? null : sources === null ? '未提供' : sources.join('；') || '服务未列出数据来源';
+  return sources === undefined
+    ? null
+    : sources === null
+      ? '未提供'
+      : sources.join('；') || '服务未列出数据来源';
 });
 const candidateLimitations = computed(() => {
   const reasons = details.value?.candidateScreening?.unavailableReasons;
-  return reasons === undefined ? null : reasons === null ? '未提供' : reasons.join('；') || '服务未列出限制原因';
+  return reasons === undefined
+    ? null
+    : reasons === null
+      ? '未提供'
+      : reasons.join('；') || '服务未列出限制原因';
 });
 // 切换结果即关闭配置，避免把上一快照的抽屉当作当前配置。
 const configurationOpen = ref(false);
@@ -545,11 +624,11 @@ const selection = ref<ResultSelection | null>(null),
 const epoch = ref(0);
 const bindRows = <T extends { id: string }>(rows: T[]) =>
   rows.map((row) => ({ ...row, selectionOwner: props.ownerKey, selectionEpoch: epoch.value }));
-const deploymentRows = computed(() =>
-  bindRows(deploymentDisplayRows(props.result)),
+const deploymentRows = computed(() => bindRows(deploymentDisplayRows(props.result)));
+const newDeploymentRows = computed(() => deploymentRows.value.filter((row) => row.isNewDeployment));
+const configurationDeploymentRows = computed(() =>
+  deploymentDisplayRows(props.result, configurationData.value?.deployment),
 );
-const newDeploymentRows = computed(() => deploymentRows.value.filter(row => row.isNewDeployment));
-const configurationDeploymentRows = computed(() => deploymentDisplayRows(props.result, configurationData.value?.deployment));
 const newDeploymentColumns = [
   { field: 'stationName', header: '新增节点名称', minWidth: '140px' },
   { field: 'deviceLabels', header: '部署设备 / 型号', minWidth: '220px' },
@@ -888,8 +967,18 @@ const deviceSummaryColumns = [
 ];
 </script>
 <style scoped>
-.deployment-legend { display: flex; align-items: center; gap: 8px; }
-.new-deployment-dot { width: 10px; height: 10px; border-radius: 50%; background: #ff9f43; flex: none; }
+.deployment-legend {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.new-deployment-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #ff9f43;
+  flex: none;
+}
 .configuration-origin {
   display: grid;
   gap: 8px;
@@ -997,6 +1086,22 @@ const deviceSummaryColumns = [
 }
 .metrics .metric-status {
   color: var(--metric-status);
+}
+.required-connectivity {
+  margin: 0 12px 8px;
+  padding: 8px 10px;
+  background: #142b3d;
+  font-size: 12px;
+  flex: none;
+}
+.required-connectivity p {
+  margin: 4px 0 0;
+}
+.required-connectivity.passed strong {
+  color: #8ed66b;
+}
+.required-connectivity.failed strong {
+  color: #ef5f64;
 }
 .tabs {
   display: flex;

@@ -58,7 +58,7 @@
         <dt>快照版本</dt><dd>{{ boundPreview.observation.snapshotRevision }}</dd>
         <dt>资源版本</dt><dd>{{ boundPreview.observation.resourceRevision }}</dd>
         <dt>来源</dt><dd>{{ boundPreview.observation.sourceLabel }}</dd>
-        <dt>数据性质</dt><dd>{{ boundPreview.observation.dataOrigin }}</dd>
+        <dt>数据性质</dt><dd>{{ uiCode(boundPreview.observation.dataOrigin) }} · 非设备实时上报</dd>
         <dt>节点状态口径</dt><dd>台账基线</dd>
       </dl>
       <p
@@ -104,6 +104,7 @@
   </AppDrawer>
 </template>
 <script setup lang="ts">
+import { uiCode } from '../services/ui-copy';
 import { computed, onBeforeUnmount, ref, watch } from 'vue';
 import AppDrawer from './AppDrawer.vue';
 import { previewService } from '../services';

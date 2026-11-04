@@ -1,5 +1,6 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
+import { modulePath } from '../config/embedded-pages';
 import type { RouteLocationNormalized, RouteLocationRaw } from 'vue-router';
 import { useAuthStore } from '../stores/auth';
 import { useDiagnosisStore } from '../stores/diagnosis';
@@ -121,7 +122,7 @@ export function useGisDiagnosisEditing() {
   }
   function isReturnTarget(to: Pick<RouteLocationNormalized, 'path' | 'query'>) {
     const target = returning;
-    if (!target || target.session !== auth.generation || diagnosis.dirty || unappliedSelection.value || diagnosis.locked || to.path !== '/diagnosis' ||
+    if (!target || target.session !== auth.generation || diagnosis.dirty || unappliedSelection.value || diagnosis.locked || modulePath(to.path) !== '/diagnosis' ||
       target.scenarioId !== diagnosis.scenarioId || target.versionId !== diagnosis.versionId || to.query.scenarioId !== target.scenarioId || to.query.versionId !== target.versionId ||
       Object.keys(to.query).some(field => !['scenarioId', 'versionId'].includes(field))) return false;
     returning = null; return true;

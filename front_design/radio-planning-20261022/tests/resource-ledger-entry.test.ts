@@ -14,11 +14,15 @@ import { useResourceReadStore } from '../src/stores/resource-read';
 import ResourceLedgerEditDrawer from '../src/components/ResourceLedgerEditDrawer.vue';
 import ResourceLedgerImportDrawer from '../src/components/ResourceLedgerImportDrawer.vue';
 import ResourceReadStatus from '../src/components/ResourceReadStatus.vue';
+import ResourceStatusPanel from '../src/components/ResourceStatusPanel.vue';
+import { collaborationHttp } from '../src/services/http';
+import type { SpectrumSourceRow } from '../src/types/spectrum-source';
+import { deviceStatusSchema } from '../src/types/device-status-snapshot';
 import type { Device, DeviceClass } from '../src/types/domain';
 import { authorizeStore } from './helpers/auth';
 import { TestStorage } from './helpers/storage';
 // 编译与同型基础宿主复用公共工具，保留本文件的事件和生命周期。
-import { clientTemplate, node, renderer, find, textOf, type HostNode } from './helpers/vue-client';
+import { clientTemplate, node, renderer, find, all, textOf, type HostNode } from './helpers/vue-client';
 
 // 记录首次渲染的打开条件，避免异步稳定后漏掉瞬时误开抽屉。
 const drawerLifecycle = vi.hoisted(() => ({ detailVisibility: [] as boolean[] }));
@@ -53,7 +57,6 @@ vi.mock('../src/components/ResourceLedgerExportDrawer.vue', async () => {
   const { defineComponent, h } = await import('vue');
   return { default: defineComponent({ props: ['visible', 'filter', 'selectedIds'], setup: props => () => h('export-probe', { ...props }) }) };
 });
-vi.mock('../src/components/ResourceStatusPanel.vue', () => ({ default: { render: () => null } }));
 vi.mock('../src/components/DeviceConfigurationDrawer.vue', () => ({ default: { render: () => null } }));
 vi.mock('../src/components/DecisionDialog.vue', () => ({ default: { render: () => null } }));
 vi.mock('../src/components/StatusBadge.vue', () => ({ default: { render: () => null } }));
@@ -64,15 +67,23 @@ async function click(root: HostNode, label: string) {
 }
 async function settle() { for (let i = 0; i < 12; i++) await nextTick(); }
 
-await Promise.all([clientTemplate(ResourcesView, 'src/views/ResourcesView.vue', 'resource-ledger-render.ts'), clientTemplate(ResourceLedgerFilters, 'src/components/ResourceLedgerFilters.vue', 'resource-ledger-render.ts'), clientTemplate(ResourceLedgerTree, 'src/components/ResourceLedgerTree.vue', 'resource-ledger-render.ts'), clientTemplate(SpectrumConfigPanel, 'src/components/SpectrumConfigPanel.vue', 'resource-ledger-render.ts'), clientTemplate(ResourceLedgerEditDrawer, 'src/components/ResourceLedgerEditDrawer.vue', 'resource-ledger-render.ts'), clientTemplate(ResourceLedgerImportDrawer, 'src/components/ResourceLedgerImportDrawer.vue', 'resource-ledger-render.ts'), clientTemplate(ResourceReadStatus, 'src/components/ResourceReadStatus.vue', 'resource-ledger-render.ts')]);
+await Promise.all([clientTemplate(ResourcesView, 'src/views/ResourcesView.vue', 'resource-ledger-render.ts'), clientTemplate(ResourceLedgerFilters, 'src/components/ResourceLedgerFilters.vue', 'resource-ledger-render.ts'), clientTemplate(ResourceLedgerTree, 'src/components/ResourceLedgerTree.vue', 'resource-ledger-render.ts'), clientTemplate(SpectrumConfigPanel, 'src/components/SpectrumConfigPanel.vue', 'resource-ledger-render.ts'), clientTemplate(ResourceLedgerEditDrawer, 'src/components/ResourceLedgerEditDrawer.vue', 'resource-ledger-render.ts'), clientTemplate(ResourceLedgerImportDrawer, 'src/components/ResourceLedgerImportDrawer.vue', 'resource-ledger-render.ts'), clientTemplate(ResourceReadStatus, 'src/components/ResourceReadStatus.vue', 'resource-ledger-render.ts'), clientTemplate(ResourceStatusPanel, 'src/components/ResourceStatusPanel.vue', 'resource-ledger-render.ts')]);
 let app: App<HostNode> | undefined, pinia: ReturnType<typeof createPinia> | undefined;
 afterEach(() => { app?.unmount(); app = undefined; if (pinia) disposePinia(pinia); pinia = undefined; drawerLifecycle.detailVisibility.length = 0; vi.restoreAllMocks(); vi.unstubAllGlobals(); });
-async function mountEntry(beforeMount?: (read: ReturnType<typeof useResourceReadStore>) => Promise<void>) {
+async function mountEntry(beforeMount?: (read: ReturnType<typeof useResourceReadStore>) => Promise<void>, entry = '/resources') {
   vi.stubGlobal('window', new EventTarget());
   class TestDocument extends EventTarget { activeElement = null; }
   vi.stubGlobal('Document', TestDocument); vi.stubGlobal('document', new TestDocument());
   pinia = createPinia(); setActivePinia(pinia); const auth = authorizeStore();
   const storage = new TestStorage(), raw = createMockService(() => storage);
+  const spectrumSources: SpectrumSourceRow[] = ['来源A', '来源B'].map((name, index) => ({ schemaVersion: 1,
+    dataOrigin: 'SYNTHETIC_INTEGRATION', sourceId: 'SOURCE-' + index, configRevision: 'SCF-' + index,
+    contentHash: 'a'.repeat(64), actorId: 'test-actor', createdAt: '2026-11-04T00:00:00Z', latestOfflineCheck: null,
+    draft: { name, protocolHint: 'HTTP_JSON', endpoint: null, intervalSeconds: 10, minKhz: 3000, maxKhz: 30000, enabled: true, provenanceNote: '本地组件测试构造配置' } }));
+  vi.spyOn(collaborationHttp.spectrumSources, 'querySources').mockImplementation(async input => ({ schemaVersion: 1,
+    dataOrigin: 'SYNTHETIC_INTEGRATION', items: spectrumSources, total: spectrumSources.length, page: input.page, pageSize: input.pageSize }));
+  vi.spyOn(collaborationHttp.deviceStatuses, 'listSnapshots').mockImplementation(async input => ({ schema_version: deviceStatusSchema,
+    items: [], total: 0, page: input.page ?? 1, page_size: input.page_size ?? 20 }));
   // 新状态目录沿用本入口测试数据，避免误读真实浏览器会话。
   vi.spyOn(previewService, 'loadDeviceStatusOptions').mockImplementation(raw.loadDeviceStatusOptions);
   for (const name of ['loadPreview', 'commitResources', 'setDeviceAvailability', 'querySpectrumSources', 'loadResourceReadContext', 'queryResourceDevices', 'queryResourceMap', 'getResourceObject', 'loadResourceMaintenanceContext', 'previewResourceExport'] as const)
@@ -82,7 +93,7 @@ async function mountEntry(beforeMount?: (read: ReturnType<typeof useResourceRead
   const router = createRouter({ history: createMemoryHistory(), routes: [
     { path: '/resources', component: ResourcesView }, { path: '/situation', component: { render: () => null } },
   ] });
-  await router.push('/resources'); await router.isReady();
+  await router.push(entry); await router.isReady();
   app = renderer.createApp({ render: () => h(RouterView) }); app.use(pinia); app.use(router); app.provide(ssrContextKey, {});
   const root = node('root'); app.mount(root); await settle();
   return { root, preview, storage, raw, auth, router, editor: useResourceLedgerEditStore(), read: useResourceReadStore() };
@@ -175,11 +186,38 @@ describe('统一台账页面', () => {
     const switching = click(s.root, '频谱接口配置'); await settle(); expect(s.editor.decision).not.toBeNull();
     s.editor.answer('cancel'); await switching; expect(s.editor.form!.fields.stationId).toBe('ND-0001');
   });
+  it('独立链接首入频谱配置，直接呈现来源表格且不混入设备统计', async () => {
+    const s = await mountEntry(undefined, '/resources?tab=spectrum-config');
+    expect(control(s.root, '搜索采集源')).toBeDefined();
+    expect(find(s.root, row => row.props['aria-label'] === '资源统计')).toBeUndefined();
+    await vi.waitFor(() => expect(textOf(s.root)).toContain('来源A'));
+    expect(textOf(s.root)).toContain('声明地址 / 协议');expect(textOf(s.root)).toContain('来源B');
+    expect(all(find(s.root, row => row.tag === 'table')!, row => row.tag === 'tr')).toHaveLength(3);
+    expect(s.router.currentRoute.value.query.tab).toBe('spectrum-config');
+    expect(s.storage.writes).toBe(0);
+  });
+  it('未识别的独立页签回到设备台账，不创建空白模块', async () => {
+    const s = await mountEntry(undefined, '/resources?tab=unrecognized');
+    expect(find(s.root, row => row.props['aria-label'] === '资源统计')).toBeDefined();
+    expect(rows(s).length).toBeGreaterThan(0); expect(s.storage.writes).toBe(0);
+  });
+  it('query切换被真实未保存守卫拒绝时保留设备输入及原URL，放弃后才打开配置', async () => {
+    const s = await mountEntry(undefined, '/resources?tab=ledger');await click(s.root, '新增设备');
+    s.editor.form!.fields.stationId = 'ND-0001';
+    const pending = s.router.push('/resources?tab=spectrum-config');await settle();
+    await vi.waitFor(() => expect(s.editor.decision).not.toBeNull());s.editor.answer('cancel');await pending;
+    expect(s.router.currentRoute.value.query.tab).toBe('ledger');expect(s.editor.form!.fields.stationId).toBe('ND-0001');
+    expect(find(s.root, row => row.props['aria-label'] === '搜索采集源')).toBeUndefined();
+    const accepted = s.router.push('/resources?tab=spectrum-config');await vi.waitFor(() => expect(s.editor.decision).not.toBeNull());s.editor.answer('discard');await accepted;await settle();
+    expect(s.router.currentRoute.value.query.tab).toBe('spectrum-config');expect(s.editor.form).toBeNull();
+    expect(control(s.root, '搜索采集源')).toBeDefined();expect(s.storage.writes).toBe(0);
+  });
   it('频谱页独立表格，不携带设备目录和统计，也不显示冗余首行说明', async () => {
     const s = await mountEntry(); await click(s.root, '频谱接口配置'); await settle();
     expect(textOf(s.root)).not.toContain('资源分类'); expect(find(s.root, row => row.props['aria-label'] === '资源统计')).toBeUndefined();
-    expect(table(s).props.columns).toContainEqual({ field: 'protocol', header: '协议', sortable: false });
-    expect(rows(s)).toHaveLength(2); expect(textOf(s.root)).not.toContain('HTTP_JSON 为我方默认建议');
-    expect(control(s.root, 'Mock 检查场景')).toBeDefined(); expect(s.storage.writes).toBe(0);
+    await vi.waitFor(() => expect(textOf(s.root)).toContain('来源A'));
+    expect(textOf(s.root)).toContain('声明地址 / 协议');expect(textOf(s.root)).toContain('连接未尝试');
+    expect(textOf(s.root)).not.toContain('HTTP_JSON 为我方默认建议');expect(textOf(s.root)).not.toContain('Mock 检查场景');
+    expect(s.storage.writes).toBe(0);
   });
 });

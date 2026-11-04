@@ -1,6 +1,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createResourceReadHttp } from '../src/services/resource-read-http';
 import type { ResourceMapQuery } from '../src/types/resource-read';
+import type { AuthenticatedRequest } from '../src/services/auth-http';
+import { ApiError } from '../src/services/types';
 
 // 合成线协议样件用于检查边界，不读取或修改甲方来源文件。
 const device = () => ({ device_id: 'D1', node_id: 'N1', model_id: 'M1', antenna_id: 'A1', node_name: '节点一', node_lon: 114, node_lat: 37, model_name: '短波设备', antenna_name: '天线一', device_class: 'HF', status: 'NORMAL' });
@@ -14,6 +16,40 @@ function service(data: unknown) {
   return { fetcher, api: createResourceReadHttp({ baseUrl: () => '/api/v1', fetcher }) };
 }
 afterEach(() => vi.useRealTimers());
+describe('资源只读交付组合的认证出口', () => {
+  it('上下文和设备分页只走注入出口，保留原查询与DTO，不回落Cookie裸请求', async () => {
+    const raw = vi.fn<typeof fetch>();
+    const injected = vi.fn().mockResolvedValueOnce(workspace()).mockResolvedValueOnce(page([device()]));
+    const api = createResourceReadHttp({ baseUrl: () => '/api/v1', fetcher: raw, authenticatedRequest: injected as AuthenticatedRequest });
+    expect((await api.loadResourceReadContext({ context: 'planning' })).revision).toBe('v1');
+    expect((await api.queryResourceDevices(query)).items[0].id).toBe('D1');
+    expect(injected.mock.calls[0][0]).toBe('/resource/context?context=planning');
+    expect(injected.mock.calls[1][0]).toContain('/resource/devices?context=ledger&revision=v1');
+    for (const [, init] of injected.mock.calls) {
+      expect(init.method).toBe('GET'); expect(init.signal).toBeInstanceOf(AbortSignal);
+      expect(init.headers).toBeUndefined(); // sid由唯一认证出口设置，资源适配器不再自行构造或发CSRF。
+    }
+    expect(raw).not.toHaveBeenCalled();
+  });
+  it('注入出口仍受整次资源读取的原时限和取消约束', async () => {
+    vi.useFakeTimers();
+    const injected = vi.fn().mockImplementation(() => new Promise(() => {}));
+    const api = createResourceReadHttp({ baseUrl: () => '/api/v1', timeoutMs: 100, authenticatedRequest: injected as AuthenticatedRequest });
+    const first = expect(api.loadResourceReadContext({ context: 'planning' })).rejects.toMatchObject({ code: 'REQUEST_TIMEOUT' });
+    await vi.advanceTimersByTimeAsync(100); await first;
+    expect(injected.mock.calls[0][1].signal.aborted).toBe(true);
+    const controller = new AbortController();
+    const second = expect(api.loadResourceReadContext({ context: 'planning', signal: controller.signal })).rejects.toMatchObject({ code: 'REQUEST_ABORTED' });
+    controller.abort(); await second; expect(injected.mock.calls[1][1].signal.aborted).toBe(true);
+  });
+  it('已由认证出口映射的身份失败保持原码、请求号及对象，不二次降格', async () => {
+    const error = new ApiError('原会话过期', 'AUTH_EXPIRED', { retained: true }, 'same-request', 401);
+    const injected = vi.fn().mockRejectedValue(error);
+    const api = createResourceReadHttp({ baseUrl: () => '/api/v1', authenticatedRequest: injected as AuthenticatedRequest });
+    await expect(api.loadResourceReadContext({ context: 'planning' })).rejects.toBe(error);
+    expect(injected).toHaveBeenCalledOnce();
+  });
+});
 describe('资源 HTTP 传输和 DTO', () => {
   it('保留当前 DEM 元数据；缺失为未知，非法哈希和范围拒绝', async () => {
     const terrain = { source_sha256: 'a'.repeat(64), bbox: [113,36,115,38], source: '测试 DEM' };

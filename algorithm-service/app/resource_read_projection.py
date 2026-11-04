@@ -168,6 +168,8 @@ def _stats(view, devices):
             "models": len(view.tables["device_model.csv"]),
             "interferences": len(view.tables["interference_source.csv"]),
             "hf": classes["HF"], "vuhf": classes["VUHF"],
+            "deployments": frontend.resource_deployment_counts(
+                view.tables["node.csv"], devices, view.tables["device_model.csv"]),
             "alerts": sum(row["alert"] is True for row in devices),
             "unknown_alerts": sum(row["alert"] is None for row in devices),
             "active": sum(row.get("availability") == "ACTIVE" for row in devices),

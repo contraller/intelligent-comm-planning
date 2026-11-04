@@ -2,6 +2,7 @@ import { afterEach,beforeEach,beforeAll,describe,expect,it,vi } from 'vitest';
 import * as Vue from 'vue';
 import { h,nextTick,ref,ssrContextKey,type App,type Component } from 'vue';
 import { createPinia,setActivePinia,disposePinia } from 'pinia';
+import { createMemoryHistory,createRouter,RouterView } from 'vue-router';
 import { authFixture } from './helpers/auth';
 import { useAuthStore } from '../src/stores/auth';
 import { useSystemStore } from '../src/stores/system';
@@ -22,7 +23,6 @@ vi.mock('../src/config/env',async getOriginal=>{
 // 保留实际 AppTable 模板，只替换第三方 DOM 表格，检查传给它的分页与排序参数。
 vi.mock('primevue/datatable',()=>({default:Vue.defineComponent({props:['value','paginator','rows','lazy','tableStyle'],emits:['update:selection'],setup:(p,{slots,emit})=>{Vue.provide('table-state',p);return()=>{probes.table={...p};return Vue.h('div',[slots.default?.(),Vue.h('button',{onClick:()=>emit('update:selection',p.value[0])},'选择第一条记录')]);};}})}));
 vi.mock('primevue/column',()=>({default:Vue.defineComponent({props:['field','header','sortable','style'],setup:(p,{slots})=>{const table=Vue.inject<any>('table-state');return()=>Vue.h('section',{'data-field':p.field,'data-sortable':p.sortable,'data-min-width':p.style?.minWidth},table.value.map((row:any)=>Vue.h('div',slots.body?.({data:row}))));}})}));
-vi.mock('../src/composables/useSystemLeaveGuard',()=>({useSystemLeaveGuard:()=>{}}));
 vi.mock('../src/components/AppDrawer.vue',()=>({default:Vue.defineComponent({props:['visible'],setup:(p,{slots})=>()=>p.visible?Vue.h('aside',[slots.default?.(),slots.footer?.()]):null})}));
 vi.mock('../src/components/SystemAccountDrawer.vue',()=>({default:{render:()=>null}}));
 vi.mock('../src/components/SystemRoleDrawer.vue',()=>({default:{render:()=>null}}));
@@ -37,12 +37,18 @@ async function settle() { for (let i = 0; i < 12; i++) await nextTick(); }
 
 const apps:App[]=[],sessions:ReturnType<typeof createPinia>[]=[];
 function mount(component:Component,props:Record<string,unknown>={}){const root=node('root'),app=renderer.createApp({render:()=>h(component,props)});app.provide(ssrContextKey,{modules:new Set()});app.mount(root);apps.push(app);return root;}
+async function mountSystem(){
+ const router=createRouter({history:createMemoryHistory(),routes:[{path:'/system',component:SystemView}]});
+ await router.push('/system');await router.isReady();
+ const root=node('root'),app=renderer.createApp({render:()=>h(RouterView)});app.use(sessions.at(-1)!);app.use(router);
+ app.provide(ssrContextKey,{modules:new Set()});app.mount(root);apps.push(app);await settle();return root;
+}
 async function setup(many=false){const s=authFixture();await s.login();
  if(many)for(let i=22;i>=0;i--)await s.service.saveSystemAccount({...s.mutation(),account:{id:null,username:'routing_user'+String(i).padStart(2,'0'),name:'样本'+String(i).padStart(2,'0'),department:'测试',roleId:'ROLE-VIEWER'}});
  const pinia=createPinia();setActivePinia(pinia);sessions.push(pinia);useAuthStore().accept(await s.service.getSession());s.bind();
- const store=useSystemStore(),root=mount(SystemView);await settle();await store.load();await settle();return{...s,store,root};}
+ const store=useSystemStore(),root=await mountSystem();await settle();await store.load();await settle();return{...s,store,root};}
 beforeAll(async()=>{await clientTemplate(AppTable,'src/components/AppTable.vue', 'resource-ledger-render.ts');await clientTemplate(SystemView,'src/views/SystemView.vue', 'resource-ledger-render.ts');await clientTemplate(RequestState,'src/components/RequestState.vue', 'resource-ledger-render.ts');});
-beforeEach(()=>{class TestDocument extends EventTarget {activeElement=null;}vi.stubGlobal('Document',TestDocument);vi.stubGlobal('document',new TestDocument());vi.stubGlobal('ShadowRoot',class{});});
+beforeEach(()=>{class TestDocument extends EventTarget {activeElement=null;}vi.stubGlobal('Document',TestDocument);vi.stubGlobal('document',new TestDocument());vi.stubGlobal('ShadowRoot',class{});vi.stubGlobal('window',new EventTarget());});
 afterEach(()=>{apps.splice(0).forEach(app=>app.unmount());sessions.splice(0).forEach(p=>{useSystemStore(p).clearForSession();disposePinia(p);});vi.restoreAllMocks();vi.unstubAllGlobals();probes.table=null;probes.mode='mock';});
 describe('系统实际列表分页及日志显示',()=>{
  // 同一组件通过真实 dispatch 和访问包装调用两类适配器；这不是 HTTP 联调。
@@ -51,7 +57,7 @@ describe('系统实际列表分页及日志显示',()=>{
   const adapter=(mode==='mock'?mockService:httpService) as unknown as Record<string,(...args:any[])=>Promise<any>>;
   for(const [key,method]of Object.entries(s.raw))vi.spyOn(adapter,key).mockImplementation(method);
   const pinia=createPinia();setActivePinia(pinia);sessions.push(pinia);useAuthStore().accept(await s.service.getSession());
-  const store=useSystemStore(),root=mount(SystemView);await settle();await store.load();await settle();
+  const store=useSystemStore(),root=await mountSystem();await settle();await store.load();await settle();
   expect(find(root,n=>n.tag==='button'&&textOf(n).trim()==='新增账号')?.props.disabled).toBe(false);
   expect(textOf(root)).not.toContain('Mock 账号与权限');
   store.query.search='admin';await click(root,'查询');await settle();expect(store.page?.total).toBe(1);
@@ -76,13 +82,14 @@ describe('系统实际列表分页及日志显示',()=>{
   const logQuery=vi.mocked(adapter.queryOperationSummaries).mock.calls.at(-1)![0];
   expect(logQuery).toMatchObject({date:'2026-10-21',pageNum:1});expect(logQuery).not.toHaveProperty('from');expect(logQuery).not.toHaveProperty('to');
  });
- it('HTTP 未接入时沿共同页面报错，不回退 Mock',async()=>{
+ it('HTTP 目录读取失败时沿共同页面报错，不回退 Mock',async()=>{
   const s=authFixture();await s.login();probes.mode='http';
   vi.spyOn(httpService,'getSession').mockImplementation(s.raw.getSession);
+  vi.spyOn(httpService,'loadSystemOptions').mockRejectedValue(new Error('系统目录读取暂不可用'));
   const fallback=vi.spyOn(mockService,'loadSystemOptions');
   const pinia=createPinia();setActivePinia(pinia);sessions.push(pinia);useAuthStore().accept(await s.service.getSession());
-  const store=useSystemStore(),root=mount(SystemView);await settle();await store.load();await settle();
-  expect(store.loadError).toContain('尚未接入');expect(textOf(root)).toContain('尚未接入');expect(fallback).not.toHaveBeenCalled();
+  const store=useSystemStore(),root=await mountSystem();await settle();await store.load();await settle();
+  expect(store.loadError).toContain('系统目录读取暂不可用');expect(textOf(root)).toContain('系统目录读取暂不可用');expect(fallback).not.toHaveBeenCalled();
  });
  it('共同表格默认仍有分页，显式关闭时透传到第三方表格',()=>{mount(AppTable,{rows:[{id:'one'}],columns:[{field:'id',header:'编号'}]});expect(probes.table.paginator).toBe(true);expect(probes.table.rows).toBe(10);mount(AppTable,{rows:[],columns:[],paginator:false,pageSize:20});expect(probes.table.paginator).toBe(false);expect(probes.table.rows).toBe(20);});
  it('四个页签均无排序控件或表头排序，只保留外层分页',async()=>{const s=await setup();for(const label of ['账号管理','角色权限','参数配置','操作日志']){await click(s.root,label);await settle();expect(probes.table.paginator).toBe(false);expect(probes.table.rows).toBe(20);const columns=all(s.root,n=>n.tag==='section'&&typeof n.props['data-field']==='string');expect(columns.length).toBeGreaterThan(0);expect(columns.every(c=>c.props['data-sortable']===false)).toBe(true);expect(all(s.root,n=>n.props['aria-label']==='排序字段')).toHaveLength(0);expect(textOf(s.root)).not.toContain('降序');expect(all(s.root,n=>n.tag==='button'&&textOf(n).trim()==='下一页')).toHaveLength(1);}expect(s.store.loadError).toBe('');});

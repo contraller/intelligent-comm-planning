@@ -10,8 +10,9 @@
         v-if="!cancelAwaitingRefresh && ['PENDING', 'RUNNING'].includes(view.state)"
         class="btn small"
         :disabled="!auth.can('diagnosis.execute') || busy"
+        :aria-busy="busy"
         @click="$emit('cancel')"
-        >取消任务</button
+        >{{ busy ? '取消处理中…' : '取消任务' }}</button
       ></div
     ><progress
       :value="view.progress"

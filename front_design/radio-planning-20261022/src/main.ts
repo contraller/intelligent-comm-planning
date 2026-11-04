@@ -8,6 +8,7 @@ import 'primeicons/primeicons.css';
 import 'ol/ol.css';
 import './styles/tokens.css';
 import './styles/global.css';
+import './styles/embedded.css';
 
 createApp(App)
   .use(createPinia())

@@ -1,9 +1,9 @@
 <template>
   <div v-if="auth.identity?.integrationMode" class="integration-identity">
-    <select v-model="selected" aria-label="联调身份" :disabled="auth.transition || !!auth.busy || loading">
+    <select v-model="selected" aria-label="当前使用身份" :disabled="auth.transition || !!auth.busy || loading">
       <option v-for="account in accounts" :key="account.id" :value="account.id">{{ account.name }}</option>
     </select>
-    <button class="btn" title="切换联调身份" :disabled="!selected || selected===auth.identity.id || auth.transition || !!auth.busy" @click="change"><i class="pi pi-user-edit" />{{ auth.transition ? '切换中' : '切换' }}</button>
+    <button class="btn" title="切换使用身份" :disabled="!selected || selected===auth.identity.id || auth.transition || !!auth.busy" @click="change"><i class="pi pi-user-edit" />{{ auth.transition ? '切换中' : '切换' }}</button>
     <RouterLink v-if="auth.can('knowledge.view')" to="/knowledge" class="text-link knowledge-entry"><i class="pi pi-sitemap" />知识图谱</RouterLink>
     <button v-if="error" class="text-link" :title="error" @click="load">重试身份目录</button>
   </div>

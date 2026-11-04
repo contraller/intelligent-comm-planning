@@ -133,7 +133,12 @@ def test_chinese_search_uses_real_builder_data_without_rewriting_results(env, te
     assert result["code"] == 0
     assert name in {e["name"] for e in result["items"]}
     assert all(e["type"] == etype for e in result["items"])
-    assert all(set(e) == {"id", "name", "category", "type"} for e in result["items"])
+    required = {"id", "name", "category", "type"}
+    assert all(required <= set(e) <= required | {"modelName"} for e in result["items"])
+    for entity in result["items"]:
+        if "modelName" in entity:
+            assert entity["type"] == "DeviceModel"
+            assert isinstance(entity["modelName"], str) and entity["modelName"].strip()
 
 
 @pytest.mark.parametrize("term,etype,name", [

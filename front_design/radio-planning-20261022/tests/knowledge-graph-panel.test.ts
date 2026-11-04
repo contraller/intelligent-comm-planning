@@ -58,6 +58,8 @@ describe('知识画布视口与生命周期',()=>{
     const first=chart.setOption.mock.calls[0][0].series[0];
     expect(first.data).toHaveLength(100);expect(first.data[0].symbolSize).toBeLessThan(24);
     expect(first.links[0]).toMatchObject({id:'relation-1',source:'node-0',target:'node-1'});
+    expect(first.labelLayout.hideOverlap).toBe(true);
+    expect(first.emphasis.edgeLabel.show).toBe(true);
     chart.host.clientWidth=326;observers[0].notify();
     const patch=chart.setOption.mock.lastCall![0].series[0];
     expect(patch.data[0].symbolSize).toBeLessThan(first.data[0].symbolSize);

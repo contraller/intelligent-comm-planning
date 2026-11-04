@@ -50,8 +50,8 @@
       <dd>站点 / 节点</dd>
       <dt>所属区域</dt>
       <dd>{{ station.region }}</dd>
-      <dt>节点子类型</dt><dd>{{ station.subtype ?? '—' }}</dd
-      ><dt>角色 / 移动类型</dt><dd>{{ station.role ?? '—' }} / {{ station.mobility }}</dd>
+      <dt>节点子类型</dt><dd>{{ uiCode(station.subtype) }}</dd
+      ><dt>节点角色 / 部署方式</dt><dd>{{ uiCode(station.role) }} / {{ uiCode(station.mobility) }}</dd>
       <dt>节点层级</dt>
       <dd>{{ station.echelon }} 级</dd>
       <dt>经度</dt>
@@ -205,6 +205,7 @@
   </div>
 </template>
 <script setup lang="ts">
+import { uiCode } from '../services/ui-copy';
 import { useAuthStore } from '../stores/auth';
 // 当前权限变化时仅禁用操作，保留表单输入。
 const auth = useAuthStore();

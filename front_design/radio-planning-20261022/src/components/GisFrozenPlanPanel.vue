@@ -200,14 +200,14 @@
             ><dt>坐标</dt><dd>{{ node.coordinate.join(', ') }}</dd
             ><dt>冻结状态 / 告警</dt
             ><dd
-              >{{ node.status ?? '未提供' }} /
+              >{{ uiCode(node.status) }} /
               {{ node.alert === null ? '未提供' : node.alert ? '是' : '否' }}</dd
             ></dl
           >
           <dl v-if="model.detail"
             ><dt>链路端点</dt><dd>{{ model.detail.link.a }} → {{ model.detail.link.b }}</dd
             ><dt>频率</dt><dd>{{ value(model.detail.link.frequency_khz, 'kHz') }}</dd
-            ><dt>预测等级</dt><dd>{{ model.detail.link.planned_state ?? '未提供' }}</dd
+            ><dt>预测等级</dt><dd>{{ uiCode(model.detail.link.planned_state) }}</dd
             ><dt>实际设备</dt
             ><dd
               v-for="device in model.detail.endpoint_devices"
@@ -248,6 +248,7 @@
 </template>
 
 <script setup lang="ts">
+import { uiCode } from '../services/ui-copy';
 import { computed, onBeforeUnmount, reactive, ref, shallowRef, watch } from 'vue';
 import MapCanvas from './MapCanvas.vue';
 import GisPlanOperations from './GisPlanOperations.vue';

@@ -119,7 +119,7 @@ export const httpService: PreviewService = {
   ...createTaskHttp(authentication.authenticatedRequest),
   ...createPlanningHttp(authentication.authenticatedRequest, () => env.apiBaseUrl),
   // 分页读取与全量编辑契约隔离；未接入的写操作继续明确拒绝。
-  ...createResourceReadHttp({ baseUrl: () => env.apiBaseUrl, timeoutMs }),
+  ...createResourceReadHttp({ baseUrl: () => env.apiBaseUrl, timeoutMs, authenticatedRequest: authentication.authenticatedRequest }),
   // 观测 DTO、版本关系及采集协议尚待甲方确认，不猜测实际端点。
   async loadMonitoringContext() { throw new ApiError('HTTP 态势观测适配尚未接入', 'NOT_IMPLEMENTED'); },
   async getMonitoringFrame() { throw new ApiError('HTTP 态势观测适配尚未接入', 'NOT_IMPLEMENTED'); },

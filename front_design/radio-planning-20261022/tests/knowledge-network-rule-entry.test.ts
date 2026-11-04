@@ -61,11 +61,36 @@ async function setup(){
   }
   return {auth,storage,store,service,mount};
 }
+async function mountView(entry='/'){
+  const router=createRouter({history:createMemoryHistory(),routes:[{path:'/',component:KnowledgeView}]});
+  await router.push(entry);await router.isReady();
+  app=renderer.createApp({render:()=>h(RouterView)});app.use(pinia!);app.use(router);app.provide(ssrContextKey,{});
+  const root=node('root');app.mount(root);await settle();return {root,router};
+}
 async function field(root:HostNode,label:string,value:string){
   const input=find(root,n=>n.props['aria-label']===label)!;expect(input,label).toBeDefined();
   (input.props.onInput as (e:any)=>void)({target:{value}});await settle();
 }
 describe('网络规则实际模板与维护入口',()=>{
+  it.each([['changes','queryKnowledgeChanges','知识维护'],['versions','queryKnowledgeVersions','版本记录']] as const)('独立链接tab=%s首入直接呈现并读取对应页签',async(tab,query,label)=>{
+    const s=await setup(),{root}=await mountView('/?tab='+tab);
+    expect(s.store.activeTab).toBe(tab);
+    expect(find(root,n=>n.tag==='button'&&n.props.class==='active'&&textOf(n).trim()===label)).toBeDefined();
+    expect(previewService[query]).toHaveBeenCalledWith(expect.objectContaining({pageNum:1,pageSize:20}));
+    expect(s.storage.writes).toBe(0);
+  });
+  it('query切换由真实知识草稿守卫拒绝，取消保留原输入和URL，明确放弃后才读取版本',async()=>{
+    const s=await setup(),{router}=await mountView('/?tab=changes');await s.store.newChange();
+    s.store.draft!.summary='保留的独立链接草稿';const original=JSON.stringify(s.store.draft);
+    const pending=router.push('/?tab=versions');await settle();
+    await vi.waitFor(()=>expect(s.store.decision?.title).toBe('未保存的知识草稿'));s.store.answer('cancel');await pending;
+    expect(router.currentRoute.value.query.tab).toBe('changes');expect(s.store.activeTab).toBe('changes');
+    expect(JSON.stringify(s.store.draft)).toBe(original);expect(previewService.queryKnowledgeVersions).not.toHaveBeenCalled();
+    const accepted=router.push('/?tab=versions');await vi.waitFor(()=>expect(s.store.decision).not.toBeNull());s.store.answer('discard');await accepted;await settle();
+    expect(router.currentRoute.value.query.tab).toBe('versions');expect(s.store.activeTab).toBe('versions');
+    expect(s.store.dirtyDraft).toBe(false);expect(previewService.queryKnowledgeVersions).toHaveBeenCalledWith(expect.objectContaining({pageNum:1,pageSize:20}));
+    expect(s.storage.writes).toBe(0);
+  });
   it('同草稿删除行或整个规则后，旧事件不能污染后续行或重建规则',async()=>{
     const s=await setup(),props=reactive({entity:{...structuredClone(networkRuleSeed),networkRule:structuredClone(knowledgeNetworkRule)} as KnowledgeEntity,readonly:false,context:'同一草稿'});
     const root=await s.mount({render:()=>h(KnowledgeNetworkRuleEditor,{...props,'onUpdate:rule':(v:KnowledgeNetworkRule|null)=>{props.entity.networkRule=v;}})});

@@ -481,7 +481,8 @@
 import { useAuthStore } from '../stores/auth';
 import { env } from '../config/env';
 import { computed, ref, watch } from 'vue';
-import { useRoute } from 'vue-router';
+import { useRoute, onBeforeRouteUpdate } from 'vue-router';
+import { isModuleTab } from '../config/module-tabs';
 import { useKnowledgeStore } from '../stores/knowledge';
 import { useKnowledgeLeaveGuard } from '../composables/useKnowledgeLeaveGuard';
 import { knowledgeEntityName, knowledgeTypeName, knowledgeRelationName, knowledgeText,
@@ -512,7 +513,18 @@ const photoFailed = ref(false);
 const detailPhoto = computed(() => store.detail ? knowledgeMedia(store.detail.entity) : null);
 watch(() => detailPhoto.value?.url, () => { photoFailed.value = false; });
 const route = useRoute();
+// An explicit module link selects its tab before the existing mounted loader runs.
+if (isModuleTab('knowledge', route.query.tab)) store.activeTab = route.query.tab;
 useKnowledgeLeaveGuard(() => caseBuilder.value?.requestLeave() ?? Promise.resolve(true));
+onBeforeRouteUpdate(async (to, from) => {
+  if (to.query.tab === from.query.tab) return true;
+  const next = isModuleTab('knowledge', to.query.tab) ? to.query.tab : 'browse';
+  if (next === store.activeTab) return true;
+  await auth.check();
+  if (auth.blocked || !(await (caseBuilder.value?.requestLeave() ?? Promise.resolve(true))) || !(await store.allowLeave())) return false;
+  await store.changeTab(next);
+  return !auth.blocked;
+});
 // 页签与维护筛选只保留一份状态，离开再返回时显示与读取目标一致。
 const tab = computed<string>({
   get: () =>
@@ -616,6 +628,7 @@ const versions = computed(() =>
   })),
 );
 const actionNames: Record<string, string> = {
+  REVIEW: '审核',
   SAVE: '保存草稿',
   SUBMIT: '送审',
   WITHDRAW: '撤回',
