@@ -5,6 +5,7 @@
     role="status"
     >{{ auth.logWarning }}（待补 {{ auth.pendingLogs }} 条）<button
       class="btn"
+      type="button"
       @click="auth.retryLogs()"
       >仅重试补记</button
     ></div
@@ -15,8 +16,9 @@
     modal
     :closable="false"
     :close-on-escape="false"
-    :base-z-index="10000"
-    :style="{ width: '540px', maxWidth: '95vw' }"
+    :auto-z-index="false"
+    :pt="{ mask: { class: 'session-access-mask', style: { zIndex: 2147483000 } } }"
+    :style="{ width: '540px', maxWidth: '95vw', zIndex: 2147483001 }"
   >
     <p>{{
       auth.error ||
@@ -39,15 +41,18 @@
     <template #footer
       ><button
         class="btn"
+        type="button"
         @click="retained = true"
         >保留输入并保持冻结</button
       ><button
         class="btn"
+        type="button"
         :disabled="!!auth.busy || auth.transition"
         @click="auth.check()"
         >重新校验</button
       ><button
         class="btn primary"
+        type="button"
         :disabled="!!auth.busy || auth.transition"
         @click="discard"
         >明确丢弃输入并{{
@@ -75,6 +80,7 @@ async function discard() {
     await router.replace(auth.identity ? auth.firstPath() : '/login');
 }
 // 不关闭或卸载业务组件；确认丢弃后才切换页面和清理缓存。
+// 身份恢复层独立于业务浮层栈，避免抽屉遮罩截获恢复按钮的点击。
 </script>
 <style scoped>
 p {

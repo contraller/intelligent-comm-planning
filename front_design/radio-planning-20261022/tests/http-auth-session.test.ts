@@ -8,6 +8,7 @@ import { useAuthStore } from '../src/stores/auth';
 import { useResourceEditStore } from '../src/stores/resource-edit';
 import { useTaskInputStore } from '../src/stores/task-input';
 import { usePlanningApiStore } from '../src/stores/planning-api';
+import { useKnowledgeStore } from '../src/stores/knowledge';
 import { input, apiJob } from './fixtures/planning-api';
 import { useSessionAccess } from '../src/composables/useSessionAccess';
 import { router as applicationRouter } from '../src/router';
@@ -79,7 +80,7 @@ beforeEach(() => {
 });
 afterEach(() => {
   for (const app of apps.splice(0)) app.unmount();
-  disposePinia(pinia); releasePageSessionBinding(); vi.restoreAllMocks(); vi.unstubAllGlobals();
+  disposePinia(pinia); releasePageSessionBinding(); vi.restoreAllMocks(); vi.unstubAllGlobals(); vi.useRealTimers();
 });
 
 // 同一 SFC 编译客户端模板执行挂载；内存宿主不验证真实布局、Cookie 或原生 DOM。
@@ -117,7 +118,7 @@ function find(root: HostNode, predicate: (n: HostNode) => boolean): HostNode | u
   for (const child of root.children) { const found = find(child, predicate); if (found) return found; }
 }
 async function mount(component: Component) {
-  const route = createRouter({ history: createMemoryHistory(), routes: ['/login', '/resources'].map(path => ({ path, component: { render: () => null } })) });
+  const route = createRouter({ history: createMemoryHistory(), routes: ['/login', '/resources', '/knowledge'].map(path => ({ path, component: { render: () => null } })) });
   await route.push('/login');
   const root = node('root'), app = renderer.createApp(component); app.use(pinia); app.use(route); app.provide(ssrContextKey, {});
   app.mount(root); apps.push(app); await nextTick(); return { root, route };
@@ -130,7 +131,72 @@ async function workspace() {
   return { auth, editor };
 }
 
+async function knowledgeWorkspace() {
+  state.identity = { ...dto(), permissions: ['knowledge.view', 'knowledge.edit'] };
+  const auth = useAuthStore(); expect(await auth.check()).toBe(true); auth.currentPath = '/knowledge';
+  const knowledge = useKnowledgeStore();
+  knowledge.workspace = { revision: 'KG-1', currentVersionId: 'KGV-1', versions: [], changes: [], logs: [] };
+  knowledge.draft = { summary: '18项未保存知识构建', baseVersionId: 'KGV-1', entities: Array.from({ length: 18 }, (_, i) => ({ id: `E-recheck-${i}`, name: `构造实体${i}`, category: '故障运维知识', type: 'Fault', description: '离线构造回归', keywords: [], source: '构造测试', attributes: [], modelIds: [] })), relations: [] };
+  knowledge.baseline = null; knowledge.drawerOpen = true;
+  const leave = vi.fn(() => knowledge.allowLeave(false, true));
+  auth.registerLeave(leave, () => knowledge.dirty);
+  const cleaner = vi.fn(); auth.registerCleaner(cleaner);
+  const mounted = await mount({ setup() { useSessionAccess(); return () => h(MountedDialog); } });
+  const preserved = JSON.parse(JSON.stringify(knowledge.draft));
+  const recheck = () => find(mounted.root, n => n.tag === 'button' && text(n) === '重新校验')!;
+  async function timeout() {
+    vi.useFakeTimers(); fetcher.mockImplementationOnce(() => new Promise(() => {}));
+    const pending = auth.check(); await vi.runOnlyPendingTimersAsync(); expect(await pending).toBe(false); await nextTick();
+    expect(auth.blocked).toBe(true); expect(auth.errorCode).toBe('REQUEST_TIMEOUT'); expect(knowledge.canEdit).toBe(false);
+  }
+  return { auth, knowledge, leave, cleaner, preserved, recheck, timeout, ...mounted };
+}
+
 describe('HTTP 共享会话与实际状态层', () => {
+  it('冻结恢复层独立高于业务浮层；同身份重新校验只读恢复且保留18项知识草稿', async () => {
+    const s = await knowledgeWorkspace(); expect(s.knowledge.canEdit).toBe(true); await s.timeout();
+    const dialog = find(s.root, n => n.tag === 'dialog')!;
+    // 内存宿主验证实际恢复SFC的PrimeVue层级输入；真实遮罩命中另由浏览器复核。
+    expect(dialog.props['auto-z-index']).toBe(false);
+    expect(dialog.props.pt.mask.class).toBe('session-access-mask');
+    expect(dialog.props.pt.mask.style.zIndex).toBeGreaterThan(1_000_000);
+    expect(dialog.props.style.zIndex).toBeGreaterThan(dialog.props.pt.mask.style.zIndex);
+    const buttons = dialog.children.flatMap(function collect(n): HostNode[] { return [n, ...n.children.flatMap(collect)]; }).filter(n => n.tag === 'button');
+    expect(buttons).toHaveLength(3); expect(buttons.every(button => button.props.type === 'button')).toBe(true);
+    fetcher.mockClear(); await s.recheck().props.onClick(); await nextTick();
+    expect(fetcher).toHaveBeenCalledOnce(); expect(String(fetcher.mock.calls[0][0])).toMatch(/\/auth\/session$/); expect(fetcher.mock.calls[0][1]?.method ?? 'GET').toBe('GET');
+    expect(s.auth.blocked).toBe(false); expect(s.knowledge.canEdit).toBe(true); expect(s.knowledge.drawerOpen).toBe(true); expect(s.knowledge.draft).toEqual(s.preserved); expect(s.knowledge.dirty).toBe(true);
+    expect(s.knowledge.decision).toBeNull(); expect(s.leave).not.toHaveBeenCalled(); expect(s.cleaner).not.toHaveBeenCalled();
+  });
+
+  it('重新校验再次超时仍保留草稿，不转入保存/放弃，后续同身份可恢复', async () => {
+    const s = await knowledgeWorkspace(); await s.timeout();
+    fetcher.mockImplementationOnce(() => new Promise(() => {})); const rechecking = s.recheck().props.onClick(); await vi.runOnlyPendingTimersAsync(); await rechecking; await nextTick();
+    expect(s.auth.blocked).toBe(true); expect(s.knowledge.draft).toEqual(s.preserved); expect(s.knowledge.drawerOpen).toBe(true); expect(s.knowledge.decision).toBeNull(); expect(s.leave).not.toHaveBeenCalled(); expect(s.cleaner).not.toHaveBeenCalled();
+    await s.recheck().props.onClick(); expect(s.auth.blocked).toBe(false); expect(s.knowledge.canEdit).toBe(true); expect(s.knowledge.draft).toEqual(s.preserved);
+  });
+
+  it.each(['account', 'session', 'permission'] as const)('超时后%s变化仍保留并隔离知识草稿，明确丢弃后才清理', async kind => {
+    const s = await knowledgeWorkspace(); await s.timeout();
+    state.identity = kind === 'account' ? { ...dto('beta'), permissions: ['knowledge.view', 'knowledge.edit'] }
+      : kind === 'session' ? { ...state.identity!, session_id: 'session-alpha-new' }
+        : { ...state.identity!, permissions: [], identity_revision: 'r2' };
+    await s.recheck().props.onClick(); await nextTick();
+    expect(s.auth.blocked).toBe(true); expect(s.knowledge.canEdit).toBe(false); expect(s.knowledge.draft).toEqual(s.preserved); expect(s.knowledge.drawerOpen).toBe(true); expect(s.knowledge.decision).toBeNull();
+    expect(s.auth.sessionReplaced).toBe(kind !== 'permission'); expect(s.leave).not.toHaveBeenCalled(); expect(s.cleaner).not.toHaveBeenCalled();
+    const discard = find(s.root, n => n.tag === 'button' && text(n).startsWith('明确丢弃输入'))!;
+    await discard.props.onClick(); await nextTick();
+    expect(s.knowledge.draft).toBeNull(); expect(s.cleaner).toHaveBeenCalledOnce(); expect(fetcher.mock.calls.some(([url]) => String(url).endsWith('/auth/logout'))).toBe(false);
+  });
+
+  it('恢复读取未结束时重复重新校验共用一次只读请求，不重复保存或丢弃', async () => {
+    const s = await knowledgeWorkspace(); await s.timeout();
+    let finish!: (value: Response) => void; fetcher.mockClear(); fetcher.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+    const button = s.recheck(), first = button.props.onClick(), second = button.props.onClick();
+    expect(fetcher).toHaveBeenCalledOnce(); finish(response(state.identity)); await Promise.all([first, second]); await nextTick();
+    expect(s.auth.blocked).toBe(false); expect(s.knowledge.canEdit).toBe(true); expect(s.knowledge.draft).toEqual(s.preserved); expect(s.leave).not.toHaveBeenCalled(); expect(s.cleaner).not.toHaveBeenCalled();
+  });
+
   it('换号只冻结任务与规划现场，明确丢弃才清理共享状态',async()=>{
     const {auth}=await workspace(),task=useTaskInputStore(),planning=usePlanningApiStore();
     task.draft=input();task.taskId='T1';await nextTick();planning.job=apiJob();
