@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { createRenderer, h, nextTick, reactive, ssrContextKey, toRaw, type App } from 'vue';
+import { createPinia, disposePinia } from 'pinia';
 import PlanningApiResultPanel from '../src/components/PlanningApiResultPanel.vue';
 import { planningPresets } from '../src/mocks/planning-presets';
 import type { PlanningResult } from '../src/types/planning';
@@ -15,9 +16,13 @@ type SelectionFixtureContext = {
 // 生命周期用当前结果组件的真实 setup；表格模板与地图联动由组合测试覆盖。
 Object.assign(PlanningApiResultPanel, { render: () => h('selection-probe') });
 const apps: App[] = [];
+const piniaInstances: ReturnType<typeof createPinia>[] = [];
 const renderer = createRenderer<any, any>({ createElement: () => ({}), createText: () => ({}), createComment: () => ({}), insert() {}, remove() {}, setText() {}, setElementText() {}, parentNode: () => null, nextSibling: () => null, patchProp() {}, insertStaticContent: () => [{}, {}] });
 const frequencyRow = (selection: ReturnType<typeof setup>['selection'], id: string) => selection.bindFrequencyRows([{ id }])[0];
-afterEach(() => apps.splice(0).forEach(app => app.unmount()));
+afterEach(() => {
+  apps.splice(0).forEach(app => app.unmount());
+  piniaInstances.splice(0).forEach(pinia => disposePinia(pinia));
+});
 function setup() {
   const preset = structuredClone(planningPresets[0]);
   const state = reactive({ context: { key: 'plan-A-v1', result: { ...preset.result!, snapshotId: 'snap-1', inputSnapshot: preset.baseline },
@@ -29,7 +34,9 @@ function setup() {
   const app=renderer.createApp({render:()=>h(PlanningApiResultPanel,{
     result:state.context.result ? {...preset.result,...state.context.result,nodes:state.context.result.inputSnapshot.stations,devices:state.context.result.inputSnapshot.devices,configuration:state.context.configuration} as unknown as ApiPlanningResult : null,
     ownerKey:JSON.stringify([state.context.key,state.generation,state.readable]),active:state.active&&state.readable,historical:false,
-  })});apps.push(app);app.provide(ssrContextKey,{});app.mount({});
+  })});apps.push(app);
+  const pinia = createPinia(); piniaInstances.push(pinia); app.use(pinia);
+  app.provide(ssrContextKey,{});app.mount({});
   const current=(app._instance!.subTree.component! as any).setupState;
   // 仅将测试调用映射到当前组件入口，不在夹具实现选择或关系解析。
   const selection={

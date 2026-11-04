@@ -2,14 +2,13 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-import hashlib
 import hmac
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from .local_identity_models import LocalIdentitySession
-from .local_identity_service import LocalIdentityAdapter, LocalIdentityService, SESSION_COOKIE
+from .local_identity_service import LocalIdentityAdapter, LocalIdentityService
 from .local_operation_digest import bind_local_operation_digest
 from .system_audit_service import PreparedAudit, append_business_audit, prepare_audit
 from .system_management_models import LocalAccount, LocalCredential, LocalRole, SystemAuditEvent
@@ -155,8 +154,8 @@ def create_local_business_context(request, *, adapter: LocalIdentityAdapter) -> 
         raise SystemManagementError("需要已安装的正式本地身份适配器", 1101, 401)
     writing = request.method != "GET"
     actor = adapter.require_actor(request, writing=writing)
-    token = request.cookies.get(SESSION_COOKIE)
-    token_hash = hashlib.sha256(token.encode("utf-8")).hexdigest()
+    # Cookie模式与受控单用户嵌入模式均由已安装的服务决定，客户端不能指定身份或行键。
+    token_hash = adapter.service.session_token_hash(request)
     with adapter.service.factory() as session:
         row = session.get(LocalIdentitySession, token_hash)
         if row is None:

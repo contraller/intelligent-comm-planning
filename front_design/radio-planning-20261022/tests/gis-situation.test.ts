@@ -46,7 +46,7 @@ describe('GIS只读首页受控示例与整帧刷新', () => {
     expect(model.frame.value.network.links).toHaveLength(162);
     expect(model.frame.value.network.identity.state).toBe('REFERENCE');
     expect(model.frame.value.network.routes.length).toBeGreaterThan(0); expect(model.frame.value.interferences).toHaveLength(16);
-    expect(model.frame.value.notice).toContain('不代表现场实测或全部验收通过');
+    for (const boundary of ['构造示例', '算法预测', '非现场实测', '频率冲突', '未达标项']) expect(model.frame.value.notice).toContain(boundary);
     expect(services.queryPlans).not.toHaveBeenCalled(); expect(services.plans.getNetwork).not.toHaveBeenCalled(); expect(terrain).not.toHaveBeenCalled();
     model.stop();
   });

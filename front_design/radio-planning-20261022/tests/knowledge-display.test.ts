@@ -24,6 +24,7 @@ describe('知识图谱中文展示边界', () => {
     expect(knowledgeText('vendor_specific')).toBe('vendor_specific');
     expect(knowledgeText('版本 1：Constructed device, network and fault knowledge; not field-validated')).toBe('版本 1：构造设备、网络和故障知识；未经外场验证');
     expect(knowledgeText('FREEZE')).toBe('冻结版本');
+    expect(knowledgeText('REVIEW')).toBe('审核');
   });
   it('编号补充中文含义，不翻译型号、文件名、编号或单位片段', () => {
     expect(knowledgeEntityName(entity)).toBe('设备 DV-0001');
@@ -37,6 +38,7 @@ describe('知识图谱中文展示边界', () => {
     expect(knowledgeAttributeValue('CONSTRUCTED', 'source_doc')).toBe('构造数据');
     expect(knowledgeAttributeValue('PRC-150_用户操作手册.pdf', 'source_doc')).toBe('PRC-150_用户操作手册.pdf');
     expect(knowledgeSource('HF SDR manual.docx [CONSTRUCTED]')).toBe('HF SDR manual.docx [构造数据]');
+    expect(knowledgeSource('来源未提供')).toBe('未提供');
     expect(knowledgeSource('link_status_v1.csv [CONSTRUCTED, DERIVED:LR-0001]')).toBe('链路状态资料 · link_status_v1.csv [构造数据, 派生资料:LR-0001]');
   });
   it('结构化值逐层显示中文，保留数值、原编号以及空值语义', () => {

@@ -462,7 +462,8 @@
 </template>
 <script setup lang="ts">
 import { computed, inject, ref, watch, onBeforeUnmount } from 'vue';
-import { useRouter } from 'vue-router';
+import { useRoute, useRouter, onBeforeRouteUpdate } from 'vue-router';
+import { resourceTabLabel } from '../config/module-tabs';
 import { useAuthStore } from '../stores/auth';
 import { useResourceLedgerWorkspace } from '../composables/useResourceLedgerWorkspace';
 import { useResourceLedgerLeaveGuard } from '../composables/useResourceLedgerLeaveGuard';
@@ -514,6 +515,7 @@ import { captureObservationStatusReference, type ObservationStatusReferenceTarge
 import SpectrumObservationImportDialog from '../components/SpectrumObservationImportDialog.vue';
 const auth = useAuthStore(),
   router = useRouter(),
+  route = useRoute(),
   workspace = useResourceLedgerWorkspace();
 const editor = useResourceLedgerEditStore(),
   statusSync = useResourceStatusStore(),
@@ -521,7 +523,7 @@ const editor = useResourceLedgerEditStore(),
   frequencyStore = useFrequencyResourceStore(),
   preview = usePreviewStore();
 const read = workspace.read,
-  tab = ref('设备台账'),
+  tab = ref(resourceTabLabel(route.query.tab)),
   exportOpen = ref(false),
   selectedIds = ref<string[]>([]);
 const hostMessage = ref('');
@@ -531,7 +533,7 @@ const frequencyPanel = ref<InstanceType<typeof FrequencyResourcePanel> | null>(n
   configurationPanel = ref<InstanceType<typeof DeviceConfigurationDrawer> | null>(null),
   monitoringPanel = ref<InstanceType<typeof SpectrumMonitoringPanel> | null>(null),
   observationImport = ref<InstanceType<typeof SpectrumObservationImportDialog> | null>(null);
-const frequencyVisited = ref(false), spectrumVisited = ref(false), monitoringVisited = ref(false);
+const frequencyVisited = ref(tab.value === '规划频点'), spectrumVisited = ref(tab.value === '频谱接口配置'), monitoringVisited = ref(tab.value === '频谱观测');
 const spectrumDirty = ref(false), spectrumBusy = ref(false), statusDirty = ref(false), statusBusy = ref(false),
   monitoringDirty = ref(false), monitoringBusy = ref(false),
   observationDirty = ref(false), observationBusy = ref(false), sourceBusy = ref(false);
@@ -1027,10 +1029,10 @@ async function importResources() {
     });
 }
 async function switchTab(value: string) {
-  if (value === tab.value) return;
+  if (value === tab.value) return true;
   const session = auth.generation;
   if (!(await leaveGuard.leave(true)) || session !== auth.generation || auth.blocked)
-    return;
+    return false;
   closeObservationReference();
   editor.clearForSession();
   closeConfigurationHistory();
@@ -1043,7 +1045,13 @@ async function switchTab(value: string) {
   if (value === '频谱接口配置') spectrumVisited.value = true;
   if (value === '频谱观测') monitoringVisited.value = true;
   tab.value = value;
+  return true;
 }
+// Changing a host-provided module link must use the same unsaved-input checks as a tab click.
+onBeforeRouteUpdate(async (to, from) => {
+  if (to.query.tab === from.query.tab) return true;
+  return switchTab(resourceTabLabel(to.query.tab));
+});
 async function selectSpectrumSource(value: { sourceId: string; configRevision: string }) {
   if (!auth.can('situation.view') || !auth.can('situation.observation.import')) {
     hostMessage.value = '当前身份无频谱观测导入权限。'; return;

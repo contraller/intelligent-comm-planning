@@ -21,7 +21,7 @@
           v-if="auth.can('planning.reset')"
           class="btn"
           disabled
-          title="当前 HTTP 环境不提供重置规划草稿能力；后台任务、作业、方案与回执历史均保留"
+          title="当前暂不支持重置草稿；已保存任务、方案和回执历史保留"
           aria-label="重置规划草稿不可用，后台历史保留"
           >重置规划草稿</button
         >
@@ -277,7 +277,7 @@
             :candidates="candidates.view.value"
             @candidate-active="candidateTab = $event"
             :result="planning.result"
-            :outcome="planning.selectedPlan?.outcome"
+            :outcome="planning.selectedPlan ? planning.selectedPlan.outcome : planning.currentOutcome"
             :radio-count="resultRadioCount"
             :confirmed-configuration="planning.selectedPlan?.confirmedConfiguration"
             :owner-key="resultOwner"
@@ -473,6 +473,7 @@ import DeploymentConstraintsSummary from '../components/DeploymentConstraintsSum
 import PlanningOptionsSummary from '../components/PlanningOptionsSummary.vue';
 import PlanningSolutionsPanel from '../components/PlanningSolutionsPanel.vue';
 import { onBeforeRouteLeave, useRoute, useRouter } from 'vue-router';
+import { modulePath } from '../config/embedded-pages';
 import { useTaskInputStore } from '../stores/task-input';
 import { usePlanningApiStore } from '../stores/planning-api';
 import { useResourceReadStore } from '../stores/resource-read';
@@ -858,7 +859,7 @@ async function openHistoricalPlan(value: PlanningPlanSummary) {
 useTaskPlanningLeaveGuard();
 // 原保存/放弃决定完成后再次核对目标；取消或保存失败仍由原守卫保留现场。
 onBeforeRouteLeave((to) => {
-  if (analysisNavigation?.path === to.fullPath) return analysisNavigation.current();
+  if (analysisNavigation?.path === modulePath(to.fullPath)) return analysisNavigation.current();
   cancelAnalysisEntry();
   return true;
 });

@@ -945,7 +945,7 @@ def _report_sections(content, source=None):
     ])]
     object_names = {"NODE": "节点", "DEVICE": "设备", "LINK": "链路"}
     branch_names = {"RULE": "规则推理", "KG": "知识图谱", "ML": "机器学习",
-                    "CONSTRUCTED": "构造联调", "MANUAL_REVIEW": "人工研判", "ROUTE_ANALYSIS": "路由分析"}
+                    "CONSTRUCTED": "构造数据", "MANUAL_REVIEW": "人工研判", "ROUTE_ANALYSIS": "路由分析"}
     state_names = {"INTERRUPTED": "中断", "DEGRADED": "降级"}
 
     def fault_name(value):
@@ -1019,7 +1019,7 @@ def _report_docx(content, path, *, source=None):
         doc.styles[name].font.name = "宋体"
         doc.styles[name]._element.get_or_add_rPr().rFonts.set(qn("w:eastAsia"), "宋体")
     doc.add_heading("故障诊断报告", 0)
-    doc.add_paragraph("数据性质：CONSTRUCTED 合成测试数据；结果不能作为真实设备诊断准确率证明。")
+    doc.add_paragraph("数据性质：构造示例数据，非现场实测；结果须人工研判，不能作为真实设备诊断准确率证明。")
     for title, rows in _report_sections(content, source):
         doc.add_heading(title, level=1)
         for label, value in rows:
@@ -1041,7 +1041,7 @@ def _report_pdf(content, path, *, source=None):
     heading = ParagraphStyle("Heading", parent=style, fontSize=16, leading=24)
     section = ParagraphStyle("Section", parent=style, fontSize=12, leading=20, spaceBefore=10, keepWithNext=True)
     story = [Paragraph("故障诊断报告", heading), Spacer(1, 12),
-             Paragraph("数据性质：CONSTRUCTED 合成测试数据，结果须人工研判。", style)]
+             Paragraph("数据性质：构造示例数据，非现场实测；结果须人工研判，不能作为真实设备诊断准确率证明。", style)]
     for title, rows in _report_sections(content, source):
         story.append(Paragraph(escape(title), section))
         for label, value in rows:
@@ -1170,7 +1170,7 @@ def _impact_png(impact, network=None, source=None):
         draw.text((30, y), line, fill=color, font=selected_font)
         return y + line_height
 
-    y = wrapped("故障影响示意（构造联调，非实测）", 12, title_font)
+    y = wrapped("故障影响示意（构造数据，非实测）", 12, title_font)
     y = wrapped("运行：%s；场景：%s" % (_report_value(source.get("run_id")), _report_value(impact.get("scenario_id"))), y)
     y = wrapped("任务：%s；方案：%s" % (_report_value(source.get("task_id") or impact.get("network_task_id")),
                                       _report_value(impact.get("network_solution_id"))), y)

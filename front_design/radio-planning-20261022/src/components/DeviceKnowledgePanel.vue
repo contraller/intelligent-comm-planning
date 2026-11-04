@@ -67,7 +67,7 @@
             :key="a.name"
             >{{ knowledgeAttributeName(a.name) }}：{{ knowledgeAttributeValue(a.value, a.name) }} {{ a.unit }}</p
           >
-          <small>来源：{{ knowledgeSource(item.entity.source) }}</small>
+          <small>来源：{{ uiSource(knowledgeSource(item.entity.source)) }}</small>
           <p
             v-for="r in applicableRelations(item)"
             :key="r.id"
@@ -89,6 +89,7 @@
   </section>
 </template>
 <script setup lang="ts">
+import { uiSource } from '../services/ui-copy';
 import { useAuthStore } from '../stores/auth';
 // 当前权限变化时仅禁用操作，保留表单输入。
 const auth = useAuthStore();

@@ -271,8 +271,8 @@
       ></Dialog
     >
     <footer>
-      <span>无线网络智能规划系统 · {{ isMock ? '前端演示环境' : 'HTTP 接口环境' }}</span
-      ><span>{{ isMock ? '本地资源运行' : '同源会话登录' }} <b>·</b> v0.1</span>
+      <span>无线网络智能规划系统 · {{ isMock ? '前端演示环境' : '本地运行' }}</span
+      ><span>{{ isMock ? '本地资源运行' : '账号登录' }} <b>·</b> 本地受控版</span>
     </footer>
   </main>
 </template>

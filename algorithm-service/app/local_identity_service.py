@@ -21,6 +21,7 @@ from .system_management_schemas import SystemActor, SystemManagementError, parse
 
 SESSION_COOKIE = "radio_local_session"
 CHALLENGE_COOKIE = "radio_local_challenge"
+EMBEDDED_HEADER = "x-radio-embedded"
 
 
 class LocalIdentityAdapter:
@@ -72,6 +73,12 @@ class LocalIdentityService:
                     capabilities=dict(passwordMaintenance=True, anonymousRecovery=False), passwordChangeRequired=required)
 
     def _transport(self, request):
+        marker = request.headers.get(EMBEDDED_HEADER)
+        if marker is not None:
+            if self.auth_mode != "LOCAL_SINGLE_USER":
+                raise SystemManagementError("独立嵌入入口仅在本地单用户模式开放", 1104, 403)
+            if marker != "1":
+                raise SystemManagementError("独立嵌入模式标记无效", 1105, 403)
         if request.url.scheme == "https":
             return
         try:
@@ -98,16 +105,23 @@ class LocalIdentityService:
         response.set_cookie(name, value, httponly=True, secure=request.url.scheme == "https",
                             samesite="strict", max_age=seconds, path="/")
 
-    def _load(self, request, *, touch=True):
-        self._transport(request)
+    def uses_cookie_session(self, request):
+        return True
+
+    def session_token_hash(self, request):
         token = request.cookies.get(SESSION_COOKIE)
         if not token:
             raise SystemManagementError("需要正式本地登录", 1101, 401)
         if len(token) > 128:
             raise SystemManagementError("本地会话已失效", 1102, 401)
+        return _digest(token)
+
+    def _load(self, request, *, touch=True):
+        self._transport(request)
+        token_hash = self.session_token_hash(request)
         now = int(self.clock())
         with self.factory() as session, session.begin():
-            row = session.get(LocalIdentitySession, _digest(token))
+            row = session.get(LocalIdentitySession, token_hash)
             if row is None or row.revoked or row.expires_at <= now or row.last_seen + self.settings.idle_seconds <= now:
                 raise SystemManagementError("本地会话已过期或撤销", 1102, 401)
             account = session.get(LocalAccount, row.account_id)

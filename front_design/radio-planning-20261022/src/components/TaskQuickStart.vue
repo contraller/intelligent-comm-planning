@@ -1,7 +1,7 @@
 <template>
   <section class="task-quick-start" aria-label="内置构造例程">
-    <h4>从构造例程开始</h4>
-    <p>沿用三类规划预设和当前资源，载入为新任务草稿；不自动保存或计算。</p>
+    <h4>从示例任务开始</h4>
+    <p>内置构造示例沿用三类规划预设和当前资源，载入为新任务草稿；不自动保存或计算。</p>
     <div class="quick-cards">
       <article v-for="preset in presets" :key="preset.id" class="quick-card">
         <div><strong>{{ preset.label }}</strong><small>{{ descriptions[preset.id] }}</small></div>

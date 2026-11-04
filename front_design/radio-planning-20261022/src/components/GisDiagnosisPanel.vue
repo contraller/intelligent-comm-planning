@@ -184,11 +184,11 @@
         <p v-else-if="selected.link"
           >{{ selected.link.a }} → {{ selected.link.b }} · {{ selected.link.frequencyKhz }} kHz ·
           {{ selected.link.backup ? '备份链路' : '规划链路' }} · 冻结状态
-          {{ selected.link.state }}</p
+          {{ uiCode(selected.link.state) }}</p
         >
         <p v-else-if="selected.station"
           >{{ selected.station.name }} · {{ selected.station.region }} · 冻结状态
-          {{ selected.station.status }}</p
+          {{ uiCode(selected.station.status) }}</p
         >
         <p
           >定位坐标：{{
@@ -219,6 +219,7 @@
   </section>
 </template>
 <script setup lang="ts">
+import { uiCode } from '../services/ui-copy';
 import { computed } from 'vue';
 import { diagnosisLabel, reportValue } from '../reports/diagnosis-report';
 import { diagnosisOriginLabel } from '../services/diagnosis-presentation';

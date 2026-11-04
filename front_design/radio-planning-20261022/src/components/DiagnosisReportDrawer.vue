@@ -40,7 +40,7 @@
             ></tbody
           ></table
         ></section
-      ></article
+      ><details><summary>原始诊断依据</summary><pre>{{ rawEvidence }}</pre></details></article
     ><template #footer
       ><p v-if="!auth.can('diagnosis.export')">当前角色可查看报告，无文件导出权限。</p
       ><p
@@ -79,12 +79,17 @@ const props = defineProps<{
 }>();
 defineEmits<{ close: []; download: [format: ReportFormat] }>();
 const sections = computed(() => diagnosisReportSections(props.record));
+const rawEvidence = computed(() => JSON.stringify({
+  interferenceOrigin: props.record.network.workflow?.interferenceOrigin ?? null,
+  conclusions: props.record.result.conclusions.map(conclusion => ({ object: conclusion.label, branches: conclusion.branches })),
+}, null, 2));
 // SVG 由内部绘图器生成，所有来源文本在绘图器中转义。
 const figure = computed(
   () => `data:image/svg+xml;charset=utf-8,${encodeURIComponent(diagnosisFigureSvg(props.record))}`,
 );
 </script>
 <style scoped>
+pre { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 360px; overflow: auto; font-size: 12px; }
 .report-paper {
   background: #f7f9fc;
   color: #243a51;

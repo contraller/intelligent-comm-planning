@@ -23,6 +23,28 @@ it('故障未知与来源未知采用独立文案，报告保持原始结果',as
   expect(JSON.stringify(record)).toBe(before);
 });
 const samplePng = Uint8Array.from(Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a5m8AAAAASUVORK5CYII=','base64'));
+it('当前结果缺项提示不误称历史结果，也不从备用路由推断传播路径', async () => {
+  const record = await sample(); record.faults = []; delete record.result.propagationPaths; record.result.summary = null;
+  const original = JSON.stringify(record), sections = diagnosisReportSections(record);
+  expect(sections.find(row => row.title === '故障输入')!.text).toEqual(['此记录未提供完整故障输入。']);
+  expect(sections.find(row => row.title === '故障传播路径 · 全场景')!.text).toEqual(['此结果未提供传播路径，不从备用路由推断。']);
+  expect(sections.find(row => row.title === '影响统计')!.text).toEqual(['此结果未提供结构化统计，不按清单自行补算。']);
+  expect(JSON.stringify(record)).toBe(original);
+});
+it('报告分路使用中文依据摘要，JSON与冻结原文保留原编码和完整字段', async () => {
+  const record = await sample(), branch = record.result.conclusions[0].branches[0];
+  branch.conclusion = 'LINK_DOWN';
+  branch.evidence = [{ label: 'match_kind', value: 'PARTIAL_MISSING_INPUT' },
+    { label: 'candidate_rankings', value: JSON.stringify([{ case_id: 'FC-1', fault_type: 'LINK_DOWN', score: 0.9 }]) }];
+  const original = JSON.stringify(record), section = diagnosisReportSections(record).find(row => row.title.startsWith('分路依据'))!;
+  const text = section.rows.flat().join('\n');
+  expect(text).toContain('链路中断'); expect(text).toContain('匹配方式：输入缺失下的部分匹配');
+  expect(text).toContain('候选案例排序'); expect(text).toContain('案例编号：FC-1'); expect(text).not.toContain('candidate_rankings');
+  expect(section.rows[0][1]).toContain('\n'); expect(section.rows[0][1]).not.toContain('\\n');
+  const file = await createDiagnosisExport(record, 'json');
+  expect(JSON.parse(new TextDecoder().decode(file.bytes)).result.conclusions[0].branches[0].evidence).toEqual(branch.evidence);
+  expect(JSON.stringify(record)).toBe(original);
+});
 async function sample(id = 'balanced:multiple') {
   const old = await createMockService(() => new TestStorage()).getDiagnosisReport('DG-HW');
   const preset = diagnosisPresets.find(p => p.id === id)!; const network = planningPresets[0];

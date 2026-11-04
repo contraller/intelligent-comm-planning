@@ -226,12 +226,11 @@ def test_real_p06_operation_failure_rolls_back_dataset_frames_and_ref(linked):
         assert session.scalar(text("SELECT count(*) FROM observation_device_status_refs")) == 0
 
 
-def test_real_p06_existing_unbound_cannot_gain_ref_and_readonly_projection(linked):
+def test_real_p06_existing_unbound_cannot_gain_ref_at_preview_and_readonly_projection(linked):
     db, ref, _ = linked
     receipt = imported(db, actor="actor")
-    command = command_for(db, ref)
     with pytest.raises(service.ObservationError) as conflict:
-        service.import_file(command, actor_id="actor", factory=db["factory"])
+        command_for(db, ref)
     assert conflict.value.code == 1206
     assert counts(db) == (1, 3, 1)
     # 查询在独立mode=ro连接运行，不能借GET创建关联或修复历史。

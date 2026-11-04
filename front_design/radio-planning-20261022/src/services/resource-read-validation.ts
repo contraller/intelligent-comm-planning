@@ -142,7 +142,7 @@ export function decodeObservedDevice(object: ReadDevice, raw: unknown, envelope:
   const observedAt = item.observed_at == null ? undefined : readText(item.observed_at, 'observed_at');
   if (observedAt && (!Number.isFinite(Date.parse(observedAt)) || !/(Z|[+-]\d{2}:\d{2})$/.test(observedAt))) fail('observed_at');
   return { ...object, statusDisplay: { mode: 'observed', status: object.status, alert: object.alert,
-    sourceLabel, observedAt, retained: false, note: observedAt ? '构造联调状态，非设备实时上报' : '该快照未提供状态报告' } };
+    sourceLabel, observedAt, retained: false, note: observedAt ? '构造状态快照，非设备实时上报' : '该快照未提供状态报告' } };
 }
 export function decodePage<T extends ReadObject>(kind: ResourceObjectKind, value: unknown, query: ResourcePageQuery): ResourcePage<T> {
   const v = readRecord(value), revision = requireRevision(v.revision, query.revision);

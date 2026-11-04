@@ -57,7 +57,7 @@ const terms: Record<string, string> = {
   ...knowledgeTypeLabels, ...knowledgeRelationLabels, ...fields,
   EXCELLENT: '优秀', GOOD: '良好', WARNING: '预警', FAULT: '故障', NORMAL: '正常', UNKNOWN: '未知',
   HW_FAILURE: '硬件故障', LINK_DOWN: '链路中断', SW_CONFIG: '软件配置异常', EMI: '电磁干扰',
-  CONSTRUCTED: '构造数据', DERIVED: '派生资料', SAMPLE: '构造联调数据', MEASURED: '实测数据', IMPORT: '导入数据', MANUAL: '人工录入',
+  CONSTRUCTED: '构造数据', DERIVED: '派生资料', SAMPLE: '构造示例数据', MEASURED: '实测数据', IMPORT: '导入数据', MANUAL: '人工录入',
   DEVICE: '设备', LINK: '链路', NODE: '节点', HF: '短波', VUHF: '超短波', VHF: '甚高频', UHF: '特高频',
   I_FIXED: 'I级短波固定站', I_MOBILE: 'I级短波机动站', II_FIXED: 'II级双频固定站',
   II_MOBILE: 'II级双频机动站', II_NODE: 'II级双频机动节点站', III_MOBILE: 'III级双频机动站',
@@ -67,7 +67,7 @@ const terms: Record<string, string> = {
   ALARM_PA: '功放告警', ALARM_PWR: '电源告警', ALARM_VSWR: '驻波比告警',
   CFG_MISMATCH: '配置不匹配', FAULT_RF: '射频故障', LINK_LOSS: '链路丢失',
   DRAFT: '草稿', PENDING: '待审核', APPROVED: '审核通过', REJECTED: '已驳回', WITHDRAWN: '已撤回',
-  PUBLISHED: '已发布', SAVE: '保存草稿', SUBMIT: '送审', WITHDRAW: '撤回', APPROVE: '审核通过',
+  PUBLISHED: '已发布', SAVE: '保存草稿', SUBMIT: '送审', WITHDRAW: '撤回', APPROVE: '审核通过', REVIEW: '审核',
   REJECT: '驳回', PUBLISH: '发布', ROLLBACK: '回滚', RESET: '重置', BASELINE: '初始基线',
   baseline: '初始基线', seed: '初始知识资料', legacy: '历史账号',
   FREEZE: '冻结版本',
@@ -115,6 +115,7 @@ export function knowledgeAttributeName(name: string): string {
   return fields[name] ?? knowledgeText(name);
 }
 export function knowledgeSource(value: string): string {
+  if (value.trim() === '来源未提供') return '未提供';
   // 文件名可能含空格与英文缩写；仅翻译文件名之后的来源性质标记。
   const filename = value.match(/^.*?\.(?:csv|pdf|docx?|xlsx?|json|tiff?|txt)(?=$|[#\s])/i)?.[0];
   const translated = filename ? filename + knowledgeText(value.slice(filename.length)) : knowledgeText(value);

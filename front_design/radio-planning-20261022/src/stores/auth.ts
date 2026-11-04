@@ -7,14 +7,16 @@ import { subscribeAccess } from '../services/access';
 import { operationLogger } from '../services/operation-log';
 import { routePermissions, safeReturnPath, type Permission } from '../config/permissions';
 import type { AuthIdentity } from '../types/system';
+import { embeddedPath, isEmbeddedPath, modulePath } from '../config/embedded-pages';
 
 export const useAuthStore=defineStore('auth',()=>{
   const identity=ref<AuthIdentity|null>(null),checked=ref(false),error=ref(''),busy=ref(0),generation=ref(0);
   const currentPath=ref(''),bypassLeave=ref(false),transition=ref(false),pendingLogs=ref(0),logWarning=ref(''),notice=ref('');
   const errorCode=ref(''),sessionReplaced=ref(false);
   const can=(p:Permission)=>!!identity.value&&!error.value&&identity.value.permissions.includes(p);
-  const pageDenied=computed(()=>!!identity.value&&!!routePermissions[currentPath.value]&&!can(routePermissions[currentPath.value]));
-  const blocked=computed(()=>checked.value&&currentPath.value!=='/login'&&(!identity.value||!!error.value||pageDenied.value));
+  const logicalPath=computed(()=>modulePath(currentPath.value).split('?')[0]);
+  const pageDenied=computed(()=>!!identity.value&&!!routePermissions[logicalPath.value]&&!can(routePermissions[logicalPath.value]));
+  const blocked=computed(()=>checked.value&&logicalPath.value!=='/login'&&(!identity.value||!!error.value||pageDenied.value));
   const cleaners=new Set<()=>void>();
   const leavers=new Map<symbol,{leave:()=>Promise<boolean>;dirty:()=>boolean}>();
   let checking:Promise<boolean>|null=null;
@@ -52,9 +54,10 @@ export const useAuthStore=defineStore('auth',()=>{
   }
   function firstPath(target?:unknown){
     const safe=safeReturnPath(target),path=safe?.split('?')[0];
-    if(path&&can(routePermissions[path]))return safe!;
-    if(identity.value?.singleUserMode&&can('situation.view'))return '/situation';
-    return Object.entries(routePermissions).find(([,p])=>can(p))?.[0]??'/system';
+    if(path&&can(routePermissions[modulePath(path)]))return safe!;
+    const scope=(path:string)=>isEmbeddedPath(currentPath.value)?embeddedPath(path):path;
+    if(identity.value?.singleUserMode&&can('situation.view'))return scope('/situation');
+    return scope(Object.entries(routePermissions).find(([path,p])=>!isEmbeddedPath(path)&&can(p))?.[0]??'/system');
   }
   async function login(username:string,password:string){
     if(busy.value||transition.value)return false;
@@ -74,7 +77,7 @@ export const useAuthStore=defineStore('auth',()=>{
       bypassLeave.value=true;generation.value++;cleaners.forEach(fn=>fn());
       sessionReplaced.value=false;accept(next);notice.value='';
       return true;
-    } catch(e){notice.value=e instanceof Error?e.message:'联调身份切换失败';return false;}
+    } catch(e){notice.value=e instanceof Error?e.message:'使用身份切换失败';return false;}
     finally{transition.value=false;}
   }
   async function leaveSession(force=false){

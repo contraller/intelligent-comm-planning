@@ -214,6 +214,21 @@ def _interference_item(row: dict[str, str]) -> dict[str, Any]:
     }
 
 
+def resource_deployment_counts(nodes: Iterable[dict[str, Any]],
+                               devices: Iterable[dict[str, Any]],
+                               models: Iterable[dict[str, Any]]) -> dict[str, dict[str, int]]:
+    """Count every device once against its own revision's station deployment."""
+    nodes_by_id = {node["node_id"]: node for node in nodes}
+    classes_by_model = {model["model_id"]: model["device_class"] for model in models}
+    counts = {kind: {mode: 0 for mode in ("FIXED", "VEHICLE", "MANPACK", "UNKNOWN")}
+              for kind in ("HF", "VUHF")}
+    for device in devices:
+        kind = classes_by_model[device["model_id"]]
+        mode = nodes_by_id[device["node_id"]].get("mobility")
+        counts[kind][mode if mode in ("FIXED", "VEHICLE", "MANPACK") else "UNKNOWN"] += 1
+    return counts
+
+
 def resource_context() -> dict[str, Any]:
     nodes, devices, models = _rows("nodes"), _rows("devices"), _rows("models")
     # 地形版本独立于资源表版本，供前端核对已打包的 DEM 底图。
@@ -231,13 +246,7 @@ def resource_context() -> dict[str, Any]:
                            if model["model_id"] == device["model_id"])
                       for device in devices)
     device_alerts = sum(_status(device.get("status")) not in (None, "NORMAL") for device in devices)
-    nodes_by_id = {node["node_id"]: node for node in nodes}
-    classes_by_model = {model["model_id"]: model["device_class"] for model in models}
-    deployments = {kind: {mode: 0 for mode in ("FIXED", "VEHICLE", "MANPACK", "UNKNOWN")} for kind in ("HF", "VUHF")}
-    for device in devices:
-        kind = classes_by_model[device["model_id"]]
-        mode = nodes_by_id[device["node_id"]].get("mobility", "UNKNOWN")
-        deployments[kind][mode if mode in ("FIXED", "VEHICLE", "MANPACK") else "UNKNOWN"] += 1
+    deployments = resource_deployment_counts(nodes, devices, models)
     return _envelope({
         "revision": resource_revision(),
         "bounds": _bounds(nodes),

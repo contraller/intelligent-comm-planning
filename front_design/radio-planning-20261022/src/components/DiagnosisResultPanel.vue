@@ -29,7 +29,7 @@
         /><p>{{ current.rootCause }}</p
         ><p v-if="current.fault && !current.fault.symptomIds.length" class="manual" role="status"
           >该记录未填写故障现象，只有注入类型，不能据此识别根因。请复制为新场景，在“配置故障与现象”中补充观察后重新诊断；原记录保留。</p
-        ><p class="muted">{{ result.disabledReason }}</p
+        ><p class="muted">{{ uiText(result.disabledReason) }}</p
         ><p
           v-if="current.needManualReview"
           class="manual"
@@ -87,13 +87,13 @@
             ><p
               v-if="branch.disabledReason"
               class="muted"
-              >{{ branch.disabledReason }}</p
+              >{{ uiText(branch.disabledReason) }}</p
             ><p
               v-for="(evidence, i) in branch.evidence"
               :key="i"
-              ><b>{{ evidence.label }}</b
-              ><br />{{ evidence.value }}</p
-            ></details
+              ><b>{{ uiEvidence(evidence).label }}</b
+              ><br /><span class="evidence-value">{{ uiEvidence(evidence).value }}</span></p
+            ><details><summary>原始依据</summary><pre>{{ JSON.stringify(branch.evidence, null, 2) }}</pre></details></details
           ><details
             v-if="result.notes.length"
             open
@@ -101,7 +101,7 @@
             ><p
               v-for="(note, i) in result.notes"
               :key="i"
-              >{{ note }}</p
+              >{{ uiText(note) }}</p
             ></details
           ><h4 v-if="current.candidates.length">候选结论</h4
           ><p
@@ -269,6 +269,7 @@
   >
 </template>
 <script setup lang="ts">
+import { uiEvidence, uiText } from '../services/ui-copy';
 import { useAuthStore } from '../stores/auth';
 // 当前权限变化时仅禁用操作，保留表单输入。
 const auth = useAuthStore();
@@ -320,6 +321,8 @@ const branches = computed(() => (current.value ? diagnosisBranchSummary(current.
 // 影响统计及主干属性直接展示服务返回值，0、false 与缺失分别处理。
 </script>
 <style scoped>
+.evidence-value { white-space: pre-wrap; overflow-wrap: anywhere; }
+pre { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 320px; overflow: auto; }
 .result-panel {
   background: #111f34;
   border: 1px solid #2b425f;

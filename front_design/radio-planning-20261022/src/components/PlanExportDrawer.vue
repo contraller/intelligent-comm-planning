@@ -3,13 +3,13 @@
     :visible="visible"
     title="导出已保存方案"
     :subtitle="
-      '只导出所选方案冻结快照；包含 ' + (sourceLabel ?? 'Mock') + ' 来源、状态和历史标记。'
+      '仅导出所选方案的冻结快照，保留来源、状态和历史标记。来源：' + (sourceLabel ?? '未提供')
     "
     @update:visible="!busy && emit('update:visible', $event)"
   >
     <template v-if="plan"
       ><p
-        >{{ plan.name }} · {{ plan.version }} · {{ plan.state
+        >{{ plan.name }} · {{ plan.version }} · {{ uiCode(plan.state)
         }}{{ plan.sourceChanged ? ' · 来源已变化' : '' }}</p
       >
       <label
@@ -40,6 +40,7 @@
   </AppDrawer>
 </template>
 <script setup lang="ts">
+import { uiCode } from '../services/ui-copy';
 import { ref } from 'vue';
 import AppDrawer from './AppDrawer.vue';
 import { previewService } from '../services';

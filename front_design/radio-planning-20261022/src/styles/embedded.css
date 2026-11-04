@@ -1,0 +1,415 @@
+/* 独立模块的浅色外观；完整系统不带这些标记，沿用原有样式。 */
+html.agent-embed-mode,
+body.agent-embed-mode,
+body.agent-embed-mode #app,
+body.agent-embed-mode #app > div {
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  margin: 0;
+}
+html.agent-embed-mode,
+body.agent-embed-mode { overflow: hidden; }
+
+.agent-embed,
+body.agent-embed-mode {
+  --bg: #f1f5fa;
+  --panel: #ffffff;
+  --panel-deep: #f7f9fc;
+  --line: #dce4ef;
+  --muted: #60738a;
+  --text: #24354b;
+  --blue: #2563eb;
+  --cyan: #137da0;
+  --green: #168461;
+  --yellow: #9b660c;
+  --red: #c73d4d;
+  --radius: 8px;
+  --surface-hover: #edf4ff;
+  --p-content-background: #ffffff;
+  --p-content-color: #24354b;
+  --p-content-border-color: #dce4ef;
+  --p-text-color: #24354b;
+  --p-text-muted-color: #60738a;
+  --p-primary-color: #2563eb;
+  --p-primary-hover-color: #1d4ed8;
+  --p-primary-contrast-color: #ffffff;
+  --p-form-field-background: #ffffff;
+  --p-form-field-color: #24354b;
+  --p-form-field-border-color: #cbd5e1;
+  --p-form-field-placeholder-color: #7a899e;
+  --p-form-field-focus-border-color: #2563eb;
+  --p-form-field-disabled-background: #edf1f6;
+  --p-overlay-select-background: #ffffff;
+  --p-overlay-select-color: #24354b;
+  --p-overlay-select-border-color: #dce4ef;
+  color-scheme: light;
+  color: var(--text);
+  background: var(--bg);
+  font-size: 13px;
+  line-height: 1.6;
+}
+.agent-embed {
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+.agent-embed .embed-content {
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+}
+.agent-embed .embed-content:has(> .embedded-business-shell) { overflow: hidden; scrollbar-gutter: auto; }
+.agent-embed .embed-content > .embedded-business-shell {
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+.agent-embed .embedded-business-shell > .app-content {
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: 0;
+  width: 100%;
+  height: auto;
+  padding: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+}
+.agent-embed .embed-content > .page {
+  width: 100%;
+  min-width: 0;
+  min-height: 100%;
+  padding: 16px;
+}
+.agent-embed .embedded-business-shell > .app-content > .page { width: 100%; min-width: 0; padding: 16px; }
+.agent-embed .embed-module-tools:not(:empty) {
+  flex: 0 0 auto;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--line);
+  background: var(--panel);
+}
+.agent-embed .embed-content :is(.page-heading, .panel-head, .situation-toolbar) {
+  min-height: 40px;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px 16px;
+}
+.agent-embed .embed-content .page-heading {
+  margin-bottom: 14px;
+  padding: 0 0 10px;
+  border-bottom: 1px solid var(--line);
+}
+.agent-embed .embed-content .page-heading h1 {
+  margin: 0;
+  padding-left: 10px;
+  border-left: 4px solid var(--blue);
+  color: #1d3048;
+  font-size: 20px;
+  line-height: 1.35;
+  letter-spacing: 0;
+}
+.agent-embed .embed-content :is(.toolbar, .page-actions, .buttons, .step-actions, .kg-heading-tools, .frequency-filters) {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-width: 0;
+}
+.agent-embed .embed-content .page-heading > :is(.toolbar, .page-actions) { margin-left: auto; }
+.agent-embed .embed-content :is(.panel-head, .panel-body) { padding: 12px 16px; }
+.agent-embed .embed-content .resource-status-panel { padding: 12px 16px; }
+.agent-embed .embed-content .resource-status-panel label { margin: 0; }
+.agent-embed .embed-content :is(.panel, .stat-card) {
+  background: var(--panel);
+  border-color: var(--line);
+  box-shadow: 0 1px 2px #172b4d06;
+}
+.agent-embed .embed-content :is(.stat-card .value, .plan-metrics dd) { color: #1d4ed8; }
+.agent-embed .embed-content .stat-card .stat-icon { background: #eaf1ff; color: #2563eb; }
+.agent-embed .embed-content :is(.kg-filters, .kg-detail, .scenario-list, .plan-management, .coverage-summary, .workflow-summary, .demo-settings) {
+  color: var(--text);
+  background: var(--panel);
+  border-color: var(--line);
+}
+.agent-embed .embed-content :is(.kg-context, .kg-description, .kg-search-note, .kg-list-heading, .kg-graph-note, .diagnosis-origin, .list-heading, .mode-indicator, .readonly-note, .filter-retained, .resource-tip) { color: var(--muted); }
+.agent-embed .embed-content :is(.kg-entity, .kg-category, .side-list button) { color: var(--text); background: transparent; border-color: var(--line); }
+.agent-embed .embed-content :is(.kg-entity:hover, .kg-category:hover, .side-list button:hover) { background: #f0f5fc; }
+.agent-embed .embed-content :is(.kg-entity.selected, .side-list button.active) { color: #1d4ed8; background: #eaf1ff; border-color: #a8c4ff; }
+.agent-embed .embed-content :is(.kg-entity small, .kg-detail > small) { color: var(--muted); }
+
+/* 表单和操作使用一致的行高；复选项继续保持横向标签。 */
+body.agent-embed-mode :is(input, select, textarea, .p-inputtext, .p-select) {
+  max-width: 100%;
+  min-width: 0;
+  min-height: 34px;
+  border-color: #cbd5e1;
+  background: #ffffff;
+  color: #24354b;
+}
+body.agent-embed-mode :is(input, select, textarea) { padding: 7px 10px; border-radius: 5px; }
+body.agent-embed-mode :is(input, textarea)::placeholder { color: #7a899e; }
+body.agent-embed-mode :is(input, select, textarea):disabled { background: #edf1f6; color: #60738a; }
+body.agent-embed-mode :is(input[type='checkbox'], input[type='radio']) {
+  width: 16px;
+  height: 16px;
+  min-height: 0;
+  padding: 0;
+  flex: 0 0 auto;
+  accent-color: #2563eb;
+}
+body.agent-embed-mode input[type='range'] { min-height: 20px; padding: 0; }
+body.agent-embed-mode input[type='color'] { padding: 3px; }
+body.agent-embed-mode label { min-width: 0; color: #455b73; gap: 5px; }
+.agent-embed .embed-content :is(.toolbar, .frequency-filters) > label { flex: 0 1 auto; }
+.agent-embed .embed-content :is(.toolbar, .frequency-filters):has(> label) { align-items: flex-end; }
+.agent-embed .embed-content .form-grid { gap: 14px 16px; }
+body.agent-embed-mode :is(.btn, .p-button) {
+  min-height: 34px;
+  padding: 7px 12px;
+  border: 1px solid #cbd5e1;
+  border-radius: 5px;
+  color: #354b64;
+  background: #ffffff;
+  box-shadow: none;
+  line-height: 1.3;
+}
+body.agent-embed-mode :is(.btn, .p-button):hover:not(:disabled) { color: #1d4ed8; background: #f0f5ff; border-color: #9ab7ed; }
+body.agent-embed-mode :is(.btn.primary, .p-button:not(.p-button-secondary):not(.p-button-text):not(.p-button-outlined):not(.p-button-danger):not(.p-button-icon-only)) { color: #ffffff; background: #2563eb; border-color: #2563eb; }
+body.agent-embed-mode :is(.btn.primary, .p-button-primary):hover:not(:disabled) { background: #1d4ed8; border-color: #1d4ed8; }
+body.agent-embed-mode .p-button-danger { color: #ffffff; background: #d53e4d; border-color: #d53e4d; }
+body.agent-embed-mode :is(.btn.small, .p-button-sm) { min-height: 30px; padding: 5px 9px; }
+body.agent-embed-mode :is(.icon-btn, .icon-button) { min-width: 30px; min-height: 30px; color: #60738a; background: transparent; border-color: transparent; }
+body.agent-embed-mode :is(.icon-btn, .icon-button):hover:not(:disabled) { color: #1d4ed8; background: #eaf1ff; }
+body.agent-embed-mode :is(.text-link, a.text-link) { color: #1d4ed8; }
+body.agent-embed-mode :is(button, input, select, textarea, a):focus-visible { outline-color: #2563eb; }
+body.agent-embed-mode button:disabled { opacity: .5; }
+
+.agent-embed .embed-content :is(.tabs, .steps) { flex-wrap: wrap; gap: 4px 18px; }
+.agent-embed .embed-content .tabs { padding: 0 16px; background: #ffffff; border-color: var(--line); }
+.agent-embed .embed-content .tabs button { color: var(--muted); padding: 11px 0 9px; }
+.agent-embed .embed-content .tabs button.active { color: #1d4ed8; border-color: #2563eb; font-weight: 600; }
+.agent-embed .embed-content .steps { gap: 8px; }
+.agent-embed .embed-content .steps button { min-width: 130px; padding: 9px 12px; background: #ffffff; color: #60738a; border-color: var(--line); }
+.agent-embed .embed-content .steps button.active { color: #1d4ed8; background: #eaf1ff; border-color: #a8c4ff; }
+.agent-embed .embed-content .segments { background: #edf2fa; border-color: var(--line); }
+.agent-embed .embed-content .segments button.active { color: #1d4ed8; background: #ffffff; }
+.agent-embed .embed-content .chip { color: #526b87; background: #f0f4f9; border-color: #d8e1ee; }
+.agent-embed .embed-content .chip.blue { color: #1d4ed8; background: #eaf1ff; border-color: #c5d8ff; }
+.agent-embed .embed-content .chip.cyan { color: #0f766e; background: #eaf8f5; border-color: #bfe5da; }
+.agent-embed .embed-content .chip.amber { color: #92600b; background: #fff7e7; border-color: #efdaa6; }
+.agent-embed .embed-content .notice { margin-bottom: 10px; color: #355f96; background: #edf4ff; border-color: #c8dcf8; overflow-wrap: anywhere; }
+.agent-embed .embed-content :is(.notice.warn, .edit-notice) { color: #875d16; background: #fff8eb; border-color: #ecd7ad; }
+.agent-embed .embed-content :is(.notice.error, .edit-notice.error, .kg-error) { color: #a73240; background: #fff1f2; border-color: #f0c4ca; }
+.agent-embed .embed-content :is([role='status'], [role='alert']) { max-width: 100%; overflow-wrap: anywhere; }
+
+/* 宽表在模块自己的表格区域滚动，不把宿主框撑宽。 */
+body.agent-embed-mode .p-datatable {
+  max-width: 100%;
+  min-width: 0;
+  --p-datatable-header-cell-background: #edf2f8;
+  --p-datatable-header-cell-color: #435971;
+  --p-datatable-row-background: #ffffff;
+  --p-datatable-row-color: #334b64;
+  --p-datatable-body-cell-border-color: #e0e7f0;
+  --p-datatable-row-hover-background: #edf4ff;
+  --p-datatable-row-selected-background: #e5efff;
+  --p-datatable-row-selected-color: #1d4ed8;
+  --p-datatable-body-cell-padding: 10px 12px;
+  --p-datatable-header-cell-padding: 11px 12px;
+}
+body.agent-embed-mode .p-datatable-table-container { min-width: 0; max-width: 100%; overflow: auto; }
+body.agent-embed-mode .p-datatable-tbody > tr:nth-child(even):not(.p-datatable-row-selected) { background: #f7f9fc; }
+body.agent-embed-mode :is(.p-datatable th, .p-datatable td) { vertical-align: middle; overflow-wrap: anywhere; }
+body.agent-embed-mode :is(.p-datatable td .toolbar, .p-datatable td .actions) { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
+body.agent-embed-mode .p-paginator {
+  flex-wrap: wrap;
+  gap: 4px;
+  border-top: 1px solid #e0e7f0;
+  --p-paginator-background: #ffffff;
+  --p-paginator-color: #60738a;
+  --p-paginator-nav-button-width: 30px;
+  --p-paginator-nav-button-height: 30px;
+  --p-paginator-padding: 10px 12px;
+}
+.agent-embed .embed-content :is(.table-wrap, .table-scroll) { min-width: 0; max-width: 100%; overflow-x: auto; }
+.agent-embed .embed-content :is(.kv, .split, .list-detail, .planning-layout, .diagnosis-workspace, .kg-workspace) > * { min-width: 0; }
+.agent-embed .embed-content .kv { grid-template-columns: minmax(72px, 100px) minmax(0, 1fr); gap: 10px; }
+.agent-embed .embed-content :is(.step-actions, .gis-resource-footer-actions, .gis-resource-footer-main) { justify-content: flex-end; }
+
+/* 去掉工作区的桌面固定下限，由嵌入框提供高度，长结果保留内部滚动。 */
+.agent-embed .embed-content :is(.planning-api-page, .knowledge-page, .diagnosis-page) { min-height: 0; }
+.agent-embed .embed-content .planning-layout { flex: 1 0 360px; min-height: 360px; grid-template-columns: minmax(0, 1fr) minmax(320px, .72fr); gap: 12px; }
+.agent-embed .embed-content :is(.planning-layout.results, .planning-layout.results.collapsed) { flex-basis: 360px; min-height: 360px; }
+.agent-embed .embed-content .planning-layout.input { grid-template-columns: minmax(280px, .8fr) minmax(0, 1fr); }
+.agent-embed .embed-content .planning-layout.collapsed { grid-template-columns: minmax(0, 1fr); }
+.agent-embed .embed-content .map-panel { min-height: 300px; }
+.agent-embed .embed-content .results-column .result-content > .result-panel { flex: 1 1 0; min-height: 0; }
+.agent-embed .embed-content .knowledge-panel { flex: 1 1 0; min-height: 360px; }
+.agent-embed .embed-content .kg-workspace { min-height: 360px; grid-template-columns: minmax(180px, .72fr) minmax(0, 1.6fr) minmax(220px, .9fr); }
+.agent-embed .embed-content .kg-stage { min-width: 0; min-height: 0; overflow: hidden; }
+.agent-embed .embed-content .kg-stage > .knowledge-canvas { flex: 1 1 0; width: 100%; height: auto; min-width: 0; min-height: 0; overflow: hidden; }
+/* host得到图例和页脚以外的真实剩余高度，既有ResizeObserver据此调整图形。 */
+.agent-embed .embed-content .kg-stage > .knowledge-canvas > .canvas { flex: 1 1 0; width: 100%; height: auto; min-width: 0; min-height: 0; overflow: hidden; }
+.agent-embed .embed-content .knowledge-canvas > :is(.legend, .graph-foot),
+.agent-embed .embed-content .kg-stage > :is(.kg-graph-toolbar, .kg-graph-note) { flex: 0 0 auto; }
+.agent-embed .embed-content .diagnosis-workspace { grid-template-columns: minmax(180px, .7fr) minmax(0, 1.6fr) minmax(250px, 1fr); gap: 12px; }
+.agent-embed .embed-content .diagnosis-workspace.result-collapsed { grid-template-columns: minmax(180px, .7fr) minmax(0, 2fr); }
+.agent-embed .embed-content .diagnosis-main { min-height: 0; }
+.agent-embed .embed-content .diagnosis-page .source-state { color: #875d16; }
+.agent-embed .embed-map-content { overflow: hidden; scrollbar-gutter: auto; }
+.agent-embed .embed-map-content > .embedded-business-shell > .app-content { overflow: hidden; scrollbar-gutter: auto; }
+.agent-embed .embed-content .situation-page { height: 100%; min-height: 0; padding: 0 12px 12px; }
+.agent-embed .embed-content .situation-toolbar { padding: 8px 0; min-height: 48px; }
+.agent-embed .embed-content .situation-left { flex-basis: 280px; }
+.agent-embed .embed-content .situation-right { flex-basis: 300px; }
+.agent-embed .embed-content :is(.situation-main, .situation-center, .map-frame, .gis-situation) { min-height: 0; }
+
+/* 地图保留深色地形和已有图例语义，不对画布进行滤镜或反色。 */
+.agent-embed .embed-content :is(.map-wrap, .map-frame, .gis-situation) {
+  --bg: #080f1e;
+  --panel: #101c30;
+  --panel-deep: #0c1627;
+  --line: #23334c;
+  --muted: #8195b1;
+  --text: #dce7f5;
+  color: #dce7f5;
+  color-scheme: dark;
+}
+
+/* 弹窗通过body的嵌入标记继承浅色，不依赖Teleport的DOM位置。 */
+body.agent-embed-mode :is(.p-dialog, .p-drawer, .p-popover, .p-select-overlay, .p-autocomplete-overlay, .p-menu) {
+  color: #24354b;
+  background: #ffffff;
+  border-color: #dce4ef;
+  --p-dialog-background: #ffffff;
+  --p-dialog-color: #24354b;
+  --p-dialog-border-color: #dce4ef;
+  --p-drawer-background: #ffffff;
+  --p-drawer-color: #24354b;
+  --p-drawer-border-color: #dce4ef;
+}
+body.agent-embed-mode :is(.p-dialog, .p-drawer) { max-width: calc(100% - 24px); max-height: calc(100% - 24px); }
+body.agent-embed-mode :is(.p-dialog-content, .p-drawer-content) { min-height: 0; min-width: 0; overflow: auto; overscroll-behavior: contain; }
+body.agent-embed-mode :is(.p-dialog-footer, .p-drawer-footer) { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px; border-top: 1px solid #dce4ef; }
+body.agent-embed-mode :is(.p-dialog-footer, .p-drawer-footer) > * { min-width: 0; }
+body.agent-embed-mode pre { max-width: 100%; white-space: pre-wrap; overflow-wrap: anywhere; }
+
+/* 组件内的旧深色卡片单独覆盖；保留地形、图形画布及语义色标。 */
+body.agent-embed-mode :is(.agent-embed, .p-dialog, .p-drawer) :is(
+  .task-actions, .task-quick-start, .quick-card, .comparison-panel, .candidate-detail,
+  .configuration-origin, .result-checks, .required-connectivity, .result-panel,
+  .root-stages > li, .progress-panel, .network-panel,
+  .scene-card, .history-card, .context-card, .draft-toolbar, .empty-panel,
+  .edit-card, .inline-actions, .source-form article, .import-form .preview,
+  .device-knowledge .group, .object-info .device-detail,
+  .diagnosis-snapshot .source, .diagnosis-snapshot .frozen-detail
+) {
+  color: #24354b;
+  background: #ffffff;
+  border-color: #dce4ef;
+}
+body.agent-embed-mode :is(.agent-embed, .p-dialog, .p-drawer) :is(
+  .task-actions, .task-quick-start, .configuration-origin, .result-checks,
+  .required-connectivity, .candidate-detail, .draft-toolbar, .inline-actions,
+  .root-stages > li, .device-knowledge .group
+) { background: #f7f9fc; }
+body.agent-embed-mode :is(.agent-embed, .p-dialog, .p-drawer) .task-quick-start { border-color: #cadbf1; }
+body.agent-embed-mode :is(.agent-embed, .p-dialog, .p-drawer) .quick-card { border-color: #dce4ef; }
+body.agent-embed-mode :is(.agent-embed, .p-dialog, .p-drawer) :is(.task-quick-start h4, .task-quick-start strong, .object-info .device-summary h4, .device-knowledge .knowledge-heading, .root-stages h4) { color: #294764; }
+body.agent-embed-mode :is(.agent-embed, .p-dialog, .p-drawer) :is(
+  .task-quick-start small, .task-quick-start .quick-guide, .device-knowledge .related,
+  .device-knowledge small.version, .root-stages small, .root-stages .missing,
+  .network-toolbar small, .topology-hint, .object-detail, .layers small,
+  .fault-legend small, .topology-controls small, .scene-select small, .history-card small,
+  .diagnosis-snapshot dt, .diagnosis-snapshot small, .result-heading small,
+  .result-panel .muted, .scope-note, .propagation-path small
+) { color: #60738a; }
+body.agent-embed-mode :is(.agent-embed, .p-dialog, .p-drawer) :is(
+  .task-quick-start p, .root-stages p, .scene-select, .history-card,
+  .import-form, .source-form, .diagnosis-snapshot h4
+) { color: #354b64; }
+body.agent-embed-mode :is(.agent-embed, .p-dialog, .p-drawer) :is(
+  .device-knowledge .group > summary, .root-cause .original-chain summary,
+  .edit-card summary, .item summary, .result-panel summary
+) { color: #335d8a; }
+body.agent-embed-mode :is(.agent-embed, .p-dialog, .p-drawer) :is(
+  .diff-row pre, .metrics article, .impact-row, .branch-row, .p-drawer .item
+) { color: #354b64; background: #f7f9fc; border-color: #dce4ef; }
+body.agent-embed-mode :is(.agent-embed, .p-dialog, .p-drawer) :is(.branch-row strong, .branch-row b) { color: #335d8a; }
+body.agent-embed-mode :is(.agent-embed, .p-dialog, .p-drawer) :is(.branch-row span, .branch-row p) { color: #455b73; }
+body.agent-embed-mode :is(.agent-embed, .p-dialog, .p-drawer) .branch-row small { color: #60738a; }
+body.agent-embed-mode :is(.agent-embed, .p-dialog, .p-drawer) .metrics article.passed { --metric-status: #28783e; }
+body.agent-embed-mode :is(.agent-embed, .p-dialog, .p-drawer) .metrics article.failed { --metric-status: #b52d3c; }
+body.agent-embed-mode :is(.agent-embed, .p-dialog, .p-drawer) .required-connectivity.passed strong { color: #28783e; }
+body.agent-embed-mode :is(.agent-embed, .p-dialog, .p-drawer) .required-connectivity.failed strong { color: #b52d3c; }
+body.agent-embed-mode :is(.agent-embed, .p-dialog, .p-drawer) :is(.confidence, .progress-panel .phases .running) { color: #146fa1; }
+body.agent-embed-mode :is(.agent-embed, .p-dialog, .p-drawer) :is(.saved-feedback, .progress-panel .phases .done, .import-form .success) { color: #168461; }
+body.agent-embed-mode :is(.agent-embed, .p-dialog, .p-drawer) .progress-panel .phases { color: #60738a; }
+body.agent-embed-mode :is(.agent-embed, .p-dialog, .p-drawer) :is(.scene-card.active, .history-card.active, .solutions .selected) { color: #1d4ed8; background: #eaf1ff; border-color: #a8c4ff; }
+body.agent-embed-mode :is(.agent-embed, .p-dialog, .p-drawer) .diagnosis-page .list-heading > span { background: #edf2f8; }
+body.agent-embed-mode :is(.agent-embed, .p-dialog, .p-drawer) :is(.object-info .object-icon, .resource-detail-title > .pi) { color: #2563eb; background: #eaf1ff; }
+body.agent-embed-mode :is(.agent-embed, .p-dialog, .p-drawer) :is(.result-panel .tabs .active, .result-restore) { color: #1d4ed8; background: #eaf1ff; }
+body.agent-embed-mode :is(.agent-embed, .p-dialog, .p-drawer) :is(.manual, .diagnosis-page .warning) { color: #875d16; background: #fff8eb; border-color: #ecd7ad; }
+body.agent-embed-mode :is(.agent-embed, .p-dialog, .p-drawer) :is(.diagnosis-page .success) { color: #168461; background: #eaf8f5; border-color: #bfe5da; }
+body.agent-embed-mode :is(.agent-embed, .p-dialog, .p-drawer) :is(.validation-panel, .error-box, .diagnosis-page .error) { color: #a73240; background: #fff1f2; border-color: #f0c4ca; }
+body.agent-embed-mode :is(.agent-embed, .p-dialog, .p-drawer) :is(
+  .validation-panel small, .result-panel .export-error, .progress-panel .error,
+  .device-knowledge .error, .source-form .error, .import-form .error,
+  .task-form .field-error, .demand-fields .field-error, .p-drawer .error
+) { color: #a73240; }
+body.agent-embed-mode :is(.agent-embed, .p-dialog, .p-drawer) :is(.task-form, .demand-fields) [aria-invalid='true'] { border-color: #c45546; }
+body.agent-embed-mode :is(.agent-embed, .p-dialog, .p-drawer) :is(.result-panel .warn, .progress-panel .historical) { color: #92600b; }
+body.agent-embed-mode :is(.agent-embed, .p-dialog, .p-drawer) :is(.coverage-item, .device-layer-row, .cluster-device, .link-metrics .metric-card) { color: #354b64; background: #f7f9fc; }
+body.agent-embed-mode :is(.agent-embed, .p-dialog, .p-drawer) .link-metrics .metric-name { color: #60738a; }
+body.agent-embed-mode :is(.agent-embed, .p-dialog, .p-drawer) .link-metrics .metric-value { color: #294764; }
+body.agent-embed-mode :is(.agent-embed, .p-dialog, .p-drawer) .link-metrics .metric-state { background: #edf2f8; }
+body.agent-embed-mode :is(.agent-embed, .p-dialog, .p-drawer) .bandwidth-editor th { color: #435971; background: #edf2f8; }
+
+@media (max-width: 1100px) {
+  .agent-embed .embed-content :is(.planning-layout, .planning-layout.input, .planning-layout.results, .planning-layout.collapsed) { grid-template-columns: minmax(0, 1fr); flex-basis: auto; }
+  .agent-embed .embed-content .planning-api-page { height: auto; min-height: 100%; }
+  .agent-embed .embed-content .map-panel { height: 320px; min-height: 0; }
+  .agent-embed .embed-content :is(.result-column, .result-content) { overflow: visible; }
+  .agent-embed .embed-content .results-column .result-content > .result-panel { flex: none; min-height: 320px; }
+  .agent-embed .embed-content .diagnosis-workspace { grid-template-columns: minmax(180px, .7fr) minmax(0, 1.7fr); }
+  .agent-embed .embed-content .result-workspace { grid-column: 1 / -1; }
+  .agent-embed .embed-content .kg-workspace { grid-template-columns: minmax(180px, .7fr) minmax(0, 1.7fr); }
+  .agent-embed .embed-content .kg-detail { grid-column: 1 / -1; border-left: 0; border-top: 1px solid var(--line); }
+}
+@media (max-width: 960px) {
+  .agent-embed .embed-content .situation-page { height: auto; min-height: 100%; }
+  .agent-embed .embed-map-content:has(.situation-page) { overflow: auto; }
+  .agent-embed .embed-map-content > .embedded-business-shell > .app-content:has(.situation-page) { overflow: auto; }
+  .agent-embed .embed-content .situation-main { display: grid; grid-template-columns: minmax(0, 1fr); flex: none; }
+  .agent-embed .embed-content :is(.situation-left, .situation-center, .situation-right) { grid-column: 1; width: 100%; min-width: 0; flex: none; }
+  .agent-embed .embed-content .situation-center { order: 1; }
+  .agent-embed .embed-content .map-frame { height: clamp(240px, 48vh, 420px); min-height: 0; flex: none; }
+  .agent-embed .embed-content .situation-left { order: 2; max-height: 460px; overflow: auto; }
+  .agent-embed .embed-content .situation-right { order: 3; max-height: 460px; overflow: auto; }
+  .agent-embed .embed-content .panel-restore { position: static; transform: none; width: auto; min-height: 32px; flex-direction: row; justify-self: start; }
+  .agent-embed .embed-content .panel-restore span { writing-mode: horizontal-tb; letter-spacing: 0; }
+}
+@media (max-width: 760px) {
+  .agent-embed .embed-content > .page { padding: 12px; }
+  .agent-embed .embedded-business-shell > .app-content > .page { padding: 12px; }
+  .agent-embed .embed-content .page-heading > :is(.toolbar, .page-actions) { width: 100%; margin-left: 0; justify-content: flex-start; }
+  .agent-embed .embed-content :is(.split, .list-detail, .form-grid, .kg-workspace, .diagnosis-workspace, .diagnosis-workspace.result-collapsed) { grid-template-columns: minmax(0, 1fr); }
+  .agent-embed .embed-content :is(.knowledge-page, .diagnosis-page) { height: auto; min-height: 100%; overflow: visible; }
+  .agent-embed .embed-content :is(.knowledge-panel, .kg-workspace) { flex: none; min-height: 0; }
+  .agent-embed .embed-content .kg-stage { height: clamp(320px, 60vh, 480px); min-height: 0; }
+  .agent-embed .embed-content :is(.kg-filters, .kg-detail) { border: 0; border-bottom: 1px solid var(--line); padding: 12px; }
+  .agent-embed .embed-content .kg-filters { max-height: 360px; overflow: auto; }
+  .agent-embed .embed-content .steps button { min-width: 100px; }
+  .agent-embed .embed-content .resource-summary { width: 100%; flex-wrap: wrap; margin-left: 0; }
+  .agent-embed .embed-content .spectrum-card { grid-template-columns: minmax(0, 1fr); }
+  body.agent-embed-mode :is(.p-dialog, .p-drawer) { max-width: calc(100% - 12px); max-height: calc(100% - 12px); }
+}

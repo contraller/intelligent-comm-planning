@@ -47,7 +47,7 @@ export interface PlanningMetricCard {
   value: number | null;
   unit: string;
   icon: string;
-  state: 'passed' | 'failed' | 'unknown' | 'objective';
+  state: 'passed' | 'failed' | 'unknown' | 'objective' | 'statistic';
   status: string;
   note: string;
 }
@@ -59,20 +59,30 @@ type PlanningMetricValues = Readonly<{
   survivabilityPercent: number | null;
 }>;
 
+export function planningCheckDisplay(checks: readonly PlanningCheck[], id: PlanningCheck['id']) {
+  const rows = checks.filter(row => row?.id === id);
+  const check = rows.length === 1 ? rows[0] : undefined;
+  return { state: check?.passed === true ? 'passed' as const : check?.passed === false ? 'failed' as const : 'unknown' as const,
+    status: check?.passed === true ? '达标' : check?.passed === false ? '未达标' : '未提供校验结论',
+    detail: typeof check?.detail === 'string' ? check.detail : '' };
+}
+
+// 完整服务结论覆盖四项简化检查之外的约束，缺少时不由分项推定整体通过。
+export function planningConstraintSummary(outcome: Readonly<{ code: number; gap: readonly unknown[] }> | null | undefined) {
+  if (!outcome) return { warning: true, message: '未提供整体约束结论' };
+  return outcome.code !== 0 || outcome.gap.length
+    ? { warning: true, message: '仍有未满足的约束，请查看具体原因' }
+    : { warning: false, message: '整体约束检查通过' };
+}
+
 export function planningMetricCards(metrics: PlanningMetricValues | undefined, checks: readonly PlanningCheck[] = []): PlanningMetricCard[] {
-  const state = (id: PlanningCheck['id']) => {
-    const rows = checks.filter(row => row?.id === id);
-    const check = rows.length === 1 ? rows[0] : undefined;
-    return { state: check?.passed === true ? 'passed' as const : check?.passed === false ? 'failed' as const : 'unknown' as const,
-      status: check?.passed === true ? '达标' : check?.passed === false ? '未达标' : '未提供校验结论',
-      detail: typeof check?.detail === 'string' ? check.detail : '' };
-  };
-  const connectivity = state('connectivity'), survivability = state('survivability');
+  const survivability = planningCheckDisplay(checks, 'survivability');
   const value = (key: keyof PlanningMetricValues) => typeof metrics?.[key] === 'number' && Number.isFinite(metrics[key]) ? metrics[key] : null;
   // 等级只取显式结论，不能根据数值反推达标，也不把总功率声明为最优。
   return [
-    { id: 'connectivity', label: '网络连通率', value: value('connectivityPercent'), unit: '%', icon: 'pi-globe',
-      state: connectivity.state, status: connectivity.status, note: connectivity.detail || '目标 100%' },
+    { id: 'connectivity', label: '全网连通率', value: value('connectivityPercent'), unit: '%', icon: 'pi-globe',
+      state: value('connectivityPercent') === null ? 'unknown' : 'statistic', status: '全网统计指标',
+      note: '必要通联满足率及达标结论单独列示，不据此数值推定。' },
     { id: 'power', label: '总辐射功率', value: value('totalRadiatedPowerW'), unit: 'W', icon: 'pi-bolt',
       state: 'objective', status: '最小化目标', note: '直接读取结果，未提供单项达标结论' },
     { id: 'survivability', label: '抗毁性', value: value('survivabilityPercent'), unit: '%', icon: 'pi-shield',

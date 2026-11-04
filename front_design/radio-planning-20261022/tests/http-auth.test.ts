@@ -120,9 +120,19 @@ describe('同源 Cookie 认证契约', () => {
   it('超时主动取消且不重发登录，迟到响应不会设置身份', async () => {
     vi.useFakeTimers(); const fetcher = vi.fn<typeof fetch>(() => new Promise(() => {}));
     const auth = createAuthHttp({ baseUrl: () => '/api/v1', fetcher, timeoutMs: 50 });
-    const result = expect(auth.login({ username: 'alpha', password: 'x' })).rejects.toMatchObject({ code: 'REQUEST_TIMEOUT' });
+    const result = expect(auth.login({ username: 'alpha', password: 'x' })).rejects.toMatchObject({ code: 'REQUEST_TIMEOUT', message: '读取使用身份超时，请重试' });
     await vi.advanceTimersByTimeAsync(50); await result;
     expect(fetcher).toHaveBeenCalledTimes(1); expect(fetcher.mock.calls[0][1]?.signal?.aborted).toBe(true);
+  });
+  it('业务数据读取超时不误报为认证故障，仍取消原请求且不自动重试', async () => {
+    vi.useFakeTimers();
+    const fetcher = vi.fn<typeof fetch>(async input => String(input).endsWith('/auth/session')
+      ? response(dto()) : new Promise(() => {}));
+    const auth = createAuthHttp({ baseUrl: () => '/api/v1', fetcher, timeoutMs: 50 });
+    const result = expect(auth.authenticatedRequest('/gis/plans/P1/network')).rejects.toMatchObject({ code: 'REQUEST_TIMEOUT', message: '数据请求超时，请重试' });
+    await vi.advanceTimersByTimeAsync(50); await result;
+    expect(fetcher).toHaveBeenCalledTimes(2);
+    expect(fetcher.mock.calls[1][1]?.signal?.aborted).toBe(true);
   });
 });
 

@@ -42,7 +42,10 @@ describe('首页30秒自动跟随与独立已保存干扰源', () => {
     expect(e.services.queryPlans).toHaveBeenCalledWith(expect.objectContaining({ state:'CONFIRMED',context:'gis' }));
     expect(e.model.frame.value).toBe(before); expect(e.model.frame.value.network.interferences).toBe(frozen);
     expect(e.model.interferences.value[0]?.id).toBe('LIVE-0'); expect(e.model.liveInterferences.value?.revision).toBe('resource-one');
-    expect(e.model.interferenceSourceLabel.value).toContain('最新已保存资源 resource-one'); expect(e.model.interferenceSourceLabel.value).toContain('未随干扰源重算');
+    expect(e.model.interferenceSourceLabel.value).toContain('已保存构造资源');
+    expect(e.model.interferenceSourceLabel.value).toContain('尚未随干扰源更新重算');
+    expect(e.model.interferenceSourceDetails.value).toContain('最新已保存资源 resource-one');
+    expect(e.model.interferenceSourceDetails.value).toContain('未随干扰源重算');
     expect(e.model.notice.value).toBe('');
     expect(e.services.plans.getNetwork).not.toHaveBeenCalled(); e.model.stop();
   });

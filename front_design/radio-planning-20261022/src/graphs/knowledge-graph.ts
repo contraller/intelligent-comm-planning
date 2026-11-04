@@ -44,8 +44,8 @@ export function knowledgeGraphModel(graph:KnowledgeGraph,selectedId:string,_type
       node.itemStyle.borderWidth=Math.min(node.itemStyle.borderWidth,Math.max(1,node.symbolSize/10));
     }
   }
-  // 密集概览隐藏边标签，悬停或选中后显示关联关系，减少交叉文字。
-  const links=graph.relations.map(r=>({id:r.id,source:r.head,target:r.tail,value:knowledgeRelationName(r.type,relationNames[r.type]),label:{show:!!selected&&(r.head===selectedId||r.tail===selectedId)||graph.entities.length<=12},lineStyle:{opacity:selected?(r.head===selectedId||r.tail===selectedId?0.85:0.15):matches.size?(matches.has(r.head)||matches.has(r.tail)?0.65:0.12):0.45}}));
+  // 大图即使聚焦也不常显全部关系名，悬停仍可读；完整关系保留在详情清单。
+  const links=graph.relations.map(r=>({id:r.id,source:r.head,target:r.tail,value:knowledgeRelationName(r.type,relationNames[r.type]),label:{show:graph.entities.length<=12},lineStyle:{opacity:selected?(r.head===selectedId||r.tail===selectedId?0.85:0.15):matches.size?(matches.has(r.head)||matches.has(r.tail)?0.65:0.12):0.45}}));
   const edgeSymbolSize=Math.min(7,Math.max(3,Math.min(...nodes.map(node=>node.symbolSize),35)/5));
   return {nodes,links,legend,edgeSymbolSize,truncated:graph.totalNodes>nodes.length||graph.totalEdges>graph.relations.length};
 }

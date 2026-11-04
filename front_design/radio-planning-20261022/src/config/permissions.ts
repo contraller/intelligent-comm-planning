@@ -1,3 +1,5 @@
+import { embeddedModules, modulePath } from './embedded-pages';
+import { isModuleTab } from './module-tabs';
 // 固定权限目录是页面与公开服务共同采用的白名单，未知方法默认拒绝。
 const names = {
   'situation.view': '查看 GIS 态势', 'resources.view': '查看资源', 'resources.edit': '维护资源及频谱配置', 'resources.reset': '重置资源',
@@ -29,6 +31,7 @@ export const adminPermissions = allPermissions.filter(p => p.startsWith('system.
 export const routePermissions: Record<string,Permission> = {
   '/situation':'situation.view','/gis-workbench':'situation.view','/resources':'resources.view','/planning':'planning.view',
   '/diagnosis':'diagnosis.view','/knowledge':'knowledge.view','/system':'system.view',
+  ...Object.fromEntries(embeddedModules.map(module => ['/embed/' + module.id, module.permission])),
 };
 export const servicePermissions: Record<string, { any?: Permission[]; all?: Permission[] }> = {
   getDeviceNetworkDetail: { any: ['resources.view','situation.view'] },
@@ -195,12 +198,14 @@ export function togglePermission(current: Permission[],code: Permission,on: bool
 // 返回地址仅允许站内已知路由和这些页面实际使用的查询字段。
 export function safeReturnPath(value: unknown): string | null {
   if(typeof value!=='string'||value.length>1000||/[\\#\r\n]/.test(value))return null;
-  const [path,search='']=value.split('?');
-  if(!routePermissions[path])return null;
+  const [actualPath,search='']=value.split('?');
+  if(!routePermissions[actualPath])return null;
+  const path = modulePath(actualPath);
   const query=new URLSearchParams(search), workbench = path === '/situation' || path === '/gis-workbench';
   const gisFields = ['stationId','deviceId','interferenceId','taskId','diagnosisId','faultEdit','scenarioId','versionId','analysisTaskId','analysisPlanId'];
-  const allowed:Record<string,string[]>={'/situation':gisFields,'/gis-workbench':gisFields,'/planning':['taskId','jobId','planId','editTask','history','from'],'/diagnosis':['scenarioId','versionId'],'/knowledge':['entityId']};
+  const allowed:Record<string,string[]>={'/situation':gisFields,'/gis-workbench':gisFields,'/planning':['taskId','jobId','planId','editTask','history','from'],'/diagnosis':['scenarioId','versionId'],'/knowledge':['entityId','tab'],'/resources':['tab'],'/system':['tab']};
   for(const [key,val]of query)if(!(allowed[path]??[]).includes(key)||!val||val.length>120||/[\u0000-\u001f\u007f]/.test(val))return null;
+  if(query.has('tab') && (!['/resources','/knowledge','/system'].includes(path) || !isModuleTab(path.slice(1) as 'resources'|'knowledge'|'system',query.get('tab'))))return null;
   // 仅接受固定用途；历史入口独立于任务恢复，不能成为通用返回地址。
   if(path==='/planning'&&(query.has('from')&&query.get('from')!=='diagnosis'||query.has('history')&&(!['references','saved'].includes(query.get('history')!)||query.size!==1)))return null;
   // 分析入口绑定完整任务与方案，不与资源、任务只读查看或诊断定位混用。
@@ -216,5 +221,5 @@ export function safeReturnPath(value: unknown): string | null {
   if(workbench&&query.has('diagnosisId')&&['stationId','deviceId','interferenceId','taskId'].some(key=>query.has(key)))return null;
   // 完整定位允许不透明 ID；历史单设备返回地址仍限制为简单标识，拒绝路径和混合/重复参数。
   if(new Set([...query.keys()]).size!==query.size||workbench&&(query.has('deviceId')&&!query.has('stationId')&&!/^[\w-]+$/.test(query.get('deviceId')??'')||query.has('interferenceId')&&(query.has('stationId')||query.has('deviceId'))))return null;
-  return path+(query.size?'?'+query.toString():'');
+  return actualPath+(query.size?'?'+query.toString():'');
 }

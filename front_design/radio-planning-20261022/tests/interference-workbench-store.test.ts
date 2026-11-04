@@ -56,10 +56,18 @@ describe('持久化干扰工作流store', () => {
     expect(store.taskContext).toEqual(target); store.resetDraft(); expect(store.dirty).toBe(false); expect(store.history).toEqual(history); expect(workbench.submitRun).not.toHaveBeenCalled();
   });
   it('保存等待时改写数组不影响发起快照', async () => {
-    const { store, scenes } = setup(); await store.enterPlan(target); store.draft.name = '场景'; store.draft.interferenceIds = ['IF1'];
+    const { store, scenes, workbench } = setup(); await store.enterPlan(target); store.draft.name = '场景'; store.draft.interferenceIds = ['IF1'];
     const pending = deferred<Awaited<ReturnType<InterferenceSceneServices['saveScene']>>>(); vi.mocked(scenes.saveScene).mockReturnValue(pending.promise);
     const action = store.saveScene(); store.draft.interferenceIds.push('IF2'); expect(vi.mocked(scenes.saveScene).mock.calls[0]![0].interferenceIds).toEqual(['IF1']);
     pending.resolve({ requestId: 'accepted', operation: 'SAVE_INTERFERENCE_SCENE', status: 'SUCCEEDED', actorId: 'u1', taskId: 'T1', sceneId: 'SC1', baseSceneVersionId: null, versionId: 'SV1', versionNo: 1, planId: 'P1', planVersion: 'V1', resourceRevision: 'RES1', snapshotHash: hash, dataOrigin: 'SYNTHETIC_INTEGRATION', changed: true, createdAt: '2026-10-23T08:00:00Z' }); await action;
+    expect(store.notice).toBe('场景版本已保存；尚未提交分析');
+    vi.mocked(workbench.submitRun).mockRejectedValueOnce(new ApiError('场景校验未通过', 'VALIDATION_ERROR'));
+    await store.submitAnalysis(); expect(store.notice).toBe('场景版本已保存；尚未提交分析');
+    vi.mocked(workbench.getRun).mockRejectedValueOnce(new Error('运行读取超时'));
+    await store.submitAnalysis();
+    expect(store.lastReceipt?.object_id).toBe('RUN1'); expect(store.queryError).toContain('运行读取超时');
+    expect(store.notice).toBe('');
+    await store.selectRun('RUN1'); expect(store.selected?.state).toBe('PENDING'); expect(store.notice).toBe('');
   });
   it('传输超时保留原请求，先核实回执，不自动换ID重发', async () => {
     const { store, workbench } = setup(); await store.enterPlan(target); await store.selectScene({ sceneId: 'SC1', versionId: 'SV1' });

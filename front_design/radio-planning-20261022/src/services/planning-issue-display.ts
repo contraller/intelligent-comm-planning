@@ -52,6 +52,7 @@ const labels: Record<string, string> = {
   'auxiliary.demand': '未应用的通联需求',
   'auxiliary.deployment': '部署约束',
   'auxiliary.options': '频率与求解条件',
+  MARGIN_SHORTFALL: '链路余量不足',
 };
 export function planningFieldLabel(field: string): string {
   return (
@@ -63,7 +64,8 @@ export function planningFieldLabel(field: string): string {
   );
 }
 export function planningIssueText(issue: PlanningIssue): string {
-  return `${issue.objectId ? issue.objectId + ' / ' : ''}${planningFieldLabel(issue.field)}：${issue.message}`;
+  const message = issue.message === 'plan_check' ? '方案约束检查未通过' : issue.message;
+  return `${issue.objectId ? issue.objectId + ' / ' : ''}${planningFieldLabel(issue.field)}：${message}`;
 }
 export function fieldIssues(issues: PlanningIssue[], field: string): PlanningIssue[] {
   return issues.filter((issue) => issue.field === field || issue.field.startsWith(field + '.'));

@@ -316,6 +316,8 @@
 </template>
 <script setup lang="ts">
 import { computed, onMounted, onBeforeUnmount, ref, watch } from 'vue';
+import { useRoute, onBeforeRouteUpdate } from 'vue-router';
+import { isModuleTab } from '../config/module-tabs';
 import type { OperationEvent } from '../types/system';
 import AppDrawer from '../components/AppDrawer.vue';
 import { previewService } from '../services';
@@ -332,6 +334,7 @@ import SystemParameterDrawer from '../components/SystemParameterDrawer.vue';
 import SystemPasswordDrawer from '../components/SystemPasswordDrawer.vue';
 import { env } from '../config/env';
 const formal = env.mode === 'http';
+const route = useRoute();
 const store = useSystemStore(),
   auth = useAuthStore(),
   selectedLog = ref<OperationEvent | null>(null);
@@ -377,9 +380,18 @@ const allowed = computed(() => visibleTabs.value.some((t) => t.key === store.tab
 useSystemLeaveGuard();
 // 两种数据模式共用初始化和交互，重入时清除其他页签的筛选条件。
 onMounted(() => {
-  store.tab = visibleTabs.value[0]?.key ?? 'accounts';
+  store.tab = isModuleTab('system', route.query.tab) ? route.query.tab : visibleTabs.value[0]?.key ?? 'accounts';
   store.resetQuery();
   void store.load();
+});
+onBeforeRouteUpdate(async (to, from) => {
+  if (to.query.tab === from.query.tab) return true;
+  const next = isModuleTab('system', to.query.tab) ? to.query.tab : visibleTabs.value[0]?.key ?? 'accounts';
+  if (next === store.tab) return true;
+  await auth.check();
+  if (auth.blocked) return false;
+  await store.changeTab(next);
+  return !auth.blocked && store.tab === next;
 });
 // 列表只展示服务返回的当前页，显式关闭公共表格默认的表头排序。
 const listColumns = (columns: { field: string; header: string; minWidth?: string }[]) =>

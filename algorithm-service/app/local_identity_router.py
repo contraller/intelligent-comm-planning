@@ -12,13 +12,13 @@ from .system_management_schemas import SystemManagementError, parse_request
 def create_local_identity_router(*, service) -> APIRouter:
     router = APIRouter(prefix="/api/v1/auth", tags=["local-identity"])
 
-    def call(response, action):
+    def call(request, response, action):
         response.headers["Cache-Control"] = "no-store"
         try:
             return {"code": 0, "message": "success", "data": action()}
         except SystemManagementError as error:
             response.status_code = error.status
-            if error.code in (1102, 1103):
+            if error.code in (1102, 1103) and service.uses_cookie_session(request):
                 response.delete_cookie(SESSION_COOKIE, path="/")
             if error.status == 429:
                 response.headers["Retry-After"] = str(service.settings.lockout_seconds)
@@ -29,29 +29,29 @@ def create_local_identity_router(*, service) -> APIRouter:
 
     @router.get("/capabilities")
     def capabilities(request: Request, response: Response):
-        return call(response, lambda: service.capabilities(request))
+        return call(request, response, lambda: service.capabilities(request))
 
     @router.get("/session")
     def session(request: Request, response: Response):
-        return call(response, lambda: service.browser_session(request, response))
+        return call(request, response, lambda: service.browser_session(request, response))
 
     @router.get("/csrf")
     def csrf(request: Request, response: Response):
-        return call(response, lambda: service.challenge(request, response))
+        return call(request, response, lambda: service.challenge(request, response))
 
     @router.post("/login")
     def login(request: Request, response: Response, body: Any = Body(...)):
-        return call(response, lambda: service.login(request, response, body))
+        return call(request, response, lambda: service.login(request, response, body))
 
     @router.post("/logout")
     def logout(request: Request, response: Response, body: Any = Body(...)):
         def action():
             parse_request(EmptyRequest, body)
             return service.logout(request, response)
-        return call(response, action)
+        return call(request, response, action)
 
     @router.post("/password")
     def password(request: Request, response: Response, body: Any = Body(...)):
-        return call(response, lambda: service.change_password(request, response, body))
+        return call(request, response, lambda: service.change_password(request, response, body))
 
     return router

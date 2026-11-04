@@ -8,11 +8,12 @@ import Panel from '../src/components/InterferenceAnalysisPanel.vue';
 import SceneDrawer from '../src/components/InterferenceSceneDrawer.vue';
 import MeasureDrawer from '../src/components/InterferenceMeasureDrawer.vue';
 import HistoryDrawer from '../src/components/InterferenceHistoryDrawer.vue';
+import ReadableData from '../src/components/ReadableData.vue';
 import type { RunDetail, AdoptionDetail } from '../src/types/interference-workbench';
 
 vi.mock('../src/components/AppDrawer.vue', () => ({ default: defineComponent({ props: ['visible'], setup: (props, { slots }) => () => props.visible ? h('aside', [slots.default?.(), slots.footer?.()]) : null }) }));
 let pinia: ReturnType<typeof createPinia>, app: App | undefined;
-beforeAll(async () => { for (const [component, name] of [[Panel, 'InterferenceAnalysisPanel'], [SceneDrawer, 'InterferenceSceneDrawer'], [MeasureDrawer, 'InterferenceMeasureDrawer'], [HistoryDrawer, 'InterferenceHistoryDrawer']] as const) await clientTemplate(component, 'src/components/' + name + '.vue', 'interference-r2-render.ts'); });
+beforeAll(async () => { for (const [component, name] of [[Panel, 'InterferenceAnalysisPanel'], [SceneDrawer, 'InterferenceSceneDrawer'], [MeasureDrawer, 'InterferenceMeasureDrawer'], [HistoryDrawer, 'InterferenceHistoryDrawer'], [ReadableData, 'ReadableData']] as const) await clientTemplate(component, 'src/components/' + name + '.vue', 'interference-r2-render.ts'); });
 class FixtureDocument { activeElement = null; }
 class FixtureShadowRoot {}
 beforeEach(() => { vi.stubGlobal('window', { confirm: vi.fn(() => false) }); vi.stubGlobal('Document', FixtureDocument); vi.stubGlobal('ShadowRoot', FixtureShadowRoot); vi.stubGlobal('document', new FixtureDocument()); pinia = createPinia(); setActivePinia(pinia); authorizeStore(); });
@@ -48,10 +49,27 @@ describe('专用干扰组件，不替代GIS宿主页验收', () => {
     const button = find(root, row => row.tag === 'button' && textOf(row).includes('提交干扰分析'));
     expect(button?.props.disabled).toBe(true); expect(useInterferenceStore().draft.interferenceIds).toEqual([]);
   });
+  it('已完成分析的计算说明可读且保留原始说明，缺失和非实测边界不改写', () => {
+    const store = useInterferenceStore(), view = successful();
+    view.result!.notes = ['算法预测，非实测', '未生成的全网指标保持未知',
+      '型号原字段保持缺失；parameter_substitutions明确列出既有SpecFiller用于计算的推定及依据'];
+    const original = JSON.stringify(view.result!.notes); store.selected = view;
+    const root = mount(Panel, { sourceEditable: false, selectedNodeId: '', selectedLinkId: '' });
+    const explanation = find(root, row => row.props['aria-label'] === '计算说明')!;
+    const summary = textOf(find(explanation, row => row.tag === 'pre')!);
+    expect(summary).toContain('算法预测，非实测'); expect(summary).toContain('全网指标保持未知');
+    expect(summary).toContain('型号资料中的缺失值保持不变'); expect(summary).toContain('计算参数推定与依据');
+    expect(summary).not.toContain('parameter_substitutions'); expect(summary).not.toContain('SpecFiller');
+    const raw = textOf(find(explanation, row => row.tag === 'details')!);
+    expect(raw).toContain('parameter_substitutions'); expect(raw).toContain('SpecFiller');
+    expect(JSON.stringify(store.selected!.result!.notes)).toBe(original);
+  });
   it('预览只有未知全网指标时不显示打开方案或假百分比', () => {
     const store = useInterferenceStore(); store.selected = successful(); store.measureId = 'CM1'; store.measureOpen = true;
     store.preview = { run_id: 'RUN1', measure_id: 'CM1', run_version: 1, source_hash: 'a'.repeat(64), preview_hash: 'a'.repeat(64), before_configuration: {}, proposed_changes: { type: 'POWER_OPT' }, impact_after: null, metrics: null, available: true, unavailable_reasons: [] };
     const root = mount(MeasureDrawer); expect(textOf(root)).toContain('尚未重算'); expect(textOf(root)).toContain('共享冻结重算桥未接'); expect(textOf(root)).not.toContain('打开重算方案');
+    expect(textOf(root)).toContain('类型：优化功率'); expect(textOf(root)).toContain('原始依据');
+    expect(store.preview.proposed_changes).toEqual({ type: 'POWER_OPT' });
   });
   it('取消请求和真实参考方案分开显示，只有保存后才发openPlan', async () => {
     const store = useInterferenceStore(); store.selected = successful(); store.measureId = 'CM1'; store.measureOpen = true;

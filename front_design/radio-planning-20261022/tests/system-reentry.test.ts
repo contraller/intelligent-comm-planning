@@ -29,7 +29,7 @@ let app:App|undefined,pinia:ReturnType<typeof createPinia>|undefined;
 beforeAll(async()=>{await clientTemplate(SystemView,'src/views/SystemView.vue', 'resource-ledger-render.ts');await clientTemplate(RequestState,'src/components/RequestState.vue', 'resource-ledger-render.ts');});
 beforeEach(()=>{vi.stubGlobal('window',new EventTarget());class TestDocument extends EventTarget{activeElement=null;}vi.stubGlobal('Document',TestDocument);vi.stubGlobal('document',new TestDocument());vi.stubGlobal('ShadowRoot',class{});});
 afterEach(()=>{app?.unmount();app=undefined;if(pinia)disposePinia(pinia);pinia=undefined;vi.restoreAllMocks();vi.unstubAllGlobals();});
-async function setup(limited=false){
+async function setup(limited=false,entry='/system'){
  const f=authFixture();await f.login();
  // 部分权限来自真实角色和会话，不能仅改页面身份后被服务刷新成管理员。
  if(limited){
@@ -40,10 +40,32 @@ async function setup(limited=false){
  pinia=createPinia();setActivePinia(pinia);const auth=useAuthStore();auth.accept(await f.service.getSession());f.bind();
  const router=createRouter({history:createMemoryHistory(),routes:[{path:'/system',component:SystemView},{path:'/other',component:{render:()=>null}}]});
  app=renderer.createApp({render:()=>h(RouterView)});app.use(pinia);app.use(router);app.provide(ssrContextKey,{modules:new Set()});
- await router.push('/system');await router.isReady();const root=node('root');app.mount(root);await settle();
+ await router.push(entry);await router.isReady();const root=node('root');app.mount(root);await settle();
  return{root,router,store:useSystemStore()};
 }
 describe('系统页面重新进入',()=>{
+ it.each([
+  ['roles','queryRoleSummaries','角色权限'],
+  ['logs','queryOperationSummaries','操作日志'],
+  ['parameters','queryParameterSummaries','参数配置'],
+ ] as const)('独立链接tab=%s首入直接查询对应页签',async(tab,query,label)=>{
+  const s=await setup(false,'/system?tab='+tab);
+  expect(s.store.tab).toBe(tab);expect(textOf(s.root)).toContain(label);
+  expect(previewService[query]).toHaveBeenLastCalledWith(expect.objectContaining({pageNum:1,pageSize:20}));
+  expect(previewService.queryAccountSummaries).not.toHaveBeenCalled();
+ });
+ it('query页签切换沿用真实未保存守卫，取消保留输入、列表和原链接，放弃后才切换',async()=>{
+  const s=await setup(false,'/system?tab=accounts');await s.store.openAccount();s.store.accountForm!.name='保留的query输入';
+  s.store.query={pageNum:2,search:'保留筛选'};
+  const pending=s.router.push('/system?tab=roles');await settle();
+  await vi.waitFor(()=>expect(s.store.decision?.title).toContain('尚未保存'));s.store.answer('cancel');await pending;
+  expect(s.router.currentRoute.value.query.tab).toBe('accounts');expect(s.store.tab).toBe('accounts');
+  expect(s.store.accountForm!.name).toBe('保留的query输入');expect(s.store.query).toEqual({pageNum:2,search:'保留筛选'});
+  expect(previewService.queryRoleSummaries).not.toHaveBeenCalled();
+  const accepted=s.router.push('/system?tab=roles');await vi.waitFor(()=>expect(s.store.decision).not.toBeNull());s.store.answer('discard');await accepted;await settle();
+  expect(s.router.currentRoute.value.query.tab).toBe('roles');expect(s.store.tab).toBe('roles');expect(s.store.accountForm).toBeNull();
+  expect(previewService.queryRoleSummaries).toHaveBeenLastCalledWith(expect.objectContaining({pageNum:1,pageSize:20}));
+ });
  // 重入只保留入口权限，不保留上次筛选和页码。
  it('日志筛选不串入重入后的账号页',async()=>{
   const s=await setup();expect(s.store.tab).toBe('accounts');expect(previewService.queryAccountSummaries).toHaveBeenLastCalledWith(expect.objectContaining({pageNum:1,pageSize:20}));

@@ -1,11 +1,12 @@
 <template>
   <div
     class="app-shell"
-    :class="{ 'situation-home-shell': route.path === '/situation' }"
+    :class="{ 'situation-home-shell': route.path === '/situation', 'embedded-business-shell': embedded }"
     @click="closeMenus"
     @keydown.esc="closeMenus"
   >
     <button
+      v-if="!embedded"
       class="application-menu-toggle"
       type="button"
       aria-label="展开功能菜单"
@@ -14,7 +15,7 @@
       @mouseenter="menuOpen = true"
       @click.stop="menuOpen = true"
     ><i class="pi pi-bars" /></button>
-    <section id="application-menu" v-show="menuOpen" class="application-menu" aria-label="功能菜单" @click.stop>
+    <section v-if="!embedded" id="application-menu" v-show="menuOpen" class="application-menu" aria-label="功能菜单" @click.stop>
       <div class="menu-heading"><strong class="menu-brand">无线网络智能规划系统</strong>
         <button class="menu-close" type="button" aria-label="收起功能菜单" @click="menuOpen = false"><i class="pi pi-times" /></button>
       </div>
@@ -108,6 +109,7 @@ import { randomUuid } from '../services/random-uuid';
 import { ApiError } from '../services/types';
 import { useRuntimeParametersStore } from '../stores/runtime-parameters';
 import { applyHttpRuntimeParameters, collaborationHttp } from '../services/http';
+const { embedded = false } = defineProps<{ embedded?: boolean }>();
 const route = useRoute(),
   router = useRouter(),
   auth = useAuthStore();
@@ -295,7 +297,9 @@ watch(
 .menu-identity { display: flex; align-items: center; justify-content: space-between; gap: 8px; color: #92acc1; font-size: 11px; margin-top: 12px; }
 .runtime-notice { color: #d6b987; font-size: 11px; }
 .situation-home-shell .app-content { overflow: hidden; scrollbar-gutter: auto; }
-.app-shell:not(.situation-home-shell) .app-content { padding-top: 56px; box-sizing: border-box; }
+.app-shell:not(.situation-home-shell):not(.embedded-business-shell) .app-content { padding-top: 56px; box-sizing: border-box; }
+.embedded-business-shell { height: 100%; min-height: 0; display: flex; flex-direction: column; }
+.embedded-business-shell > .app-content { flex: 1; min-height: 0; padding-top: 0; }
 .reset-error {
   padding: 10px 28px;
   color: #ffb4b4;

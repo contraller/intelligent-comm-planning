@@ -211,7 +211,10 @@ export const useInterferenceStore = defineStore('interference', () => {
   }
   async function acceptReceipt(receipt: WriteReceipt, isCurrent: () => boolean) {
     lastReceipt.value = receipt;
-    if (receipt.object_type === 'RUN') await selectRun(receipt.object_id);
+    if (receipt.object_type === 'RUN') {
+      notice.value = '';
+      await selectRun(receipt.object_id);
+    }
     else {
       const row = await api().workbench.getAdoption({ task_id: receipt.task_id, adoption_id: receipt.object_id });
       if (!isCurrent()) return;
@@ -266,7 +269,7 @@ export const useInterferenceStore = defineStore('interference', () => {
     previewSerial++; previewLoading.value = false; delete queryErrors.value.preview;
     preview.value = null; after.value = false; measureId.value = '';
     await read('run', signal => api().workbench.getRun({ task_id: target.taskId, run_id: runId }, signal), value => {
-      selected.value = frozenDto(value); adoptions.value = [...value.adoptions]; historyOpen.value = false;
+      selected.value = frozenDto(value); adoptions.value = [...value.adoptions]; historyOpen.value = false; notice.value = '';
     }); schedule();
   }
   async function loadMeasurePreview(id: string) {

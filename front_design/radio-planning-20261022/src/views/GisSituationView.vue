@@ -25,7 +25,12 @@
     <p v-if="model.error" class="map-notice error" role="alert">{{ model.error }}</p>
     <p v-else-if="model.notice" class="map-notice" role="status">{{ model.notice }}</p>
     <span v-if="model.busy" class="read-status" role="status">正在核对态势来源…</span>
-    <Teleport v-if="menuTarget" :to="menuTarget">
+    <SituationCoverageLegend v-if="model.coverage" class="coverage-legend-position" :overlay="model.coverage" />
+    <details v-if="embeddedModule" class="embedded-map-settings">
+      <summary>显示设置</summary>
+      <div ref="embeddedControlsTarget" />
+    </details>
+    <Teleport v-if="controlsTarget" :to="controlsTarget">
       <section class="situation-controls" aria-label="GIS 态势显示设置">
         <h2>态势显示</h2>
         <label v-if="model.canAutoFollow" class="auto-follow"><input type="checkbox" :checked="model.autoFollow" @change="changeAutoFollow" />每30秒自动跟随最新已转正方案和已保存干扰源</label>
@@ -40,6 +45,7 @@
         <p class="frame-label"><strong>{{ frame.label }}</strong><span>{{ frame.version }} · {{ frame.network.nodes.length }} 节点 / {{ frame.network.links.length }} 链路</span></p>
         <p class="source-note">{{ frame.notice }}</p>
         <p class="source-note">{{ model.interferenceSourceLabel }}</p>
+        <details class="source-note"><summary>来源详情</summary><p>{{ model.interferenceSourceDetails }}</p></details>
         <button class="btn small" :disabled="model.busy" @click="model.showExample">查看内置受控示例</button>
         <div class="layer-options">
           <label><input v-model="model.showLinks" type="checkbox" />规划链路</label>
@@ -78,10 +84,14 @@
 </template>
 
 <script setup lang="ts">
-import { computed, inject, onMounted, reactive, ref, type Ref } from 'vue';
+import { computed, inject, onBeforeUnmount, onMounted, reactive, ref, type Ref } from 'vue';
 import MapCanvas from '../components/MapCanvas.vue';
+import SituationCoverageLegend from '../components/SituationCoverageLegend.vue';
 import { gisExampleMetadata, useGisSituation } from '../composables/useGisSituation';
 const menuTarget = inject<Ref<HTMLElement | null>>('applicationMenuTarget', ref(null));
+const embeddedModule = inject('embeddedModule', false);
+const embeddedControlsTarget = ref<HTMLElement | null>(null);
+const controlsTarget = computed(() => embeddedModule ? embeddedControlsTarget.value : menuTarget.value);
 const model = reactive(useGisSituation());
 const map = ref<InstanceType<typeof MapCanvas>>();
 const frame = computed(() => model.frame);
@@ -105,12 +115,24 @@ function hideCatalog(event: Event) {
   const picker = (event.currentTarget as HTMLElement).closest('details');
   if (picker) picker.open = false;
 }
-onMounted(() => { void model.initialize(); model.startAutoRefresh(); });
+let active = true;
+onBeforeUnmount(() => { active = false; });
+onMounted(async () => {
+  model.startAutoRefresh();
+  await model.initialize();
+  // 先保留可见示例，地形就绪后立即只读核对；不恢复用户已暂停的跟随。
+  if (active && model.autoFollow && !model.lastCheckedAt && !model.busy) await model.refreshLatest();
+});
 </script>
 
 <style scoped>
 .gis-situation { position: relative; width: 100%; height: 100%; min-height: 0; overflow: hidden; background: #081621; }
 .gis-situation :deep(.map-wrap) { min-height: 0; height: 100%; }
+.embedded-map-settings { position:absolute; top:16px; right:16px; z-index:35; width:min(340px, calc(100% - 32px)); color:#dce7f5; border:1px solid #386179; border-radius:7px; background:#0c1d2ff2; box-shadow:0 8px 24px #0004; }
+.embedded-map-settings > summary { cursor:pointer; padding:11px 14px; font-weight:600; }
+.embedded-map-settings[open] { max-height:calc(100% - 32px); overflow:auto; }
+.embedded-map-settings .situation-controls { padding:0 14px 14px; margin:0; border:0; }
+.coverage-legend-position { position: absolute; right: 18px; bottom: 40px; max-width: min(310px, calc(100% - 36px)); }
 .source-badge { position: absolute; left: 76px; top: 20px; display: flex; gap: 9px; align-items: center; max-width: calc(100% - 105px); padding: 9px 12px; border: 1px solid #386179; border-radius: 7px; background: #091b2bdd; color: #c7e0ee; font-size: 11px; pointer-events: none; }
 .source-badge strong { font-size: 12px; white-space: nowrap; }
 .source-badge > span:last-child { color: #9bb7c9; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

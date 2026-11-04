@@ -29,7 +29,7 @@
         ><template v-if="!editor.form.creating"
           ><dt>所属节点</dt><dd>{{ editor.context?.device?.stationId }}</dd
           ><dt>设备型号</dt><dd>{{ model?.name }}</dd
-          ><dt>运行状态</dt><dd>{{ editor.context?.device?.status ?? '未提供' }}</dd></template
+          ><dt>运行状态</dt><dd>{{ uiCode(editor.context?.device?.status) }}</dd></template
         ></dl
       >
       <p
@@ -165,6 +165,7 @@
   </AppDrawer>
 </template>
 <script setup lang="ts">
+import { uiCode } from '../services/ui-copy';
 import { computed } from 'vue';
 import AppDrawer from './AppDrawer.vue';
 import { maintenanceModes } from '../services/device-maintenance';
