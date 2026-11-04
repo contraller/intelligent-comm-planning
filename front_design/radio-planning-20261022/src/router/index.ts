@@ -4,6 +4,7 @@ import EmbedShell from '../layouts/EmbedShell.vue';
 import { useAuthStore } from '../stores/auth';
 import { routePermissions, safeReturnPath } from '../config/permissions';
 import { embeddedModules, embeddedPath, isEmbeddedPath, modulePath, type EmbeddedModuleId } from '../config/embedded-pages';
+import { resourceEmbeddedTitle } from '../config/module-tabs';
 
 const moduleComponents = {
   situation: () => import('../views/GisSituationView.vue'),
@@ -108,5 +109,7 @@ router.beforeEach(async(to,from)=>{
 });
 router.afterEach((to) => {
   const auth=useAuthStore();auth.currentPath=to.path;auth.bypassLeave=false;
-  document.title = `${to.meta.title ?? '预览'} · 无线网络智能规划系统`;
+  const title = isEmbeddedPath(to.path) && modulePath(to.path) === '/resources'
+    ? resourceEmbeddedTitle(to.query.tab) : to.meta.title ?? '预览';
+  document.title = `${title} · 无线网络智能规划系统`;
 });

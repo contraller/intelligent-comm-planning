@@ -3,6 +3,7 @@
     <div class="frequency-heading">
       <h2>规划频点</h2>
       <div class="toolbar">
+        <button class="btn" :disabled="!session.readable" @click="openHistory"><i class="pi pi-history" aria-hidden="true" />本人操作历史</button>
         <button v-if="session.canMaintain" class="btn" :disabled="!store.canMaintain || store.busy || !!store.editor" @click="store.openEditor('ADD')">
           <i class="pi pi-plus" aria-hidden="true" />新增构造频点</button>
         <button v-if="session.canMaintain" class="btn" :disabled="!store.canMaintain || store.busy || !store.selectedIds.length || !!store.editor"
@@ -63,8 +64,8 @@
       <p>更新 {{ store.receipt.updated.length }} 项，无变化 {{ store.receipt.unchanged.length }} 项。</p>
       <p class="frequency-id">保存版本 {{ store.receipt.revision }}</p>
     </section>
+    <AppDrawer :visible="historyOpen" title="本人频点操作历史" width="900px" @update:visible="historyOpen = $event">
     <section class="frequency-history" aria-label="本人频点操作历史">
-      <h3>本人操作历史</h3>
       <form class="toolbar" @submit.prevent="store.loadHistory({ page: 1, search: historySearch })">
         <label>请求号<input v-model="historySearch" maxlength="120" /></label>
         <button class="btn" :disabled="!session.readable || !!store.loading.history"><i class="pi pi-search" aria-hidden="true" />查询历史</button>
@@ -82,6 +83,7 @@
         <template #actions="{ row }"><button class="text-link" @click.stop="store.inspectOperation(row.requestId)">回读</button></template>
       </AppTable>
     </section>
+    </AppDrawer>
     <AppDrawer :visible="!!store.detail" title="规划频点详情" @update:visible="!$event && (store.detail = null)">
       <dl v-if="store.detail" class="frequency-details">
         <template v-for="field in detailColumns" :key="field.field"><dt>{{ field.header }}</dt><dd>{{ store.detail[field.field] ?? '未提供' }}</dd></template>
@@ -126,7 +128,7 @@ const props = defineProps<{ active: boolean; session: FrequencyResourceHostConte
 const emit = defineEmits<{ resourceChanged: [value: FrequencyResourceChange]; busyChange: [value: boolean]; pendingOperationChange: [value: boolean] }>();
 const store = useFrequencyResourceStore();
 const filters = reactive({ search: '', deviceClass: '', availability: '', minKhz: '', maxKhz: '' });
-const historySearch = ref(''), lookupId = ref('');
+const historySearch = ref(''), lookupId = ref(''), historyOpen = ref(false);
 let initialized = false;
 const rows = computed(() => (store.page?.items ?? []).map(item => ({ ...item, id: item.freqId })));
 const historyRows = computed(() => (store.history?.items ?? []).map(item => ({ ...item, id: item.requestId })));
@@ -153,6 +155,15 @@ function changePage(value: { first: number; rows: number }) {
 function changeHistoryPage(value: { first: number; rows: number }) {
   void store.loadHistory({ page: Math.floor(value.first / value.rows) + 1, pageSize: value.rows as 5 | 10 | 20 | 50 });
 }
+async function openHistory() {
+  if (!props.active || !props.session.readable) return;
+  historyOpen.value = true;
+  await store.loadHistory();
+}
+watch([() => props.active, () => props.session.readable, () => props.session.accountId, () => props.session.generation],
+  ([active, readable, accountId, generation], previous) => {
+    if (!active || !readable || accountId !== previous[2] || generation !== previous[3]) historyOpen.value = false;
+  });
 // 会话校验可替换同值身份对象；逐项比较，避免离页校验无端重读并清除草稿。
 watch([() => props.active, () => props.session.accountId, () => props.session.generation, () => props.session.readable,
   () => props.session.canDisable, () => props.session.canMaintain, () => props.services, () => props.loadContext], () => {
@@ -187,7 +198,7 @@ defineExpose({ requestLeave: () => store.requestLeave(), stopReading: () => stor
 .frequency-panel input:not([type='checkbox']), .frequency-panel select { width: 100%; max-width: 220px; min-width: 0; }
 .frequency-selection { justify-content: flex-start; padding: 10px 0; }
 .frequency-selection label { display: flex; align-items: center; }
-.frequency-history, .frequency-pending, .frequency-receipt { border-top: 1px solid var(--line, #526168); margin-top: 20px; padding-top: 16px; }
+.frequency-pending, .frequency-receipt { border-top: 1px solid var(--line, #526168); margin-top: 20px; padding-top: 16px; }
 .frequency-history .toolbar { flex-wrap: wrap; align-items: end; margin-bottom: 12px; }
 .frequency-details { display: grid; grid-template-columns: minmax(100px, 1fr) minmax(0, 2fr); gap: 12px; }
 .frequency-details dd { margin: 0; overflow-wrap: anywhere; }

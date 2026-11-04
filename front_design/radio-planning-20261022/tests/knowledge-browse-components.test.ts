@@ -68,7 +68,7 @@ await Promise.all([
 ]);
 let app:App<HostNode>|undefined,pinia:ReturnType<typeof createPinia>|undefined;
 afterEach(()=>{app?.unmount();app=undefined;if(pinia)disposePinia(pinia);pinia=undefined;vi.restoreAllMocks();vi.unstubAllGlobals();probes.charts.length=0;probes.disconnect.mockClear();});
-async function mountPage(path='/') {
+async function mountPage(path='/',embedded=false) {
   class TestDocument extends EventTarget { activeElement=null; }
   vi.stubGlobal('Document',TestDocument);vi.stubGlobal('document',new TestDocument());vi.stubGlobal('window',new EventTarget());
   vi.stubGlobal('ResizeObserver',class { observe() {} disconnect(){probes.disconnect();} });
@@ -79,7 +79,7 @@ async function mountPage(path='/') {
   await router.push(path);await router.isReady();
   // 重挂载继续使用同一 Pinia 和路由，覆盖真实回页时仍保留的工作区状态。
   function mount() {
-    const root=node('root');app=renderer.createApp({render:()=>h(RouterView)});app.use(pinia!);app.use(router);app.provide(ssrContextKey,{});
+    const root=node('root');app=renderer.createApp({render:()=>h(RouterView)});app.use(pinia!);app.use(router);app.provide(ssrContextKey,{});app.provide('embeddedModule',embedded);
     app.mount(root);return root;
   }
   const root=mount();await settle();return {root,store,storage,service,router,remount:async()=>{
@@ -120,6 +120,28 @@ async function graphClick(id:string,dataType='node') {
 }
 
 describe('知识图谱实际页面检索联动',()=>{
+  it('详情按需打开，收起释放主图列且不清理选择；同一实体可再次打开',async()=>{
+    const {root,store,storage}=await mountPage();
+    expect(detail(root)).toBeUndefined();
+    await selectList(root,'KGE-MODEL');expect(textOf(detail(root))).toContain('短波电台型号知识');
+    const reads=vi.mocked(previewService.getKnowledgeEntity).mock.calls.length;
+    const chart=latestChart(),draws=chart.setOption.mock.calls.length;
+    await click(root,'收起详情');
+    expect(detail(root)).toBeUndefined();expect(store.selectedId).toBe('KGE-MODEL');
+    expect(chart.setOption).toHaveBeenCalledTimes(draws);
+    await click(root,'查看详情');expect(textOf(detail(root))).toContain('短波电台型号知识');
+    expect(vi.mocked(previewService.getKnowledgeEntity)).toHaveBeenCalledTimes(reads);
+    await click(root,'收起');expect(detail(root)).toBeUndefined();
+    await selectList(root,'KGE-MODEL');expect(textOf(detail(root))).toContain('短波电台型号知识');
+    expect(storage.writes).toBe(0);
+  });
+  it('独立嵌入页传递浅色主题，检索和关系选择继续联动详情',async()=>{
+    const {root,store}=await mountPage('/',true);
+    expect(find(root,n=>n.tag==='div'&&String(n.props.class).includes('knowledge-page'))!.props.class).toContain('kg-light');
+    expect(latestChart().setOption.mock.calls[0][0].series[0].data[0].label.color).toBe('#263e59');
+    await selectList(root,'KGE-MODEL');const relation=store.graph!.relations[0];
+    await graphClick(relation.id,'edge');expect(textOf(detail(root))).toContain(relation.id);
+  });
   it('接口返回英文目录与业务值时，页面和图形显示中文但不改原始数据',async()=>{
     const {root,store}=await mountPage();
     const entity={id:'E-00001',name:'DM-0001',type:'DeviceModel',category:'设备知识' as const,
@@ -157,7 +179,7 @@ describe('知识图谱实际页面检索联动',()=>{
   });
   it('多命中高亮概览，点选列表后才显示具体详情',async()=>{
     const {root,store}=await mountPage();await typeKeyword(root,'KGE-STATE-');await submit(root);
-    expect(store.search!.total).toBe(4);expect(store.selectedId).toBe('');expect(textOf(detail(root))).toContain('选择实体或关系');
+    expect(store.search!.total).toBe(4);expect(store.selectedId).toBe('');expect(detail(root)).toBeUndefined();
     expect(graphNodes()).toHaveLength(23);expect(graphNodes().filter(n=>n.itemStyle.borderColor==='#f0ce79')).toHaveLength(4);expect(graphNodes().some(n=>n.itemStyle.opacity===0.55)).toBe(true);
     expect(textOf(root)).toContain('命中已高亮，其余节点弱化');
     await selectList(root,'KGE-STATE-GOOD');
@@ -180,7 +202,7 @@ describe('知识图谱实际页面检索联动',()=>{
     expect(store.query).toBe('KGE-POWER');expect(store.selectedId).toBe('KGE-POWER');
     await category(root,'设备知识',false);
     expect(store.type).toBe('');expect(store.query).toBe('KGE-POWER');expect(store.search!.total).toBe(0);
-    expect(store.detail).toBeNull();expect(textOf(detail(root))).not.toContain('功率放大模块');
+    expect(store.detail).toBeNull();expect(detail(root)).toBeUndefined();
     await submit(root);expect(store.query).toBe('KGE-LINK');expect(store.selectedId).toBe('KGE-LINK');
   });
   it('翻页不提交输入中关键词，末页一项不自动选中，重置也不提交',async()=>{
@@ -207,7 +229,7 @@ describe('知识图谱实际页面检索联动',()=>{
     vi.mocked(previewService.searchKnowledgeSummaries).mockRejectedValueOnce(new Error('搜索读取失败'));
     await typeKeyword(root,'KGE-POWER');await submit(root);
     expect(textOf(root)).toContain('搜索读取失败');expect(textOf(root)).toContain('检索结果未就绪');
-    expect(textOf(root)).not.toContain('匹配 0 个实体');expect(textOf(detail(root))).not.toContain('功放过温现象');
+    expect(textOf(root)).not.toContain('匹配 0 个实体');expect(detail(root)).toBeUndefined();
     await click(root,'重试');await settle();expect(store.detail!.entity.id).toBe('KGE-POWER');
   });
   it('单命中重置返回命中概览，展开/收起不提交草拟检索词',async()=>{

@@ -60,7 +60,7 @@ function find(root:Host,predicate:(n:Host)=>boolean):Host|undefined{if(predicate
 function visible(el:Host):boolean{for(let current:Host|null=el;current;current=current.parent)if(current.style.display==='none')return false;return true;}
 function all(root:Host,predicate:(n:Host)=>boolean):Host[]{return [...(predicate(root)?[root]:[]),...root.children.flatMap(child=>all(child,predicate))];}
 const feedbackPanels=(root:Host)=>all(root,n=>n.props['data-feedback-operation']!==undefined&&visible(n));
-const button=(root:Host,label:string)=>find(root,n=>n.tag==='button'&&text(n).trim()===label)!;
+const button=(root:Host,label:string)=>find(root,n=>n.tag==='button'&&(n.props['aria-label']===label||text(n).trim()===label))!;
 const nodeDto=(id:string)=>({node_id:id,node_name:'节点'+id,lon:id==='N1'?114:115,lat:id==='N1'?37:38,parent_node_id:'',echelon:'营',mobility:'固定',device_class:'HF',status:'NORMAL',relay_capable:true,is_key:false,child_count:0,device_count:1});
 let pinia:ReturnType<typeof createPinia>,apps:App[],fetcher:ReturnType<typeof vi.fn<typeof fetch>>,serverTask:ReturnType<typeof taskDto>,serverJob:Omit<ReturnType<typeof jobDto>,'error'> & { error: string | null },serverPlans:ReturnType<typeof planDto>[],permissions:string[];
 beforeEach(()=>{
@@ -282,13 +282,17 @@ describe('网络规划与 GIS HTTP 页面组合',()=>{
     serverTask.active_job_id='J1';serverJob=jobDto();serverJob.result.metrics.connectivityPercent=0;serverJob.result.metrics.totalRadiatedPowerW=0;serverJob.result.checks[1].passed=false;
     const {root,planning}=await mount();await vi.waitFor(()=>expect(planning.result?.snapshotId).toBe('S1'));
     const card=(label:string)=>find(root,n=>n.tag==='article'&&text(n).includes(label))!;
-    expect(card('连通率').props.class).toBe('passed');expect(text(card('连通率'))).toContain('0%');expect(text(card('连通率'))).toContain('达标');
+    expect(card('连通率').props.class).toBe('statistic');expect(text(card('连通率'))).toContain('0%');expect(text(card('连通率'))).toContain('全网统计指标');
+    const required=()=>find(root,n=>String(n.props.class).includes('required-connectivity'))!;
+    expect(text(required())).toContain('达标');
     expect(card('抗毁性').props.class).toBe('failed');expect(text(card('抗毁性'))).toContain('未达标');
     expect(card('总辐射功率').props.class).toBe('objective');expect(text(card('总辐射功率'))).toContain('0W');expect(text(card('总辐射功率'))).toContain('最小化目标');
     // 在组件边界验证重复结论；HTTP 解析仍沿用原有校验规则。
     planning.result!.checks.push({...planning.result!.checks[0]});planning.result!.checks=planning.result!.checks.filter(x=>x.id!=='survivability');
     planning.result!.metrics.connectivityPercent=null;planning.result!.metrics.totalRadiatedPowerW=null;await nextTick();
-    for(const label of ['连通率','抗毁性']){expect(card(label).props.class).toBe('unknown');expect(text(card(label))).toContain('未提供校验结论');}
+    for(const label of ['连通率','抗毁性'])expect(card(label).props.class).toBe('unknown');
+    expect(text(card('连通率'))).toContain('全网统计指标');expect(text(card('抗毁性'))).toContain('未提供校验结论');
+    expect(text(required())).toContain('未提供校验结论');
     expect(text(find(card('连通率'),n=>n.tag==='strong')!)).toBe('未提供');expect(text(find(card('总辐射功率'),n=>n.tag==='strong')!)).toBe('未提供');expect(card('总辐射功率').props.class).toBe('objective');
   });
   // 覆盖来源由独立冻结缓存提供；规划结果中的旧 contour/PNG 不作为新覆盖。

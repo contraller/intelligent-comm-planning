@@ -4,8 +4,19 @@ import { knowledgeIcon, knowledgeMedia } from '../config/knowledge-media';
 
 const categories=['设备知识','网络态势知识','故障运维知识'];
 export interface KnowledgeGraphViewport { width:number; height:number }
+export type KnowledgeGraphTheme = 'dark' | 'light';
+export function knowledgeGraphPalette(theme: KnowledgeGraphTheme = 'dark') {
+  return theme === 'light'
+    ? { label: '#263e59', labelBackground: '#ffffff', active: '#2563eb', matched: '#b7791f',
+        border: '#829bb3', edge: '#6f89a5', edgeLabel: '#4b6480', tooltipBackground: '#ffffff',
+        tooltipBorder: '#cbd5e1', tooltipText: '#24354b' }
+    : { label: '#def0ff', labelBackground: '#102439', active: '#eef9ff', matched: '#f0ce79',
+        border: '#416883', edge: '#537f9e', edgeLabel: '#96b9d5', tooltipBackground: '#102439',
+        tooltipBorder: '#416883', tooltipText: '#def0ff' };
+}
 // 只计算显示位置、标签和样式，不推导业务关系或状态。
-export function knowledgeGraphModel(graph:KnowledgeGraph,selectedId:string,_typeIds:string[],relationNames:Record<string,string>,matchedIds:readonly string[] = [],viewport?:KnowledgeGraphViewport,availableMedia?:ReadonlySet<string>) {
+export function knowledgeGraphModel(graph:KnowledgeGraph,selectedId:string,_typeIds:string[],relationNames:Record<string,string>,matchedIds:readonly string[] = [],viewport?:KnowledgeGraphViewport,availableMedia?:ReadonlySet<string>,theme:KnowledgeGraphTheme='dark') {
+  const palette = knowledgeGraphPalette(theme);
   const selected=graph.entities.find(e=>e.id===selectedId);
   const matches=new Set(matchedIds);
   const others=graph.entities.filter(e=>e.id!==selected?.id);
@@ -28,7 +39,7 @@ export function knowledgeGraphModel(graph:KnowledgeGraph,selectedId:string,_type
     const offsetX=category===2?width/2:(category%2)*width;
     const x=selected?(active?450:450+Math.cos(angle)*(180+ring*105)):offsetX+100+(local%countColumns)*130;
     const y=selected?(active?300:300+Math.sin(angle)*(160+ring*85)):100+Math.floor(category/2)*height+Math.floor(local/countColumns)*130;
-    return {id:e.id,name:displayName,x,y,symbol:'image://'+(photoLoaded?photo.url:style(e.type).url),symbolKeepAspect:true,symbolSize:active?76:matched?58:48,category:categories.indexOf(e.category),itemStyle:{color:style(e.type).color,opacity:(selected&&!active)||(!selected&&matches.size>0&&!matched)?0.55:1,borderWidth:active||matched?3:1,borderColor:active?'#eef9ff':matched?'#f0ce79':'#416883',shadowBlur:active?14:matched?10:0,shadowColor:active?'#eef9ff':matched?'#f0ce79':'transparent'},label:{show:!dense||active||(matched&&matches.size<=12),position:'bottom',color:'#def0ff',fontSize:11,formatter:displayName.length>8?displayName.slice(0,7)+'…':displayName},emphasis:{label:{show:true,formatter:displayName,backgroundColor:'#102439',padding:5}}};
+    return {id:e.id,name:displayName,x,y,symbol:'image://'+(photoLoaded?photo.url:style(e.type).url),symbolKeepAspect:true,symbolSize:active?76:matched?58:48,category:categories.indexOf(e.category),itemStyle:{color:style(e.type).color,opacity:(selected&&!active)||(!selected&&matches.size>0&&!matched)?0.55:1,borderWidth:active||matched?3:1,borderColor:active?palette.active:matched?palette.matched:palette.border,shadowBlur:active?14:matched?10:0,shadowColor:active?palette.active:matched?palette.matched:'transparent'},label:{show:!dense||active||(matched&&matches.size<=12),position:'bottom',color:palette.label,fontSize:11,formatter:displayName.length>8?displayName.slice(0,7)+'…':displayName},emphasis:{label:{show:true,formatter:displayName,color:palette.label,backgroundColor:palette.labelBackground,padding:5}}};
   });
   const legend=visibleCategories.map(name=>({name,items:[...new Set(graph.entities.filter(e=>e.category===name).map(e=>e.type))].map(type=>({type,...style(type)}))}));
   // 图坐标随画布缩放，符号以像素绘制；限制最近邻占比以留出关系线通道。
@@ -45,7 +56,7 @@ export function knowledgeGraphModel(graph:KnowledgeGraph,selectedId:string,_type
     }
   }
   // 大图即使聚焦也不常显全部关系名，悬停仍可读；完整关系保留在详情清单。
-  const links=graph.relations.map(r=>({id:r.id,source:r.head,target:r.tail,value:knowledgeRelationName(r.type,relationNames[r.type]),label:{show:graph.entities.length<=12},lineStyle:{opacity:selected?(r.head===selectedId||r.tail===selectedId?0.85:0.15):matches.size?(matches.has(r.head)||matches.has(r.tail)?0.65:0.12):0.45}}));
+  const links=graph.relations.map(r=>({id:r.id,source:r.head,target:r.tail,value:knowledgeRelationName(r.type,relationNames[r.type]),label:{show:graph.entities.length<=12},lineStyle:{opacity:selected?(r.head===selectedId||r.tail===selectedId?0.85:0.15):matches.size?(matches.has(r.head)||matches.has(r.tail)?0.65:0.12):theme==='light'?0.65:0.45}}));
   const edgeSymbolSize=Math.min(7,Math.max(3,Math.min(...nodes.map(node=>node.symbolSize),35)/5));
   return {nodes,links,legend,edgeSymbolSize,truncated:graph.totalNodes>nodes.length||graph.totalEdges>graph.relations.length};
 }

@@ -93,12 +93,12 @@ export interface EmbeddedPage {
   query?: Readonly<Record<string, string>>;
 }
 
-/** Fixed links whose destination tab is implemented by the business page. */
+/** Fixed links select the corresponding business function within the embedded shell. */
 export const embeddedPages = [
   ...embeddedModules.map(module => ({ id: module.id, module: module.id, title: module.title, path: '/embed/' + module.id })),
-  { id: 'resource-ledger', module: 'resources', title: '设备台账', path: '/embed/resources', query: { tab: 'ledger' } },
+  { id: 'resource-ledger', module: 'resources', title: '短波／超短波设备', path: '/embed/resources', query: { tab: 'ledger' } },
   { id: 'resource-frequencies', module: 'resources', title: '规划频点', path: '/embed/resources', query: { tab: 'frequencies' } },
-  { id: 'spectrum-config', module: 'resources', title: '频谱接口配置', path: '/embed/resources', query: { tab: 'spectrum-config' } },
+  { id: 'spectrum-config', module: 'resources', title: '频谱接口管理', path: '/embed/resources', query: { tab: 'spectrum-config' } },
   { id: 'spectrum-monitor', module: 'resources', title: '频谱观测', path: '/embed/resources', query: { tab: 'spectrum-monitor' } },
   { id: 'knowledge-browse', module: 'knowledge', title: '图谱浏览', path: '/embed/knowledge', query: { tab: 'browse' } },
   { id: 'knowledge-changes', module: 'knowledge', title: '知识维护', path: '/embed/knowledge', query: { tab: 'changes' } },

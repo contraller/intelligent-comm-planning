@@ -77,6 +77,16 @@ describe('独立模块路由目录', () => {
 });
 
 describe('独立页面导航上下文和权限', () => {
+  it.each([
+    ['', '短波／超短波设备'], ['ledger', '短波／超短波设备'], ['frequencies', '规划频点'],
+    ['spectrum-config', '频谱接口管理'], ['spectrum-monitor', '频谱观测'],
+  ])('资源独立入口 %s 使用对应功能的页面标题，完整系统仍使用资源管理标题', async (tab, title) => {
+    await router.replace('/login');
+    await router.push('/resources');
+    expect(document.title).toBe('资源管理 · 无线网络智能规划系统');
+    await router.push({ path: '/embed/resources', query: tab ? { tab } : {} });
+    expect(document.title).toBe(title + ' · 无线网络智能规划系统');
+  });
   it('工作台定位和干扰入口保留参数，旧态势定位仍进入独立工作台', async () => {
     await router.push('/embed/planning?taskId=T1');
     const scoped = createEmbeddedRouter(router);

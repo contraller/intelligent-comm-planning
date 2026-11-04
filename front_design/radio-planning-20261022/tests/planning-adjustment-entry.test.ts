@@ -46,7 +46,7 @@ function insert(child:Host,parent:Host,anchor?:Host|null){remove(child);child.pa
 const renderer=createRenderer<Host,Host>({insert,remove,createElement:tag=>node(tag),createText:text=>node('#text',text),createComment:text=>node('#comment',text),setText:(el,text)=>{el.text=text;},setElementText:(el,text)=>{el.text=text;el.children=[];},parentNode:el=>el.parent,nextSibling:el=>el.parent?.children[el.parent.children.indexOf(el)+1]??null,patchProp:(el,key,_old,value)=>{el.props[key]=value;if(key==='value')el.value=value;},insertStaticContent:(text,parent,anchor)=>{const el=node('#static',text);insert(el,parent,anchor);return[el,el];}});
 const textOf=(root:Host):string=>root.text+root.children.map(textOf).join('');
 const all=(root:Host,predicate:(row:Host)=>boolean):Host[]=>[...(predicate(root)?[root]:[]),...root.children.flatMap(child=>all(child,predicate))];
-const button=(root:Host,label:string)=>all(root,row=>row.tag==='button'&&textOf(row).trim()===label)[0];
+const button=(root:Host,label:string)=>all(root,row=>row.tag==='button'&&(row.props['aria-label']===label||textOf(row).trim()===label))[0];
 const control=(root:Host,label:string)=>all(root,row=>row.props['aria-label']===label)[0];
 async function flush(){for(let i=0;i<12;i++)await Promise.resolve();await nextTick();}
 async function click(root:Host,label:string){const entry=button(root,label);expect(entry,label).toBeDefined();expect(entry.props.disabled,`${label} 可操作`).not.toBe(true);await entry.props.onClick();await flush();}

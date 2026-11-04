@@ -10,7 +10,8 @@ import type { KnowledgeChange, KnowledgeVersion } from '../src/types/knowledge';
 import KnowledgeView from '../src/views/KnowledgeView.vue';
 import { clientTemplate, find, node, renderer, textOf } from './helpers/vue-client';
 
-vi.mock('vue-router', () => ({ useRoute: () => ({ query: {} }) }));
+// 此宿主只验证变更读取，不发起路由切换；保留页面已使用的路由更新注册入口。
+vi.mock('vue-router', () => ({ useRoute: () => ({ query: {} }), onBeforeRouteUpdate: vi.fn() }));
 vi.mock('../src/composables/useKnowledgeLeaveGuard', () => ({ useKnowledgeLeaveGuard() {} }));
 vi.mock('../src/components/KnowledgeChangeDrawer.vue', () => ({ default: { render: () => null } }));
 vi.mock('../src/components/KnowledgeVersionDrawer.vue', () => ({ default: { render: () => null } }));

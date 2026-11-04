@@ -1,10 +1,23 @@
 import { describe, expect, it } from 'vitest';
 import { initialKnowledgeWorkspace, knowledgeRelationTypes, knowledgeTypes } from '../src/mocks/knowledge-presets';
 import { queryKnowledgeSnapshot } from '../src/services/knowledge-query';
-import { knowledgeGraphModel } from '../src/graphs/knowledge-graph';
+import { knowledgeGraphModel, knowledgeGraphPalette } from '../src/graphs/knowledge-graph';
 import type { KnowledgeGraph } from '../src/types/knowledge';
 const types=knowledgeTypes.map(t=>t.id),names=Object.fromEntries(knowledgeRelationTypes.map(t=>[t.id,t.name]));
 describe('知识图形展示数据',()=>{
+  it('明暗主题只改图形配色，实体、关系、布局和选择含义保持一致',()=>{
+    const w=initialKnowledgeWorkspace(),graph=queryKnowledgeSnapshot(w,{versionId:w.currentVersionId,categories:['设备知识']});
+    const before=JSON.stringify(graph),dark=knowledgeGraphModel(graph,'KGE-MODEL',types,names);
+    const light=knowledgeGraphModel(graph,'KGE-MODEL',types,names,[],undefined,undefined,'light');
+    expect(light.nodes.map(({id,x,y,symbol,symbolSize})=>({id,x,y,symbol,symbolSize})))
+      .toEqual(dark.nodes.map(({id,x,y,symbol,symbolSize})=>({id,x,y,symbol,symbolSize})));
+    expect(light.links).toEqual(dark.links);
+    expect(light.nodes.find(n=>n.id==='KGE-MODEL')).toMatchObject({label:{color:'#263e59'},itemStyle:{borderColor:'#2563eb',opacity:1},emphasis:{label:{backgroundColor:'#ffffff'}}});
+    expect(dark.nodes.find(n=>n.id==='KGE-MODEL')!.label.color).toBe('#def0ff');
+    const hits=knowledgeGraphModel(graph,'',types,names,['KGE-POWER'],undefined,undefined,'light');
+    expect(hits.nodes.find(n=>n.id==='KGE-POWER')!.itemStyle.borderColor).toBe('#b7791f');
+    expect(knowledgeGraphPalette().edge).toBe('#537f9e');expect(JSON.stringify(graph)).toBe(before);
+  });
   it('23节点聚焦保留关系及高亮，关系名按悬停查看而不堆叠在中心',()=>{
     const workspace=initialKnowledgeWorkspace(),snapshot=workspace.versions[1];
     const entities=Array.from({length:23},(_,i)=>({...snapshot.entities[0],id:'focused-'+i}));

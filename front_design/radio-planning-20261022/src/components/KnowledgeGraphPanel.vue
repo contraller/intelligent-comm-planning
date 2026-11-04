@@ -1,7 +1,8 @@
 <template>
-  <div class="knowledge-canvas"
-    ><div class="legend"
-      ><div
+  <div class="knowledge-canvas" :class="{ 'graph-light': theme === 'light' }"
+    ><details class="legend">
+      <summary>图例 <span>知识类型图标</span></summary>
+      <div class="legend-items"><div
         v-for="group in model.legend"
         :key="group.name"
         class="legend-group"
@@ -14,7 +15,7 @@
           <img :src="item.url" :title="item.label" alt="" aria-hidden="true" />
           {{ knowledgeTypeName(item.type, catalog.types.find((t) => t.id === item.type)?.name) }}
         </span>
-      </div></div
+      </div></div></details
     ><div
       ref="host"
       class="canvas"
@@ -37,16 +38,17 @@ import { GraphChart } from 'echarts/charts';
 import { TooltipComponent } from 'echarts/components';
 import { CanvasRenderer } from 'echarts/renderers';
 import type { KnowledgeCatalog, KnowledgeGraph } from '../types/knowledge';
-import { knowledgeGraphModel } from '../graphs/knowledge-graph';
+import { knowledgeGraphModel, knowledgeGraphPalette, type KnowledgeGraphTheme } from '../graphs/knowledge-graph';
 import { knowledgeTypeName } from '../services/knowledge-display';
 import { knowledgeMedia } from '../config/knowledge-media';
 use([GraphChart, TooltipComponent, CanvasRenderer]);
-const props = defineProps<{
+const props = withDefaults(defineProps<{
   graph: KnowledgeGraph;
   selectedId: string;
   matchedIds?: string[];
   catalog: KnowledgeCatalog;
-}>();
+  theme?: KnowledgeGraphTheme;
+}>(), { theme: 'dark' });
 const emit = defineEmits<{ entity: [id: string]; relation: [id: string] }>();
 const host = ref<HTMLDivElement>();
 const viewport = ref({ width: 0, height: 0 });
@@ -54,6 +56,8 @@ const photos = computed(() => [...new Map(props.graph.entities.flatMap(entity =>
 const availableMedia = ref(new Set<string>());
 const attemptedMedia = new Set<string>();
 let chart: ECharts | undefined, observer: ResizeObserver | undefined;
+let resizeTimer: ReturnType<typeof setTimeout> | undefined;
+let chartWidth = 0, chartHeight = 0;
 let disposed = false,
   renderedKey: string | undefined;
 const model = computed(() =>
@@ -65,12 +69,16 @@ const model = computed(() =>
     props.matchedIds,
     viewport.value,
     availableMedia.value,
+    props.theme,
   ),
 );
+const palette = computed(() => knowledgeGraphPalette(props.theme));
 function update() {
   if (!readViewport()) return;
   if (!chart) {
     chart = init(host.value!);
+    chartWidth = viewport.value.width;
+    chartHeight = viewport.value.height;
     chart.on('click', (event) => {
       const item = event.data as { id?: string };
       if (item?.id) {
@@ -79,6 +87,7 @@ function update() {
       }
     });
   }
+  resizeChart();
   // 画布中心取命中范围；点选实体居中，少量邻居留出边距。
   const focused = model.value.nodes.filter((node) =>
     props.selectedId ? node.id === props.selectedId : props.matchedIds?.includes(node.id),
@@ -94,7 +103,10 @@ function update() {
   chart?.setOption(
     {
       backgroundColor: 'transparent',
-      tooltip: { trigger: 'item', renderMode: 'richText' },
+      tooltip: { trigger: 'item', renderMode: 'richText', confine: true,
+        backgroundColor: palette.value.tooltipBackground,
+        borderColor: palette.value.tooltipBorder,
+        textStyle: { color: palette.value.tooltipText, fontSize: 12 } },
       series: [
         {
           type: 'graph',
@@ -108,9 +120,10 @@ function update() {
           links: model.value.links,
           edgeSymbol: ['none', 'arrow'],
           edgeSymbolSize: model.value.edgeSymbolSize,
-          edgeLabel: { show: false, formatter: '{c}', color: '#96b9d5', fontSize: 10 },
+          edgeLabel: { show: false, formatter: '{c}', color: palette.value.edgeLabel, fontSize: 10,
+            backgroundColor: palette.value.labelBackground, padding: [2, 4] },
           labelLayout: { hideOverlap: true },
-          lineStyle: { color: '#537f9e', width: 1.5, curveness: 0.12 },
+          lineStyle: { color: palette.value.edge, width: 1.5, curveness: 0.12 },
           emphasis: {
             focus: 'adjacency',
             lineStyle: { width: 3, opacity: 1 },
@@ -133,11 +146,12 @@ function readViewport() {
 }
 function resize() {
   if (!readViewport()) return;
-  chart?.resize();
   if (!chart || renderedKey !== renderKey.value) {
     update();
     return;
   }
+  if (chartWidth === viewport.value.width && chartHeight === viewport.value.height) return;
+  resizeChart();
   // 尺寸变化只更新像素样式，省略 center/zoom，保留用户当前的平移缩放。
   chart.setOption({
     series: [
@@ -149,14 +163,25 @@ function resize() {
     ],
   });
 }
+function resizeChart() {
+  if (!chart || chartWidth === viewport.value.width && chartHeight === viewport.value.height) return;
+  chart.resize();
+  chartWidth = viewport.value.width;
+  chartHeight = viewport.value.height;
+}
+function scheduleResize() {
+  if (disposed || resizeTimer !== undefined) return;
+  // 折叠详情和图例会连续改变容器尺寸；合并观察回调，避免观察循环内反复写画布。
+  resizeTimer = setTimeout(() => { resizeTimer = undefined; resize(); }, 32);
+}
 onMounted(() => {
   update();
-  observer = new ResizeObserver(resize);
+  observer = new ResizeObserver(scheduleResize);
   observer.observe(host.value!);
 });
 // 相同绘图内容不重建，列表翻页保留平移与缩放；显式重置仍直接调用 update。
 const renderKey = computed(() =>
-  JSON.stringify([props.graph, props.selectedId, props.matchedIds ?? [], props.catalog]),
+  JSON.stringify([props.graph, props.selectedId, props.matchedIds ?? [], props.catalog, props.theme]),
 );
 watch(renderKey, update);
 // 失败照片使用本地类型图标，避免离线缺图后出现空白节点。
@@ -177,6 +202,7 @@ watch(photos, values => {
 // 专用画布独立释放事件与观察器，不改变其他页面图表的交互。
 onBeforeUnmount(() => {
   disposed = true;
+  if (resizeTimer !== undefined) clearTimeout(resizeTimer);
   observer?.disconnect();
   chart?.dispose();
 });
@@ -184,58 +210,56 @@ defineExpose({ resetView: update });
 </script>
 <style scoped>
 .knowledge-canvas {
+  --graph-background: radial-gradient(ellipse at center, #152d46, #0c1728 75%);
+  --graph-surface: #102439;
+  --graph-border: #24364b;
+  --graph-text: #b1c6d9;
+  --graph-muted: #95adc5;
   height: 100%;
-  /* 画布随工作区伸缩，尺寸变化继续由既有 ResizeObserver 处理。 */
+  min-width: 0;
   min-height: 0;
   display: flex;
   flex-direction: column;
-  background: radial-gradient(ellipse at center, #152d46, #0c1728 75%);
+  background: var(--graph-background);
 }
-.canvas {
-  flex: 1;
-  min-height: 425px;
+.knowledge-canvas.graph-light {
+  --graph-background: radial-gradient(ellipse at center, #fff, #f5f8fc 85%);
+  --graph-surface: #fff;
+  --graph-border: #dce5ef;
+  --graph-text: #334e6c;
+  --graph-muted: #5d738d;
 }
+.canvas { flex: 1 1 260px; min-width: 0; min-height: 260px; width: 100%; }
 .legend,
-.graph-foot {
+.graph-foot { padding: 7px 10px; font-size: 10px; color: var(--graph-muted); }
+.legend { position: relative; flex: 0 0 auto; border-bottom: 1px solid var(--graph-border); }
+.legend summary { cursor: pointer; color: var(--graph-text); font-size: 11px; }
+.legend summary > span { margin-left: 8px; font-size: 10px; color: var(--graph-muted); }
+.legend-items {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  z-index: 2;
   display: flex;
-  gap: 15px;
   flex-wrap: wrap;
-  padding: 12px 16px;
-  font-size: 11px;
-  color: #95adc5;
-}
-.legend span {
-  display: flex;
-  align-items: center;
   gap: 6px;
+  max-height: min(240px, 55vh);
+  overflow: auto;
+  padding: 10px;
+  background: var(--graph-surface);
+  border: 1px solid var(--graph-border);
+  box-shadow: 0 7px 18px #0002;
 }
-.legend img {
-  width: 23px;
-  height: 23px;
-  object-fit: contain;
-}
-.graph-foot .icon-note { margin-left: 0; color: #8fa8bf; }
-.legend {
-  gap: 8px;
-  border-bottom: 1px solid #24364b;
-}
-.legend-group {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px 13px;
-  width: 100%;
-}
-.legend-group strong {
-  min-width: 80px;
-  color: #b5cce0;
-  font-size: 11px;
-}
-.graph-foot {
-  border-top: 1px solid #24364b;
-}
-.graph-foot > span {
-  margin-left: auto;
-  color: #b1c6d9;
-}
+.legend span { align-items: center; gap: 5px; }
+.legend-group > span { display: inline-flex; }
+.legend img { width: 19px; height: 19px; object-fit: contain; }
+.legend-group { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; width: 100%; }
+.legend-group strong { min-width: 72px; color: var(--graph-text); font-size: 10px; }
+.graph-foot { display: flex; flex-wrap: wrap; gap: 6px 12px; flex: 0 0 auto; border-top: 1px solid var(--graph-border); line-height: 1.5; }
+.graph-foot > span { margin-left: auto; color: var(--graph-text); }
+.graph-foot .icon-note { margin-left: 0; color: var(--graph-muted); }
+.photo-credits { width: 100%; }
+.photo-credits summary { cursor: pointer; }
+.photo-credits p { margin: 5px 0; overflow-wrap: anywhere; }
 </style>

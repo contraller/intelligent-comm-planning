@@ -48,7 +48,7 @@ body.agent-embed-mode {
   color: var(--text);
   background: var(--bg);
   font-size: 13px;
-  line-height: 1.6;
+  line-height: 1.5;
 }
 .agent-embed {
   width: 100%;
@@ -113,7 +113,7 @@ body.agent-embed-mode {
   padding-left: 10px;
   border-left: 4px solid var(--blue);
   color: #1d3048;
-  font-size: 20px;
+  font-size: 18px;
   line-height: 1.35;
   letter-spacing: 0;
 }
@@ -193,13 +193,10 @@ body.agent-embed-mode :is(.text-link, a.text-link) { color: #1d4ed8; }
 body.agent-embed-mode :is(button, input, select, textarea, a):focus-visible { outline-color: #2563eb; }
 body.agent-embed-mode button:disabled { opacity: .5; }
 
-.agent-embed .embed-content :is(.tabs, .steps) { flex-wrap: wrap; gap: 4px 18px; }
+.agent-embed .embed-content .tabs { flex-wrap: wrap; gap: 4px 18px; }
 .agent-embed .embed-content .tabs { padding: 0 16px; background: #ffffff; border-color: var(--line); }
 .agent-embed .embed-content .tabs button { color: var(--muted); padding: 11px 0 9px; }
 .agent-embed .embed-content .tabs button.active { color: #1d4ed8; border-color: #2563eb; font-weight: 600; }
-.agent-embed .embed-content .steps { gap: 8px; }
-.agent-embed .embed-content .steps button { min-width: 130px; padding: 9px 12px; background: #ffffff; color: #60738a; border-color: var(--line); }
-.agent-embed .embed-content .steps button.active { color: #1d4ed8; background: #eaf1ff; border-color: #a8c4ff; }
 .agent-embed .embed-content .segments { background: #edf2fa; border-color: var(--line); }
 .agent-embed .embed-content .segments button.active { color: #1d4ed8; background: #ffffff; }
 .agent-embed .embed-content .chip { color: #526b87; background: #f0f4f9; border-color: #d8e1ee; }
@@ -247,20 +244,7 @@ body.agent-embed-mode .p-paginator {
 
 /* 去掉工作区的桌面固定下限，由嵌入框提供高度，长结果保留内部滚动。 */
 .agent-embed .embed-content :is(.planning-api-page, .knowledge-page, .diagnosis-page) { min-height: 0; }
-.agent-embed .embed-content .planning-layout { flex: 1 0 360px; min-height: 360px; grid-template-columns: minmax(0, 1fr) minmax(320px, .72fr); gap: 12px; }
-.agent-embed .embed-content :is(.planning-layout.results, .planning-layout.results.collapsed) { flex-basis: 360px; min-height: 360px; }
-.agent-embed .embed-content .planning-layout.input { grid-template-columns: minmax(280px, .8fr) minmax(0, 1fr); }
-.agent-embed .embed-content .planning-layout.collapsed { grid-template-columns: minmax(0, 1fr); }
-.agent-embed .embed-content .map-panel { min-height: 300px; }
-.agent-embed .embed-content .results-column .result-content > .result-panel { flex: 1 1 0; min-height: 0; }
-.agent-embed .embed-content .knowledge-panel { flex: 1 1 0; min-height: 360px; }
-.agent-embed .embed-content .kg-workspace { min-height: 360px; grid-template-columns: minmax(180px, .72fr) minmax(0, 1.6fr) minmax(220px, .9fr); }
-.agent-embed .embed-content .kg-stage { min-width: 0; min-height: 0; overflow: hidden; }
-.agent-embed .embed-content .kg-stage > .knowledge-canvas { flex: 1 1 0; width: 100%; height: auto; min-width: 0; min-height: 0; overflow: hidden; }
-/* host得到图例和页脚以外的真实剩余高度，既有ResizeObserver据此调整图形。 */
-.agent-embed .embed-content .kg-stage > .knowledge-canvas > .canvas { flex: 1 1 0; width: 100%; height: auto; min-width: 0; min-height: 0; overflow: hidden; }
-.agent-embed .embed-content .knowledge-canvas > :is(.legend, .graph-foot),
-.agent-embed .embed-content .kg-stage > :is(.kg-graph-toolbar, .kg-graph-note) { flex: 0 0 auto; }
+/* 规划与图谱的主次比例、收起和小屏布局由各业务页统一管理。 */
 .agent-embed .embed-content .diagnosis-workspace { grid-template-columns: minmax(180px, .7fr) minmax(0, 1.6fr) minmax(250px, 1fr); gap: 12px; }
 .agent-embed .embed-content .diagnosis-workspace.result-collapsed { grid-template-columns: minmax(180px, .7fr) minmax(0, 2fr); }
 .agent-embed .embed-content .diagnosis-main { min-height: 0; }
@@ -273,16 +257,17 @@ body.agent-embed-mode .p-paginator {
 .agent-embed .embed-content .situation-right { flex-basis: 300px; }
 .agent-embed .embed-content :is(.situation-main, .situation-center, .map-frame, .gis-situation) { min-height: 0; }
 
-/* 地图保留深色地形和已有图例语义，不对画布进行滤镜或反色。 */
+/* 地形内容保持原计算与颜色；地图外围及工具统一使用浅色页面主题。 */
 .agent-embed .embed-content :is(.map-wrap, .map-frame, .gis-situation) {
-  --bg: #080f1e;
-  --panel: #101c30;
-  --panel-deep: #0c1627;
-  --line: #23334c;
-  --muted: #8195b1;
-  --text: #dce7f5;
-  color: #dce7f5;
-  color-scheme: dark;
+  --bg: #edf2f7;
+  --panel: #ffffff;
+  --panel-deep: #f7f9fc;
+  --line: #dce4ef;
+  --muted: #60738a;
+  --text: #24354b;
+  color: #24354b;
+  background: #e8eef5;
+  color-scheme: light;
 }
 
 /* 弹窗通过body的嵌入标记继承浅色，不依赖Teleport的DOM位置。 */
@@ -374,16 +359,73 @@ body.agent-embed-mode :is(.agent-embed, .p-dialog, .p-drawer) .link-metrics .met
 body.agent-embed-mode :is(.agent-embed, .p-dialog, .p-drawer) .link-metrics .metric-state { background: #edf2f8; }
 body.agent-embed-mode :is(.agent-embed, .p-dialog, .p-drawer) .bandwidth-editor th { color: #435971; background: #edf2f8; }
 
+/* 浅色工作区内的地图工具和资源树不再继承组件的深色硬编码。 */
+.agent-embed .embed-content :is(
+  .embedded-map-settings, .source-badge, .read-status, .map-caption, .map-legend,
+  .map-legend-toggle, .mock-coverage-notice, .candidate-map-legend, .deployment-map-legend,
+  .coverage-legend, .pick-notice, .situation-coverage-legend, .situation-area-caption
+) {
+  color: #354b64;
+  background: #fffffff2;
+  border-color: #cbd7e4;
+  box-shadow: 0 2px 10px #23364b12;
+  color-scheme: light;
+}
+.agent-embed .embed-content .map-wrap { background: #e8eef5; }
+.agent-embed .embed-content :is(.map-caption span:last-child, .source-badge > span:last-child) { color: #60738a; }
+.agent-embed .embed-content .interference-source-badge { color: #805813; background: #fff8eaf2; border-color: #e5d2a6; }
+.agent-embed .embed-content .map-notice { color: #355f96; background: #edf4fff2; border-color: #c8dcf8; }
+.agent-embed .embed-content .map-notice.error { color: #9c3541; background: #fff1f2f2; border-color: #efc9ce; }
+.agent-embed .embed-content :is(.map-reset, .map-selection, .map-tools > span) { color: #354b64; background: #fffffff2; border-color: #cbd7e4; }
+.agent-embed .embed-content :is(.map-error, .map-caption .terrain-error) { color: #875d16; }
+.agent-embed .embed-content .map-error { background: #fff8eb; }
+.agent-embed .embed-content .progress-details > summary { color: #52677f; background: #f7f9fc; border-color: #dce4ef; }
+.agent-embed .embed-content :is(.embedded-map-settings h2, .situation-coverage-legend strong) { color: #24354b; }
+.agent-embed .embed-content .embedded-map-settings > summary { padding: 8px 12px; font-size: 13px; }
+.agent-embed .embed-content .embedded-map-settings .situation-controls { gap: 10px; }
+.agent-embed .embed-content .embedded-map-settings :is(label, .source-note, .frame-label span) { color: #52677f; }
+.agent-embed .embed-content .plan-picker summary { color: #335d8a; }
+.agent-embed .embed-content .plan-option { color: #354b64; background: #f7f9fc; border-color: #dce4ef; }
+.agent-embed .embed-content .plan-option span { color: #60738a; }
+.agent-embed .embed-content .plan-option:hover { border-color: #91b1df; background: #edf4ff; }
+.agent-embed .embed-content .ol-control { padding: 2px; background: #fffffff2; border: 1px solid #d0dae5; border-radius: 5px; }
+.agent-embed .embed-content .ol-control button { color: #354b64 !important; background: #ffffff !important; border-color: #d0dae5; }
+.agent-embed .embed-content .ol-control button:hover { color: #1d4ed8 !important; background: #edf4ff !important; }
+.agent-embed .embed-content .ol-attribution { background: #fffffff2 !important; color: #60738a; }
+.agent-embed .embed-content .ol-attribution a { color: #335d8a; }
+.agent-embed .embed-content .ledger-tree .tree-row.active { color: #1d4ed8; background: #eaf1ff; }
+.agent-embed .embed-content .ledger-tree .tree-row.active small { color: #526b87; }
+body.agent-embed-mode :is(.p-drawer-title, .p-dialog-title) { font-size: 18px; line-height: 1.5; }
+.agent-embed .embed-content .gis-resource-tree :is(.browse-switch, .category-nav, .pager) button {
+  color: #52677f; background: #f7f9fc; border-color: #d7e1ec;
+}
+.agent-embed .embed-content .gis-resource-tree :is(.browse-switch, .category-nav) button.active {
+  color: #1d4ed8; background: #eaf1ff; border-color: #a8c4ff;
+}
+.agent-embed .embed-content .gis-resource-tree .tree-summary { color: #354b64; background: #edf2f8; }
+.agent-embed .embed-content .gis-resource-tree :is(.tree-summary span, .tree-footer, .station-copy small span, .device-children small) { color: #60738a; }
+.agent-embed .embed-content .gis-resource-tree .device-group > summary,
+.agent-embed .embed-content .gis-resource-tree .resource-group > summary.tree-summary::marker { color: #335d8a; }
+.agent-embed .embed-content .gis-resource-tree .device-group > details > summary { color: #446c61; }
+.agent-embed .embed-content .gis-resource-tree :is(.station-item, .link-item, .device-children button) { color: #354b64; }
+.agent-embed .embed-content .gis-resource-tree :is(.station-item:hover, .link-item:hover) { background: #f0f5fc; }
+.agent-embed .embed-content .gis-resource-tree :is(.station-item.selected, .link-item.selected) { color: #1d4ed8; background: #eaf1ff; border-color: #a8c4ff; }
+.agent-embed .embed-content .gis-resource-tree .device-children button.active { color: #1d4ed8; }
+.agent-embed .embed-content .gis-resource-tree :is(.link-item small, .alert-icon) { color: #8c641e; }
+body.agent-embed-mode input[type='file'] { padding: 5px 7px; font-size: 12px; }
+body.agent-embed-mode input[type='file']::file-selector-button { padding: 4px 8px; margin-right: 8px; border: 1px solid #cbd7e4; border-radius: 4px; color: #354b64; background: #f7f9fc; font: inherit; }
+
+/* 保留内容可达性，滚动仅在需要的区域出现且不再形成粗深色边栏。 */
+body.agent-embed-mode, body.agent-embed-mode * { scrollbar-width: thin; scrollbar-color: #becad9 transparent; }
+body.agent-embed-mode ::-webkit-scrollbar { width: 4px; height: 4px; }
+body.agent-embed-mode ::-webkit-scrollbar-track { background: transparent; }
+body.agent-embed-mode ::-webkit-scrollbar-thumb { background: #becad980; border-radius: 4px; }
+body.agent-embed-mode :is(:hover, :focus-within)::-webkit-scrollbar-thumb { background: #aebed0; }
+body.agent-embed-mode ::-webkit-scrollbar-corner { background: transparent; }
+
 @media (max-width: 1100px) {
-  .agent-embed .embed-content :is(.planning-layout, .planning-layout.input, .planning-layout.results, .planning-layout.collapsed) { grid-template-columns: minmax(0, 1fr); flex-basis: auto; }
-  .agent-embed .embed-content .planning-api-page { height: auto; min-height: 100%; }
-  .agent-embed .embed-content .map-panel { height: 320px; min-height: 0; }
-  .agent-embed .embed-content :is(.result-column, .result-content) { overflow: visible; }
-  .agent-embed .embed-content .results-column .result-content > .result-panel { flex: none; min-height: 320px; }
   .agent-embed .embed-content .diagnosis-workspace { grid-template-columns: minmax(180px, .7fr) minmax(0, 1.7fr); }
   .agent-embed .embed-content .result-workspace { grid-column: 1 / -1; }
-  .agent-embed .embed-content .kg-workspace { grid-template-columns: minmax(180px, .7fr) minmax(0, 1.7fr); }
-  .agent-embed .embed-content .kg-detail { grid-column: 1 / -1; border-left: 0; border-top: 1px solid var(--line); }
 }
 @media (max-width: 960px) {
   .agent-embed .embed-content .situation-page { height: auto; min-height: 100%; }
@@ -402,13 +444,8 @@ body.agent-embed-mode :is(.agent-embed, .p-dialog, .p-drawer) .bandwidth-editor 
   .agent-embed .embed-content > .page { padding: 12px; }
   .agent-embed .embedded-business-shell > .app-content > .page { padding: 12px; }
   .agent-embed .embed-content .page-heading > :is(.toolbar, .page-actions) { width: 100%; margin-left: 0; justify-content: flex-start; }
-  .agent-embed .embed-content :is(.split, .list-detail, .form-grid, .kg-workspace, .diagnosis-workspace, .diagnosis-workspace.result-collapsed) { grid-template-columns: minmax(0, 1fr); }
-  .agent-embed .embed-content :is(.knowledge-page, .diagnosis-page) { height: auto; min-height: 100%; overflow: visible; }
-  .agent-embed .embed-content :is(.knowledge-panel, .kg-workspace) { flex: none; min-height: 0; }
-  .agent-embed .embed-content .kg-stage { height: clamp(320px, 60vh, 480px); min-height: 0; }
-  .agent-embed .embed-content :is(.kg-filters, .kg-detail) { border: 0; border-bottom: 1px solid var(--line); padding: 12px; }
-  .agent-embed .embed-content .kg-filters { max-height: 360px; overflow: auto; }
-  .agent-embed .embed-content .steps button { min-width: 100px; }
+  .agent-embed .embed-content :is(.split, .list-detail, .form-grid, .diagnosis-workspace, .diagnosis-workspace.result-collapsed) { grid-template-columns: minmax(0, 1fr); }
+  .agent-embed .embed-content .diagnosis-page { height: auto; min-height: 100%; overflow: visible; }
   .agent-embed .embed-content .resource-summary { width: 100%; flex-wrap: wrap; margin-left: 0; }
   .agent-embed .embed-content .spectrum-card { grid-template-columns: minmax(0, 1fr); }
   body.agent-embed-mode :is(.p-dialog, .p-drawer) { max-width: calc(100% - 12px); max-height: calc(100% - 12px); }

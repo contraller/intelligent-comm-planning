@@ -34,12 +34,14 @@ function graph():KnowledgeGraph {
   return {...base,entities,relations:[{...base.relations[0],id:'relation-1',head:'node-0',tail:'node-1'}],totalNodes:100,totalEdges:1};
 }
 const catalog:KnowledgeCatalog={types:knowledgeTypes,relationTypes:knowledgeRelationTypes,actors:[],models:[]};
-async function mount(value=ref(graph()),selected=ref(''),entity=vi.fn(),relation=vi.fn()) {
-  const root=sized('root'),app=renderer.createApp({render:()=>h(KnowledgeGraphPanel,{ref:panel,graph:value.value,selectedId:selected.value,catalog,onEntity:entity,onRelation:relation})});
-  apps.push(app);app.provide(ssrContextKey,{});app.mount(root);await nextTick();return {root,value,selected,entity,relation};
+async function mount(value=ref(graph()),selected=ref(''),entity=vi.fn(),relation=vi.fn(),theme=ref<'dark'|'light'>('dark')) {
+  const root=sized('root'),app=renderer.createApp({render:()=>h(KnowledgeGraphPanel,{ref:panel,graph:value.value,selectedId:selected.value,catalog,onEntity:entity,onRelation:relation,theme:theme.value})});
+  apps.push(app);app.provide(ssrContextKey,{});app.mount(root);await nextTick();return {root,value,selected,entity,relation,theme};
 }
+async function flushResize() { await vi.advanceTimersByTimeAsync(32); await nextTick(); }
 beforeAll(()=>clientTemplate(KnowledgeGraphPanel,'src/components/KnowledgeGraphPanel.vue','knowledge-panel-render.ts'));
 beforeEach(()=>{
+  vi.useFakeTimers();
   width=600;height=425;
   class TestDocument { activeElement=null; }
   vi.stubGlobal('Document',TestDocument);vi.stubGlobal('document',new TestDocument());vi.stubGlobal('ShadowRoot',class {});
@@ -50,7 +52,7 @@ beforeEach(()=>{
   });
   probe.init.mockImplementation((host:SizedHost)=>{const chart={host,setOption:vi.fn(),resize:vi.fn(),on:vi.fn<(name:string,handler:GraphClick)=>void>(),dispose:vi.fn()};charts.push(chart);return chart;});
 });
-afterEach(()=>{apps.splice(0).forEach(app=>app.unmount());charts.splice(0);observers.splice(0);vi.clearAllMocks();vi.unstubAllGlobals();});
+afterEach(()=>{apps.splice(0).forEach(app=>app.unmount());charts.splice(0);observers.splice(0);vi.clearAllMocks();vi.unstubAllGlobals();vi.useRealTimers();});
 
 describe('知识画布视口与生命周期',()=>{
   it('100节点按实际视口缩小；尺寸更新不重置缩放/中心，显式重置才重设',async()=>{
@@ -60,11 +62,14 @@ describe('知识画布视口与生命周期',()=>{
     expect(first.links[0]).toMatchObject({id:'relation-1',source:'node-0',target:'node-1'});
     expect(first.labelLayout.hideOverlap).toBe(true);
     expect(first.emphasis.edgeLabel.show).toBe(true);
-    chart.host.clientWidth=326;observers[0].notify();
+    chart.host.clientWidth=326;observers[0].notify();observers[0].notify();
+    expect(chart.resize).not.toHaveBeenCalled();await flushResize();
     const patch=chart.setOption.mock.lastCall![0].series[0];
     expect(patch.data[0].symbolSize).toBeLessThan(first.data[0].symbolSize);
     expect(patch).not.toHaveProperty('zoom');expect(patch).not.toHaveProperty('center');
     expect(chart.setOption.mock.lastCall).toHaveLength(1);expect(chart.resize).toHaveBeenCalledOnce();
+    const calls=chart.setOption.mock.calls.length;observers[0].notify();await flushResize();
+    expect(chart.resize).toHaveBeenCalledOnce();expect(chart.setOption).toHaveBeenCalledTimes(calls);
     panel.value!.resetView();expect(chart.setOption.mock.lastCall![1]).toBe(true);
     expect(chart.setOption.mock.lastCall![0].series[0].zoom).toBe(1);
   });
@@ -75,16 +80,39 @@ describe('知识画布视口与生命周期',()=>{
     const find=(row:HostNode):SizedHost|undefined=>row.props.role==='img'?row as SizedHost:row.children.map(find).find(Boolean);
     const host=find(mounted.root)!;host.clientWidth=600;host.clientHeight=425;
     observers[0].notify();observers[0].notify();
+    await flushResize();
     expect(probe.init).toHaveBeenCalledOnce();expect(charts[0].setOption.mock.calls[0][0].series[0].data).toHaveLength(100);
   });
   it('隐藏时不绘制，重开渲染最新选中；卸载后不响应迟到观察和属性变化',async()=>{
     const mounted=await mount(),chart=charts[0];chart.host.clientWidth=0;
     mounted.selected.value='node-1';await nextTick();observers[0].notify();
     expect(chart.setOption).toHaveBeenCalledOnce();expect(chart.resize).not.toHaveBeenCalled();
-    chart.host.clientWidth=326;observers[0].notify();
+    chart.host.clientWidth=326;observers[0].notify();await flushResize();
     expect(chart.setOption.mock.lastCall![0].series[0].center).toEqual([450,300]);
     apps.pop()!.unmount();observers[0].notify();mounted.selected.value='node-2';await nextTick();
+    await flushResize();
     expect(chart.setOption).toHaveBeenCalledTimes(2);expect(chart.dispose).toHaveBeenCalledOnce();expect(observers[0].disconnect).toHaveBeenCalledOnce();
+  });
+  it('浅色图形同步使用深色标签与边，主题切换复用画布并保留点击事件',async()=>{
+    const mounted=await mount(undefined,undefined,undefined,undefined,ref<'dark'|'light'>('light')),chart=charts[0];
+    const light=chart.setOption.mock.calls[0][0];
+    expect(light.series[0].data[0].label.color).toBe('#263e59');
+    expect(light.series[0].lineStyle.color).toBe('#6f89a5');
+    expect(light.series[0].edgeLabel.color).toBe('#4b6480');
+    expect(light.tooltip).toMatchObject({backgroundColor:'#ffffff',textStyle:{color:'#24354b'},confine:true});
+    expect(all(mounted.root,row=>row.tag==='details'&&row.props.class==='legend')).toHaveLength(1);
+    mounted.theme.value='dark';await nextTick();
+    expect(probe.init).toHaveBeenCalledOnce();
+    expect(chart.setOption.mock.lastCall![0].series[0].data[0].label.color).toBe('#def0ff');
+    expect(chart.setOption.mock.lastCall![0].tooltip.backgroundColor).toBe('#102439');
+    chart.on.mock.calls[0][1]({data:{id:'node-2'},dataType:'node'});
+    expect(mounted.entity).toHaveBeenCalledWith('node-2');
+  });
+  it('卸载清理尚未执行的尺寸防抖，不向已释放画布写入',async()=>{
+    await mount();const chart=charts[0];chart.host.clientWidth=800;observers[0].notify();
+    apps.pop()!.unmount();await flushResize();
+    expect(chart.resize).not.toHaveBeenCalled();expect(chart.setOption).toHaveBeenCalledOnce();
+    expect(chart.dispose).toHaveBeenCalledOnce();expect(vi.getTimerCount()).toBe(0);
   });
   it('实体/关系点击保留真实ID，图内容未变不重画',async()=>{
     const mounted=await mount(),chart=charts[0],click=chart.on.mock.calls[0][1];

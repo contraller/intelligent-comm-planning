@@ -34,7 +34,7 @@
               <button class="btn" :disabled="locked" title="查看或编辑" aria-label="查看或编辑" @click="open(row)"><i class="pi pi-pencil" /></button>
               <button class="btn" :disabled="!canEdit || locked || store.dirty" @click="store.check(row)">离线校验</button>
               <button class="btn" :disabled="locked" title="导出" aria-label="导出" @click="download(row)"><i class="pi pi-download" /></button>
-              <button class="btn" :disabled="locked" @click="$emit('select-source', { sourceId: row.sourceId, configRevision: row.configRevision })">选择</button>
+              <button v-if="allowObservationSelection" class="btn" :disabled="locked" @click="$emit('select-source', { sourceId: row.sourceId, configRevision: row.configRevision })">选择</button>
             </div></td>
           </tr><tr v-if="!s.loading && !s.rows.length"><td colspan="7">暂无采集源</td></tr></tbody>
         </table>
@@ -81,7 +81,7 @@ import { createSpectrumSourcesStore } from '../stores/spectrum-sources';
 import { decodeSpectrumSourceConfigFile } from '../services/spectrum-source-validation';
 import type { SpectrumSourceServices, SpectrumSourceVersion } from '../types/spectrum-source';
 import type { Decision, DecisionRequest } from '../types/resource-edit';
-const props = defineProps<{ services: SpectrumSourceServices; canView: boolean; canEdit: boolean; sessionGeneration: string }>();
+const props = withDefaults(defineProps<{ services: SpectrumSourceServices; canView: boolean; canEdit: boolean; sessionGeneration: string; allowObservationSelection?: boolean }>(), { allowObservationSelection: true });
 const emit = defineEmits<{ 'dirty-change': [value: boolean]; 'busy-change': [value: boolean]; saved: [value: { sourceId: string; configRevision: string }]; 'select-source': [value: { sourceId: string; configRevision: string }] }>();
 const store = createSpectrumSourcesStore(props.services, () => props), s = store.state;
 const configReading = ref(false);
