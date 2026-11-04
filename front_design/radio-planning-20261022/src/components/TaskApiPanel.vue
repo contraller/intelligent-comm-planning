@@ -6,7 +6,11 @@
         >{{ task.saved ? '已保存任务' : '新任务' }}{{ task.changed ? ' · 有修改' : '' }}</span
       ></div
     ><div class="panel-body">
-      <TaskQuickStart @started="emit('opened')" />
+      <details v-if="compactQuickStart" class="quick-start-details" :open="quickStartOpen" @toggle="quickStartOpen = ($event.currentTarget as HTMLDetailsElement).open">
+        <summary>示例任务 <small>可选，展开载入或下载</small></summary>
+        <TaskQuickStart @started="quickStartOpen = false; emit('opened')" />
+      </details>
+      <TaskQuickStart v-else @started="emit('opened')" />
       <div class="toolbar"
         ><button
           class="btn small"
@@ -132,6 +136,8 @@
 <script setup lang="ts">
 // 任务入口不感知数据源，资源刷新只更新已保存引用。
 import { ref } from 'vue';
+withDefaults(defineProps<{ compactQuickStart?: boolean }>(), { compactQuickStart: false });
+const quickStartOpen = ref(false);
 import { useTaskInputStore } from '../stores/task-input';
 import { useResourceReadStore } from '../stores/resource-read';
 import TaskApiForm from './TaskApiForm.vue';
@@ -154,6 +160,9 @@ async function locate(issue: PlanningIssue) {
 }
 </script>
 <style scoped>
+.quick-start-details { margin-bottom: 10px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 5px; background: var(--panel-deep); }
+.quick-start-details > summary { cursor: pointer; color: var(--text); font-size: 12px; font-weight: 600; }
+.quick-start-details > summary small { margin-left: 7px; font-weight: 400; font-size: 10px; color: var(--muted); }
 .task-panel {
   min-width: 0;
   height: 100%;

@@ -1,5 +1,5 @@
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
-import { h, nextTick, ssrContextKey, type App } from 'vue';
+import { h, nextTick, reactive, ssrContextKey, type App } from 'vue';
 import { createPinia, disposePinia, setActivePinia } from 'pinia';
 import FrequencyResourcePanel from '../src/components/FrequencyResourcePanel.vue';
 import FrequencyResourceEditDrawer from '../src/components/FrequencyResourceEditDrawer.vue';
@@ -20,7 +20,8 @@ vi.mock('../src/components/AppTable.vue', async () => {
 });
 vi.mock('../src/components/AppDrawer.vue', async () => {
   const { defineComponent, h } = await import('vue');
-  return { default: defineComponent({ props: ['visible'], setup: (p, { slots }) => () => p.visible ? h('aside', slots.default?.()) : null }) };
+  return { default: defineComponent({ props: ['visible', 'title'], emits: ['update:visible'], setup: (p, { slots, emit }) => () => p.visible
+    ? h('aside', { 'aria-label': p.title }, [h('button', { onClick: () => emit('update:visible', false) }, '关闭' + p.title), slots.default?.()]) : null }) };
 });
 vi.mock('../src/components/DecisionDialog.vue', async () => {
   const { defineComponent, h } = await import('vue');
@@ -55,14 +56,15 @@ async function fixture(canDisable = true, canMaintain = false) {
     queryFrequencyOperations: vi.fn().mockResolvedValue({ page: 1, pageSize: 10, total: 0, items: [] }), getFrequencyOperation: vi.fn(),
     validateFrequencyChanges: vi.fn(), commitFrequencyChanges: vi.fn() };
   const loadContext = vi.fn().mockResolvedValue({ revision: base }), changed = vi.fn();
+  const session = reactive({ accountId: 'actor', generation: 1, readable: true, canDisable, canMaintain });
   function mount() {
     const root = node('root');
     app = renderer.createApp({ render: () => h(FrequencyResourcePanel, { active: true, services,
-      session: { accountId: 'actor', generation: 1, readable: true, canDisable, canMaintain }, loadContext, onResourceChanged: changed }) });
+      session, loadContext, onResourceChanged: changed }) });
     app.use(pinia!); app.provide(ssrContextKey, {}); app.mount(root); return root;
   }
   const root = mount(); await flush();
-  return { root, mount, services, loadContext, changed, store: useFrequencyResourceStore() };
+  return { root, mount, services, loadContext, changed, session, store: useFrequencyResourceStore() };
 }
 function button(root: HostNode, label: string) { const hit = all(root, n => n.tag === 'button' && textOf(n).trim() === label)[0]; expect(hit).toBeTruthy(); return hit; }
 async function click(root: HostNode, label: string) {
@@ -70,6 +72,45 @@ async function click(root: HostNode, label: string) {
   await (value.props.onClick as (event: unknown) => unknown)({ stopPropagation() {}, preventDefault() {} }); await flush();
 }
 describe('规划频点专用管理面板', () => {
+  it('默认只有频点主表，历史抽屉保留查询、分页、回执且关闭不改主表选择', async () => {
+    const f = await fixture(), selected = 'FQ-0002';
+    expect(all(f.root, n => n.props['data-table'] === true).length).toBe(1);
+    expect(all(f.root, n => n.props['aria-label'] === '本人频点操作历史')).toHaveLength(0);
+    f.store.select(selected, true); const listCalls = f.services.queryFrequencyResources.mock.calls.length;
+    const receipt = await f.services.disableFrequencyResources({ requestId: 'REQ-HISTORY' });
+    f.services.disableFrequencyResources.mockClear();
+    f.services.queryFrequencyOperations.mockImplementation(async input => ({ page: input.page, pageSize: input.pageSize, total: 11,
+      items: [{ requestId: 'REQ-HISTORY', operation: 'FREQUENCY_DISABLE', createdAt: '2026-11-04T00:00:00Z',
+        baseRevision: base, revision: next, changed: true, selectedCount: 1, updatedCount: 1, unchangedCount: 0 }] }));
+    f.services.getFrequencyOperation.mockResolvedValue({ operation: 'FREQUENCY_DISABLE', requestId: 'REQ-HISTORY', createdAt: '2026-11-04T00:00:00Z', receipt });
+    await click(f.root, '本人操作历史');
+    const history = all(f.root, n => n.tag === 'section' && n.props['aria-label'] === '本人频点操作历史')[0];
+    const search = all(history, n => n.tag === 'input')[0]; (search.props['onUpdate:modelValue'] as Function)('REQ-HISTORY');
+    await flush(); await (all(history, n => n.tag === 'form')[0].props.onSubmit as Function)({ preventDefault() {} }); await flush();
+    await click(history, '下一页');
+    expect(f.services.queryFrequencyOperations.mock.lastCall?.[0]).toMatchObject({ context: 'ledger', page: 2, search: 'REQ-HISTORY' });
+    await click(history, '回读');
+    expect(f.services.getFrequencyOperation.mock.lastCall?.[0]).toEqual({ context: 'ledger', requestId: 'REQ-HISTORY' });
+    expect(textOf(f.root)).toContain('原版本 ' + base);
+    await click(f.root, '关闭历史操作回执'); await click(f.root, '关闭本人频点操作历史');
+    expect(all(f.root, n => n.props['data-table'] === true).length).toBe(1);
+    expect(f.store.selectedIds).toEqual([selected]); expect(f.services.queryFrequencyResources).toHaveBeenCalledTimes(listCalls);
+    await click(f.root, '本人操作历史');
+    expect((all(f.root, n => n.tag === 'section' && n.props['aria-label'] === '本人频点操作历史')[0].children.length)).toBeGreaterThan(0);
+    expect(f.services.queryFrequencyOperations.mock.lastCall?.[0]).toMatchObject({ page: 2, search: 'REQ-HISTORY' });
+    expect(f.services.disableFrequencyResources).not.toHaveBeenCalled();
+  });
+  it('历史抽屉在权限失效或换号时关闭，不把旧账号历史保留在页面', async () => {
+    const f = await fixture(); await click(f.root, '本人操作历史');
+    expect(all(f.root, n => n.tag === 'section' && n.props['aria-label'] === '本人频点操作历史')).toHaveLength(1);
+    f.session.readable = false; await flush();
+    expect(all(f.root, n => n.tag === 'section' && n.props['aria-label'] === '本人频点操作历史')).toHaveLength(0);
+    expect(button(f.root, '本人操作历史').props.disabled).toBe(true);
+    f.session.readable = true; await flush(); await click(f.root, '本人操作历史');
+    f.session.accountId = 'another-actor'; f.session.generation++; await flush();
+    expect(all(f.root, n => n.tag === 'section' && n.props['aria-label'] === '本人频点操作历史')).toHaveLength(0);
+    expect(f.services.disableFrequencyResources).not.toHaveBeenCalled();
+  });
   it('加载来源及服务器列表，显示只读详情中的未知值', async () => {
     const f = await fixture(); expect(textOf(f.root)).toContain('项目构造资源'); expect(textOf(f.root)).toContain('总数 1');
     expect(f.services.queryFrequencyResources).toHaveBeenCalledOnce();

@@ -53,15 +53,18 @@
       >
     </div>
     <div v-if="planning.step === 1 && planning.adjustmentDirty" class="notice warn" role="status">已保留未完成的方案调整。提交新规划前，请继续调整或明确放弃。<button class="text-link" @click="enterAdjustmentWorkspace">继续方案调整</button><button class="text-link" :disabled="planning.busy || planning.running || !!planning.pending" @click="discardAdjustmentWorkspace">放弃本次调整</button></div>
-    <div class="steps"
-      ><button
+    <nav class="steps" aria-label="规划步骤"><ol>
+      <li
         v-for="(label, i) in ['任务与约束输入', '规划计算与结果', '方案调整与对比']"
         :key="label"
+      ><button
         :class="{ active: planning.step === i + 1 }"
+        :aria-label="`${i + 1} · ${label}`"
+        :aria-current="planning.step === i + 1 ? 'step' : undefined"
+        :disabled="changingStep || auth.blocked || !task.readable"
         @click="changePlanningStep(i + 1)"
-        >{{ i + 1 }} · {{ label }}</button
-      ></div
-    >
+        ><span class="step-number" aria-hidden="true">{{ i + 1 }}</span><span>{{ label }}</span></button></li>
+    </ol></nav>
     <ResourceReadStatus
       :refresh-hint="
         planning.step === 1 ? undefined : '请返回“任务与约束输入”刷新资源；当前规划结果保持原快照。'
@@ -95,7 +98,7 @@
       ><div
         v-show="planning.step === 1"
         class="input-panel"
-        ><TaskApiPanel @opened="opened"
+        ><TaskApiPanel compact-quick-start @opened="opened"
           ><template #actions
             ><button
               class="btn primary submit"
@@ -519,12 +522,12 @@ const previewSide = ref<'before' | 'after'>('after');
 const frozenCoverage=shallowRef<FrozenCoverageOverlay|null>(null);
 const candidateCoverageOrigins=shallowRef<FrozenCoverageQuery[]>([]);
 const coveragePanel=ref<InstanceType<typeof FrozenCoveragePanel>>();
-let changingStep=false;
+const changingStep=ref(false);
 async function changePlanningStep(step:number){
-  if(changingStep||step===planning.step)return;
-  changingStep=true;const session=auth.generation,current=planning.step;
+  if(changingStep.value||auth.blocked||!task.readable||step===planning.step)return;
+  changingStep.value=true;const session=auth.generation,current=planning.step;
   try{if((!coveragePanel.value||await coveragePanel.value.requestLeave())&&session===auth.generation&&!auth.blocked&&planning.step===current){if(current===3&&step!==3){planning.setAutomaticPreview(false);planning.adjustmentOpen=false;}planning.step=step;}}
-  finally{changingStep=false;}
+  finally{changingStep.value=false;}
 }
 const frozenCoverageQuery=computed<FrozenCoverageQuery|null>(()=>resolvePlanningCoverageQuery({
   selectedPlan:planning.selectedPlan, adjustmentParent:planning.adjustmentParent,
@@ -1237,7 +1240,9 @@ onBeforeUnmount(() => {
   height: 100%;
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 10px;
+  min-width: 0;
+  min-height: 0;
 }
 .planning-api-page > * {
   flex-shrink: 0;
@@ -1251,34 +1256,40 @@ onBeforeUnmount(() => {
   align-items: center;
   flex-wrap: wrap;
 }
-.steps {
-  display: flex;
-  gap: 12px;
-}
+.steps { flex: none; min-width: 0; }
+.steps ol { display: flex; align-items: center; gap: 0; margin: 0; padding: 0; list-style: none; }
+.steps li { display: flex; align-items: center; min-width: 0; }
+.steps li:not(:last-child)::after { content: ''; width: 28px; height: 1px; margin: 0 10px; background: var(--line); }
 .steps button {
-  flex: 1;
-  background: #14273b;
-  border: 1px solid var(--line);
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 32px;
+  padding: 4px 7px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
   color: var(--muted);
-  padding: 13px;
+  font-size: 12px;
+  line-height: 1.4;
+  text-align: left;
 }
-.steps .active {
-  color: #9edaff;
-  border-color: #429ac9;
-}
+.steps button:hover:not(:disabled) { color: var(--blue); background: var(--panel-deep); }
+.steps .active { color: var(--blue); font-weight: 600; }
+.step-number { display: inline-grid; place-items: center; flex: 0 0 22px; width: 22px; height: 22px; border: 1px solid var(--line); border-radius: 50%; font-size: 11px; font-weight: 500; }
+.steps .active .step-number { color: #fff; background: var(--blue); border-color: var(--blue); }
 .planning-layout {
-  flex: 1 0 480px;
-  min-height: 480px;
+  flex: 1 1 0;
+  min-height: 360px;
+  min-width: 0;
   display: grid;
-  grid-template-columns: minmax(360px, 1fr) minmax(460px, 36%);
+  grid-template-columns: minmax(0, 1fr) clamp(340px, 32vw, 440px);
   grid-template-rows: minmax(0, 1fr);
-  gap: 16px;
+  gap: 12px;
   align-items: stretch;
 }
 .planning-layout.results {
-  /* 沿用原左右栏宽度；纵向工作区从 480px 扩为两倍，不放大文字或行距。 */
-  flex-basis: 960px;
-  min-height: 960px;
+  min-height: 360px;
 }
 .plan-management, .coverage-summary { padding: 12px; background: #14273b; border: 1px solid var(--line); }
 .plan-management h2 { margin: 0 0 8px; font-size: 16px; }
@@ -1287,17 +1298,37 @@ onBeforeUnmount(() => {
 .plan-metrics dt { color: var(--muted); font-size: 12px; }
 .plan-metrics dd { margin: 5px 0; font-size: 19px; color: #9edaff; }
 .planning-layout.input {
-  grid-template-columns: 410px minmax(400px, 1fr);
+  grid-template-columns: clamp(320px, 28vw, 380px) minmax(0, 1fr);
 }
 .input-panel {
   min-height: 0;
+  min-width: 0;
   overflow: hidden;
 }
+.input-panel :deep(.task-panel > .panel-head) { padding: 10px 12px; min-height: 42px; }
+.input-panel :deep(.task-panel > .panel-body) { padding: 12px; overscroll-behavior: contain; }
+.input-panel :deep(.task-actions) { padding: 10px 12px; gap: 6px; }
+.input-panel :deep(.task-actions .toolbar) { gap: 7px; }
+.input-panel :deep(.fields > .time-field) { grid-column: 1 / -1; }
+.input-panel :deep(.task-quick-start) { padding: 8px; margin: 8px 0 0; }
+.input-panel :deep(.quick-cards) { grid-template-columns: minmax(0, 1fr); gap: 6px; }
+.input-panel :deep(.quick-card) { padding: 8px; }
+.input-panel :deep(.quick-actions) { margin-top: 6px; }
+.input-panel :deep(.task-quick-start h4) { font-size: 12px; }
+.planning-api-page :deep(.task-panel .panel-body),
+.planning-api-page .result-content { scrollbar-width: thin; scrollbar-color: var(--line) transparent; }
+.planning-api-page :deep(.task-panel .panel-body::-webkit-scrollbar),
+.planning-api-page .result-content::-webkit-scrollbar { width: 5px; height: 5px; }
+.planning-api-page :deep(.task-panel .panel-body::-webkit-scrollbar-thumb),
+.planning-api-page .result-content::-webkit-scrollbar-thumb { border-radius: 5px; background: var(--line); }
+.planning-api-page :deep(.task-panel .panel-body::-webkit-scrollbar-track),
+.planning-api-page .result-content::-webkit-scrollbar-track { background: transparent; }
 .submit {
   width: 100%;
 }
 .map-panel {
-  min-height: 480px;
+  min-width: 0;
+  min-height: 0;
   position: relative;
   border: 1px solid var(--line);
   border-radius: 6px;
@@ -1314,6 +1345,7 @@ onBeforeUnmount(() => {
   flex-direction: column;
   gap: 16px;
   min-height: 0;
+  min-width: 0;
   overflow: hidden;
 }
 /* 右侧标题按内容自然撑高，避免继承全局最小高度额外占位。 */
@@ -1324,6 +1356,7 @@ onBeforeUnmount(() => {
 }
 .result-content {
   min-height: 0;
+  min-width: 0;
   flex: 1;
   overflow: auto;
   display: flex;
@@ -1335,9 +1368,12 @@ onBeforeUnmount(() => {
   font-size: 12px;
 }
 .result-content > :deep(.result-panel) {
-  flex: 1 1 300px;
-  min-height: 240px;
+  flex: none;
+  min-height: 0;
+  overflow: visible;
 }
+.result-content > :deep(.result-panel > .panel-body) { flex: none; overflow: visible; }
+.result-content > :deep(.result-panel .result-scroll) { flex: none; overflow: visible; }
 /* 第二步压缩外围留白；低窗口或警示展开时，明细不再被压成零高。 */
 .results-column {
   gap: 8px;
@@ -1352,9 +1388,8 @@ onBeforeUnmount(() => {
   gap: 8px;
 }
 .results-column .result-content > :deep(.result-panel) {
-  /* 明细面板原最小高度为 440px，增加纵向展示空间到两倍。 */
-  flex: 1 0 880px;
-  min-height: 880px;
+  flex: none;
+  min-height: 0;
 }
 .results-column .result-details {
   padding: 4px 0;
@@ -1370,8 +1405,7 @@ onBeforeUnmount(() => {
   grid-template-columns: minmax(0, 1fr);
 }
 .planning-layout.results.collapsed {
-  flex-basis: 480px;
-  min-height: 480px;
+  min-height: 360px;
 }
 .map-tools {
   position: absolute;
@@ -1446,35 +1480,39 @@ onBeforeUnmount(() => {
   padding: 12px;
   border-bottom: 1px solid var(--line);
 }
-@media (max-width: 1250px) {
+@media (max-width: 1180px) {
   .planning-layout.results:not(.collapsed) {
-    grid-template-columns: minmax(360px, 1fr) minmax(360px, 36%);
+    grid-template-columns: minmax(0, 1fr) 340px;
   }
-  .planning-layout,
   .planning-layout.input {
-    grid-template-columns: 360px minmax(360px, 1fr);
+    grid-template-columns: 320px minmax(0, 1fr);
   }
 }
-@media (max-width: 950px) {
-  /* 小屏上下排列仍给结果完整纵向空间，不把加高面板裁进半屏容器。 */
-  .planning-layout.results:not(.collapsed) {
-    grid-template-columns: minmax(0, 1fr);
-    grid-template-rows: 480px minmax(960px, auto);
-  }
+@media (max-width: 900px) {
   .planning-api-page {
     height: auto;
+    min-height: 100%;
   }
   .planning-layout,
-  .planning-layout.input {
+  .planning-layout.input,
+  .planning-layout.results:not(.collapsed) {
     flex: none;
-    grid-template-columns: 1fr;
+    min-height: 0;
+    grid-template-columns: minmax(0, 1fr);
     grid-template-rows: auto;
   }
-  .input-panel {
-    max-height: none;
-  }
+  .input-panel, .result-column { order: 1; overflow: visible; }
+  .input-panel :deep(.task-panel) { height: auto; }
+  .input-panel :deep(.task-panel > .panel-body) { flex: none; overflow: visible; }
+  .result-content { flex: none; overflow: visible; }
   .map-panel {
-    height: 480px;
+    order: 0;
+    height: clamp(260px, 45vh, 400px);
+    min-height: 0;
   }
+  .steps ol { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
+  .steps li:not(:last-child)::after { display: none; }
+  .steps button { width: 100%; gap: 5px; padding: 4px; font-size: 11px; }
+  .step-number { flex-basis: 20px; width: 20px; height: 20px; }
 }
 </style>

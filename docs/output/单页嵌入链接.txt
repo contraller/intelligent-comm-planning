@@ -1,8 +1,11 @@
 ﻿独立功能页嵌入链接
 
-受控版本：LOCAL-20261104-66c97a37bde8
-以下链接用于主系统预留内容框，不显示本软件系统菜单，便携版统一业务身份直接使用。完整系统入口继续保留。
-系统须先在本机启动。127.0.0.1指访问者当前计算机；对方若采用其他受控部署地址，应将以下链接的主机和端口统一替换为实际地址。
+适用本地完整便携版：LOCAL-20261104-aa8bdfaf6f8a；程序发行版：LOCAL-20261104-afaa4d6df75b（核心程序一致）。
+
+用于主系统预留内容框：不显示本软件全局菜单。资源类四个入口只呈现对应功能，设备与接口管理分开；其他模块保留必要业务页签和按钮。
+先在浏览器所在电脑启动便携服务。127.0.0.1指该电脑；实际端口以app/data/runtime/访问地址.txt为准。
+当前仅支持受控本机回环访问，不能只改成服务器IP或localhost就视为可用的集中部署。
+完整接法、全屏含义及部署边界见同目录《单页嵌入对接说明》。
 
 GIS态势
 http://127.0.0.1:18480/#/embed/situation
@@ -16,13 +19,13 @@ http://127.0.0.1:18480/#/embed/planning
 故障诊断
 http://127.0.0.1:18480/#/embed/diagnosis
 
-设备台账
+短波／超短波设备
 http://127.0.0.1:18480/#/embed/resources?tab=ledger
 
 规划频点
 http://127.0.0.1:18480/#/embed/resources?tab=frequencies
 
-频谱接口配置
+频谱接口管理
 http://127.0.0.1:18480/#/embed/resources?tab=spectrum-config
 
 频谱观测
@@ -49,7 +52,4 @@ http://127.0.0.1:18480/#/embed/system?tab=logs
 参数配置
 http://127.0.0.1:18480/#/embed/system?tab=parameters
 
-嵌入示例（由主系统容器提供实际高度）：
-<iframe src="http://127.0.0.1:18480/#/embed/planning" title="网络规划" style="width:100%;height:100%;border:0"></iframe>
-
-完整系统入口：http://127.0.0.1:18480/
+原完整系统入口：http://127.0.0.1:18480/#/situation

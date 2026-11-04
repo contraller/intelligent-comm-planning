@@ -80,11 +80,24 @@ async function setup(path:string,maintained=false){
   return{root,task,planning,auth,storage,router,raw,advance:()=>{time+=10000;}};
 }
 async function click(root:HostNode,label:string){
-  const control=find(root,node=>['button','a'].includes(node.tag)&&textOf(node).trim()===label);
+  const control=find(root,node=>['button','a'].includes(node.tag)&&(node.props['aria-label']===label||textOf(node).trim()===label));
   expect(control,label).toBeDefined();await (control!.props.onClick as Function)({button:0,preventDefault(){}});await settle();
 }
 
 describe('规划历史与诊断准备入口',()=>{
+  it('紧凑步骤导航标识当前步骤，等待离开决定时禁用，取消不改任务和结果',async()=>{
+    const s=await setup('/planning');s.planning.selectedPlan=apiPlan();s.planning.step=3;await settle();
+    const navigation=find(s.root,n=>n.tag==='nav'&&n.props['aria-label']==='规划步骤')!;expect(navigation).toBeDefined();
+    expect(find(navigation,n=>n.props['aria-current']==='step')?.props['aria-label']).toBe('3 · 方案调整与对比');
+    const before=JSON.stringify(s.task.draft);let finish!:(value:boolean)=>void;
+    coverageLeave.mockImplementationOnce(()=>new Promise(resolve=>{finish=resolve;}));
+    const target=find(navigation,n=>n.props['aria-label']==='1 · 任务与约束输入')!;
+    const moving=(target.props.onClick as Function)();await settle();
+    expect(target.props.disabled).toBe(true);expect(s.planning.step).toBe(3);finish(false);await moving;await settle();
+    expect(s.planning.step).toBe(3);expect(target.props.disabled).toBe(false);expect(JSON.stringify(s.task.draft)).toBe(before);
+    await click(s.root,'1 · 任务与约束输入');expect(s.planning.step).toBe(1);expect(JSON.stringify(s.task.draft)).toBe(before);
+    s.auth.accept({...s.auth.identity!,permissions:[]});await settle();expect(target.props.disabled).toBe(true);
+  });
   it('返回输入步骤仍展示进行中状态并锁提交，失败结论可见且允许修改重试', async () => {
     const s = await setup('/planning?taskId=T1&editTask=1');
     s.planning.job = { ...apiJob(), state: 'RUNNING', result: null, outcome: null };

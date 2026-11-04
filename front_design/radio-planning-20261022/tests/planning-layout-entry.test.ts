@@ -30,13 +30,23 @@ const all=(el:Host,p:(el:Host)=>boolean):Host[]=>[...(p(el)?[el]:[]),...el.child
 const text=(el:Host):string=>el.text+el.children.map(text).join('');
 const button=(root:Host,label:string)=>all(root,el=>el.tag==='button'&&text(el).trim()===label)[0]!;
 let app:App|undefined, fixture:Awaited<ReturnType<typeof storeFixture>>|undefined;
-async function mounted() {
+async function mounted(compactQuickStart=false) {
   vi.stubGlobal('Document',class {});vi.stubGlobal('ShadowRoot',class {});vi.stubGlobal('document',new EventTarget());
   fixture=await storeFixture();vi.spyOn(fixture.resources,'fetchNodes').mockResolvedValue({revision:'r1',items:[readNode(),readNode('N2')],pageNum:1,pageSize:10,total:2});
-  const submit=vi.fn(),root=node('root');app=renderer.createApp({render:()=>h(TaskApiPanel,{}, {actions:()=>h('button',{onClick:submit},'提交规划')})});app.use(fixture.pinia);app.provide(ssrContextKey,{modules:new Set()});app.mount(root);await nextTick();await nextTick();return {...fixture,root,submit};
+  const submit=vi.fn(),root=node('root');app=renderer.createApp({render:()=>h(TaskApiPanel,{compactQuickStart}, {actions:()=>h('button',{onClick:submit},'提交规划')})});app.use(fixture.pinia);app.provide(ssrContextKey,{modules:new Set()});app.mount(root);await nextTick();await nextTick();return {...fixture,root,submit};
 }
 afterEach(()=>{app?.unmount();app=undefined;if(fixture)disposePinia(fixture.pinia);fixture=undefined;vi.restoreAllMocks();vi.unstubAllGlobals();});
 describe('规划输入工作区',()=>{
+  it('紧凑入口默认收起例程，展开收起保留任务字段与保存/提交入口且不执行计算',async()=>{
+    const s=await mounted(true),before=JSON.stringify(s.task.draft);
+    const examples=all(s.root,el=>el.tag==='details'&&String(el.props.class)==='quick-start-details')[0];
+    expect(examples).toBeDefined();expect(examples.props.open).toBe(false);
+    expect(text(examples)).toContain('展开载入或下载');
+    examples.props.onToggle({currentTarget:{open:true}});await nextTick();expect(examples.props.open).toBe(true);
+    examples.props.onToggle({currentTarget:{open:false}});await nextTick();expect(examples.props.open).toBe(false);
+    expect(JSON.stringify(s.task.draft)).toBe(before);expect(button(s.root,'保存任务')).toBeDefined();expect(button(s.root,'提交规划')).toBeDefined();
+    expect(s.submit).not.toHaveBeenCalled();
+  });
   // 使用汇总按钮定位实际字段，不能只检查模板里存在错误文字。
   it('必填错误就近显示，汇总展开区域与时间分组并聚焦，修正后更新',async()=>{
     const s=await mounted();s.task.draft!.name='';s.task.draft!.bbox=[120,30,119,31];s.task.draft!.startTime='bad-time';

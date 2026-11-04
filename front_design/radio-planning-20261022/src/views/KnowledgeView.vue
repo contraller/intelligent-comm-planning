@@ -1,5 +1,5 @@
 <template>
-  <div class="page knowledge-page">
+  <div class="page knowledge-page" :class="{ 'kg-light': embedded }">
     <div class="page-heading">
       <h1>知识图谱</h1>
       <div class="toolbar kg-heading-tools">
@@ -71,6 +71,7 @@
       <div
         v-if="tab === '图谱浏览'"
         class="kg-workspace"
+        :class="{ 'details-open': detailVisible }"
       >
         <aside class="kg-filters">
           <h3>图谱与检索</h3
@@ -131,7 +132,7 @@
             :key="e.id"
             class="kg-entity"
             :class="{ selected: e.id === store.selectedId }"
-            @click="store.selectEntity(e.id)"
+            @click="selectEntity(e.id)"
             ><strong>{{ knowledgeEntityName(e) }}</strong
             ><small>{{ typeName(e.type) }} · {{ e.id }}</small></button
           >
@@ -144,7 +145,7 @@
                 v-for="e in store.search.similar"
                 :key="e.id"
                 class="kg-entity"
-                @click="store.selectEntity(e.id)"
+                @click="selectEntity(e.id)"
                 >{{ knowledgeEntityName(e) }}</button
               ></template
             ><p v-else>暂无相似推荐</p></div
@@ -190,6 +191,13 @@
               class="btn small"
               @click="resetView"
               >返回概览</button
+            ><button
+              v-if="hasSelection"
+              class="btn small kg-detail-toggle"
+              :aria-expanded="detailVisible"
+              aria-controls="knowledge-detail-panel"
+              @click="detailOpen = !detailOpen"
+              >{{ detailVisible ? '收起详情' : '查看详情' }}</button
             ></div
           >
           <p
@@ -224,8 +232,9 @@
             :selected-id="store.selectedId"
             :matched-ids="store.matchedIds"
             :catalog="store.catalog"
-            @entity="store.selectEntity($event, false, true)"
-            @relation="store.selectRelation"
+            :theme="embedded ? 'light' : 'dark'"
+            @entity="selectEntity($event, false, true)"
+            @relation="selectRelation"
           />
           <div
             v-else
@@ -236,7 +245,11 @@
             ><i class="pi pi-info-circle" />点击节点查看知识详情，点击连线查看关联关系。</p
           >
         </div>
-        <aside class="kg-detail">
+        <aside v-if="detailVisible" id="knowledge-detail-panel" class="kg-detail" aria-label="知识详情">
+          <div class="kg-detail-heading">
+            <strong>知识详情</strong>
+            <button class="text-link" aria-label="收起知识详情" @click="detailOpen = false">收起</button>
+          </div>
           <template v-if="selectedRelation"
             ><p class="eyebrow">关联关系</p><h3>{{ relationName(selectedRelation.type) }}</h3
             ><dl class="kv section-gap"
@@ -245,14 +258,14 @@
               ><dd
                 ><button
                   class="text-link"
-                  @click="store.selectEntity(selectedRelation.head, true)"
+                  @click="selectEntity(selectedRelation.head, true)"
                   >{{ entityName(selectedRelation!.head) }}</button
                 ></dd
               ><dt>尾实体</dt
               ><dd
                 ><button
                   class="text-link"
-                  @click="store.selectEntity(selectedRelation.tail, true)"
+                  @click="selectEntity(selectedRelation.tail, true)"
                   >{{ entityName(selectedRelation!.tail) }}</button
                 ></dd
               ><dt>权重</dt><dd>{{ selectedRelation.weight ?? '未提供' }}</dd
@@ -310,12 +323,12 @@
               class="kg-related"
               ><button
                 class="text-link"
-                @click="store.selectRelation(relation.id)"
+                @click="selectRelation(relation.id)"
                 >{{ relationName(relation.type) }}</button
               ><button
                 class="text-link"
                 @click="
-                  store.selectEntity(
+                  selectEntity(
                     relation.head === store.selectedId ? relation.tail : relation.head,
                     true,
                   )
@@ -480,7 +493,7 @@
 <script setup lang="ts">
 import { useAuthStore } from '../stores/auth';
 import { env } from '../config/env';
-import { computed, ref, watch } from 'vue';
+import { computed, inject, ref, watch } from 'vue';
 import { useRoute, onBeforeRouteUpdate } from 'vue-router';
 import { isModuleTab } from '../config/module-tabs';
 import { useKnowledgeStore } from '../stores/knowledge';
@@ -507,6 +520,22 @@ const auth = useAuthStore();
 // 教学清空仅适用于本地Mock；HTTP知识历史通过发布/回滚保留，不暴露物理重置。
 const demoResetEnabled = env.mode === 'mock' && env.sampleData;
 const store = useKnowledgeStore();
+const embedded = inject('embeddedModule', false);
+const detailOpen = ref(false);
+const hasSelection = computed(() => !!(store.selectedId || store.relationId));
+const detailVisible = computed(() => detailOpen.value && hasSelection.value);
+// 自动聚焦和深链选择也可打开详情；手动收起不清理选中或重新查询图谱。
+watch(() => [store.selectedId, store.relationId], () => {
+  detailOpen.value = hasSelection.value;
+}, { immediate: true });
+function selectEntity(id: string, revealCategory = false, keepGraph = false) {
+  detailOpen.value = true;
+  return store.selectEntity(id, revealCategory, keepGraph);
+}
+function selectRelation(id: string) {
+  detailOpen.value = true;
+  store.selectRelation(id);
+}
 const caseBuilderOpen = ref(false);
 const caseBuilder = ref<InstanceType<typeof KnowledgeCaseBuilderDialog>>();
 const photoFailed = ref(false);
@@ -697,323 +726,160 @@ watch(
 );
 </script>
 <style scoped>
-.knowledge-photo { margin:16px 0; padding:14px; background:#f5f7fa; border-radius:8px; color:#304963; }
-.knowledge-photo img { width:100%; max-height:145px; object-fit:contain; }
-.knowledge-photo figcaption { margin-top:9px; font-size:11px; line-height:1.6; }
-.knowledge-photo small { display:block; font-size:10px; color:#60758a; }
 .knowledge-page {
-  /* 工作区跟随公共内容容器伸缩，避免继续扣减已移除的顶部栏高度。 */
+  --kg-surface: #0d1929;
+  --kg-detail-surface: #101d30;
+  --kg-border: #293d53;
+  --kg-text: #bed3e6;
+  --kg-muted: #8fa9c3;
+  --kg-hover: #152a40;
+  --kg-selection: #173753;
+  --kg-selection-border: #39749c;
   height: 100%;
+  min-height: 0;
   display: flex;
   flex-direction: column;
 }
+.knowledge-page.kg-light {
+  --kg-surface: #fff;
+  --kg-detail-surface: #fff;
+  --kg-border: #dce5ef;
+  --kg-text: #29415d;
+  --kg-muted: #647a92;
+  --kg-hover: #f0f5fc;
+  --kg-selection: #eaf1ff;
+  --kg-selection-border: #a8c4ff;
+}
+.knowledge-page .page-heading { min-height: 36px; margin-bottom: 8px; }
+.knowledge-page .page-heading h1 { margin: 0; font-size: 20px; }
 .knowledge-page > :not(.knowledge-panel),
-.knowledge-panel > .tabs {
-  flex-shrink: 0;
-}
+.knowledge-panel > .tabs { flex-shrink: 0; }
 .knowledge-panel {
-  /* 低高度窗口允许正文滚动，保留图谱标签所需的可读空间。 */
-  flex: 1 0 700px;
-  min-height: 700px;
+  flex: 1 1 0;
+  min-height: 0;
   display: flex;
   flex-direction: column;
-  overflow: auto;
+  overflow: visible;
   overflow-anchor: none;
-  scrollbar-gutter: stable;
 }
-.kg-search-note {
-  padding: 8px 14px;
-  color: #9fb7ce;
-  font-size: 12px;
-  line-height: 1.7;
-}
-.kg-heading-tools {
-  flex-wrap: wrap;
-}
-.kg-heading-tools select {
-  width: 145px;
-}
+.kg-heading-tools { flex-wrap: wrap; gap: 8px; }
+.kg-heading-tools .chip { font-size: 11px; padding: 4px 8px; }
+.kg-heading-tools .btn { font-size: 12px; padding: 7px 10px; }
 .kg-context {
   display: flex;
   align-items: center;
-  gap: 15px;
-  margin-bottom: 18px;
-  color: #8fa9c3;
-  font-size: 12px;
+  gap: 8px;
+  margin-bottom: 10px;
+  color: var(--kg-muted);
+  font-size: 11px;
+  line-height: 1.5;
   flex-wrap: wrap;
 }
-.kg-context button:first-of-type {
-  margin-left: auto;
-}
+.kg-context button:first-of-type { margin-left: auto; }
 .kg-workspace {
   display: grid;
-  grid-template-columns: 265px minmax(0, 1fr) 310px;
-  min-height: 650px;
+  grid-template-columns: 212px minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
+  flex: 1 1 0;
+  min-height: 430px;
 }
+.kg-workspace.details-open { grid-template-columns: 212px minmax(0, 1fr) 280px; }
+.kg-filters,
+.kg-detail { min-width: 0; min-height: 0; overflow-y: auto; scrollbar-gutter: stable; }
 .kg-filters {
-  padding: 20px 14px;
-  background: #0d1929;
-  border-right: 1px solid #283c54;
+  padding: 12px 10px;
+  background: var(--kg-surface);
+  border-right: 1px solid var(--kg-border);
 }
-.kg-filters h3 {
-  margin-bottom: 14px;
-}
-/* 分类是横向选择行；表单标签仍沿用原有纵向布局。 */
+.kg-filters h3 { margin: 0 0 8px; font-size: 13px; }
 .kg-category {
   display: flex;
   flex-direction: row;
   align-items: center;
-  gap: 9px;
-  margin: 6px 0;
-  padding: 10px 8px;
-  border: 1px solid #263d56;
+  gap: 6px;
+  margin: 4px 0;
+  padding: 6px;
+  border: 1px solid var(--kg-border);
   border-radius: 5px;
-  background: #102136;
+  background: transparent;
   cursor: pointer;
-  font-size: 12px;
+  font-size: 11px;
 }
-.kg-category:hover {
-  background: #17304a;
-}
-.kg-category-name {
-  flex: 1;
-  min-width: 0;
-}
-.kg-category > .pi {
-  flex-shrink: 0;
-  color: #82bde8;
-}
-.kg-category input {
-  width: 15px;
-  height: 15px;
-  margin: 0;
-  flex-shrink: 0;
-  accent-color: #62b5ed;
-}
-.kg-category small {
-  margin-left: auto;
-  min-width: 22px;
-  text-align: right;
-  font-variant-numeric: tabular-nums;
-  color: #7396b3;
-}
-.kg-filters > .section-gap {
-  margin-top: 18px;
-  padding-top: 16px;
-  border-top: 1px solid #293d52;
-  font-size: 12px;
-}
-.kg-search {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
-  margin: 18px 0;
-}
-.kg-search label {
-  width: 100%;
-  font-size: 12px;
-}
-.kg-search button {
-  margin-left: auto;
-}
-.kg-list-heading {
-  display: flex;
-  justify-content: space-between;
-  border-top: 1px solid #293d52;
-  padding: 14px 0;
-  font-size: 12px;
-  color: #9fb7ce;
-}
+.kg-category:hover,
+.kg-entity:hover { background: var(--kg-hover); }
+.kg-category-name { flex: 1; min-width: 0; }
+.kg-category > .pi { flex-shrink: 0; color: var(--kg-muted); }
+.kg-category input { width: 14px; height: 14px; margin: 0; flex-shrink: 0; accent-color: #3b82f6; }
+.kg-category small { margin-left: auto; min-width: 22px; text-align: right; font-variant-numeric: tabular-nums; color: var(--kg-muted); }
+.kg-filters > .section-gap { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--kg-border); font-size: 11px; }
+.kg-filters select,
+.kg-filters input:not([type='checkbox']) { min-width: 0; width: 100%; font-size: 12px; padding: 7px 8px; }
+.kg-search { display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0; }
+.kg-search label { width: 100%; font-size: 11px; }
+.kg-search button { margin-left: auto; }
+.kg-search-note { padding: 6px 10px; color: var(--kg-muted); font-size: 11px; line-height: 1.5; }
+.kg-list-heading { display: flex; justify-content: space-between; gap: 6px; border-top: 1px solid var(--kg-border); padding: 9px 0; font-size: 11px; color: var(--kg-muted); }
 .kg-entity {
   display: block;
   width: 100%;
-  padding: 12px;
+  padding: 7px 8px;
   text-align: left;
   background: transparent;
-  color: #bed3e6;
+  color: var(--kg-text);
   border: 1px solid transparent;
   border-radius: 5px;
-  margin: 5px 0;
+  margin: 3px 0;
 }
-.kg-entity:hover {
-  background: #152a40;
-}
-.kg-entity.selected {
-  background: #173753;
-  border-color: #39749c;
-}
-.kg-entity strong {
-  font-size: 12px;
-}
-.kg-entity small {
-  display: block;
-  font-size: 10px;
-  color: #789ab7;
-  margin-top: 7px;
-  overflow-wrap: anywhere;
-}
-.kg-pager {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  font-size: 10px;
-  margin-top: 18px;
-  gap: 6px;
-}
-.kg-pager button {
-  font-size: 10px;
-  padding: 6px;
-}
-.kg-stage {
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  position: relative;
-}
-.kg-stage > .knowledge-canvas {
-  flex: 1 1 0;
-}
-.kg-graph-toolbar {
-  display: flex;
-  gap: 8px;
-  padding: 13px 16px;
-  border-bottom: 1px solid #283a51;
-  flex-wrap: wrap;
-}
-.kg-graph-note {
-  font-size: 11px;
-  color: #789ab5;
-  padding: 12px 16px;
-  border-top: 1px solid #283a51;
-}
-.kg-graph-note i {
-  margin-right: 6px;
-}
-.kg-detail {
-  padding: 22px 18px;
-  background: #101d30;
-  border-left: 1px solid #293d53;
-  overflow-wrap: anywhere;
-}
-.kg-detail > small {
-  display: block;
-  color: #7c9bb9;
-  margin-top: 10px;
-}
-.kg-detail h3 {
-  font-size: 17px;
-  line-height: 1.6;
-}
-.kg-description {
-  font-size: 12px;
-  line-height: 1.85;
-  color: #a8bfd4;
-  margin: 14px 0;
-  white-space: pre-wrap;
-}
-.kg-related {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 8px;
-  padding: 12px 0;
-  border-bottom: 1px solid #293c51;
-}
-.kg-related small {
-  font-size: 10px;
-  color: #c4a97c;
-}
-.kg-error {
-  margin: 14px;
-  padding: 12px;
-  color: #ffb6b6;
-  background: #3c2534;
-  border-radius: 5px;
-  line-height: 1.7;
-}
-.kg-progress {
-  position: absolute;
-  top: 63px;
-  left: 16px;
-  z-index: 1;
-  font-size: 11px;
-  color: #a8d3ee;
-}
-.toolbar.spread select {
-  width: 165px;
-}
-.kg-detail .kv dd {
-  white-space: pre-wrap;
-}
-@media (max-width: 1250px) {
-  .kg-workspace {
-    grid-template-columns: 225px minmax(0, 1fr) 265px;
-  }
-  .kg-heading-tools {
-    gap: 8px;
-  }
+.kg-entity.selected { background: var(--kg-selection); border-color: var(--kg-selection-border); }
+.kg-entity strong { font-size: 11px; line-height: 1.5; }
+.kg-entity small { display: block; font-size: 10px; color: var(--kg-muted); margin-top: 3px; overflow-wrap: anywhere; }
+.kg-pager { display: flex; align-items: center; justify-content: space-between; font-size: 10px; margin-top: 10px; gap: 6px; }
+.kg-pager button { font-size: 10px; padding: 5px; }
+.kg-stage { min-width: 0; min-height: 0; display: flex; flex-direction: column; position: relative; }
+.kg-stage > .knowledge-canvas { flex: 1 1 0; min-height: 0; height: auto; }
+.kg-graph-toolbar { display: flex; align-items: center; gap: 6px; padding: 8px 10px; border-bottom: 1px solid var(--kg-border); flex-wrap: wrap; }
+.kg-graph-toolbar .btn { font-size: 11px; padding: 6px 8px; }
+.kg-detail-toggle { margin-left: auto; }
+.kg-graph-note { margin: 0; font-size: 11px; color: var(--kg-muted); padding: 7px 10px; border-top: 1px solid var(--kg-border); }
+.kg-graph-note i { margin-right: 6px; }
+.kg-detail { padding: 12px 14px; background: var(--kg-detail-surface); border-left: 1px solid var(--kg-border); overflow-wrap: anywhere; }
+.kg-detail-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding-bottom: 9px; margin-bottom: 10px; border-bottom: 1px solid var(--kg-border); font-size: 12px; }
+.kg-detail-heading button { font-size: 11px; }
+.kg-detail > small { display: block; color: var(--kg-muted); margin-top: 5px; font-size: 10px; }
+.kg-detail .eyebrow { margin: 0 0 5px; font-size: 10px; color: var(--kg-muted); }
+.kg-detail h3 { margin: 0; font-size: 14px; line-height: 1.5; }
+.kg-detail h4 { font-size: 12px; }
+.kg-detail .section-gap { margin-top: 12px; }
+.kg-detail .kv { grid-template-columns: 72px minmax(0, 1fr); gap: 6px 9px; font-size: 11px; }
+.kg-detail .kv dd { margin: 0; white-space: pre-wrap; }
+.kg-description { font-size: 11px; line-height: 1.7; color: var(--kg-text); margin: 10px 0; white-space: pre-wrap; }
+.kg-related { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; padding: 9px 0; border-bottom: 1px solid var(--kg-border); }
+.kg-related small { font-size: 10px; color: var(--kg-muted); }
+.knowledge-photo { margin: 10px 0; padding: 9px; background: #f5f7fa; border-radius: 6px; color: #304963; }
+.knowledge-photo img { width: 100%; max-height: 120px; object-fit: contain; }
+.knowledge-photo figcaption { margin-top: 6px; font-size: 10px; line-height: 1.5; }
+.knowledge-photo small { display: block; font-size: 10px; color: #60758a; }
+.kg-error { margin: 10px; padding: 10px; color: #ffb6b6; background: #3c2534; border-radius: 5px; line-height: 1.6; }
+.kg-progress { position: absolute; top: 48px; left: 12px; z-index: 1; font-size: 11px; color: var(--kg-muted); }
+.toolbar.spread select { width: 165px; }
+@media (max-width: 1100px) {
+  .kg-workspace { grid-template-columns: 190px minmax(0, 1fr); }
+  .kg-workspace.details-open { grid-template-columns: 190px minmax(0, 1fr) 260px; }
 }
 @media (max-width: 950px) {
-  .kg-workspace {
-    grid-template-columns: 210px minmax(0, 1fr);
-  }
-  .kg-detail {
-    grid-column: 1/-1;
-    border-left: 0;
-    border-top: 1px solid #293d53;
-  }
-}
-</style>
-<style scoped>
-.knowledge-photo { margin:16px 0; padding:14px; background:#f5f7fa; border-radius:8px; color:#304963; }
-.knowledge-photo img { width:100%; max-height:145px; object-fit:contain; }
-.knowledge-photo figcaption { margin-top:9px; font-size:11px; line-height:1.6; }
-.knowledge-photo small { display:block; font-size:10px; color:#60758a; }
-.kg-workspace {
-  flex: 1;
-  min-height: 0;
-  grid-template-rows: minmax(0, 1fr);
-}
-.kg-filters,
-.kg-detail {
-  overflow-y: auto;
-}
-.kg-stage {
-  min-height: 0;
-}
-.kg-stage > .knowledge-canvas {
-  min-height: 0;
-  height: auto;
-}
-@media (max-width: 950px) {
-  .knowledge-page {
-    height: auto;
-  }
-  .knowledge-panel {
-    display: block;
-    flex: none;
-  }
-  .kg-workspace {
-    height: auto;
-    min-height: 440px;
-    grid-template-rows: auto;
-  }
-  .kg-filters,
-  .kg-detail {
-    max-height: 650px;
-  }
+  .knowledge-page { height: auto; min-height: 100%; }
+  .knowledge-panel { flex: none; }
+  .kg-workspace,
+  .kg-workspace.details-open { flex: none; min-height: 0; grid-template-columns: 190px minmax(0, 1fr); grid-template-rows: auto; align-items: start; }
+  .kg-filters { max-height: 560px; }
+  .kg-detail { grid-column: 1 / -1; max-height: none; overflow-y: visible; border-left: 0; border-top: 1px solid var(--kg-border); }
+  .kg-stage > .knowledge-canvas { flex: none; height: auto; }
+  .kg-stage > .knowledge-canvas :deep(.canvas) { flex: 0 0 360px; height: 360px; min-height: 360px; }
 }
 @media (max-width: 600px) {
-  /* 过滤、图谱和详情纵向排列，不再以固定左栏挤压手机画布。 */
-  .knowledge-panel { min-height: 0; }
-  .kg-workspace { grid-template-columns: minmax(0, 1fr); min-height: 0; }
-  .kg-filters,
-  .kg-stage,
-  .kg-detail { min-width: 0; }
-  .kg-filters { max-height: 360px; border-right: 0; border-bottom: 1px solid #283c54; }
-  .kg-detail { grid-column: auto; max-height: none; overflow-y: visible; }
-  .kg-stage > .knowledge-canvas { flex: none; height: auto; }
-  /* 图例和页脚按内容排布，实际绘图区域独立保留稳定高度。 */
-  .kg-stage > .knowledge-canvas :deep(.canvas) { flex: 0 0 360px; height: 360px; min-height: 360px; }
+  .kg-workspace,
+  .kg-workspace.details-open { grid-template-columns: minmax(0, 1fr); min-height: 0; }
+  .kg-filters { max-height: 300px; border-right: 0; border-bottom: 1px solid var(--kg-border); }
+  .kg-detail { grid-column: auto; }
 }
 </style>

@@ -56,7 +56,7 @@ describe('紧凑工作区 CSS/SFC 布局契约（非浏览器验收）', () => {
 
   it.each([320, 390, 600])('%ipx KG过滤/图谱/详情单列，实际canvas具有独立非零高度', width => {
     expect(declarations('KnowledgeView', '.kg-workspace', width)).toMatchObject({ 'grid-template-columns': 'minmax(0, 1fr)', 'min-height': '0' });
-    expect(declarations('KnowledgeView', '.kg-filters', width)).toMatchObject({ 'max-height': '360px', 'overflow-y': 'auto', 'border-right': '0' });
+    expect(declarations('KnowledgeView', '.kg-filters', width)).toMatchObject({ 'max-height': '300px', 'border-right': '0' });
     expect(declarations('KnowledgeView', '.kg-detail', width)).toMatchObject({ 'grid-column': 'auto', 'max-height': 'none', 'overflow-y': 'visible' });
     expect(declarations('KnowledgeView', '.kg-stage > .knowledge-canvas', width)).toMatchObject({ flex: 'none', height: 'auto' });
     expect(declarations('KnowledgeView', '.kg-stage > .knowledge-canvas :deep(.canvas)', width)).toMatchObject({ flex: '0 0 360px', height: '360px', 'min-height': '360px' });
@@ -67,7 +67,8 @@ describe('紧凑工作区 CSS/SFC 布局契约（非浏览器验收）', () => {
     expect(declarations('SituationView', '.situation-main', width).display).toBe('flex');
     expect(declarations('SituationView', '.map-frame', width).height).toBeUndefined();
     expect(declarations('SituationView', '.situation-left', width)['flex-basis']).toBe(width <= 1450 ? '300px' : undefined);
-    expect(declarations('KnowledgeView', '.kg-workspace', width)['grid-template-columns']).toBe(width <= 950 ? '210px minmax(0, 1fr)' : width <= 1250 ? '225px minmax(0, 1fr) 265px' : '265px minmax(0, 1fr) 310px');
-    expect(declarations('KnowledgeView', '.kg-stage > .knowledge-canvas :deep(.canvas)', width)).toEqual({});
+    expect(declarations('KnowledgeView', '.kg-workspace', width)['grid-template-columns']).toBe(width <= 1100 ? '190px minmax(0, 1fr)' : '212px minmax(0, 1fr)');
+    expect(declarations('KnowledgeView', '.kg-workspace.details-open', width)['grid-template-columns']).toBe(width <= 950 ? '190px minmax(0, 1fr)' : width <= 1100 ? '190px minmax(0, 1fr) 260px' : '212px minmax(0, 1fr) 280px');
+    expect(declarations('KnowledgeView', '.kg-stage > .knowledge-canvas :deep(.canvas)', width)).toEqual(width <= 950 ? { flex: '0 0 360px', height: '360px', 'min-height': '360px' } : {});
   });
 });

@@ -3,9 +3,9 @@
     <div class="page-heading">
       <div class="page-title">
         <!-- 未保存状态迁到标题旁，端口维护和导入也沿用同一状态。 -->
-        <h1>资源管理</h1>
+        <h1>{{ embedded ? resourceEmbeddedTitle(route.query.tab) : '资源管理' }}</h1>
         <span
-          v-if="editor.dirty"
+          v-if="editor.dirty && tab === '设备台账'"
           class="chip amber"
           role="status"
           >未保存</span
@@ -69,19 +69,20 @@
       </div>
     </div>
     <p
-      v-if="editor.message"
+      v-if="editor.message && tab === '设备台账'"
       class="notice"
       role="status"
       >{{ editor.message }}</p
     ><p
-      v-if="editor.error"
+      v-if="editor.error && tab === '设备台账'"
       class="notice"
       role="alert"
       >{{ editor.error }}</p
     >
     <ResourceReadStatus v-if="tab === '设备台账'" />
     <!-- 页签属于整个资源工作区，频谱配置不沿用设备目录和统计。 -->
-    <div class="tabs resource-tabs">
+    <div v-if="!embedded || tab === '设备台账'" class="tabs resource-tabs">
+      <template v-if="!embedded">
       <button
         v-for="item in ['设备台账', '规划频点', '频谱接口配置', '频谱观测']"
         :key="item"
@@ -89,6 +90,7 @@
         @click="switchTab(item)"
         >{{ item }}</button
       >
+      </template>
       <div
         v-if="tab === '设备台账'"
         class="resource-summary"
@@ -115,9 +117,20 @@
         :disabled="workspace.frozen.value"
         @select="selectCategory"
       />
-      <section class="panel">
+      <section class="panel ledger-panel">
         <template v-if="workspace.ready.value">
-          <ResourceStatusPanel
+          <div class="resource-status-bar">
+            <p class="resource-status-source" role="status">
+              状态来源：{{ observed ? '构造状态快照 · 非真实遥测' : '台账基线' }}
+              <span v-if="observed"> · {{ statusSync.batch?.source_label ?? '尚未读取同版快照' }}</span>
+            </p>
+            <details class="resource-status-controls" :open="statusControlsOpen"
+              @toggle="statusControlsOpen = ($event.target as HTMLDetailsElement).open"
+              @keydown.esc.stop.prevent="statusControlsOpen = false">
+              <summary class="btn small">设备状态快照<span v-if="statusDirty"> · 未保存导入</span><span v-else-if="statusBusy"> · 处理中</span></summary>
+              <div class="resource-status-content">
+                <div class="toolbar"><strong>设备状态与批次</strong><button class="btn small" @click="statusControlsOpen = false">关闭状态快照</button></div>
+                <ResourceStatusPanel
             ref="statusPanel"
             :services="collaborationHttp.deviceStatuses"
             :enabled="statusEnabled"
@@ -130,6 +143,9 @@
             @clear-snapshot="statusSnapshot = null"
             @dirty="statusDirty = $event"
             @busy="statusBusy = $event" />
+              </div>
+            </details>
+          </div>
           <ResourceLedgerFilters
             v-model:query="query"
             v-model:state="state"
@@ -246,7 +262,7 @@
       </section>
     </div>
     <FrequencyResourcePanel
-      v-if="frequencyVisited"
+      v-if="frequencyVisited && (!embedded || tab === '规划频点')"
       v-show="tab === '规划频点'"
       ref="frequencyPanel"
       :active="tab === '规划频点'"
@@ -256,19 +272,20 @@
       @resource-changed="frequencyChanged"
     />
     <SpectrumConfigPanel
-      v-if="spectrumVisited"
+      v-if="spectrumVisited && (!embedded || tab === '频谱接口配置')"
       v-show="tab === '频谱接口配置'"
       ref="spectrumPanel"
       :services="collaborationHttp.spectrumSources"
       :can-view="auth.can('resources.view') && !auth.blocked"
       :can-edit="auth.can('resources.spectrum.edit') && !auth.blocked"
       :session-generation="sessionGeneration"
+      :allow-observation-selection="!embedded"
       @dirty-change="spectrumDirty = $event"
       @busy-change="spectrumBusy = $event"
       @select-source="selectSpectrumSource"
     />
     <SpectrumMonitoringPanel
-      v-if="monitoringVisited"
+      v-if="monitoringVisited && (!embedded || tab === '频谱观测')"
       v-show="tab === '频谱观测'"
       ref="monitoringPanel"
       :services="collaborationHttp.observations"
@@ -282,6 +299,7 @@
       @busy-change="monitoringBusy = $event"
     />
     <ObservationStatusReferenceDrawer
+      v-if="!embedded || tab === '频谱观测'"
       v-model:visible="observationReferenceVisible"
       :target="observationReferenceTarget"
       :services="observationReferenceServices"
@@ -290,6 +308,7 @@
       :current-resource-revision="read.workspace?.revision"
     />
     <SpectrumObservationImportDialog
+      v-if="!embedded"
       ref="observationImport"
       v-model:visible="observationImportOpen"
       :services="collaborationHttp.observations"
@@ -302,6 +321,7 @@
       @committed="observationImported"
     />
     <p v-if="hostMessage" class="notice" role="status">{{ hostMessage }}</p>
+    <template v-if="!embedded || tab === '设备台账'">
     <!-- 台账上下文生效后才展示详情，避免 GIS 遗留选中项瞬时打开空遮罩。 -->
     <AppDrawer
       :visible="
@@ -458,12 +478,13 @@
       :request="editor.decision"
       @answer="editor.answer"
     />
+    </template>
   </div>
 </template>
 <script setup lang="ts">
 import { computed, inject, ref, watch, onBeforeUnmount } from 'vue';
 import { useRoute, useRouter, onBeforeRouteUpdate } from 'vue-router';
-import { resourceTabLabel } from '../config/module-tabs';
+import { resourceTabLabel, resourceEmbeddedTitle } from '../config/module-tabs';
 import { useAuthStore } from '../stores/auth';
 import { useResourceLedgerWorkspace } from '../composables/useResourceLedgerWorkspace';
 import { useResourceLedgerLeaveGuard } from '../composables/useResourceLedgerLeaveGuard';
@@ -515,18 +536,21 @@ import { captureObservationStatusReference, type ObservationStatusReferenceTarge
 import SpectrumObservationImportDialog from '../components/SpectrumObservationImportDialog.vue';
 const auth = useAuthStore(),
   router = useRouter(),
-  route = useRoute(),
-  workspace = useResourceLedgerWorkspace();
+  route = useRoute();
+const embedded = inject('embeddedModule', false);
+const tab = ref(resourceTabLabel(route.query.tab));
+const ledgerEnabled = computed(() => !embedded || tab.value === '设备台账');
+const workspace = useResourceLedgerWorkspace(ledgerEnabled);
 const editor = useResourceLedgerEditStore(),
   statusSync = useResourceStatusStore(),
   configuration = useDeviceConfigurationAcceptanceStore(),
   frequencyStore = useFrequencyResourceStore(),
   preview = usePreviewStore();
 const read = workspace.read,
-  tab = ref(resourceTabLabel(route.query.tab)),
   exportOpen = ref(false),
   selectedIds = ref<string[]>([]);
 const hostMessage = ref('');
+const statusControlsOpen = ref(false);
 const frequencyPanel = ref<InstanceType<typeof FrequencyResourcePanel> | null>(null),
   spectrumPanel = ref<InstanceType<typeof SpectrumConfigPanel> | null>(null),
   statusPanel = ref<InstanceType<typeof ResourceStatusPanel> | null>(null),
@@ -589,13 +613,14 @@ async function frequencyChanged(value: FrequencyResourceChange) {
   if (!value.changed) return;
   const session = auth.generation;
   preview.invalidateResources();
+  if (embedded) { hostMessage.value = '频点变更已保存。'; return; }
   const refreshed = await read.refresh();
   if (session === auth.generation) hostMessage.value = refreshed
     ? '频点变更已保存，资源已重新读取。' : '频点变更已保存，资源刷新失败，请刷新资源。';
 }
 const leaveGuard = useResourceLedgerLeaveGuard(() => [
   { dirty: () => statusDirty.value || !!statusSync.pendingImport, busy: () => statusBusy.value,
-    leave: () => statusPanel.value?.requestLeave() ?? !statusSync.pendingImport },
+    leave: leaveStatusInputs },
   { dirty: () => configuration.dirty || !!configuration.pending, busy: () => configuration.busy,
     leave: leaveConfiguration },
   { dirty: () => spectrumDirty.value, busy: () => spectrumBusy.value,
@@ -612,6 +637,11 @@ const leaveGuard = useResourceLedgerLeaveGuard(() => [
   { dirty: () => observationDirty.value, busy: () => observationBusy.value || sourceBusy.value,
     leave: () => observationImport.value?.requestLeave() ?? true, clear: () => observationImport.value?.clearForSession() },
 ]);
+async function leaveStatusInputs() {
+  const accepted = await (statusPanel.value?.requestLeave() ?? !statusSync.pendingImport);
+  if (!accepted) statusControlsOpen.value = true;
+  return accepted;
+}
 function leaveConfiguration() {
   if (configuration.pending || configuration.dirty || configuration.busy) {
     configuration.notice = '请先核实原请求或明确放弃未提交输入；停止等待不代表取消受理。';
@@ -791,7 +821,7 @@ const appliedSummary = computed(() =>
 );
 const filtering = ref(false);
 const queryBusy = computed(() => filtering.value || !!read.pending.ledger || read.refreshing);
-const selectionDisabled = computed(() => workspace.frozen.value || queryBusy.value || editor.busy);
+const selectionDisabled = computed(() => !ledgerEnabled.value || workspace.frozen.value || queryBusy.value || editor.busy);
 // 参数维护和上下架使用独立权限，不开放导入、新增或端口维护。
 const canEditParameters = computed(() => editor.canEdit && !selectionDisabled.value);
 const canMaintain = computed(() => canEditParameters.value && editor.canMaintainAll);
@@ -831,14 +861,14 @@ function queueQuery() {
   selectedIds.value = [];
   clearTimeout(queryTimer);
   read.cancelGroup('ledger');
-  if (workspace.frozen.value || !read.workspace) {
+  if (!ledgerEnabled.value || workspace.frozen.value || !read.workspace) {
     filtering.value = false;
     return;
   }
   filtering.value = true;
   queryTimer = setTimeout(() => {
     filtering.value = false;
-    if (!workspace.frozen.value) void read.loadLedger({ ...requestedFilter.value, pageNum: 1 });
+    if (ledgerEnabled.value && !workspace.frozen.value) void read.loadLedger({ ...requestedFilter.value, pageNum: 1 });
   }, 250);
 }
 watch(requestedFilter, queueQuery, { deep: true });
@@ -907,9 +937,9 @@ watch(
   { flush: 'sync' },
 );
 async function configurationAction(action: () => unknown | Promise<unknown>) {
-  if (workspace.frozen.value) return false;
+  if (!ledgerEnabled.value || workspace.frozen.value) return false;
   const session = auth.generation;
-  if (!(await statusPanel.value?.requestLeave() ?? true) || !leaveConfiguration()) return false;
+  if (!(await leaveStatusInputs()) || !leaveConfiguration()) return false;
   if (session !== auth.generation || auth.blocked) return false;
   const result = await action();
   if (session !== auth.generation || auth.blocked) return false;
@@ -1034,6 +1064,8 @@ async function switchTab(value: string) {
   if (!(await leaveGuard.leave(true)) || session !== auth.generation || auth.blocked)
     return false;
   closeObservationReference();
+  statusControlsOpen.value = false;
+  hostMessage.value = ''; exportOpen.value = false;
   editor.clearForSession();
   closeConfigurationHistory();
   spectrumPanel.value?.stop();
@@ -1078,6 +1110,7 @@ function observationImported(value: ObservationImportReceipt) {
   hostMessage.value = '观测集已持久化，可在频谱观测页查看历史帧。';
 }
 watch(sessionGeneration, () => {
+  statusControlsOpen.value = false;
   closeObservationReference();
   closeConfigurationHistory(); sourceSerial++; sourceControl?.abort(); sourceControl = null; sourceBusy.value = false;
   configurationOpen.value = false; observationImportOpen.value = false; observationSource.value = null;
@@ -1138,6 +1171,14 @@ const columns = [
 .split {
   grid-template-columns: 260px minmax(0, 1fr);
 }
+.ledger-panel { overflow: visible; }
+.resource-status-bar { position: relative; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; padding: 12px 16px; }
+.resource-status-source { flex: 1 1 220px; min-width: 0; margin: 0; color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
+.resource-status-controls { margin-left: auto; }
+.resource-status-controls > summary { display: flex; align-items: center; list-style: none; cursor: pointer; }
+.resource-status-controls > summary::-webkit-details-marker { display: none; }
+.resource-status-content { position: absolute; top: calc(100% + 4px); right: 0; z-index: 60; width: min(680px, 100%); max-height: min(70vh, 620px); overflow: auto; box-sizing: border-box; padding: 16px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel, #101d32); box-shadow: 0 12px 32px rgb(0 0 0 / 20%); }
+.resource-status-content > .toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 @media (max-width: 800px) {
   /* 小屏顺序排列，不能把业务区压进侧栏右边的窄缝。 */
   .split {
