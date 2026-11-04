@@ -130,6 +130,13 @@ async function expand(root: HostNode, name: string) {
   (target.props.onToggle as (event: unknown) => void)({ currentTarget: { open: true } }); await settle();
   return target;
 }
+async function expandRelation(root: HostNode, id: string) {
+  const target = find(root, n => n.props['data-relation-id'] === id)!;
+  expect(target, id).toBeDefined();
+  (target.props.onToggle as (event: unknown) => void)({ currentTarget: { open: true } });
+  await settle();
+  return target;
+}
 
 describe('知识面板中文纯显示', () => {
   it('缓存选项仍跟随增删、重命名、多个关系端点和忙态更新', async () => {
@@ -144,7 +151,7 @@ describe('知识面板中文纯显示', () => {
     expect(choices().some(n => n.props.value === 'SPARE')).toBe(false);
     store.draft!.entities[1]!.name = '新名称'; await settle();
     const cards = () => all(root, n => n.tag === 'details' && String(n.props.id).startsWith('knowledge-row-') && String(n.props.id).includes('new:second'));
-    const second = cards()[0]!;
+    const second = await expandRelation(root, 'new:second');
     expect(field(second, '头实体').props.value).toBe('SPARE');
     expect(field(second, '尾实体').props.value).toBe(item.id);
     (field(second, '头实体').props.onChange as (event: unknown) => void)({ target: { value: item.id } });
@@ -192,6 +199,7 @@ describe('知识面板中文纯显示', () => {
 
   it('维护字段显示中文，选项仍使用原ID；打开与未触碰保存请求不改变草稿', async () => {
     const { store } = fixture(), before = knowledgeClone(store.draft), root = await mount(KnowledgeChangeDrawer);
+    await expandRelation(root, store.draft!.relations[0].id);
     expect(field(root, '名称').props.value).toBe('设备型号 DM-0001');
     expect(field(root, '描述').props.value).toBe('正常');
     expect(field(root, '来源说明').props.value).toBe(knowledgeSource(before!.entities[0].source));

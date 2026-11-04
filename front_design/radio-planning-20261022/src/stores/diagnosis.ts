@@ -55,6 +55,7 @@ export const useDiagnosisStore = defineStore('diagnosis', () => {
   let resolver: ((value: Decision) => void) | undefined;
   let timer: ReturnType<typeof setTimeout> | undefined, generation = 0, polling = false, queryPending = false,querySerial=0,loadSerial=0,importSerial=0,exportSerial=0,saveSerial=0,cancelSerial=0,stageRetries=0;
   let pending: { signature: string; requestId: string } | null = null;
+  let mutationSerial = 0;
   // 影响提交的回执确认前，工作区版本未知；保留原请求以便原号核实。
   type ImpactOperation = { id: string; session: number; owner: NonNullable<typeof workspace.value>; input: { runId: string; baseRevision: string; requestId: string } };
   const impactUnconfirmed = ref(false);
@@ -247,11 +248,22 @@ export const useDiagnosisStore = defineStore('diagnosis', () => {
     } catch (reason) { if (session === auth.generation) report(reason); return false; } finally { if (saving === saveSerial) busy.value = false; }
   }
   async function archive(id: string,archived: boolean) {
-    if (!auth.can('diagnosis.scenario') || !(await allowDiscard())) return;
-    if (await ask({title:archived ? '归档场景' : '恢复场景',message:'仅改变活动列表状态，场景版本和历史诊断继续保留。',saveLabel:archived ? '归档' : '恢复'}) !== 'save') return;
+    if (!auth.can('diagnosis.scenario') || locked.value || !workspace.value) return;
+    const session=auth.generation,owner=workspace.value,operation=++mutationSerial;
+    const ownsBusy=()=>operation===mutationSerial&&workspace.value===owner;
+    const current=()=>ownsBusy()&&session===auth.generation&&auth.can('diagnosis.scenario');
+    const discard=dirty.value;
+    if (!(await allowDiscard(true)) || !current()) return;
+    if(discard)discardDraft();
+    if (await ask({title:archived ? '归档场景' : '恢复场景',message:'仅改变活动列表状态，场景版本和历史诊断继续保留。',saveLabel:archived ? '归档' : '恢复'}) !== 'save' || !current() || locked.value) return;
     busy.value = true;
-    try { const payload = {scenarioId:id,archived}; accept(await previewService.archiveDiagnosisReceipt({...request('archive',payload),...payload}));if(scenarioId.value===id)selectedArchived.value=archived; try{await refreshLists('scenarios');}catch(e){notice.value='场景状态已更新，目录刷新失败，请重试读取';} }
-    catch (reason) { report(reason); } finally { busy.value = false; }
+    try {
+      const payload = {scenarioId:id,archived},next=await previewService.archiveDiagnosisReceipt({...request('archive',payload),...payload});
+      if(!current())return;
+      accept(next);if(scenarioId.value===id)selectedArchived.value=archived;
+      try{await refreshLists('scenarios');}catch(e){if(current())notice.value='场景状态已更新，目录刷新失败，请重试读取';}
+    }
+    catch (reason) { if(current())report(reason); } finally { if(ownsBusy())busy.value = false; }
   }
   function schedule() {
     if (timer) clearTimeout(timer);
@@ -312,19 +324,30 @@ export const useDiagnosisStore = defineStore('diagnosis', () => {
   async function submit() {
     if (!canExecute.value || locked.value) return;
     // 保留无现象的注入影响分析，但提交前必须明确其不能识别根因。
-    const session = auth.generation, signature = JSON.stringify(draft.value), version = versionId.value;
+    const session = auth.generation, signature = JSON.stringify(draft.value), version = versionId.value,owner=workspace.value,operation=++mutationSerial;
+    const ownsBusy=()=>operation===mutationSerial&&workspace.value===owner;
+    const current=()=>ownsBusy()&&session===auth.generation&&auth.can('diagnosis.execute');
     const missing = draft.value?.faults.filter(fault => !fault.symptomIds.length).length ?? 0;
     if (missing && await ask({title:'故障现象不足',message:`有 ${missing} 个故障对象未填写观察现象，无法据此识别其根因；这些对象将仅按注入标记分析影响。`,saveLabel:'继续分析影响',cancelLabel:'返回补填现象'}) !== 'save') return;
     // 确认期间身份、草稿或版本变化时，不沿用旧确认提交新输入。
-    if (session !== auth.generation || signature !== JSON.stringify(draft.value) || version !== versionId.value || !canExecute.value || locked.value) return;
+    if (!current() || signature !== JSON.stringify(draft.value) || version !== versionId.value || !canExecute.value || locked.value) return;
     if ((dirty.value || !versionId.value) && !(await save())) return;
+    // 保存及确认可能跨越身份变化；不能把原确认继续用于新的场景现场。
+    if(!current()||signature!==JSON.stringify(draft.value)||!canExecute.value||locked.value)return;
     busy.value = true;
+    let submittedId='';
     try {
       // 演示能力关闭后，即使旧控件残留值也不能进入普通业务请求。
       const payload = {scenarioVersionId:versionId.value,...(demoEnabled.value ? {demo:demo.value} : {})};
       const next = await previewService.submitDiagnosisReceipt({...request('submit',payload),...payload});
-      accept(next); clearSelection(); runId.value = next.objectId; draft.value = null; baseline.value = null; notice.value = '诊断已提交，网络与场景快照已冻结';try{await refreshLists('history');}catch(e){notice.value='诊断已提交，运行目录读取失败，请重试读取；无需重复提交';}
-    } catch (reason) { report(reason); } finally { busy.value = false; if (runId.value) await startPolling(); }
+      if(!current())return;
+      accept(next); clearSelection(); submittedId=next.objectId;runId.value = submittedId; draft.value = null; baseline.value = null; notice.value = '诊断已提交，网络与场景快照已冻结';
+      try{await refreshLists('history');}catch(e){if(current()&&runId.value===submittedId)notice.value='诊断已提交，运行目录读取失败，请重试读取；无需重复提交';}
+    } catch (reason) { if(current())report(reason); } finally {
+      // 失权只隔离回执；本操作结束仍释放自己的锁，不能锁住同身份恢复后的现场。
+      if(ownsBusy())busy.value = false;
+      if(current()&&submittedId&&runId.value===submittedId)await startPolling();
+    }
   }
   async function cancel() {
     const id=runId.value,session=auth.generation;
@@ -393,8 +416,17 @@ export const useDiagnosisStore = defineStore('diagnosis', () => {
   }
   async function commitImport() {
     if (!auth.can('diagnosis.scenario') || !importPreview.value || importPreview.value.issues.length || locked.value) return false; busy.value = true; importError.value = '';
-    try { const drafts = clone(importPreview.value.drafts); accept(await previewService.importDiagnosisReceipt({...request('import',drafts),drafts})); importPreview.value = null; notice.value = '全部场景已导入，未覆盖已有场景';try{await refreshLists('scenarios');}catch(e){notice.value='场景已导入，目录刷新失败，请重试读取';} return true; }
-    catch (reason) { importError.value=reason instanceof Error ? reason.message : '场景导入失败'; return false; } finally { busy.value = false; }
+    const session=auth.generation,owner=workspace.value,preview=importPreview.value,operation=++mutationSerial;
+    const ownsBusy=()=>operation===mutationSerial&&workspace.value===owner;
+    const current=()=>ownsBusy()&&session===auth.generation&&auth.can('diagnosis.scenario');
+    try {
+      const drafts = clone(preview.drafts),next=await previewService.importDiagnosisReceipt({...request('import',drafts),drafts});
+      if(!current()||importPreview.value!==preview)return false;
+      accept(next); importPreview.value = null; notice.value = '全部场景已导入，未覆盖已有场景';
+      try{await refreshLists('scenarios');}catch(e){if(current())notice.value='场景已导入，目录刷新失败，请重试读取';}
+      return current();
+    }
+    catch (reason) { if(current())importError.value=reason instanceof Error ? reason.message : '场景导入失败'; return false; } finally { if(ownsBusy())busy.value = false; }
   }
   async function download(format: ReportFormat | 'xlsx' | 'png',filters = '') {
     if (!auth.can('diagnosis.export') || !record.value || exporting.value) return;
@@ -425,7 +457,7 @@ export const useDiagnosisStore = defineStore('diagnosis', () => {
     try { await previewService.resetDiagnosisReceipt(workspace.value?.revision ?? null); const loaded=await previewService.loadDiagnosisContext({signal:requests.signal('metadata')}); clearSelection(); draft.value = null; baseline.value = null; formDirty.value = false; importPreview.value = null; undoStack.value = []; redoStack.value = []; pending = null; hydrate(loaded); if(workspace.value)await refreshLists(); error.value = ''; notice.value = '诊断演示数据已重置'; }
     catch (reason) { report(reason); } finally { busy.value = false; }
   }
-  function clearForSession(){cancelSerial++;cancelIntent=null;unresolvedImpact=null;impactWrite=null;impactUnconfirmed.value=false;capabilities.value={};contextOrigin.value='UNKNOWN';selectedArchived.value=false;importError.value='';exportError.value='';impactExportError.value='';exportTarget.value=null;cancelAwaitingRefresh.value=false;scenarioQueryError.value='';historyQueryError.value='';requests.stop();scenarioListSerial++;historyListSerial++;detailSerial++;selectedDetail.value=null;sourceNetwork.value=null;stageResult.value=null;stageKey='';scenarioPage.value=1;scenarioPageSize.value=20;historyPage.value=1;historyPageSize.value=20;scenarioTotal.value=0;historyTotal.value=0;showArchived.value=false;loadSerial++;importSerial++;exportSerial++;querySerial++;saveSerial++;queryPending=false;importing.value=false;exporting.value=false;busy.value=false;stopPolling();answer('cancel');gisHandoff.value=null;workspace.value=null;presets.value=[];legacy.value=[];sources.value={plans:[],error:null};symptoms.value=[];legacyInterferenceIds.value=[];draft.value=null;baseline.value=null;scenarioId.value=null;versionId.value='';runId.value='';view.value=null;record.value=null;undoStack.value=[];redoStack.value=[];formDirty.value=false;importPreview.value=null;demo.value='normal';loading.value=false;loadError.value='';error.value='';queryError.value='';notice.value='';issues.value=[];pending=null;}
+  function clearForSession(){mutationSerial++;cancelSerial++;cancelIntent=null;unresolvedImpact=null;impactWrite=null;impactUnconfirmed.value=false;capabilities.value={};contextOrigin.value='UNKNOWN';selectedArchived.value=false;importError.value='';exportError.value='';impactExportError.value='';exportTarget.value=null;cancelAwaitingRefresh.value=false;scenarioQueryError.value='';historyQueryError.value='';requests.stop();scenarioListSerial++;historyListSerial++;detailSerial++;selectedDetail.value=null;sourceNetwork.value=null;stageResult.value=null;stageKey='';scenarioPage.value=1;scenarioPageSize.value=20;historyPage.value=1;historyPageSize.value=20;scenarioTotal.value=0;historyTotal.value=0;showArchived.value=false;loadSerial++;importSerial++;exportSerial++;querySerial++;saveSerial++;queryPending=false;importing.value=false;exporting.value=false;busy.value=false;stopPolling();answer('cancel');gisHandoff.value=null;workspace.value=null;presets.value=[];legacy.value=[];sources.value={plans:[],error:null};symptoms.value=[];legacyInterferenceIds.value=[];draft.value=null;baseline.value=null;scenarioId.value=null;versionId.value='';runId.value='';view.value=null;record.value=null;undoStack.value=[];redoStack.value=[];formDirty.value=false;importPreview.value=null;demo.value='normal';loading.value=false;loadError.value='';error.value='';queryError.value='';notice.value='';issues.value=[];pending=null;}
   return { demoEnabled,dataOrigin,selectedArchived,importError,exportError,impactExportError,exportTarget,cancelAwaitingRefresh,scenarioQueryError,historyQueryError,scenarioPage,scenarioPageSize,scenarioTotal,showArchived,historyPage,historyPageSize,historyTotal,queryScenarios,queryHistory,clearForSession,workspace,presets,legacy,sources,symptoms,interferenceIds,draft,baseline,scenarioId,versionId,runId,view,record,undoStack,redoStack,formDirty,importPreview,demo,loading,busy,exporting,importing,loadError,error,queryError,notice,issues,decision,dirty,running,selectedVersion,network,canEdit,canExecute,locked,result,impactReady,availablePresets,
     ask,answer,prepareGisEditing,allowsGisTransfer,acceptGisTransfer,clearGisTransfer,discardDraft,allowDiscard,updateDraft,applyFaults,undo,redo,newScenario,switchPlan,selectVersion,copyVersion,applyPreset,save,archive,query,startPolling,stopPolling,selectRun,selectLegacy,submit,cancel,refreshSources,load,reload,previewImport,commitImport,download,template,reset };
 });

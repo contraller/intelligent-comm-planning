@@ -250,12 +250,15 @@
         :id="'knowledge-row-' + r.id"
         :key="r.id"
         class="edit-card"
-        open
+        :data-relation-id="r.id"
+        :open="activeRelationId === r.id"
+        @toggle="toggleRelation(r, $event)"
       >
         <summary>关系 {{ i + 1 }} · {{ r.id.startsWith('new:') ? '待保存' : r.id }}</summary>
-        <div class="form-grid section-gap">
+        <div v-if="activeRelationId === r.id" class="form-grid section-gap">
           <label class="full"
             >头实体<KnowledgeEndpointSelect
+              :ref="el => rememberField(r.id, 'head', el)"
               v-model="r.head"
               :options="endpoints"
               :disabled="locked"
@@ -263,6 +266,7 @@
           >
           <label class="full"
             >关系类型<select
+              :ref="el => rememberField(r.id, 'type', el)"
               v-model="r.type"
               :disabled="locked"
               ><option
@@ -275,6 +279,7 @@
           >
           <label class="full"
             >尾实体<KnowledgeEndpointSelect
+              :ref="el => rememberField(r.id, 'tail', el)"
               v-model="r.tail"
               :options="endpoints"
               :disabled="locked"
@@ -282,6 +287,7 @@
           >
           <label
             >权重（可空）<input
+              :ref="el => rememberField(r.id, 'weight', el)"
               :value="r.weight ?? ''"
               type="number"
               min="0"
@@ -305,7 +311,7 @@
               @input="!locked && (r.source = ($event.target as HTMLInputElement).value)"
           /></label> </div
         ><button
-          v-if="!locked && canRemove(r.id)"
+          v-if="activeRelationId === r.id && !locked && canRemove(r.id)"
           class="text-link section-gap"
           @click="remove('relations', r.id)"
           >移除未保存行</button
@@ -441,7 +447,7 @@ import { computed, nextTick, ref, watch } from 'vue';
 import { useKnowledgeStore } from '../stores/knowledge';
 import { knowledgeClone } from '../services/knowledge-validation';
 import { knowledgeEditDifferences, knowledgeEditIndex } from '../services/knowledge-edit-preview';
-import type { KnowledgeEntity } from '../types/knowledge';
+import type { KnowledgeEntity, KnowledgeRelation } from '../types/knowledge';
 import {
   describeKnowledge as describe,
   knowledgeAttributeName,
@@ -462,10 +468,44 @@ import { canSelfReviewKnowledge } from '../services/knowledge-identity';
 const store = useKnowledgeStore();
 const errorSummary = ref<HTMLElement | null>(null);
 const fieldElements = new Map<string, HTMLElement>();
+// 关系摘要与草稿始终保留，只为当前一条关系挂载两套实体选项。
+const activeRelationId = ref<string | null>(null);
+let focusSerial = 0;
 function rememberField(id: string, field: string, element: unknown) {
   const key = id + ':' + field;
-  if (element) fieldElements.set(key, element as HTMLElement);
+  const input = (element as { $el?: HTMLElement } | null)?.$el ?? element;
+  if (input) fieldElements.set(key, input as HTMLElement);
   else fieldElements.delete(key);
+}
+watch(
+  () => [store.draft, store.drawerOpen] as const,
+  () => {
+    // 包括保存分配新编号后的规范化草稿；不按数组位置猜测新条目身份。
+    activeRelationId.value = null;
+    focusSerial++;
+    fieldElements.clear();
+  },
+  { flush: 'sync' },
+);
+watch(
+  () => store.draft?.relations.map(r => r.id),
+  ids => {
+    if (activeRelationId.value && !ids?.includes(activeRelationId.value)) {
+      activeRelationId.value = null;
+      focusSerial++;
+    }
+  },
+);
+function toggleRelation(relation: KnowledgeRelation, event: Event) {
+  if (!store.drawerOpen || !store.draft?.relations.includes(relation)) return;
+  const open = (event.currentTarget as HTMLDetailsElement).open;
+  if (open && activeRelationId.value !== relation.id) {
+    activeRelationId.value = relation.id;
+    focusSerial++;
+  } else if (!open && activeRelationId.value === relation.id) {
+    activeRelationId.value = null;
+    focusSerial++;
+  }
 }
 function showSaveError() {
   errorSummary.value?.scrollIntoView?.({ block: 'start', behavior: 'auto' });
@@ -555,14 +595,16 @@ function addEntity() {
 }
 function addRelation() {
   if (!store.draft || locked.value) return;
+  const id = 'new:' + randomUuid();
   store.draft.relations.push({
-    id: 'new:' + randomUuid(),
+    id,
     head: '',
     tail: '',
     type: store.catalog.relationTypes[0].id,
     weight: null,
     source: '',
   });
+  void locate(id, 'head');
 }
 function editExisting(kind: 'entities' | 'relations', id: string) {
   if (!store.draft || !store.base || !id || locked.value) return;
@@ -574,6 +616,7 @@ function editExisting(kind: 'entities' | 'relations', id: string) {
     const r = store.base.relations.find((r) => r.id === id);
     if (r && !store.draft.relations.some((x) => x.id === id))
       store.draft.relations.push(knowledgeClone(r));
+    if (r) void locate(id, 'head');
   }
   addEntityId.value = '';
   addRelationId.value = '';
@@ -608,12 +651,20 @@ function remove(kind: 'entities' | 'relations', id: string) {
     else store.draft.relations = store.draft.relations.filter((r) => r.id !== id);
   }
 }
-function locate(id: string, field?: string) {
-  const row = document.getElementById('knowledge-row-' + id);
-  // details可能已由用户折叠，先展开再定位原输入，不建立另一份表单状态。
+async function locate(id: string, field?: string) {
+  const draft = store.draft, serial = ++focusSerial;
+  if (!draft || !store.drawerOpen) return;
+  const relation = draft.relations.some(r => r.id === id);
+  if (relation) activeRelationId.value = id;
+  // 等待懒挂载的原字段完成 ref 注册，再定位；连续定位只执行最后一次。
+  await nextTick();
+  if (serial !== focusSerial || draft !== store.draft || !store.drawerOpen
+    || (relation && activeRelationId.value !== id)) return;
+  const row = document.getElementById?.('knowledge-row-' + id);
   if (row?.tagName === 'DETAILS') (row as HTMLDetailsElement).open = true;
-  row?.scrollIntoView({ block: 'center', behavior: 'auto' });
-  const input = field ? fieldElements.get(id + ':' + field) : undefined;
+  row?.scrollIntoView?.({ block: 'center', behavior: 'auto' });
+  const targetField = relation && (!field || field === 'endpoints') ? 'head' : field;
+  const input = targetField ? fieldElements.get(id + ':' + targetField) : undefined;
   input?.focus?.({ preventScroll: true });
 }
 </script>

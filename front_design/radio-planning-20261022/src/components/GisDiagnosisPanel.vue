@@ -56,7 +56,7 @@
         ><dd>{{ summary.interruptedNodeCount }} / {{ summary.degradedNodeCount }}</dd
         ><dt>受影响链路</dt><dd>{{ summary.affectedLinkCount }}</dd
         ><dt>带宽损失</dt><dd>{{ summary.totalBandwidthLossKbps }} kbps</dd><dt>受影响需求</dt
-        ><dd>{{ summary.affectedDemandIds.join('、') || '服务返回空集合' }}</dd></dl
+        ><dd>{{ summary.affectedDemandIds.join('、') || '无' }}</dd></dl
       >
       <p
         v-else
