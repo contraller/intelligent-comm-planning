@@ -11,9 +11,7 @@
     "test": "vitest run",
     "format:check": "node node_modules/prettier/bin/prettier.cjs --check \"src/**/*.vue\"",
     "lint:vue": "node node_modules/eslint/bin/eslint.js \"src/**/*.vue\"",
-    "prepare:assets": "node scripts/prepare-demo-assets.mjs",
-    "prepare:road-tiles": "node scripts/prepare-road-tiles.mjs",
-    "prepare:report-font": "node scripts/prepare-report-font.mjs"
+    "prepare:road-tiles": "node scripts/prepare-road-tiles.mjs"
   },
   "prettier": {
     "tabWidth": 2,
