@@ -3,6 +3,8 @@ import { h, nextTick, ssrContextKey, type App } from 'vue';
 import { createPinia, disposePinia, setActivePinia } from 'pinia';
 import { createMemoryHistory, createRouter, RouterView } from 'vue-router';
 import ResourcesView from '../src/views/ResourcesView.vue';
+import SpectrumView from '../src/views/SpectrumView.vue';
+import { httpService } from '../src/services/http';
 import { previewService } from '../src/services';
 import { createMockService } from '../src/services/mock';
 import { usePreviewStore } from '../src/stores/preview';
@@ -20,7 +22,7 @@ const transport = vi.hoisted(() => ({
   deviceStatuses: { getSnapshot: vi.fn(), queryDevices: vi.fn(), importSnapshot: vi.fn() },
   frequencies: {}, spectrumSources: {}, deviceTraces: {}, deviceConfigurations: {},
 }));
-const panels = vi.hoisted(() => ({ monitorLeave: vi.fn(async () => true), monitorStop: vi.fn(), monitorClear: vi.fn() }));
+const panels = vi.hoisted(() => ({ monitorLeave: vi.fn(async () => true), monitorStop: vi.fn(), monitorClear: vi.fn(), monitorActivate: vi.fn() }));
 vi.mock('../src/services/http', async importOriginal => {
   const actual = await importOriginal<typeof import('../src/services/http')>();
   return { ...actual, collaborationHttp: transport };
@@ -31,7 +33,8 @@ vi.mock('../src/components/SpectrumMonitoringPanel.vue', async () => {
     props: ['services', 'canView', 'canImport', 'sessionGeneration', 'initialSelection'],
     emits: ['select-status-ref', 'select-dataset', 'dirty-change', 'busy-change'],
     setup(props, { emit, expose }) {
-      expose({ requestLeave: panels.monitorLeave, stop: panels.monitorStop, clearForSession: panels.monitorClear });
+      expose({ requestLeave: panels.monitorLeave, stop: panels.monitorStop, clearForSession: panels.monitorClear,
+        finishLeave: () => { panels.monitorStop(); return true; }, activate: panels.monitorActivate });
       return () => h('observation-monitor-probe', { ...props,
         onReference: (value: Target) => emit('select-status-ref', value),
         onDataset: (value: unknown) => emit('select-dataset', value),
@@ -74,7 +77,7 @@ vi.mock('../src/components/ResourceLedgerTree.vue', () => ({ default: { render: 
 vi.mock('../src/components/ResourceLedgerFilters.vue', () => ({ default: { render: () => null } }));
 vi.mock('../src/components/AppTable.vue', () => ({ default: { render: () => null } }));
 vi.mock('../src/components/SpectrumConfigPanel.vue', () => ({ default: { render: () => null } }));
-vi.mock('../src/components/FrequencyResourcePanel.vue', () => ({ default: { render: () => null } }));
+vi.mock('../src/components/FrequencyResourcePanel.vue', async () => { const { defineComponent } = await import('vue'); return { default: defineComponent({ setup(_props, { expose }) { expose({ requestLeave: async () => true, stopReading() {} }); return () => null; } }) }; });
 vi.mock('../src/components/SpectrumObservationImportDialog.vue', async () => {
   const { defineComponent } = await import('vue');
   return { default: defineComponent({ setup(_props, { expose }) {
@@ -89,6 +92,7 @@ vi.mock('../src/components/AppDrawer.vue', async () => {
 vi.mock('../src/components/DecisionDialog.vue', () => ({ default: { render: () => null } }));
 
 await clientTemplate(ResourcesView, 'src/views/ResourcesView.vue', 'resource-observation-status-entry-render.ts');
+await clientTemplate(SpectrumView, 'src/views/SpectrumView.vue', 'resource-observation-status-entry-render.ts');
 let app: App<HostNode> | undefined, pinia: ReturnType<typeof createPinia> | undefined;
 async function settle() { for (let i = 0; i < 30; i++) await nextTick(); }
 function probe(root: HostNode, tag: string) {
@@ -135,17 +139,17 @@ async function mountHost() {
   for (const key of ['loadPreview', 'loadResourceReadContext', 'queryResourceDevices', 'getResourceObject', 'loadResourceMaintenanceContext', 'saveResourceChanges'] as const)
     vi.spyOn(previewService, key).mockImplementation(fixture[key] as never);
   const preview = usePreviewStore(); await preview.load();
-  const router = createRouter({ history: createMemoryHistory(), routes: [{ path: '/resources', component: ResourcesView }] });
-  await router.push('/resources'); await router.isReady();
+  const read = useResourceReadStore(); read.workspace = await fixture.loadResourceReadContext({ context: 'ledger' });
+  vi.spyOn(httpService, 'loadResourceReadContext').mockResolvedValue(read.workspace);
+  const router = createRouter({ history: createMemoryHistory(), routes: [{ path: '/spectrum', component: SpectrumView }] });
+  await router.push('/spectrum?tab=spectrum-monitor'); await router.isReady();
   app = renderer.createApp({ render: () => h(RouterView) }); app.use(pinia); app.use(router); app.provide(ssrContextKey, {});
   const root = node('root'); app.mount(root); await settle();
-  const read = useResourceReadStore();
-  await vi.waitFor(() => expect(read.workspace).not.toBeNull(), { interval: 5 }); await settle();
-  await click(root, '频谱观测');
+  await vi.waitFor(() => expect(httpService.loadResourceReadContext).toHaveBeenCalled(), { interval: 5 }); await settle();
   return { root, read, auth };
 }
 
-describe('资源页观测冻结状态引用接线', () => {
+describe('频谱页观测冻结状态引用接线', () => {
   it('历史版本事件冻结后传抽屉，绑定真实服务pair且不重绑当前资源或状态store', async () => {
     const { root, read } = await mountHost();
     const revision = read.workspace!.revision, baseline = statusState();
@@ -194,10 +198,11 @@ describe('资源页观测冻结状态引用接线', () => {
 
   it('页签离开清理目标，返回频谱不复活旧引用', async () => {
     const { root, read } = await mountHost(); emitReference(root); await settle();
-    const revision = read.workspace!.revision; await click(root, '设备台账');
+    const revision = read.workspace!.revision; await click(root, '规划频点');
     expect(drawer(root).props.visible).toBe(false); expect(drawer(root).props.target).toBeNull();
-    expect(read.workspace!.revision).toBe(revision); expect(probe(root, 'resource-status-probe').props.resourceRevision).toBe(revision);
-    await click(root, '频谱观测'); expect(drawer(root).props.visible).toBe(false); expect(drawer(root).props.target).toBeNull();
+    expect(read.workspace!.revision).toBe(revision); expect(find(root, item => item.tag === 'resource-status-probe')).toBeUndefined();
+    await click(root, '频谱观测'); expect(panels.monitorActivate).toHaveBeenCalledTimes(1);
+    expect(drawer(root).props.visible).toBe(false); expect(drawer(root).props.target).toBeNull();
   });
 
   it('离开保护拒绝时不打开只读抽屉', async () => {

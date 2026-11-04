@@ -3,6 +3,7 @@ import { h, nextTick, ssrContextKey, type App } from 'vue';
 import { createPinia, disposePinia, setActivePinia } from 'pinia';
 import { createMemoryHistory, createRouter, RouterView } from 'vue-router';
 import ResourcesView from '../src/views/ResourcesView.vue';
+import SpectrumView from '../src/views/SpectrumView.vue';
 import FrequencyResourcePanel from '../src/components/FrequencyResourcePanel.vue';
 import FrequencyResourceEditDrawer from '../src/components/FrequencyResourceEditDrawer.vue';
 import { useFrequencyResourceStore } from '../src/stores/frequency-resource';
@@ -67,7 +68,7 @@ function deferred<T>() {
 }
 let app: App<HostNode> | undefined, pinia: ReturnType<typeof createPinia> | undefined;
 beforeAll(async () => {
-  for (const [component, path] of [[ResourcesView, 'src/views/ResourcesView.vue'],
+  for (const [component, path] of [[ResourcesView, 'src/views/ResourcesView.vue'], [SpectrumView, 'src/views/SpectrumView.vue'],
     [FrequencyResourcePanel, 'src/components/FrequencyResourcePanel.vue'],
     [FrequencyResourceEditDrawer, 'src/components/FrequencyResourceEditDrawer.vue']] as const) {
     await clientTemplate(component, path, 'frequency-navigation-render.ts');
@@ -103,9 +104,9 @@ async function fixture() {
   const operation = vi.spyOn(services, 'getFrequencyOperation').mockImplementation(async request => ({ operation: 'FREQUENCY_DISABLE',
     requestId: request.requestId, createdAt: '2026-10-28T00:00:00Z', receipt: receipt(request.requestId) }));
   const router = createRouter({ history: createMemoryHistory(), routes: [
-    { path: '/resources', component: ResourcesView }, { path: '/situation', component: { render: () => h('p', 'GIS目标页') } },
+    { path: '/spectrum', component: SpectrumView }, { path: '/situation', component: { render: () => h('p', 'GIS目标页') } },
   ] });
-  await router.push('/resources'); await router.isReady();
+  await router.push('/spectrum'); await router.isReady();
   const root = node('root'); app = renderer.createApp({ render: () => h(RouterView) });
   app.use(pinia); app.use(router); app.provide(ssrContextKey, {}); app.mount(root); await flush();
   await click(root, '规划频点');
@@ -181,7 +182,7 @@ describe('意见5：规划频点真实宿主离页与读取取消', () => {
     expect(f.auth.hasUnsaved()).toBe(true); expect(unload()).toBe(true);
     const leaving = f.router.push('/situation'); await flush(); expect(f.store.decision?.title).toBe('离开规划频点');
     await click(f.root, '继续编辑'); await leaving;
-    expect(f.router.currentRoute.value.path).toBe('/resources'); expect(f.store.editorDirty).toBe(true);
+    expect(f.router.currentRoute.value.path).toBe('/spectrum'); expect(f.store.editorDirty).toBe(true);
     expect(all(f.root, n => n.props['aria-label'] === '构造频点备注')[0]!.value).toBe('未保存草稿');
     const retry = f.router.push('/situation'); await flush(); await click(f.root, '放弃草稿并离开'); await retry;
     expect(f.router.currentRoute.value.path).toBe('/situation'); expect(f.store.editor).toBeNull(); expect(f.save).not.toHaveBeenCalled();
@@ -190,7 +191,7 @@ describe('意见5：规划频点真实宿主离页与读取取消', () => {
   it('未改动的编辑可直接离页，返回后可正常刷新列表', async () => {
     const f = await fixture(); await click(f.root, '编辑'); expect(f.store.editorDirty).toBe(false);
     await f.router.push('/situation'); expect(f.store.editor).toBeNull();
-    await f.router.push('/resources'); await flush(); await click(f.root, '规划频点');
+    await f.router.push('/spectrum'); await flush(); await click(f.root, '规划频点');
     expect(f.list).toHaveBeenCalledTimes(2); expect(f.store.canMaintain).toBe(true);
   });
 
@@ -209,7 +210,7 @@ describe('意见5：规划频点真实宿主离页与读取取消', () => {
     await (form.props.onSubmit as (event: unknown) => unknown)({ preventDefault() {} }); await flush();
     expect(checked).toHaveBeenCalledOnce(); expect(f.store.decision?.title).toBe('确认构造频点维护');
     const leaving = f.router.push('/situation'); await flush(); await click(f.root, '继续编辑'); await leaving;
-    expect(f.router.currentRoute.value.path).toBe('/resources'); expect(f.store.changesPreview).not.toBeNull();
+    expect(f.router.currentRoute.value.path).toBe('/spectrum'); expect(f.store.changesPreview).not.toBeNull();
     expect(f.store.decision?.title).toBe('确认构造频点维护'); expect(f.store.editorDirty).toBe(true);
     await click(find(f.root, n => n.props.role === 'dialog')!, '取消');
     expect(f.store.changesPreview).toBeNull(); expect(f.store.editorDirty).toBe(true);
@@ -230,13 +231,13 @@ describe('意见5：规划频点真实宿主离页与读取取消', () => {
   it('保存中保护离页；超时后的真实待核实写入也不能被普通查询清除', async () => {
     const f = await fixture(), held = deferred<FrequencyDisableReceipt>(); f.save.mockReturnValueOnce(held.promise);
     f.store.select(item.freqId, true); await f.store.prepareDisable(); const saving = f.store.answer('save'); await flush();
-    await f.router.push('/situation'); expect(f.router.currentRoute.value.path).toBe('/resources'); expect(unload()).toBe(true);
+    await f.router.push('/situation'); expect(f.router.currentRoute.value.path).toBe('/spectrum'); expect(unload()).toBe(true);
     const original = f.store.pending!.requestId;
     held.reject(new ApiError('提交超时', 'REQUEST_TIMEOUT')); await saving;
-    await f.router.push('/situation'); expect(f.router.currentRoute.value.path).toBe('/resources');
+    await f.router.push('/situation'); expect(f.router.currentRoute.value.path).toBe('/spectrum');
     expect(textOf(f.root)).toContain('请先核实频点原请求'); expect(f.store.pending?.requestId).toBe(original);
     f.store.stopReading(); expect(f.store.pending?.requestId).toBe(original); expect(f.store.phase).toBe('RESULT_UNKNOWN');
-    await f.router.push('/situation'); expect(f.router.currentRoute.value.path).toBe('/resources'); expect(f.save).toHaveBeenCalledOnce();
+    await f.router.push('/situation'); expect(f.router.currentRoute.value.path).toBe('/spectrum'); expect(f.save).toHaveBeenCalledOnce();
     await f.store.inspectOperation(original); await f.router.push('/situation');
     expect(f.router.currentRoute.value.path).toBe('/situation'); expect(f.store.pending).toBeNull(); expect(f.store.receipt?.requestId).toBe(original);
   });

@@ -75,12 +75,12 @@
     <ResourceEditDrawer
       v-if="
         route.path === '/gis-workbench' ||
-        (!['/resources', '/planning', '/situation'].includes(route.path) && env.mode === 'mock' && store.data)
+        (!['/resources', '/spectrum', '/planning', '/situation'].includes(route.path) && env.mode === 'mock' && store.data)
       "
     /><ResourceImportDrawer
       v-if="
         route.path === '/gis-workbench' ||
-        (!['/resources', '/planning', '/situation'].includes(route.path) && env.mode === 'mock' && store.data)
+        (!['/resources', '/spectrum', '/planning', '/situation'].includes(route.path) && env.mode === 'mock' && store.data)
       "
     />
     <DecisionDialog />
@@ -141,13 +141,14 @@ onBeforeUnmount(() => { runtime.unbind(); applyHttpRuntimeParameters(null); });
 const resourceRead = useResourceReadStore();
 const ledger = useResourceLedgerEditStore();
 const httpResource = computed(
-  () => env.mode === 'http' && ['/resources', '/gis-workbench'].includes(route.path),
+  () => env.mode === 'http' && ['/resources', '/spectrum', '/gis-workbench'].includes(route.path),
 );
 const independent = computed(
   () =>
     ['/situation', '/gis-workbench'].includes(route.path) ||
     httpResource.value ||
     route.path === '/resources' ||
+    route.path === '/spectrum' ||
     route.path === '/planning' ||
     ['/diagnosis', '/knowledge', '/system'].includes(route.path),
 );
@@ -265,6 +266,7 @@ const navigation = [
   { path: '/situation', title: 'GIS 态势', icon: 'pi-globe' },
   { path: '/gis-workbench', title: 'GIS 工作台', icon: 'pi-map' },
   { path: '/resources', title: '资源管理', icon: 'pi-server' },
+  { path: '/spectrum', title: '频谱接口', icon: 'pi-chart-line' },
   { path: '/planning', title: '网络规划', icon: 'pi-share-alt' },
   { path: '/diagnosis', title: '故障诊断', icon: 'pi-wave-pulse' },
   { path: '/knowledge', title: '知识图谱', icon: 'pi-sitemap' },

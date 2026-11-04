@@ -16,6 +16,7 @@ describe('来源组件装配契约审查', () => {
     expect(read.indexOf('decodeSpectrumSourceConfigFile')).toBeLessThan(read.indexOf('await requestLeave()'));
     expect(read).toContain('file.size > 2 * 1024 * 1024'); expect(read).toContain('await store.fillConfig(parsed)'); expect(read).not.toContain('store.save(');
     expect(source).toContain('configFileSerial++'); expect(source).toContain('s.fileLoading || configReading.value');
-    expect(source).toContain('defineExpose({ requestLeave, stop, clearForSession })');
+    const exposed = source.match(/defineExpose\(\{([^}]+)\}\)/)?.[1].split(',').map(value => value.trim());
+    expect(exposed).toEqual(expect.arrayContaining(['requestLeave', 'stop', 'clearForSession']));
   });
 });

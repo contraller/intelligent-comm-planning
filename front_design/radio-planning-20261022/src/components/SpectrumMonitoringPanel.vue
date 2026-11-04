@@ -64,6 +64,8 @@ const props = defineProps<{ services: ObservationServices; canView: boolean; can
 const emit = defineEmits<{ 'select-dataset': [value: { datasetId: string; datasetRevision: string }]; 'select-frame': [value: { datasetId: string; datasetRevision: string; index: number }]; 'select-status-ref': [value: { datasetId: string; datasetRevision: string; ref: ObservationDeviceStatusRefInput }]; 'dirty-change': [value: boolean]; 'busy-change': [value: boolean]; imported: [value: ObservationImportReceipt] }>();
 const store = createSpectrumObservationsStore(props.services, () => props.canView, value => emit('select-frame', { datasetId: value.datasetId, datasetRevision: value.datasetRevision, index: value.index })), s = store.state;
 const importVisible = ref(false), importDirty = ref(false), importBusy = ref(false), exporting = ref(false);
+const lastSelection = ref<ObservationSelection>();
+let selectionSerial = 0, selecting = false;
 const importDialog = ref<InstanceType<typeof SpectrumObservationImportDialog> | null>(null);
 const frame = computed(() => s.result?.frame), metric = (value: number | null, unit: string) => value === null ? '未知' : String(value) + unit;
 const option = computed(() => ({ animation: false, tooltip: { trigger: 'axis' }, legend: { data: ['占用率', '接收功率'] },
@@ -71,7 +73,16 @@ const option = computed(() => ({ animation: false, tooltip: { trigger: 'axis' },
   yAxis: [{ type: 'value', min: 0, max: 100, name: '%' }, { type: 'value', name: 'dBm' }],
   series: [{ name: '占用率', type: 'bar', data: frame.value?.bins.map(row => ({ value: row.occupancyPercent, itemStyle: { color: row.abnormal === true ? '#df9b64' : '#4c9eb5' } })) ?? [] },
     { name: '接收功率', type: 'line', yAxisIndex: 1, connectNulls: false, data: frame.value?.bins.map(row => row.powerDbm) ?? [], itemStyle: { color: '#73b893' } }] }));
-async function select(value: ObservationSelection) { store.pause(); await store.select({ datasetId: value.datasetId, datasetRevision: value.datasetRevision }); if (s.selected) emit('select-dataset', { datasetId: s.selected.datasetId, datasetRevision: s.selected.datasetRevision }); }
+async function select(value: ObservationSelection) {
+  if (!props.canView) return;
+  const target = { datasetId: value.datasetId, datasetRevision: value.datasetRevision }, serial = ++selectionSerial;
+  lastSelection.value = target; selecting = true; store.pause();
+  try {
+    await store.select(target);
+    if (serial === selectionSerial && s.selected)
+      emit('select-dataset', { datasetId: s.selected.datasetId, datasetRevision: s.selected.datasetRevision });
+  } finally { if (serial === selectionSerial) selecting = false; }
+}
 function openImport() { store.pause(); importVisible.value = true; }
 function viewStatusRef() { if (s.selected && s.statusRefState === 'bound' && s.statusRef) emit('select-status-ref', { datasetId: s.selected.datasetId, datasetRevision: s.selected.datasetRevision, ref: observationStatusRefInput(s.statusRef) }); }
 async function imported(value: ObservationImportReceipt) { emit('imported', value); await store.load(1); await select(value); }
@@ -83,17 +94,35 @@ async function download() {
   } catch (reason) { if (generation === props.sessionGeneration) s.error = reason instanceof Error ? reason.message : '导出失败'; }
   finally { if (generation === props.sessionGeneration) exporting.value = false; }
 }
-function stop() { store.stop(); }
-function clearForSession() { store.clearForSession(); importDialog.value?.clearForSession(); importVisible.value = false; importDirty.value = false; importBusy.value = false; exporting.value = false; }
+function stop() { selectionSerial++; selecting = false; store.stop(); }
+// 此时宿主已经取得放弃/保存决定，只清理导入浮层，保留所选历史观测与已读帧。
+function finishLeave() {
+  if (importBusy.value) return false;
+  importDialog.value?.clearForSession(); importVisible.value = false; importDirty.value = false;
+  stop(); return true;
+}
+function activate() {
+  if (!props.canView) return;
+  void store.load();
+  // 进入页签不能重开一个仍在读取的目标；已暂停的选择按原身份恢复。
+  if (!selecting) {
+    const target = lastSelection.value ?? props.initialSelection;
+    if (!s.selected && target) void select(target);
+    else if (s.selected && !s.result) void select(s.selected);
+  }
+}
+function clearForSession() { selectionSerial++; selecting = false; lastSelection.value = undefined; store.clearForSession(); importDialog.value?.clearForSession(); importVisible.value = false; importDirty.value = false; importBusy.value = false; exporting.value = false; }
 async function requestLeave() { if (importBusy.value) return false; if (importVisible.value && !await importDialog.value?.requestLeave()) return false; stop(); return true; }
 function visibility() { if (document.hidden) stop(); }
 watch(() => [props.sessionGeneration, props.canView, props.canImport], () => { clearForSession(); if (props.canView) { void store.load(1); if (props.initialSelection) void select(props.initialSelection); } }, { immediate: true });
-watch(() => props.initialSelection, value => { if (value && props.canView) void select(value); }, { deep: true });
+watch(() => props.initialSelection, value => {
+  if (value && props.canView) { void store.load(1); void select(value); }
+}, { deep: true });
 watch(importDirty, value => emit('dirty-change', value), { immediate: true });
 watch(() => importBusy.value || exporting.value, value => emit('busy-change', value), { immediate: true });
 if (typeof document !== 'undefined') document.addEventListener('visibilitychange', visibility);
 onBeforeUnmount(() => { if (typeof document !== 'undefined') document.removeEventListener('visibilitychange', visibility); clearForSession(); });
-defineExpose({ requestLeave, stop, clearForSession });
+defineExpose({ requestLeave, stop, finishLeave, activate, clearForSession });
 </script>
 <style scoped>
 .spectrum-monitor{display:grid;gap:12px;min-width:0}.toolbar{display:flex;flex-wrap:wrap;align-items:center;gap:8px}.toolbar h3{margin:0;font-size:16px}.origin,.muted{font-size:12px;color:var(--muted)}.origin{margin-right:auto}.error{color:#eeb0aa}.warning{color:#dfc270}.table-scroll{overflow:auto}table{width:100%;border-collapse:collapse;font-size:12px}th,td{text-align:left;padding:8px;border-bottom:1px solid var(--line);overflow-wrap:anywhere}small{display:block;font-size:11px;overflow-wrap:anywhere;color:var(--muted)}.identity{display:grid;grid-template-columns:110px minmax(0,1fr);gap:6px;font-size:12px}.identity dd{margin:0;overflow-wrap:anywhere}.toolbar label{display:flex;gap:6px;align-items:center;font-size:12px}.toolbar input{width:70px}.stats{display:flex;gap:24px;flex-wrap:wrap;font-size:12px}.stats strong{font-size:18px}.frame-label{font-size:12px;margin:0}.frame-choice{white-space:normal;text-align:left;min-height:34px;max-width:200px;overflow-wrap:anywhere}.frame-choice[aria-pressed=true]{border-color:#65b7a0}.pager{justify-content:flex-end}h4{margin:0;font-size:13px}@media(max-width:500px){.identity{grid-template-columns:1fr}.identity dd{margin-bottom:6px}}
