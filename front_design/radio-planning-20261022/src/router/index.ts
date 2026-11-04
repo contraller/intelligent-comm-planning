@@ -4,12 +4,13 @@ import EmbedShell from '../layouts/EmbedShell.vue';
 import { useAuthStore } from '../stores/auth';
 import { routePermissions, safeReturnPath } from '../config/permissions';
 import { embeddedModules, embeddedPath, isEmbeddedPath, modulePath, type EmbeddedModuleId } from '../config/embedded-pages';
-import { resourceEmbeddedTitle } from '../config/module-tabs';
+import { isModuleTab, resourceEmbeddedTitle } from '../config/module-tabs';
 
 const moduleComponents = {
   situation: () => import('../views/GisSituationView.vue'),
   'gis-workbench': () => import('../views/SituationView.vue'),
   resources: () => import('../views/ResourcesView.vue'),
+  spectrum: () => import('../views/SpectrumView.vue'),
   planning: () => import('../views/PlanningApiView.vue'),
   diagnosis: () => import('../views/DiagnosisView.vue'),
   knowledge: () => import('../views/KnowledgeView.vue'),
@@ -58,6 +59,11 @@ export const router = createRouter({
           meta: { title: '资源管理' },
         },
         {
+          path: 'spectrum',
+          component: moduleComponents.spectrum,
+          meta: { title: '频谱接口' },
+        },
+        {
           path: 'planning',
           // Mock 与 HTTP 仅切换服务适配，规划页面和交互入口保持一致。
           component: moduleComponents.planning,
@@ -90,6 +96,9 @@ router.beforeEach(async(to,from)=>{
   // Module links and recovery actions stay in the host's content frame.
   if (isEmbeddedPath(from.path) && embeddedPath(to.path) !== to.path)
     return { path: embeddedPath(to.path), query: to.query, hash: to.hash };
+  // 旧频谱深链仍可访问；通过正常导航迁移，保留原离页保护与嵌入上下文。
+  if (modulePath(to.path) === '/resources' && isModuleTab('spectrum', to.query.tab))
+    return { path: isEmbeddedPath(to.path) ? '/embed/spectrum' : '/spectrum', query: to.query, hash: to.hash, replace: true };
   // 原有资源定位、故障及干扰分析深链继续进入工作台；无参数态势入口始终是只读大地图。
   if (modulePath(to.path) === '/situation' && Object.keys(to.query).length && safeReturnPath(to.fullPath))
     return { path: isEmbeddedPath(to.path) ? '/embed/gis-workbench' : '/gis-workbench', query: to.query, replace: true };

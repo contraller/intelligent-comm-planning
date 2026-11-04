@@ -3,7 +3,7 @@
     <div class="page-heading">
       <div class="page-title">
         <!-- 未保存状态迁到标题旁，端口维护和导入也沿用同一状态。 -->
-        <h1>{{ embedded ? resourceEmbeddedTitle(route.query.tab) : '资源管理' }}</h1>
+        <h1>{{ spectrumPage ? '频谱接口' : embedded ? resourceEmbeddedTitle('ledger') : '资源管理' }}</h1>
         <span
           v-if="editor.dirty && tab === '设备台账'"
           class="chip amber"
@@ -80,17 +80,18 @@
       >{{ editor.error }}</p
     >
     <ResourceReadStatus v-if="tab === '设备台账'" />
-    <!-- 页签属于整个资源工作区，频谱配置不沿用设备目录和统计。 -->
-    <div v-if="!embedded || tab === '设备台账'" class="tabs resource-tabs">
-      <template v-if="!embedded">
+    <!-- 频谱三项功能迁入独立页面；设备统计仅属于资源台账。 -->
+    <div v-if="spectrumPage" class="tabs resource-tabs" aria-label="频谱接口功能">
       <button
-        v-for="item in ['设备台账', '规划频点', '频谱接口配置', '频谱观测']"
+        v-for="item in ['规划频点', '频谱接口配置', '频谱观测']"
         :key="item"
         :class="{ active: tab === item }"
         @click="switchTab(item)"
         >{{ item }}</button
       >
-      </template>
+    </div>
+    <div v-else class="resource-tabs ledger-summary">
+      <h2>设备台账</h2>
       <div
         v-if="tab === '设备台账'"
         class="resource-summary"
@@ -262,7 +263,7 @@
       </section>
     </div>
     <FrequencyResourcePanel
-      v-if="frequencyVisited && (!embedded || tab === '规划频点')"
+      v-if="spectrumPage && frequencyVisited"
       v-show="tab === '规划频点'"
       ref="frequencyPanel"
       :active="tab === '规划频点'"
@@ -272,47 +273,48 @@
       @resource-changed="frequencyChanged"
     />
     <SpectrumConfigPanel
-      v-if="spectrumVisited && (!embedded || tab === '频谱接口配置')"
+      v-if="spectrumPage && spectrumVisited"
       v-show="tab === '频谱接口配置'"
       ref="spectrumPanel"
       :services="collaborationHttp.spectrumSources"
       :can-view="auth.can('resources.view') && !auth.blocked"
       :can-edit="auth.can('resources.spectrum.edit') && !auth.blocked"
       :session-generation="sessionGeneration"
-      :allow-observation-selection="!embedded"
+      :allow-observation-selection="true"
       @dirty-change="spectrumDirty = $event"
       @busy-change="spectrumBusy = $event"
       @select-source="selectSpectrumSource"
     />
     <SpectrumMonitoringPanel
-      v-if="monitoringVisited && (!embedded || tab === '频谱观测')"
+      v-if="spectrumPage && monitoringVisited"
       v-show="tab === '频谱观测'"
       ref="monitoringPanel"
       :services="collaborationHttp.observations"
       :can-view="auth.can('resources.view') && auth.can('situation.view') && !auth.blocked"
-      :can-import="auth.can('situation.observation.import') && !auth.blocked"
+      :can-import="auth.can('situation.observation.import') && !auth.blocked && !!spectrumResourceRevision && !spectrumContextError"
       :session-generation="sessionGeneration"
       :initial-selection="observationSelection"
+      :resource-revision="spectrumResourceRevision"
       @select-status-ref="viewObservationStatus"
       @select-dataset="closeObservationReference"
       @dirty-change="monitoringDirty = $event"
       @busy-change="monitoringBusy = $event"
     />
     <ObservationStatusReferenceDrawer
-      v-if="!embedded || tab === '频谱观测'"
+      v-if="spectrumPage"
       v-model:visible="observationReferenceVisible"
       :target="observationReferenceTarget"
       :services="observationReferenceServices"
       :can-view="auth.can('resources.view') && auth.can('situation.view') && !auth.blocked"
       :session-generation="sessionGeneration"
-      :current-resource-revision="read.workspace?.revision"
+      :current-resource-revision="spectrumResourceRevision || undefined"
     />
     <SpectrumObservationImportDialog
-      v-if="!embedded"
+      v-if="spectrumPage"
       ref="observationImport"
       v-model:visible="observationImportOpen"
       :services="collaborationHttp.observations"
-      :resource-revision="read.workspace?.revision ?? ''"
+      :resource-revision="spectrumResourceRevision"
       :source-selection="observationSource"
       :can-import="auth.can('resources.view') && auth.can('situation.view') && auth.can('situation.observation.import') && !auth.blocked"
       :session-generation="sessionGeneration"
@@ -320,8 +322,12 @@
       @busy-change="observationBusy = $event"
       @committed="observationImported"
     />
+    <p v-if="spectrumPage && spectrumContextError" class="notice error" role="alert">
+      当前资源版本读取失败：{{ spectrumContextError }}
+      <button class="text-link" :disabled="spectrumContextBusy || auth.blocked" @click="refreshSpectrumContext">重新读取资源版本</button>
+    </p>
     <p v-if="hostMessage" class="notice" role="status">{{ hostMessage }}</p>
-    <template v-if="!embedded || tab === '设备台账'">
+    <template v-if="!spectrumPage">
     <!-- 台账上下文生效后才展示详情，避免 GIS 遗留选中项瞬时打开空遮罩。 -->
     <AppDrawer
       :visible="
@@ -482,9 +488,9 @@
   </div>
 </template>
 <script setup lang="ts">
-import { computed, inject, ref, watch, onBeforeUnmount } from 'vue';
+import { computed, inject, nextTick, ref, watch, onMounted, onBeforeUnmount } from 'vue';
 import { useRoute, useRouter, onBeforeRouteUpdate } from 'vue-router';
-import { resourceTabLabel, resourceEmbeddedTitle } from '../config/module-tabs';
+import { spectrumTabLabel, resourceEmbeddedTitle } from '../config/module-tabs';
 import { useAuthStore } from '../stores/auth';
 import { useResourceLedgerWorkspace } from '../composables/useResourceLedgerWorkspace';
 import { useResourceLedgerLeaveGuard } from '../composables/useResourceLedgerLeaveGuard';
@@ -538,8 +544,10 @@ const auth = useAuthStore(),
   router = useRouter(),
   route = useRoute();
 const embedded = inject('embeddedModule', false);
-const tab = ref(resourceTabLabel(route.query.tab));
-const ledgerEnabled = computed(() => !embedded || tab.value === '设备台账');
+const props = withDefaults(defineProps<{ page?: 'resources' | 'spectrum' }>(), { page: 'resources' });
+const spectrumPage = computed(() => props.page === 'spectrum');
+const tab = ref(spectrumPage.value ? spectrumTabLabel(route.query.tab) : '设备台账');
+const ledgerEnabled = computed(() => !spectrumPage.value);
 const workspace = useResourceLedgerWorkspace(ledgerEnabled);
 const editor = useResourceLedgerEditStore(),
   statusSync = useResourceStatusStore(),
@@ -550,6 +558,8 @@ const read = workspace.read,
   exportOpen = ref(false),
   selectedIds = ref<string[]>([]);
 const hostMessage = ref('');
+const spectrumResourceRevision = ref(''), spectrumContextError = ref(''), spectrumContextBusy = ref(false);
+let spectrumContextSerial = 0, spectrumContextControl: AbortController | null = null, disposed = false;
 const statusControlsOpen = ref(false);
 const frequencyPanel = ref<InstanceType<typeof FrequencyResourcePanel> | null>(null),
   spectrumPanel = ref<InstanceType<typeof SpectrumConfigPanel> | null>(null),
@@ -607,13 +617,45 @@ async function viewObservationStatus(value: ObservationStatusReferenceTarget) {
   } catch (reason) { if (token === observationReferenceSerial) hostMessage.value = reason instanceof Error ? reason.message : '冻结状态引用无效'; }
 }
 async function loadFrequencyContext(signal?: AbortSignal) {
-  return httpService.loadResourceReadContext({ context: 'ledger', signal });
+  const session = auth.generation, serial = ++spectrumContextSerial;
+  try {
+    const value = await httpService.loadResourceReadContext({ context: 'ledger', signal });
+    if (!disposed && session === auth.generation && serial === spectrumContextSerial && !auth.blocked && !signal?.aborted) {
+      spectrumResourceRevision.value = value.revision;
+      spectrumContextError.value = '';
+    }
+    return value;
+  } catch (reason) {
+    if (!disposed && session === auth.generation && serial === spectrumContextSerial && !signal?.aborted) {
+      spectrumResourceRevision.value = '';
+      spectrumContextError.value = reason instanceof Error ? reason.message : '未能取得当前资源版本';
+    }
+    throw reason;
+  }
 }
+async function refreshSpectrumContext() {
+  if (!spectrumPage.value || !auth.can('resources.view') || auth.blocked) return;
+  spectrumContextControl?.abort();
+  const control = spectrumContextControl = new AbortController();
+  spectrumContextBusy.value = true;
+  try { await loadFrequencyContext(control.signal); }
+  catch { /* 错误保留在同一资源版本提示中，不能用旧台账版本补齐。 */ }
+  finally {
+    if (spectrumContextControl === control) { spectrumContextControl = null; spectrumContextBusy.value = false; }
+  }
+}
+onMounted(() => { if (spectrumPage.value && tab.value !== '规划频点') void refreshSpectrumContext(); });
 async function frequencyChanged(value: FrequencyResourceChange) {
   if (!value.changed) return;
   const session = auth.generation;
   preview.invalidateResources();
-  if (embedded) { hostMessage.value = '频点变更已保存。'; return; }
+  if (spectrumPage.value) {
+    spectrumContextSerial++;
+    spectrumResourceRevision.value = value.revision;
+    spectrumContextError.value = '';
+    hostMessage.value = '频点变更已保存。';
+    return;
+  }
   const refreshed = await read.refresh();
   if (session === auth.generation) hostMessage.value = refreshed
     ? '频点变更已保存，资源已重新读取。' : '频点变更已保存，资源刷新失败，请刷新资源。';
@@ -624,7 +666,9 @@ const leaveGuard = useResourceLedgerLeaveGuard(() => [
   { dirty: () => configuration.dirty || !!configuration.pending, busy: () => configuration.busy,
     leave: leaveConfiguration },
   { dirty: () => spectrumDirty.value, busy: () => spectrumBusy.value,
-    leave: () => spectrumPanel.value?.requestLeave() ?? true, clear: () => spectrumPanel.value?.clearForSession() },
+    leave: () => tab.value === '频谱接口配置' || spectrumDirty.value || spectrumBusy.value
+      ? spectrumPanel.value?.requestLeave() ?? true : true,
+    clear: () => spectrumPanel.value?.clearForSession() },
   // 只读查询与选行不锁离页；保存中、未保存草稿和待核实请求继续保护。
   { dirty: () => !!frequencyStore.pending || frequencyStore.editorDirty || !!frequencyStore.changesPreview,
     busy: () => frequencyStore.phase === 'SAVING',
@@ -633,7 +677,9 @@ const leaveGuard = useResourceLedgerLeaveGuard(() => [
       return frequencyPanel.value?.requestLeave() ?? true;
     } },
   { dirty: () => monitoringDirty.value, busy: () => monitoringBusy.value,
-    leave: () => monitoringPanel.value?.requestLeave() ?? true, clear: () => monitoringPanel.value?.clearForSession() },
+    leave: () => tab.value === '频谱观测' || monitoringDirty.value || monitoringBusy.value
+      ? monitoringPanel.value?.requestLeave() ?? true : true,
+    clear: () => monitoringPanel.value?.clearForSession() },
   { dirty: () => observationDirty.value, busy: () => observationBusy.value || sourceBusy.value,
     leave: () => observationImport.value?.requestLeave() ?? true, clear: () => observationImport.value?.clearForSession() },
 ]);
@@ -1060,16 +1106,19 @@ async function importResources() {
 }
 async function switchTab(value: string) {
   if (value === tab.value) return true;
+  if (!spectrumPage.value || !['规划频点', '频谱接口配置', '频谱观测'].includes(value)) return false;
   const session = auth.generation;
   if (!(await leaveGuard.leave(true)) || session !== auth.generation || auth.blocked)
     return false;
+  if (tab.value === '频谱接口配置' && spectrumPanel.value?.finishLeave?.() === false) return false;
+  if (tab.value === '频谱观测' && monitoringPanel.value?.finishLeave?.() === false) return false;
+  const reactivateSource = value === '频谱接口配置' && spectrumVisited.value;
+  const reactivateMonitor = value === '频谱观测' && monitoringVisited.value;
   closeObservationReference();
   statusControlsOpen.value = false;
   hostMessage.value = ''; exportOpen.value = false;
   editor.clearForSession();
   closeConfigurationHistory();
-  spectrumPanel.value?.stop();
-  monitoringPanel.value?.stop();
   observationImport.value?.clearForSession();
   observationImportOpen.value = false;
   read.closeDetail();
@@ -1077,12 +1126,18 @@ async function switchTab(value: string) {
   if (value === '频谱接口配置') spectrumVisited.value = true;
   if (value === '频谱观测') monitoringVisited.value = true;
   tab.value = value;
+  if (value !== '规划频点' && !spectrumResourceRevision.value && !spectrumContextBusy.value) void refreshSpectrumContext();
+  await nextTick();
+  if (session === auth.generation && !auth.blocked && tab.value === value) {
+    if (reactivateSource) spectrumPanel.value?.activate?.();
+    if (reactivateMonitor) monitoringPanel.value?.activate?.();
+  }
   return true;
 }
 // Changing a host-provided module link must use the same unsaved-input checks as a tab click.
 onBeforeRouteUpdate(async (to, from) => {
   if (to.query.tab === from.query.tab) return true;
-  return switchTab(resourceTabLabel(to.query.tab));
+  return switchTab(spectrumPage.value ? spectrumTabLabel(to.query.tab) : '设备台账');
 });
 async function selectSpectrumSource(value: { sourceId: string; configRevision: string }) {
   if (!auth.can('situation.view') || !auth.can('situation.observation.import')) {
@@ -1090,15 +1145,19 @@ async function selectSpectrumSource(value: { sourceId: string; configRevision: s
   }
   const session = auth.generation;
   if (!(await leaveGuard.leave(true)) || session !== auth.generation) return;
-  sourceControl?.abort(); sourceControl = new AbortController();
+  sourceControl?.abort(); const control = sourceControl = new AbortController();
   const token = ++sourceSerial; sourceBusy.value = true; hostMessage.value = '';
   try {
-    const source = await collaborationHttp.spectrumSources.getSource({ ...value, signal: sourceControl.signal });
+    const source = await collaborationHttp.spectrumSources.getSource({ ...value, signal: control.signal });
     if (token !== sourceSerial || session !== auth.generation || auth.blocked) return;
     if (source.sourceId !== value.sourceId || source.configRevision !== value.configRevision) throw new Error('采集源版本不符');
     if (source.draft.minKhz === null || source.draft.maxKhz === null) {
       hostMessage.value = '所选采集源未声明完整频段，请先补充来源配置。'; return;
     }
+    // 频谱页只读当前版本上下文，不能依赖设备台账曾经被打开。
+    await loadFrequencyContext(control.signal);
+    if (token !== sourceSerial || session !== auth.generation || auth.blocked || !spectrumResourceRevision.value) return;
+    observationImport.value?.clearForSession();
     observationSource.value = { sourceId: source.sourceId, configRevision: source.configRevision, name: source.draft.name,
       minKhz: source.draft.minKhz, maxKhz: source.draft.maxKhz, intervalSeconds: source.draft.intervalSeconds };
     observationImportOpen.value = true;
@@ -1110,13 +1169,23 @@ function observationImported(value: ObservationImportReceipt) {
   hostMessage.value = '观测集已持久化，可在频谱观测页查看历史帧。';
 }
 watch(sessionGeneration, () => {
+  spectrumContextSerial++; spectrumContextControl?.abort(); spectrumContextControl = null;
+  spectrumResourceRevision.value = ''; spectrumContextError.value = ''; spectrumContextBusy.value = false;
   statusControlsOpen.value = false;
   closeObservationReference();
   closeConfigurationHistory(); sourceSerial++; sourceControl?.abort(); sourceControl = null; sourceBusy.value = false;
   configurationOpen.value = false; observationImportOpen.value = false; observationSource.value = null;
   observationSelection.value = undefined; statusSnapshot.value = null; hostMessage.value = '';
+  if (spectrumPage.value && tab.value !== '规划频点') void refreshSpectrumContext();
 }, { flush: 'sync' });
-onBeforeUnmount(() => { closeConfigurationHistory(); sourceSerial++; sourceControl?.abort(); });
+watch(() => auth.blocked, blocked => {
+  if (!blocked && spectrumPage.value && tab.value !== '规划频点' && !spectrumResourceRevision.value)
+    void refreshSpectrumContext();
+});
+onBeforeUnmount(() => {
+  disposed = true; spectrumContextSerial++; spectrumContextControl?.abort();
+  closeConfigurationHistory(); sourceSerial++; sourceControl?.abort();
+});
 function locate() {
   if (selected.value && auth.can('situation.view') && !workspace.frozen.value)
     void router.push({
@@ -1144,6 +1213,15 @@ const columns = [
   align-items: center;
   flex-wrap: wrap;
 }
+.ledger-summary {
+  display: flex;
+  gap: 12px;
+  padding: 4px 16px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius, 8px);
+  background: var(--panel);
+}
+.ledger-summary h2 { font-size: 13px; margin: 0; }
 .resource-summary {
   display: flex;
   flex-wrap: wrap;

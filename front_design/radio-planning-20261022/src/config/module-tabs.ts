@@ -1,6 +1,8 @@
 /** Stable public tab values used by individual module links. */
 export const moduleTabValues = {
+  // 保留旧资源深链，路由层将三个频谱值迁移到独立频谱页面。
   resources: ['ledger', 'frequencies', 'spectrum-config', 'spectrum-monitor'],
+  spectrum: ['frequencies', 'spectrum-config', 'spectrum-monitor'],
   knowledge: ['browse', 'changes', 'versions'],
   system: ['accounts', 'roles', 'logs', 'parameters'],
 } as const;
@@ -14,8 +16,11 @@ export const resourceTabLabels = {
 export function resourceTabLabel(value: unknown): string {
   return isModuleTab('resources', value) ? resourceTabLabels[value] : resourceTabLabels.ledger;
 }
+export function spectrumTabLabel(value: unknown): string {
+  return isModuleTab('spectrum', value) ? resourceTabLabels[value] : resourceTabLabels.frequencies;
+}
 
-/** The host owns navigation; a resource embed presents the selected function alone. */
+/** Compatibility labels for resource URLs retained before the spectrum route split. */
 export function resourceEmbeddedTitle(value: unknown): string {
   const label = resourceTabLabel(value);
   if (label === '设备台账') return '短波／超短波设备';

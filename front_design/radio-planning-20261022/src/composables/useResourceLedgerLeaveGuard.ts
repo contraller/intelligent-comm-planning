@@ -38,7 +38,7 @@ export function useResourceLedgerLeaveGuard(checks: () => readonly ResourceLedge
   const releaseNavigation = router.afterEach((to, from, failure) => {
     if (!leaving) return;
     leaving = false;
-    if (!failure && from.path === '/resources' && to.path !== '/resources') {
+    if (!failure && ['/resources', '/spectrum'].includes(from.path) && to.path !== from.path) {
       clear();
     }
   });

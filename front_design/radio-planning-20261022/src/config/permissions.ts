@@ -29,7 +29,7 @@ export const permissions = (Object.keys(names) as Permission[]).map(code => {
 export const allPermissions = permissions.map(p => p.code);
 export const adminPermissions = allPermissions.filter(p => p.startsWith('system.'));
 export const routePermissions: Record<string,Permission> = {
-  '/situation':'situation.view','/gis-workbench':'situation.view','/resources':'resources.view','/planning':'planning.view',
+  '/situation':'situation.view','/gis-workbench':'situation.view','/resources':'resources.view','/spectrum':'resources.view','/planning':'planning.view',
   '/diagnosis':'diagnosis.view','/knowledge':'knowledge.view','/system':'system.view',
   ...Object.fromEntries(embeddedModules.map(module => ['/embed/' + module.id, module.permission])),
 };
@@ -203,9 +203,9 @@ export function safeReturnPath(value: unknown): string | null {
   const path = modulePath(actualPath);
   const query=new URLSearchParams(search), workbench = path === '/situation' || path === '/gis-workbench';
   const gisFields = ['stationId','deviceId','interferenceId','taskId','diagnosisId','faultEdit','scenarioId','versionId','analysisTaskId','analysisPlanId'];
-  const allowed:Record<string,string[]>={'/situation':gisFields,'/gis-workbench':gisFields,'/planning':['taskId','jobId','planId','editTask','history','from'],'/diagnosis':['scenarioId','versionId'],'/knowledge':['entityId','tab'],'/resources':['tab'],'/system':['tab']};
+  const allowed:Record<string,string[]>={'/situation':gisFields,'/gis-workbench':gisFields,'/planning':['taskId','jobId','planId','editTask','history','from'],'/diagnosis':['scenarioId','versionId'],'/knowledge':['entityId','tab'],'/resources':['tab'],'/spectrum':['tab'],'/system':['tab']};
   for(const [key,val]of query)if(!(allowed[path]??[]).includes(key)||!val||val.length>120||/[\u0000-\u001f\u007f]/.test(val))return null;
-  if(query.has('tab') && (!['/resources','/knowledge','/system'].includes(path) || !isModuleTab(path.slice(1) as 'resources'|'knowledge'|'system',query.get('tab'))))return null;
+  if(query.has('tab') && (!['/resources','/spectrum','/knowledge','/system'].includes(path) || !isModuleTab(path.slice(1) as 'resources'|'spectrum'|'knowledge'|'system',query.get('tab'))))return null;
   // 仅接受固定用途；历史入口独立于任务恢复，不能成为通用返回地址。
   if(path==='/planning'&&(query.has('from')&&query.get('from')!=='diagnosis'||query.has('history')&&(!['references','saved'].includes(query.get('history')!)||query.size!==1)))return null;
   // 分析入口绑定完整任务与方案，不与资源、任务只读查看或诊断定位混用。

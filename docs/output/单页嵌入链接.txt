@@ -1,11 +1,13 @@
 ﻿独立功能页嵌入链接
 
-适用本地完整便携版：LOCAL-20261104-aa8bdfaf6f8a；程序发行版：LOCAL-20261104-afaa4d6df75b（核心程序一致）。
+适用本地完整便携版：LOCAL-20261104-3a6e98c3731f；程序发行版：LOCAL-20261104-6cfcf9da9ead（核心程序一致）。
 
-用于主系统预留内容框：不显示本软件全局菜单。资源类四个入口只呈现对应功能，设备与接口管理分开；其他模块保留必要业务页签和按钮。
+用于主系统预留内容框：不显示本软件全局菜单。资源管理仅显示设备台账；频谱接口页面显示规划频点、频谱接口配置、频谱观测三个可切换页签。其他模块保留必要业务页签和按钮。
 先在浏览器所在电脑启动便携服务。127.0.0.1指该电脑；实际端口以app/data/runtime/访问地址.txt为准。
 当前仅支持受控本机回环访问，不能只改成服务器IP或localhost就视为可用的集中部署。
 完整接法、全屏含义及部署边界见同目录《单页嵌入对接说明》。
+原/resources?tab=frequencies、spectrum-config、spectrum-monitor及对应/embed/resources旧链接继续兼容，分别转入同一模式的/spectrum或/embed/spectrum，并保留默认页签。资源管理完整入口为/#/resources，频谱接口完整入口为/#/spectrum；主系统嵌入时使用下表/embed/地址。频谱配置中选择来源后，可在显式导入窗口预检、确认导入观测，再切换频谱观测查看对应观测集；频点操作历史仍通过原按钮打开抽屉。
+
 
 GIS态势
 http://127.0.0.1:18480/#/embed/situation
@@ -22,14 +24,17 @@ http://127.0.0.1:18480/#/embed/diagnosis
 短波／超短波设备
 http://127.0.0.1:18480/#/embed/resources?tab=ledger
 
-规划频点
-http://127.0.0.1:18480/#/embed/resources?tab=frequencies
+频谱接口
+http://127.0.0.1:18480/#/embed/spectrum
 
-频谱接口管理
-http://127.0.0.1:18480/#/embed/resources?tab=spectrum-config
+规划频点
+http://127.0.0.1:18480/#/embed/spectrum?tab=frequencies
+
+频谱接口配置
+http://127.0.0.1:18480/#/embed/spectrum?tab=spectrum-config
 
 频谱观测
-http://127.0.0.1:18480/#/embed/resources?tab=spectrum-monitor
+http://127.0.0.1:18480/#/embed/spectrum?tab=spectrum-monitor
 
 图谱浏览
 http://127.0.0.1:18480/#/embed/knowledge?tab=browse

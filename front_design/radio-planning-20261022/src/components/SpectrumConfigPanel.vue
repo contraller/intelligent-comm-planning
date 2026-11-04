@@ -126,13 +126,19 @@ async function download(row: SpectrumSourceVersion) {
   } catch (reason) { if (generation === props.sessionGeneration) s.error = reason instanceof Error ? reason.message : '导出失败'; }
 }
 function stop() { configFileSerial++; configReading.value = false; store.stop(); }
+// 宿主先完成未保存/忙态检查，再收起本页的浮层；被拒绝的切换不调用此方法。
+function finishLeave() {
+  if (locked.value || store.dirty || decision.value) return false;
+  store.discard(); historical.value = null; stop(); return true;
+}
+function activate() { if (props.canView) void store.load(); }
 function clearForSession() { stop(); answer('cancel'); historical.value = null; store.clearForSession(); }
 watch(() => [props.sessionGeneration, props.canView, props.canEdit], () => { clearForSession(); if (props.canView) void store.load(1); }, { immediate: true });
 watch(() => store.dirty, value => emit('dirty-change', value), { immediate: true });
 watch(locked, value => emit('busy-change', value), { immediate: true });
 watch(() => s.receipt?.requestId, () => { if (s.receipt?.operationType === 'SOURCE_SAVE') emit('saved', { sourceId: s.receipt.sourceId, configRevision: s.receipt.configRevision }); });
 onBeforeUnmount(clearForSession);
-defineExpose({ requestLeave, stop, clearForSession });
+defineExpose({ requestLeave, stop, finishLeave, activate, clearForSession });
 </script>
 <style scoped>
 .source-panel{padding:16px;min-width:0}.source-panel h3{font-size:16px;margin:0 0 8px}.toolbar{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:10px 0}.toolbar input{max-width:260px}.table-scroll{overflow:auto}table{width:100%;border-collapse:collapse;font-size:12px}th,td{text-align:left;border-bottom:1px solid var(--line);padding:10px;vertical-align:top;overflow-wrap:anywhere}td{max-width:260px}small{display:block;color:var(--muted);font-size:11px;margin-top:5px;overflow-wrap:anywhere}.muted{color:var(--muted);font-size:12px}.error{color:#eeb0aa}.fields,fieldset{display:grid;gap:12px}fieldset{border:0;padding:0;min-width:0}.fields label{display:grid;gap:6px}.fields .toggle{display:flex;align-items:center}.toggle input{width:auto}.pending{border-left:3px solid #cfb568;padding:8px;overflow-wrap:anywhere}.revision,.history{font-size:12px;overflow-wrap:anywhere}.history dd{margin:0 0 8px}.version{white-space:normal;text-align:left;overflow-wrap:anywhere}ul{padding-left:18px;font-size:12px;overflow-wrap:anywhere}.pager{justify-content:flex-end}@media(max-width:700px){.source-panel{padding:10px}th,td{padding:8px}.toolbar input{max-width:100%}}
