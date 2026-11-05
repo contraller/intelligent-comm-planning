@@ -60,7 +60,7 @@ const applicable = computed(
   padding: 12px;
   border: 1px solid var(--line);
   border-radius: 5px;
-  font-size: 12px;
+  font-size: var(--font-control);
   line-height: 1.8;
   overflow-wrap: anywhere;
 }
@@ -81,6 +81,6 @@ const applicable = computed(
 }
 .source {
   color: var(--muted);
-  font-size: 11px;
+  font-size: var(--font-secondary);
 }
 </style>

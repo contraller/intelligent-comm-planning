@@ -157,7 +157,7 @@ const summaryColumns = candidateColumns
 .candidate-panel {
   padding: 16px;
   border-top: 1px solid var(--line);
-  font-size: 12px;
+  font-size: var(--font-control);
   line-height: 1.7;
   min-width: 0;
 }
@@ -165,7 +165,7 @@ const summaryColumns = candidateColumns
   display: block;
   color: var(--muted);
   margin-top: 4px;
-  font-size: 11px;
+  font-size: var(--font-secondary);
 }
 .candidate-panel h4 {
   margin: 10px 0;

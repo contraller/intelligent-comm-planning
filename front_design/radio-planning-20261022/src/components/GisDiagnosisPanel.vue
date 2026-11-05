@@ -282,7 +282,7 @@ const selectedDevices = computed(() =>
 <style scoped>
 .diagnosis-snapshot {
   padding: 14px;
-  font-size: 12px;
+  font-size: var(--font-control);
   line-height: 1.7;
   overflow-wrap: anywhere;
 }

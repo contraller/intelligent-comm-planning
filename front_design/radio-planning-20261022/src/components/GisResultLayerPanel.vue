@@ -74,7 +74,7 @@ const emit = defineEmits<{
   padding: 8px;
   border: 1px solid #2a405a;
   border-radius: 5px;
-  font-size: 12px;
+  font-size: var(--font-control);
 }
 .layer-toggle {
   display: flex;
@@ -105,7 +105,7 @@ const emit = defineEmits<{
   margin: 0;
   color: #8faac4;
   line-height: 1.5;
-  font-size: 11px;
+  font-size: var(--font-secondary);
 }
 .result-layer-row .layer-reason {
   color: #d9bd89;

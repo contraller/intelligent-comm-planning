@@ -94,12 +94,12 @@ onBeforeUnmount(clear);
 </script>
 
 <style scoped>
-.identity { display: grid; grid-template-columns: 120px minmax(0, 1fr); gap: 8px; font-size: 12px; }
+.identity { display: grid; grid-template-columns: 120px minmax(0, 1fr); gap: 8px; font-size: var(--font-control); }
 .identity dd { margin: 0; overflow-wrap: anywhere; }
-.origin { font-size: 12px; }
+.origin { font-size: var(--font-control); }
 .error { color: var(--danger, #c52442); overflow-wrap: anywhere; }
 .table-scroll { max-width: 100%; overflow: auto; }
-table { width: 100%; min-width: 700px; border-collapse: collapse; font-size: 12px; }
+table { width: 100%; min-width: 700px; border-collapse: collapse; font-size: var(--font-control); }
 th, td { padding: 8px; text-align: left; border-bottom: 1px solid var(--line, #d5d9de); overflow-wrap: anywhere; max-width: 200px; }
 .pager { display: flex; align-items: center; justify-content: flex-end; gap: 10px; margin-top: 12px; }
 .pager button { width: 36px; height: 36px; padding: 0; }

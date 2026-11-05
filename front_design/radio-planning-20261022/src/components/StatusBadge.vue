@@ -40,7 +40,7 @@ const tone = computed(() =>
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  font-size: 11px;
+  font-size: var(--font-secondary);
   white-space: nowrap;
 }
 .dot {
@@ -62,7 +62,7 @@ const tone = computed(() =>
   color: #eac179;
 }
 .alert-mark {
-  font-size: 10px;
+  font-size: var(--font-caption);
   color: #eac179;
   margin-left: 8px;
   white-space: nowrap;

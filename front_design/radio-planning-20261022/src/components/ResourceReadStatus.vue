@@ -75,7 +75,7 @@ const loading = computed(() => store.refreshing || !store.workspace && Object.va
   padding: 10px 14px;
   border: 1px solid var(--line);
   background: var(--panel);
-  font-size: 12px;
+  font-size: var(--font-control);
   line-height: 1.7;
 }
 .read-status p {

@@ -32,7 +32,7 @@ const summary = computed(() => planningOptionsSummary(props.input ?? {}));
 .options-summary {
   padding: 12px;
   border: 1px solid var(--line);
-  font-size: 12px;
+  font-size: var(--font-control);
   line-height: 1.8;
   overflow-wrap: anywhere;
 }

@@ -119,6 +119,6 @@ onBeforeUnmount(clearForSession);
 defineExpose({ requestLeave, clearForSession });
 </script>
 <style scoped>
-.origin{color:var(--muted);font-size:12px;line-height:1.7}fieldset{border:0;padding:0;min-width:0}label,.fields{display:grid;gap:8px}.fields{padding:12px 0}.summary{display:grid;grid-template-columns:110px minmax(0,1fr);gap:8px;font-size:12px}.summary dd{margin:0;overflow-wrap:anywhere}.preview,.pending{border-left:3px solid #65b7a0;padding:12px;font-size:12px;overflow-wrap:anywhere}.pending{border-color:#cfb568}.actions{display:flex;flex-wrap:wrap;gap:8px}.error{color:#eeb0aa}details{margin:16px 0}small{overflow-wrap:anywhere}@media(max-width:500px){.summary{grid-template-columns:1fr;gap:4px}.summary dd{margin-bottom:8px}}
+.origin{color:var(--muted);font-size:var(--font-control);line-height:1.7}fieldset{border:0;padding:0;min-width:0}label,.fields{display:grid;gap:8px}.fields{padding:12px 0}.summary{display:grid;grid-template-columns:110px minmax(0,1fr);gap:8px;font-size:var(--font-control)}.summary dd{margin:0;overflow-wrap:anywhere}.preview,.pending{border-left:3px solid #65b7a0;padding:12px;font-size:var(--font-control);overflow-wrap:anywhere}.pending{border-color:#cfb568}.actions{display:flex;flex-wrap:wrap;gap:8px}.error{color:#eeb0aa}details{margin:16px 0}small{overflow-wrap:anywhere}@media(max-width:500px){.summary{grid-template-columns:1fr;gap:4px}.summary dd{margin-bottom:8px}}
 .status-toggle{display:flex;align-items:center;gap:8px}
 </style>

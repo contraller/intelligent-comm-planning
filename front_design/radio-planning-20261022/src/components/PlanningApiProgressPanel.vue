@@ -129,7 +129,7 @@ const labels = {
 }
 .compact-progress .panel-body {
   padding: 8px 12px;
-  font-size: 12px;
+  font-size: var(--font-control);
 }
 .compact-progress details {
   margin-bottom: 8px;
@@ -152,7 +152,7 @@ progress {
   flex-wrap: wrap;
   padding: 0;
   list-style: none;
-  font-size: 12px;
+  font-size: var(--font-control);
 }
 .phases li {
   padding: 8px;
@@ -165,7 +165,7 @@ progress {
   color: #7bc7f0;
 }
 .muted {
-  font-size: 11px;
+  font-size: var(--font-secondary);
   overflow-wrap: anywhere;
 }
 .toolbar {
@@ -179,7 +179,7 @@ progress {
 pre {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
-  font-size: 11px;
+  font-size: var(--font-secondary);
   max-height: 220px;
   overflow: auto;
 }

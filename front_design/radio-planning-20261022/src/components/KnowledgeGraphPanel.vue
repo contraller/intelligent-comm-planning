@@ -231,10 +231,10 @@ defineExpose({ resetView: update });
 }
 .canvas { flex: 1 1 260px; min-width: 0; min-height: 260px; width: 100%; }
 .legend,
-.graph-foot { padding: 7px 10px; font-size: 10px; color: var(--graph-muted); }
+.graph-foot { padding: 7px 10px; font-size: var(--font-caption); color: var(--graph-muted); }
 .legend { position: relative; flex: 0 0 auto; border-bottom: 1px solid var(--graph-border); }
-.legend summary { cursor: pointer; color: var(--graph-text); font-size: 11px; }
-.legend summary > span { margin-left: 8px; font-size: 10px; color: var(--graph-muted); }
+.legend summary { cursor: pointer; color: var(--graph-text); font-size: var(--font-secondary); }
+.legend summary > span { margin-left: 8px; font-size: var(--font-caption); color: var(--graph-muted); }
 .legend-items {
   position: absolute;
   top: 100%;
@@ -255,7 +255,7 @@ defineExpose({ resetView: update });
 .legend-group > span { display: inline-flex; }
 .legend img { width: 19px; height: 19px; object-fit: contain; }
 .legend-group { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; width: 100%; }
-.legend-group strong { min-width: 72px; color: var(--graph-text); font-size: 10px; }
+.legend-group strong { min-width: 72px; color: var(--graph-text); font-size: var(--font-caption); }
 .graph-foot { display: flex; flex-wrap: wrap; gap: 6px 12px; flex: 0 0 auto; border-top: 1px solid var(--graph-border); line-height: 1.5; }
 .graph-foot > span { margin-left: auto; color: var(--graph-text); }
 .graph-foot .icon-note { margin-left: 0; color: var(--graph-muted); }

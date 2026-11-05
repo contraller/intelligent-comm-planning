@@ -93,7 +93,7 @@ const affected = computed(
 }
 .role-impact {
   margin: 0;
-  font-size: 12px;
+  font-size: var(--font-control);
   line-height: 1.6;
 }
 .permission-groups {
@@ -118,7 +118,7 @@ const affected = computed(
   gap: 8px;
   margin: 0;
   padding: 3px 0;
-  font-size: 13px;
+  font-size: var(--font-body);
   line-height: 1.5;
 }
 .permission input {

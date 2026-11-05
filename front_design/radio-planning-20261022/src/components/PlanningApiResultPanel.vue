@@ -1011,12 +1011,12 @@ const deviceSummaryColumns = [
   overflow-wrap: anywhere;
 }
 .deployment-summary {
-  font-size: 12px;
+  font-size: var(--font-control);
 }
 .tab-guide {
   padding: 6px 12px;
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--font-control);
   line-height: 1.6;
   flex: none;
 }
@@ -1024,7 +1024,7 @@ const deviceSummaryColumns = [
   margin: 8px 12px 0;
   padding: 8px 10px;
   background: #142b3d;
-  font-size: 12px;
+  font-size: var(--font-control);
   flex: none;
 }
 .result-checks summary,
@@ -1040,17 +1040,17 @@ const deviceSummaryColumns = [
 }
 .support-details {
   margin: 10px 12px;
-  font-size: 12px;
+  font-size: var(--font-control);
 }
 .cell-id {
   white-space: nowrap;
-  font-size: 12px;
+  font-size: var(--font-control);
 }
 .cell-secondary {
   display: block;
   margin-top: 4px;
   color: var(--muted);
-  font-size: 11px;
+  font-size: var(--font-secondary);
 }
 .metrics {
   display: grid;
@@ -1073,14 +1073,14 @@ const deviceSummaryColumns = [
   --metric-status: #ef5f64;
 }
 .metrics span {
-  font-size: 12px;
+  font-size: var(--font-control);
 }
 .metrics strong {
   font-size: 24px;
   color: var(--metric-status);
 }
 .metrics small {
-  font-size: 11px;
+  font-size: var(--font-secondary);
   color: var(--muted);
   margin-left: 4px;
 }
@@ -1091,7 +1091,7 @@ const deviceSummaryColumns = [
   margin: 0 12px 8px;
   padding: 8px 10px;
   background: #142b3d;
-  font-size: 12px;
+  font-size: var(--font-control);
   flex: none;
 }
 .required-connectivity p {
@@ -1116,7 +1116,7 @@ const deviceSummaryColumns = [
   padding: 8px 0;
 }
 .panel-body {
-  font-size: 12px;
+  font-size: var(--font-control);
   line-height: 1.8;
 }
 .warn {

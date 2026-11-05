@@ -414,7 +414,7 @@ fieldset {
 label {
   display: grid;
   gap: 6px;
-  font-size: 12px;
+  font-size: var(--font-control);
 }
 .check {
   display: flex;
@@ -449,7 +449,7 @@ small {
 }
 .muted,
 .notice {
-  font-size: 12px;
+  font-size: var(--font-control);
   line-height: 1.8;
   overflow-wrap: anywhere;
 }
@@ -457,7 +457,7 @@ small {
 .field-error {
   display: block;
   color: #ffca8d;
-  font-size: 12px;
+  font-size: var(--font-control);
   grid-column: 1 / -1;
 }
 [aria-invalid='true'] {

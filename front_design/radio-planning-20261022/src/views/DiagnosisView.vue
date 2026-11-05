@@ -776,7 +776,7 @@ async function reset() {
 <style scoped>
 .list-error {
   color: #ffafb9;
-  font-size: 12px;
+  font-size: var(--font-control);
   line-height: 1.8;
   overflow-wrap: anywhere;
 }
@@ -789,11 +789,11 @@ async function reset() {
   border-top: 1px solid #2c4563;
   padding-top: 10px;
   color: #acc9e2;
-  font-size: 12px;
+  font-size: var(--font-control);
 }
 .input-summary h3 {
   margin: 0 0 8px;
-  font-size: 12px;
+  font-size: var(--font-control);
 }
 .input-summary ul {
   margin: 0;
@@ -820,7 +820,7 @@ async function reset() {
 }
 .diagnosis-origin {
   color: #9db8cf;
-  font-size: 12px;
+  font-size: var(--font-control);
   margin-bottom: 8px;
 }
 .demo-settings {
@@ -830,7 +830,7 @@ async function reset() {
   border: 1px solid #2c4563;
   border-radius: 6px;
   color: #acc9e2;
-  font-size: 12px;
+  font-size: var(--font-control);
 }
 .demo-settings summary {
   cursor: pointer;
@@ -939,7 +939,7 @@ async function reset() {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  font-size: 12px;
+  font-size: var(--font-control);
   padding: 11px 2px;
   color: #98bbd7;
   gap: 10px;
@@ -954,7 +954,7 @@ async function reset() {
   align-items: center;
   flex-shrink: 0;
   gap: 6px;
-  font-size: 11px;
+  font-size: var(--font-secondary);
 }
 .list-heading input[type='checkbox'] {
   width: 14px;
@@ -972,7 +972,7 @@ async function reset() {
 }
 .scenario-list > p {
   padding: 4px 2px;
-  font-size: 12px;
+  font-size: var(--font-control);
   line-height: 1.7;
 }
 .scene-card {
@@ -993,11 +993,11 @@ async function reset() {
 }
 .scene-select strong,
 .history-card strong {
-  font-size: 12px;
+  font-size: var(--font-control);
 }
 .scene-select small,
 .history-card small {
-  font-size: 10px;
+  font-size: var(--font-caption);
   color: #8facc7;
 }
 .scene-actions {
@@ -1055,15 +1055,15 @@ async function reset() {
 }
 .context-card small {
   color: #8aa7c1;
-  font-size: 10px;
+  font-size: var(--font-caption);
   overflow-wrap: anywhere;
 }
 .context-card strong {
-  font-size: 12px;
+  font-size: var(--font-control);
   overflow-wrap: anywhere;
 }
 .source-state {
-  font-size: 11px;
+  font-size: var(--font-secondary);
   color: #e7c089;
 }
 .draft-toolbar {
@@ -1078,7 +1078,7 @@ async function reset() {
 .draft-toolbar label {
   display: grid;
   gap: 7px;
-  font-size: 12px;
+  font-size: var(--font-control);
   color: #a7c0d7;
 }
 .draft-toolbar .buttons,
@@ -1088,7 +1088,7 @@ async function reset() {
 }
 .draft-toolbar > small {
   color: #829cb9;
-  font-size: 11px;
+  font-size: var(--font-secondary);
   line-height: 1.8;
 }
 .submit-row {
@@ -1107,11 +1107,11 @@ select {
   border: 1px solid #355675;
   color: #c2d9ee;
   border-radius: 4px;
-  font-size: 12px;
+  font-size: var(--font-control);
 }
 .feedback {
   padding: 11px 15px;
-  font-size: 12px;
+  font-size: var(--font-control);
   line-height: 1.8;
   margin-bottom: 13px;
   border-radius: 4px;
@@ -1136,7 +1136,7 @@ select {
   background: #102137;
   border: 1px solid #2b4661;
   color: #8ba7c3;
-  font-size: 13px;
+  font-size: var(--font-body);
   line-height: 1.9;
   border-radius: 6px;
   min-height: 240px;
@@ -1146,7 +1146,7 @@ select {
   color: #6bb4de;
 }
 .empty-copy {
-  font-size: 12px;
+  font-size: var(--font-control);
   color: #7e99b4;
   line-height: 1.8;
 }

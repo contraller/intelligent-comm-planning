@@ -118,7 +118,7 @@ const deployments = [
 .tree-note {
   padding: 0 14px;
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--font-control);
   line-height: 1.7;
 }
 button:disabled {

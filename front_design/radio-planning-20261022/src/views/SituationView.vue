@@ -3443,7 +3443,7 @@ const { basemap: terrainBasemap, message: terrainMessage } = useTerrainBasemap(
   padding: 8px;
   background: #13263eeb;
   color: #c4d8ed;
-  font-size: 11px;
+  font-size: var(--font-secondary);
   pointer-events: none;
 }
 .topology-settings input[type='range'] {
@@ -3459,7 +3459,7 @@ const { basemap: terrainBasemap, message: terrainMessage } = useTerrainBasemap(
   padding: 8px;
   background: #13263eeb;
   color: #c4d8ed;
-  font-size: 11px;
+  font-size: var(--font-secondary);
   pointer-events: none;
 }
 
@@ -3468,7 +3468,7 @@ const { basemap: terrainBasemap, message: terrainMessage } = useTerrainBasemap(
   flex-wrap: wrap;
 }
 .maintenance-toolbar .muted {
-  font-size: 11px;
+  font-size: var(--font-secondary);
 }
 /* GIS 的入口靠左放置，菜单向右展开以免超出内容边界。 */
 .resource-more-panel {
@@ -3480,7 +3480,7 @@ const { basemap: terrainBasemap, message: terrainMessage } = useTerrainBasemap(
   margin-bottom: 8px;
   background: #152b42;
   color: #b4d5ed;
-  font-size: 12px;
+  font-size: var(--font-control);
   line-height: 1.7;
 }
 .edit-notice.error {
@@ -3518,7 +3518,7 @@ const { basemap: terrainBasemap, message: terrainMessage } = useTerrainBasemap(
   margin: 0 5px;
 }
 .situation-toolbar .muted {
-  font-size: 12px;
+  font-size: var(--font-control);
 }
 /* 模式提示位于页面顶部，编辑与取点同时有边框和文字信号。 */
 .mode-indicator {
@@ -3526,7 +3526,7 @@ const { basemap: terrainBasemap, message: terrainMessage } = useTerrainBasemap(
   align-items: center;
   gap: 7px;
   color: #9cb5ce;
-  font-size: 12px;
+  font-size: var(--font-control);
 }
 .is-editing .situation-toolbar {
   border-color: #42bbdf;
@@ -3554,7 +3554,7 @@ const { basemap: terrainBasemap, message: terrainMessage } = useTerrainBasemap(
 .coverage-settings > summary {
   padding: 10px 0;
   cursor: pointer;
-  font-size: 12px;
+  font-size: var(--font-control);
   color: #aac5df;
 }
 /* 标绘复用既有侧栏宽度，长清单只在面板内部滚动。 */
@@ -3562,7 +3562,7 @@ const { basemap: terrainBasemap, message: terrainMessage } = useTerrainBasemap(
   padding: 12px;
   min-height: 0;
   overflow: auto;
-  font-size: 12px;
+  font-size: var(--font-control);
   line-height: 1.7;
 }
 .situation-left > .fault-controls {
@@ -3676,7 +3676,7 @@ const { basemap: terrainBasemap, message: terrainMessage } = useTerrainBasemap(
   border-top: 1px solid var(--line);
   display: flex;
   justify-content: space-between;
-  font-size: 10px;
+  font-size: var(--font-caption);
   color: #6c85a1;
 }
 .layer-settings {
@@ -3687,7 +3687,7 @@ const { basemap: terrainBasemap, message: terrainMessage } = useTerrainBasemap(
   overflow-y: auto;
 }
 .layer-settings p {
-  font-size: 11px;
+  font-size: var(--font-secondary);
   margin-bottom: 8px;
   line-height: 1.5;
 }

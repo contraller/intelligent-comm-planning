@@ -264,7 +264,7 @@ const emit = defineEmits<{
 </script>
 <style scoped>
 section {
-  font-size: 12px;
+  font-size: var(--font-control);
   overflow-wrap: anywhere;
 }
 .network-navigation,
@@ -288,7 +288,7 @@ section {
   color: var(--muted);
 }
 .network-breadcrumb {
-  font-size: 11px;
+  font-size: var(--font-secondary);
 }
 .linked-services {
   margin: 16px 0;
@@ -296,7 +296,7 @@ section {
   border-top: 1px solid var(--line);
 }
 .linked-services h4 {
-  font-size: 13px;
+  font-size: var(--font-body);
   margin-bottom: 8px;
 }
 .service-heading .btn {

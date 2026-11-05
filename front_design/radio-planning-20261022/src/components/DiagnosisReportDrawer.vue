@@ -89,7 +89,7 @@ const figure = computed(
 );
 </script>
 <style scoped>
-pre { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 360px; overflow: auto; font-size: 12px; }
+pre { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 360px; overflow: auto; font-size: var(--font-control); }
 .report-paper {
   background: #f7f9fc;
   color: #243a51;
@@ -115,7 +115,7 @@ img {
 p,
 td,
 th {
-  font-size: 12px;
+  font-size: var(--font-control);
   line-height: 1.8;
   white-space: pre-wrap;
   overflow-wrap: anywhere;

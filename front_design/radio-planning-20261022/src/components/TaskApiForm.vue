@@ -618,12 +618,12 @@ onBeforeUnmount(() => {
 </script>
 <style scoped>
 .task-form {
-  font-size: 12px;
+  font-size: var(--font-control);
 }
 /* 错误色仅作用于当前表单，不覆盖原帮助文字。 */
 .task-form .field-error {
   color: #ffca8d;
-  font-size: 12px;
+  font-size: var(--font-control);
 }
 .task-form [aria-invalid='true'] {
   border-color: #ffca8d;
@@ -721,7 +721,7 @@ onBeforeUnmount(() => {
 }
 .planning .input-group > h3 {
   margin: 0;
-  font-size: 13px;
+  font-size: var(--font-body);
 }
 /* 局部紧凑排版，不改变其他页面的统一表单样式。 */
 .input-group {
@@ -740,7 +740,7 @@ summary small,
 .muted {
   font-weight: 400;
   color: var(--muted);
-  font-size: 11px;
+  font-size: var(--font-secondary);
 }
 .fields {
   margin-top: 12px;
@@ -748,7 +748,7 @@ summary small,
 .toolbar h3 {
   flex: 1;
   margin: 0;
-  font-size: 13px;
+  font-size: var(--font-body);
 }
 .node-options {
   max-height: 420px;

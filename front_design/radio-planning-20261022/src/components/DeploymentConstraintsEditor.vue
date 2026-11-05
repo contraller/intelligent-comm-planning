@@ -477,7 +477,7 @@ fieldset {
 label {
   display: grid;
   gap: 6px;
-  font-size: 12px;
+  font-size: var(--font-control);
 }
 input {
   width: 100%;
@@ -511,7 +511,7 @@ input {
   flex-wrap: wrap;
 }
 .muted {
-  font-size: 11px;
+  font-size: var(--font-secondary);
   line-height: 1.8;
 }
 .notice {
@@ -522,7 +522,7 @@ input {
 .field-error {
   display: block;
   color: #ffca8d;
-  font-size: 12px;
+  font-size: var(--font-control);
   grid-column: 1 / -1;
 }
 [aria-invalid='true'] {

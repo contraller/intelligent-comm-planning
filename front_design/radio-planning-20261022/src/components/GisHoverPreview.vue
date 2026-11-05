@@ -48,7 +48,7 @@ defineProps<{
   background: #0c1b2df5;
   box-shadow: 0 5px 18px #0005;
   color: #d9e8f5;
-  font-size: 11px;
+  font-size: var(--font-secondary);
   line-height: 1.45;
   overflow-wrap: anywhere;
 }
@@ -57,7 +57,7 @@ strong {
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
-  font-size: 12px;
+  font-size: var(--font-control);
   margin-bottom: 6px;
 }
 dl {

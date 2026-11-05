@@ -88,7 +88,7 @@ watch(
   display: grid;
   gap: 16px;
   color: #b9cfe2;
-  font-size: 13px;
+  font-size: var(--font-body);
   line-height: 1.8;
 }
 label {

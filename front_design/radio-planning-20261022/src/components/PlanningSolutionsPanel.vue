@@ -109,7 +109,7 @@ const choose = computed(() => {
 .solutions-panel {
   padding: 16px;
   border: 1px solid var(--line);
-  font-size: 12px;
+  font-size: var(--font-control);
   margin: 12px 0;
 }
 .solutions {

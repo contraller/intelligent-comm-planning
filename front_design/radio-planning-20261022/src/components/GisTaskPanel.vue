@@ -209,7 +209,7 @@ async function selectTask(id: string) {
   display: grid;
   gap: 8px;
   margin: 12px 0;
-  font-size: 12px;
+  font-size: var(--font-control);
   overflow-wrap: anywhere;
 }
 .task-row {
@@ -227,7 +227,7 @@ async function selectTask(id: string) {
 }
 .muted {
   color: var(--muted);
-  font-size: 11px;
+  font-size: var(--font-secondary);
   overflow-wrap: anywhere;
 }
 article {

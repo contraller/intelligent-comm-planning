@@ -65,7 +65,7 @@ function submit() {
 </script>
 <style scoped>
 .frequency-edit fieldset { border: 0; margin: 0; padding: 12px 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
-.frequency-edit label { display: grid; gap: 6px; min-width: 0; font-size: 13px; }
+.frequency-edit label { display: grid; gap: 6px; min-width: 0; font-size: var(--font-body); }
 .frequency-edit input, .frequency-edit select, .frequency-edit textarea { width: 100%; min-width: 0; }
 .frequency-note { grid-column: 1 / -1; }
 @media (max-width: 480px) { .frequency-edit fieldset { grid-template-columns: minmax(0, 1fr); } }

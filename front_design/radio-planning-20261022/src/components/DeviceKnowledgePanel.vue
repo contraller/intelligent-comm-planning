@@ -169,29 +169,43 @@ onBeforeUnmount(() => {
 });
 </script>
 <style scoped>
+.device-knowledge {
+  min-width: 0;
+  font-size: var(--font-body, 15px);
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
 .knowledge-heading {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 8px;
   color: #bbd8ee;
-  font-size: 12px;
+  font-size: var(--font-section, 16px);
   font-weight: 600;
 }
 .knowledge-heading small {
+  min-width: 0;
+  font-size: var(--font-secondary, 13px);
   margin-left: auto;
   font-weight: 400;
 }
 .device-knowledge > p {
-  font-size: 11px;
-  line-height: 1.7;
+  font-size: var(--font-secondary, 13px);
+  line-height: 1.6;
   margin: 12px 0;
 }
 .search-row {
   display: flex;
+  flex-wrap: wrap;
   gap: 6px;
   margin: 12px 0;
 }
 .search-row input {
+  flex: 1 1 160px;
+  max-width: 100%;
+  font-size: var(--font-control, 14px);
+  line-height: 1.6;
   min-width: 0;
 }
 .group {
@@ -204,7 +218,7 @@ onBeforeUnmount(() => {
 .group > summary {
   cursor: pointer;
   color: #92bddc;
-  font-size: 12px;
+  font-size: var(--font-control, 14px);
 }
 article {
   padding: 12px 0;
@@ -214,15 +228,15 @@ article:last-child {
   border-bottom: 0;
 }
 article p {
-  font-size: 12px;
+  font-size: var(--font-body, 15px);
   margin: 9px 0;
-  line-height: 1.7;
+  line-height: 1.6;
   white-space: pre-wrap;
 }
 .related,
 small.version {
   color: #809db7;
-  font-size: 10px;
+  font-size: var(--font-secondary, 13px);
 }
 .error {
   color: #ffb4b4;
@@ -233,6 +247,21 @@ small.version {
   margin-top: 8px;
 }
 .version {
+  overflow-wrap: anywhere;
+}
+
+.device-knowledge article strong {
+  font-size: var(--font-body, 15px);
+}
+.device-knowledge article small {
+  font-size: var(--font-secondary, 13px);
+}
+.device-knowledge :is(button, .text-link) {
+  min-width: 0;
+  max-width: 100%;
+  font-size: var(--font-control, 14px);
+  line-height: 1.6;
+  white-space: normal;
   overflow-wrap: anywhere;
 }
 </style>

@@ -290,7 +290,7 @@ async function apply() {
 }
 .evidence-warning {
   color: #f0c374;
-  font-size: 12px;
+  font-size: var(--font-control);
   line-height: 1.7;
   margin: 8px 0;
 }
@@ -298,7 +298,7 @@ async function apply() {
   display: grid;
   gap: 7px;
   color: #adc0d8;
-  font-size: 12px;
+  font-size: var(--font-control);
 }
 input,
 select,
@@ -329,7 +329,7 @@ fieldset {
 legend,
 summary {
   color: #7fc6eb;
-  font-size: 13px;
+  font-size: var(--font-body);
   cursor: pointer;
 }
 .batch {
@@ -338,6 +338,6 @@ summary {
 }
 .error {
   color: #ffb1b9;
-  font-size: 12px;
+  font-size: var(--font-control);
 }
 </style>

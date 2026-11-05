@@ -261,17 +261,17 @@ const view = computed(() => {
   border-radius: 5px;
 }
 .rule-editor h4 {
-  font-size: 13px;
+  font-size: var(--font-body);
 }
 .rule-editor p {
-  font-size: 12px;
+  font-size: var(--font-control);
   line-height: 1.8;
 }
 .rule-editor label {
   display: grid;
   gap: 6px;
   margin: 10px 0;
-  font-size: 12px;
+  font-size: var(--font-control);
 }
 .rule-edit-row {
   padding: 10px 0;

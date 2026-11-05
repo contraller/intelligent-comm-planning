@@ -573,7 +573,7 @@ onBeforeUnmount(() => {
 /* 仅规划上下文显示字段级错误；原抽屉汇总保留。 */
 .demand-fields .field-error {
   color: #ffca8d;
-  font-size: 12px;
+  font-size: var(--font-control);
 }
 .demand-fields [aria-invalid='true'] {
   border-color: #ffca8d;
@@ -586,14 +586,14 @@ onBeforeUnmount(() => {
 }
 .routing-options summary {
   cursor: pointer;
-  font-size: 12px;
+  font-size: var(--font-control);
   line-height: 1.8;
 }
 .demand-fields label {
   display: flex;
   flex-direction: column;
   gap: 6px;
-  font-size: 12px;
+  font-size: var(--font-control);
 }
 .demand-fields input,
 .demand-fields select {
@@ -607,7 +607,7 @@ onBeforeUnmount(() => {
 .demand-fields > p.muted {
   grid-column: 1 / -1;
   margin: 0;
-  font-size: 11px;
+  font-size: var(--font-secondary);
   line-height: 1.7;
 }
 .check input {
@@ -615,6 +615,6 @@ onBeforeUnmount(() => {
 }
 .toolbar {
   flex-wrap: wrap;
-  font-size: 11px;
+  font-size: var(--font-secondary);
 }
 </style>

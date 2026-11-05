@@ -254,14 +254,14 @@ const emit = defineEmits<{
   border-top: 1px solid #2a405a;
   padding-top: 10px;
   margin-top: 10px;
-  font-size: 12px;
+  font-size: var(--font-control);
 }
 .device-coverage-panel h3 {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 6px;
-  font-size: 13px;
+  font-size: var(--font-body);
 }
 .device-coverage-panel label {
   display: flex;

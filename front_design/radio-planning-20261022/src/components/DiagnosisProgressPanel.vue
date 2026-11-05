@@ -81,7 +81,7 @@ const labels = {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  font-size: 13px;
+  font-size: var(--font-body);
 }
 progress {
   width: 100%;
@@ -93,7 +93,7 @@ progress {
   display: flex;
   gap: 10px;
   flex-wrap: wrap;
-  font-size: 11px;
+  font-size: var(--font-secondary);
   color: #71869f;
 }
 .phases .done {
@@ -104,11 +104,11 @@ progress {
 }
 .error {
   color: #ffafb9;
-  font-size: 12px;
+  font-size: var(--font-control);
 }
 .historical {
   color: #eac486;
-  font-size: 12px;
+  font-size: var(--font-control);
   line-height: 1.7;
 }
 </style>

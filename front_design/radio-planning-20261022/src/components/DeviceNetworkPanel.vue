@@ -112,18 +112,18 @@ const peer = (link: NetworkLink) => (link.deviceA === props.deviceId ? link.devi
 <style scoped>
 .device-network {
   min-width: 0;
-  font-size: 12px;
+  font-size: var(--font-control);
   line-height: 1.7;
   overflow-wrap: anywhere;
 }
 .device-network h5 {
   margin: 14px 0 8px;
   color: #bbd8ee;
-  font-size: 12px;
+  font-size: var(--font-control);
 }
 .network-note {
   color: var(--muted);
-  font-size: 11px;
+  font-size: var(--font-secondary);
 }
 .network-item {
   padding: 10px 0;
@@ -144,7 +144,7 @@ const peer = (link: NetworkLink) => (link.deviceA === props.deviceId ? link.devi
   display: inline-block;
   margin-left: 8px;
   color: #8dbfe2;
-  font-size: 11px;
+  font-size: var(--font-secondary);
 }
 .kv dd {
   min-width: 0;

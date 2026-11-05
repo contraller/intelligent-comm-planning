@@ -133,21 +133,21 @@ onMounted(async () => {
 .embedded-map-settings[open] { max-height:calc(100% - 32px); overflow:auto; }
 .embedded-map-settings .situation-controls { padding:0 14px 14px; margin:0; border:0; }
 .coverage-legend-position { position: absolute; right: 18px; bottom: 40px; max-width: min(310px, calc(100% - 36px)); }
-.source-badge { position: absolute; left: 76px; top: 20px; display: flex; gap: 9px; align-items: center; max-width: calc(100% - 105px); padding: 9px 12px; border: 1px solid #386179; border-radius: 7px; background: #091b2bdd; color: #c7e0ee; font-size: 11px; pointer-events: none; }
-.source-badge strong { font-size: 12px; white-space: nowrap; }
+.source-badge { position: absolute; left: 76px; top: 20px; display: flex; gap: 9px; align-items: center; max-width: calc(100% - 105px); padding: 9px 12px; border: 1px solid #386179; border-radius: 7px; background: #091b2bdd; color: #c7e0ee; font-size: var(--font-secondary); pointer-events: none; }
+.source-badge strong { font-size: var(--font-control); white-space: nowrap; }
 .source-badge > span:last-child { color: #9bb7c9; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .source-dot { width: 6px; height: 6px; border-radius: 50%; background: #6acebb; }
-.interference-source-badge { position: absolute; left: 76px; top: 59px; max-width: calc(100% - 105px); margin: 0; padding: 6px 10px; border: 1px solid #79643d; border-radius: 6px; background: #142332ed; color: #e4c88e; font-size: 10px; line-height: 1.7; pointer-events: none; }
+.interference-source-badge { position: absolute; left: 76px; top: 59px; max-width: calc(100% - 105px); margin: 0; padding: 6px 10px; border: 1px solid #79643d; border-radius: 6px; background: #142332ed; color: #e4c88e; font-size: var(--font-caption); line-height: 1.7; pointer-events: none; }
 .example .source-dot { background: #ecc582; }
-.map-notice { position: absolute; bottom: 70px; left: 18px; max-width: min(620px, calc(100% - 36px)); margin: 0; padding: 9px 12px; border: 1px solid #416176; border-radius: 6px; background: #0b2032ed; color: #c7dfef; font-size: 12px; line-height: 1.7; pointer-events: none; }
+.map-notice { position: absolute; bottom: 70px; left: 18px; max-width: min(620px, calc(100% - 36px)); margin: 0; padding: 9px 12px; border: 1px solid #416176; border-radius: 6px; background: #0b2032ed; color: #c7dfef; font-size: var(--font-control); line-height: 1.7; pointer-events: none; }
 .map-notice.error { border-color: #876745; color: #efc68f; }
-.read-status { position: absolute; right: 18px; top: 20px; padding: 9px 12px; border-radius: 6px; background: #0b2032ed; color: #b4d8f0; font-size: 12px; pointer-events: none; }
-.situation-controls { display: grid; gap: 12px; border-top: 1px solid #2f455b; padding-top: 14px; margin-top: 14px; font-size: 12px; }
+.read-status { position: absolute; right: 18px; top: 20px; padding: 9px 12px; border-radius: 6px; background: #0b2032ed; color: #b4d8f0; font-size: var(--font-control); pointer-events: none; }
+.situation-controls { display: grid; gap: 12px; border-top: 1px solid #2f455b; padding-top: 14px; margin-top: 14px; font-size: var(--font-control); }
 h2 { margin: 0; color: #e2eff8; font-size: 14px; }
 .control-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 .frame-label { display: grid; gap: 5px; margin: 0; line-height: 1.7; }
 .frame-label span, .source-note { color: #91acbf; }
-.source-note { margin: 0; font-size: 11px; line-height: 1.8; }
+.source-note { margin: 0; font-size: var(--font-secondary); line-height: 1.8; }
 .layer-options { display: flex; flex-wrap: wrap; gap: 13px; }
 label { display: grid; gap: 6px; min-width: 0; color: #bed4e3; }
 .layer-options label { display: flex; align-items: center; gap: 6px; }
@@ -155,7 +155,7 @@ label { display: grid; gap: 6px; min-width: 0; color: #bed4e3; }
 .input { min-width: 0; width: 100%; }
 .plan-picker summary { cursor: pointer; color: #92cce9; padding: 8px 0; }
 .plan-option { width: 100%; display: grid; text-align: left; gap: 5px; background: #142d40; border: 1px solid #2d4c62; border-radius: 5px; padding: 9px; color: #c9e0ee; margin: 6px 0; cursor: pointer; }
-.plan-option span { color: #98b6c9; font-size: 10px; }
+.plan-option span { color: #98b6c9; font-size: var(--font-caption); }
 .plan-option:hover { border-color: #6ca5c5; }
 @media (max-width: 650px) { .source-badge { left: 66px; top: 18px; } .source-badge > span:last-child { display: none; } .read-status { top: 70px; } }
 </style>

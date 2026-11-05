@@ -87,13 +87,21 @@ watch(
 </script>
 <style scoped>
 .device-tabs {
+  font-size: var(--font-body, 15px);
+  line-height: 1.6;
+  overflow-wrap: anywhere;
   min-width: 0;
 }
 .device-tabs :deep(.p-tab) {
+  min-width: 0;
+  line-height: 1.6;
+  white-space: normal;
+  overflow-wrap: anywhere;
   padding: 12px 10px;
-  font-size: 12px;
+  font-size: var(--font-control, 14px);
 }
 .device-tabs :deep(.p-tabpanels) {
+  min-width: 0;
   padding: 12px 0 0;
   background: transparent;
 }
@@ -106,11 +114,29 @@ watch(
 .info-group > summary {
   cursor: pointer;
   color: #bbd8ee;
-  font-size: 12px;
+  font-size: var(--font-section, 16px);
   font-weight: 600;
 }
 .info-group :deep(.kv) {
+  font-size: var(--font-control, 14px);
+  line-height: 1.6;
   margin-top: 12px;
   overflow-wrap: anywhere;
+}
+
+.device-tabs :deep(.kv dt),
+.device-tabs :deep(.kv dd) {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.device-tabs :deep(.kv dt) {
+  font-size: var(--font-control, 14px);
+}
+.device-tabs :deep(.kv dd) {
+  font-size: var(--font-body, 15px);
+}
+.device-tabs .detail-note {
+  font-size: var(--font-secondary, 13px);
+  line-height: 1.6;
 }
 </style>

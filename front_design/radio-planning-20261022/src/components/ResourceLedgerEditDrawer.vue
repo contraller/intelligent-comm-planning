@@ -217,7 +217,7 @@ const labels: Record<string, string> = {
 .fields label {
   display: grid;
   gap: 7px;
-  font-size: 12px;
+  font-size: var(--font-control);
 }
 .error {
   color: #f5a6b2;

@@ -56,7 +56,7 @@ function select(value: FaultType) {
   min-width: 0;
 }
 .fault-picker legend {
-  font-size: 12px;
+  font-size: var(--font-control);
   color: #adc0d8;
 }
 .fault-picker label {
@@ -68,7 +68,7 @@ function select(value: FaultType) {
   border-radius: 4px;
   color: #bbd0e4;
   background: #112137;
-  font-size: 12px;
+  font-size: var(--font-control);
   cursor: pointer;
 }
 .fault-picker label.active {
@@ -91,7 +91,7 @@ function select(value: FaultType) {
 .fault-picker small {
   grid-column: 1 / -1;
   color: #8ca5bf;
-  font-size: 11px;
+  font-size: var(--font-secondary);
   line-height: 1.6;
 }
 .fault-picker:disabled label {

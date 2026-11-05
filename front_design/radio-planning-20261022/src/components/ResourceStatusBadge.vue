@@ -48,7 +48,7 @@ const label = computed(() =>
 }
 .resource-status-badge small {
   color: var(--muted);
-  font-size: 11px;
+  font-size: var(--font-secondary);
 }
 .normal {
   color: #45c9af;

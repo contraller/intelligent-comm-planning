@@ -560,12 +560,17 @@ const linkStates = { EXCELLENT: '优', GOOD: '良好', WARNING: '告警', FAULT:
 </script>
 <style scoped>
 .gis-resource-tree {
+  min-width: 0;
+  font-size: var(--font-control, 14px);
+  line-height: 1.6;
+  overflow-wrap: anywhere;
   display: flex;
   flex-direction: column;
   flex: 1;
   min-height: 0;
 }
 .tree-content {
+  min-width: 0;
   display: flex;
   flex: 1;
   min-height: 0;
@@ -587,6 +592,7 @@ const linkStates = { EXCELLENT: '优', GOOD: '良好', WARNING: '告警', FAULT:
 .browse-switch,
 .pager {
   display: flex;
+  flex-wrap: wrap;
   gap: 6px;
   padding: 7px;
 }
@@ -598,20 +604,21 @@ const linkStates = { EXCELLENT: '优', GOOD: '良好', WARNING: '告警', FAULT:
   color: #a7bbd5;
   border-radius: 4px;
   padding: 6px;
-  font-size: 11px;
+  font-size: var(--font-control, 14px);
 }
 .browse-switch button {
   flex: 1;
 }
 .category-nav {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   gap: 5px;
   padding: 0 9px 9px;
 }
 .category-nav button {
   text-align: left;
   display: flex;
+  flex-wrap: wrap;
   justify-content: space-between;
   gap: 4px;
 }
@@ -623,7 +630,7 @@ const linkStates = { EXCELLENT: '优', GOOD: '良好', WARNING: '告警', FAULT:
 }
 .classification-tools {
   margin: 0 10px 8px;
-  font-size: 11px;
+  font-size: var(--font-control, 14px);
 }
 .classification-tools label {
   display: grid;
@@ -632,17 +639,19 @@ const linkStates = { EXCELLENT: '优', GOOD: '良好', WARNING: '告警', FAULT:
   margin-top: 6px;
 }
 .classification-tools small {
+  font-size: var(--font-secondary, 13px);
   display: block;
   margin-top: 8px;
   color: var(--muted);
 }
 .device-group > summary {
+  font-size: var(--font-body, 15px);
   padding: 10px 4px;
   color: #8ec7e7;
 }
 .device-group > details {
   margin-left: 12px;
-  font-size: 11px;
+  font-size: var(--font-control, 14px);
 }
 .device-group > details > summary {
   padding: 8px 4px;
@@ -654,22 +663,26 @@ const linkStates = { EXCELLENT: '优', GOOD: '良好', WARNING: '告警', FAULT:
 .tree-tools .segments {
   margin-top: 12px;
   display: flex;
+  flex-wrap: wrap;
 }
 .tree-tools .segments button {
   flex: 1;
   padding: 6px 5px;
-  font-size: 11px;
+  font-size: var(--font-control, 14px);
 }
 .tree-summary {
+  flex-wrap: wrap;
   color: #9eb4cf;
   background: #15243b;
-  font-size: 11px;
+  font-size: var(--font-control, 14px);
   padding: 12px 14px;
   display: flex;
   align-items: center;
   gap: 8px;
 }
 .tree-summary span {
+  min-width: 0;
+  font-size: var(--font-secondary, 13px);
   margin-left: auto;
   color: #638eb9;
 }
@@ -718,13 +731,15 @@ const linkStates = { EXCELLENT: '优', GOOD: '良好', WARNING: '告警', FAULT:
 }
 .station-copy strong {
   display: block;
-  font-size: 11px;
+  font-size: var(--font-body, 15px);
   margin-bottom: 7px;
 }
 .station-copy small {
   display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
   justify-content: space-between;
-  font-size: 9px;
+  font-size: var(--font-caption, 12px);
 }
 .station-copy small span {
   color: #5c9bbf;
@@ -748,7 +763,7 @@ const linkStates = { EXCELLENT: '优', GOOD: '良好', WARNING: '告警', FAULT:
 .tree-footer {
   padding: 13px;
   color: #758ca9;
-  font-size: 10px;
+  font-size: var(--font-caption, 12px);
   border-top: 1px solid var(--line);
 }
 .device-children {
@@ -757,14 +772,14 @@ const linkStates = { EXCELLENT: '优', GOOD: '良好', WARNING: '告警', FAULT:
   gap: 6px;
 }
 .device-children small {
-  font-size: 10px;
+  font-size: var(--font-secondary, 13px);
   color: #89a4c3;
 }
 .device-children button {
   background: none;
   border: 0;
   text-align: left;
-  font-size: 10px;
+  font-size: var(--font-body, 15px);
   color: #a7bbd5;
   overflow-wrap: anywhere;
 }
@@ -781,7 +796,7 @@ const linkStates = { EXCELLENT: '优', GOOD: '良好', WARNING: '告警', FAULT:
   border-radius: 4px;
   background: transparent;
   color: #a7bbd5;
-  font-size: 10px;
+  font-size: var(--font-control, 14px);
   overflow-wrap: anywhere;
 }
 .link-item:hover {
@@ -792,13 +807,27 @@ const linkStates = { EXCELLENT: '优', GOOD: '良好', WARNING: '告警', FAULT:
   border-color: #28547a;
 }
 .link-item strong {
-  font-size: 11px;
+  font-size: var(--font-body, 15px);
 }
 .link-item small {
+  font-size: var(--font-secondary, 13px);
   color: #d5ac68;
 }
 .link-item:disabled {
   opacity: 0.65;
   cursor: default;
+}
+
+.gis-resource-tree :is(button, input, select) {
+  min-width: 0;
+  max-width: 100%;
+  line-height: 1.6;
+}
+.gis-resource-tree :is(input, select) {
+  font-size: var(--font-control, 14px);
+}
+.gis-resource-tree button {
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 </style>
