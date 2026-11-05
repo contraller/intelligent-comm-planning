@@ -371,7 +371,7 @@ progress {
 }
 p,
 li {
-  font-size: 12px;
+  font-size: var(--font-control);
   line-height: 1.8;
   overflow-wrap: anywhere;
 }
@@ -413,7 +413,7 @@ details {
 }
 summary {
   color: #abd6f5;
-  font-size: 12px;
+  font-size: var(--font-control);
   cursor: pointer;
 }
 .impact-row {
@@ -430,7 +430,7 @@ summary {
 }
 .impact-row span,
 .impact-row small {
-  font-size: 11px;
+  font-size: var(--font-secondary);
 }
 .buttons {
   display: flex;
@@ -464,7 +464,7 @@ select {
   padding: 8px;
   background: #14283f;
   border: 1px solid #2b425f;
-  font-size: 11px;
+  font-size: var(--font-secondary);
   overflow-wrap: anywhere;
 }
 .branch-row strong {
@@ -487,7 +487,7 @@ select {
   grid-column: 1/-1;
   margin: 0;
   color: #b8a7ca;
-  font-size: 11px;
+  font-size: var(--font-secondary);
 }
 .tabs {
   flex-shrink: 0;

@@ -318,14 +318,14 @@ details {
 }
 summary {
   cursor: pointer;
-  font-size: 12px;
+  font-size: var(--font-control);
 }
 summary:focus-visible {
   outline: 2px solid var(--cyan);
   outline-offset: 2px;
 }
 dl {
-  font-size: 11px;
+  font-size: var(--font-secondary);
   display: grid;
   grid-template-columns: 100px 1fr;
   gap: 8px;

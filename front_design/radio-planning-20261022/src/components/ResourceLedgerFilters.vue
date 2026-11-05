@@ -303,7 +303,7 @@ function updateClassification(patch: Partial<LedgerClassification>) {
 .match-count {
   margin-left: auto;
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--font-control);
 }
 .ledger-frequency-form {
   display: flex;
@@ -329,7 +329,7 @@ function updateClassification(patch: Partial<LedgerClassification>) {
   gap: 6px;
   flex: 0 1 160px;
   min-width: 130px;
-  font-size: 12px;
+  font-size: var(--font-control);
 }
 .ledger-frequency-form input,
 .ledger-frequency-form select {
@@ -339,7 +339,7 @@ function updateClassification(patch: Partial<LedgerClassification>) {
 .filter-caption,
 .filter-error {
   margin: 0;
-  font-size: 12px;
+  font-size: var(--font-control);
   line-height: 1.7;
 }
 .filter-caption {

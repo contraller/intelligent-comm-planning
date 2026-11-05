@@ -163,7 +163,7 @@ function confirm() {
 defineExpose({ discard });
 </script>
 <style scoped>
-.bandwidth-editor { min-width: 0; max-width: 100%; font-size: 12px; }
+.bandwidth-editor { min-width: 0; max-width: 100%; font-size: var(--font-control); }
 .toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 8px 0; }
 label { display: flex; align-items: center; gap: 6px; min-width: 0; max-width: 100%; }
 select { min-width: 0; max-width: 100%; }

@@ -221,7 +221,7 @@ async function rollback() {
   margin: 10px 0;
   overflow-wrap: anywhere;
   line-height: 1.7;
-  font-size: 12px;
+  font-size: var(--font-control);
 }
 pre {
   font: 12px/1.7 inherit;

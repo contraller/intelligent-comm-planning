@@ -168,11 +168,11 @@ function removeFlow() {
   border-radius: 6px;
 }
 .principle-editor h4 {
-  font-size: 13px;
+  font-size: var(--font-body);
   color: #bbd8ee;
 }
 .principle-editor > .muted {
-  font-size: 12px;
+  font-size: var(--font-control);
   line-height: 1.8;
   margin: 10px 0;
 }
@@ -186,7 +186,7 @@ function removeFlow() {
   flex-wrap: wrap;
 }
 .step-error {
-  font-size: 12px;
+  font-size: var(--font-control);
   line-height: 1.7;
   color: #ffb4b4;
   margin-top: 10px;

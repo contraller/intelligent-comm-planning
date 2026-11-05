@@ -552,6 +552,9 @@ const values = (items: readonly (number | string)[] | null | undefined, unit = '
 
 <style scoped>
 .device-info-panel {
+  font-size: var(--font-body, 15px);
+  line-height: 1.6;
+  overflow-wrap: anywhere;
   min-width: 0;
 }
 .device-alarm {
@@ -562,26 +565,28 @@ const values = (items: readonly (number | string)[] | null | undefined, unit = '
   border-radius: 5px;
   background: #472431;
   color: #ffc0ca;
-  font-size: 12px;
+  font-size: var(--font-control, 14px);
   line-height: 1.6;
 }
 .device-alarm span {
-  font-size: 11px;
+  font-size: var(--font-secondary, 13px);
 }
 .parameter-heading {
   margin-top: 14px;
-  font-size: 12px;
+  font-size: var(--font-section, 16px);
   color: #bbd8ee;
 }
 .detail-note {
   margin-top: 10px;
-  font-size: 11px;
-  line-height: 1.7;
+  font-size: var(--font-secondary, 13px);
+  line-height: 1.6;
   color: var(--muted);
   overflow-wrap: anywhere;
 }
 .device-info-panel :deep(.kv) {
-  grid-template-columns: minmax(90px, 0.85fr) minmax(0, 1.35fr);
+  font-size: var(--font-control, 14px);
+  line-height: 1.6;
+  grid-template-columns: minmax(100px, 0.85fr) minmax(0, 1.35fr);
 }
 .kv dd {
   min-width: 0;
@@ -589,14 +594,16 @@ const values = (items: readonly (number | string)[] | null | undefined, unit = '
   white-space: pre-wrap;
 }
 .kv small {
+  font-size: var(--font-secondary, 13px);
   color: var(--muted);
 }
 .role-source {
   display: block;
   margin-top: 5px;
-  font-size: 11px;
+  font-size: var(--font-secondary, 13px);
 }
 .knowledge-state {
+  font-size: var(--font-secondary, 13px);
   margin: 0;
   color: var(--muted);
 }
@@ -612,7 +619,7 @@ const values = (items: readonly (number | string)[] | null | undefined, unit = '
 }
 .knowledge-evidence {
   margin-top: 7px;
-  font-size: 11px;
+  font-size: var(--font-secondary, 13px);
   color: var(--muted);
 }
 .knowledge-evidence > summary {
@@ -622,5 +629,13 @@ const values = (items: readonly (number | string)[] | null | undefined, unit = '
 .knowledge-evidence > div {
   padding: 5px 0;
   border-top: 1px solid var(--line);
+}
+
+.device-info-panel :deep(.kv dt),
+.device-info-panel :deep(.kv dd) {
+  min-width: 0;
+  font-size: var(--font-control, 14px);
+  line-height: 1.6;
+  overflow-wrap: anywhere;
 }
 </style>

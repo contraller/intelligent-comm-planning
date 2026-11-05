@@ -41,7 +41,7 @@ defineProps<{ value?: DeploymentConstraints | null; label?: string }>();
 </script>
 <style scoped>
 .deployment-summary {
-  font-size: 12px;
+  font-size: var(--font-control);
   border: 1px solid var(--line);
   padding: 12px;
   margin: 10px 0;

@@ -470,7 +470,7 @@ function canLocateIssue(issue: import('../types/resource-edit').ResourceIssue) {
 .field-error,
 .error-box {
   color: #ffb4b4;
-  font-size: 12px;
+  font-size: var(--font-control);
   line-height: 1.7;
 }
 .error-box {

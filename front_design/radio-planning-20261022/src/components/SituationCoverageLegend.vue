@@ -29,7 +29,7 @@ const gradient = computed(() => legend.value?.local
 </script>
 
 <style scoped>
-.situation-coverage-legend { max-width: 310px; padding: 10px 12px; border: 1px solid #3b5b67; border-radius: 6px; background: #0b2032ed; color: #c7dfef; font-size: 11px; line-height: 1.6; pointer-events: none; }
+.situation-coverage-legend { max-width: 310px; padding: 10px 12px; border: 1px solid #3b5b67; border-radius: 6px; background: #0b2032ed; color: #c7dfef; font-size: var(--font-secondary); line-height: 1.6; pointer-events: none; }
 .situation-coverage-legend strong { color: #e1f0f2; }
 p { margin: 4px 0 0; }
 .field-scale, .strength-scale { display: flex; gap: 9px; align-items: center; }.strength-scale { flex-wrap: wrap; }

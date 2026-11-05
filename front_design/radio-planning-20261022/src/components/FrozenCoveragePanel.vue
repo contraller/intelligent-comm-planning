@@ -471,7 +471,7 @@ onBeforeUnmount(() => emit('overlay', null));
 .frozen-coverage {
   padding: 10px 0;
   border-top: 1px solid var(--line);
-  font-size: 12px;
+  font-size: var(--font-control);
   min-width: 0;
 }
 h3 {

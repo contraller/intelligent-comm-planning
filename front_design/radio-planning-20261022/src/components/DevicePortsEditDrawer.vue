@@ -138,7 +138,7 @@ article {
 label {
   display: block;
   margin: 10px 0;
-  font-size: 12px;
+  font-size: var(--font-control);
 }
 input:not([type='checkbox']),
 select {
@@ -148,6 +148,6 @@ select {
 }
 p {
   overflow-wrap: anywhere;
-  font-size: 12px;
+  font-size: var(--font-control);
 }
 </style>

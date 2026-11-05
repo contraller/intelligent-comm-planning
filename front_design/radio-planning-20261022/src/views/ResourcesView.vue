@@ -1208,6 +1208,18 @@ const columns = [
 ];
 </script>
 <style scoped>
+/* 多列台账保留可读列宽，在表格区域内滚动。 */
+.ledger-panel :deep(.p-datatable) {
+  min-width: 0;
+  font-size: var(--font-control);
+}
+.ledger-panel :deep(.p-datatable-table) {
+  min-width: 1120px;
+}
+.ledger-panel :deep(.p-datatable-table-container) {
+  max-width: 100%;
+  overflow-x: auto;
+}
 .resource-tabs {
   margin-bottom: 18px;
   align-items: center;
@@ -1221,7 +1233,7 @@ const columns = [
   border-radius: var(--radius, 8px);
   background: var(--panel);
 }
-.ledger-summary h2 { font-size: 13px; margin: 0; }
+.ledger-summary h2 { font-size: var(--font-body); margin: 0; }
 .resource-summary {
   display: flex;
   flex-wrap: wrap;
@@ -1229,7 +1241,7 @@ const columns = [
   margin-left: auto;
   padding: 8px 0;
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--font-control);
 }
 .resource-summary strong {
   color: var(--text);
@@ -1251,7 +1263,7 @@ const columns = [
 }
 .ledger-panel { overflow: visible; }
 .resource-status-bar { position: relative; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; padding: 12px 16px; }
-.resource-status-source { flex: 1 1 220px; min-width: 0; margin: 0; color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
+.resource-status-source { flex: 1 1 220px; min-width: 0; margin: 0; color: var(--muted); font-size: var(--font-control); overflow-wrap: anywhere; }
 .resource-status-controls { margin-left: auto; }
 .resource-status-controls > summary { display: flex; align-items: center; list-style: none; cursor: pointer; }
 .resource-status-controls > summary::-webkit-details-marker { display: none; }
@@ -1267,7 +1279,7 @@ const columns = [
   margin: 0;
   padding: 0 18px 12px;
   color: #b4d5ed;
-  font-size: 12px;
+  font-size: var(--font-control);
   line-height: 1.7;
 }
 .resource-tip {
@@ -1276,7 +1288,7 @@ const columns = [
   border-top: 1px solid var(--line);
   color: #738fae;
   line-height: 1.8;
-  font-size: 11px;
+  font-size: var(--font-secondary);
 }
 .resource-tip .pi {
   margin-bottom: 10px;

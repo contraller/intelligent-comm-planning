@@ -127,7 +127,7 @@ const deviceName = (id: string) => {
 .link-detail {
   padding: 14px;
   min-width: 0;
-  font-size: 12px;
+  font-size: var(--font-control);
   line-height: 1.7;
   overflow-wrap: anywhere;
 }
@@ -137,12 +137,12 @@ const deviceName = (id: string) => {
 }
 .link-detail h4 span {
   margin-left: 8px;
-  font-size: 12px;
+  font-size: var(--font-control);
 }
 .detail-note,
 .kv small {
   color: var(--muted);
-  font-size: 11px;
+  font-size: var(--font-secondary);
 }
 .kv dd {
   min-width: 0;
@@ -167,7 +167,7 @@ const deviceName = (id: string) => {
 }
 .metric-name {
   color: #a9bdd3;
-  font-size: 12px;
+  font-size: var(--font-control);
 }
 .metric-value {
   display: flex;
@@ -182,21 +182,21 @@ const deviceName = (id: string) => {
 }
 .metric-value small {
   color: var(--muted);
-  font-size: 10px;
+  font-size: var(--font-caption);
   font-weight: normal;
 }
 .metric-state {
   padding: 1px 5px;
   border-radius: 3px;
   background: #192c41;
-  font-size: 10px;
+  font-size: var(--font-caption);
   white-space: nowrap;
 }
 .metric-reason {
   grid-column: 1 / -1;
   margin: 0;
   color: #91acc5;
-  font-size: 11px;
+  font-size: var(--font-secondary);
 }
 .metric-card.violation {
   border-left-color: currentColor;

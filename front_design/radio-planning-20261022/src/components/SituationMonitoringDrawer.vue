@@ -284,7 +284,7 @@ function key(event: KeyboardEvent) {
   min-width: 0;
 }
 .tabs button {
-  font-size: 12px;
+  font-size: var(--font-control);
   white-space: nowrap;
 }
 .monitor-body {
@@ -301,7 +301,7 @@ function key(event: KeyboardEvent) {
   align-items: center;
   gap: 10px;
   flex-wrap: wrap;
-  font-size: 11px;
+  font-size: var(--font-secondary);
   color: #b5cee3;
 }
 .network-map-action {
@@ -313,14 +313,14 @@ function key(event: KeyboardEvent) {
 }
 .time-line,
 .source-line {
-  font-size: 11px;
+  font-size: var(--font-secondary);
   color: #91acc5;
   overflow-wrap: anywhere;
   margin: 0;
 }
 .notice,
 .error {
-  font-size: 12px;
+  font-size: var(--font-control);
   line-height: 1.7;
   margin: 0;
   padding: 8px;
@@ -337,7 +337,7 @@ function key(event: KeyboardEvent) {
     gap: 8px;
   }
   .tabs button {
-    font-size: 11px;
+    font-size: var(--font-secondary);
   }
   .monitor-body {
     padding: 10px;

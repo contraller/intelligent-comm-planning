@@ -717,7 +717,7 @@ async function locate(id: string, field?: string) {
 .diff-row p,
 .submission p {
   margin: 8px 0;
-  font-size: 12px;
+  font-size: var(--font-control);
 }
 .diff-row pre {
   white-space: pre-wrap;

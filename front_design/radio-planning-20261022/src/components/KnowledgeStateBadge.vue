@@ -47,7 +47,7 @@ const tone = computed(() =>
   display: inline-flex;
   gap: 5px;
   align-items: center;
-  font-size: 12px;
+  font-size: var(--font-control);
 }
 .green {
   color: #64cfab;

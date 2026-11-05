@@ -97,7 +97,7 @@ const display = computed(() => (props.feedback ? planningFeedbackDisplay(props.f
   display: flex;
   gap: 12px;
   flex-wrap: wrap;
-  font-size: 12px;
+  font-size: var(--font-control);
 }
 ul {
   padding-left: 20px;
@@ -105,7 +105,7 @@ ul {
 pre {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
-  font-size: 11px;
+  font-size: var(--font-secondary);
   max-height: 220px;
   overflow: auto;
 }

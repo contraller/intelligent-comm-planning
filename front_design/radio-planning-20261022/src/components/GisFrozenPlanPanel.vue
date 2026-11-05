@@ -334,7 +334,7 @@ defineExpose({ stop: model.stop, requestLeave, openIdentity });
 </script>
 
 <style scoped>
-.status-render-anchor { margin: 0; padding: 8px 0; font-size: 12px; overflow-wrap: anywhere; }
+.status-render-anchor { margin: 0; padding: 8px 0; font-size: var(--font-control); overflow-wrap: anywhere; }
 .frozen-workspace {
   display: grid;
   gap: 12px;
@@ -413,7 +413,7 @@ dl {
 }
 dt {
   color: #95aec4;
-  font-size: 13px;
+  font-size: var(--font-body);
 }
 dd {
   margin: 0;

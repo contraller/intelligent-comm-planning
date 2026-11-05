@@ -522,7 +522,7 @@ const outcomeLabel = (value: string) =>
 pre {
   max-height: 250px;
   overflow: auto;
-  font-size: 12px;
+  font-size: var(--font-control);
 }
 details {
   margin-top: 18px;

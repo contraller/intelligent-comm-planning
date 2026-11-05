@@ -151,7 +151,7 @@ function edit() {
 .candidate-detail {
   padding: 14px;
   min-width: 0;
-  font-size: 12px;
+  font-size: var(--font-control);
   line-height: 1.7;
   overflow-wrap: anywhere;
 }
@@ -161,17 +161,17 @@ function edit() {
 }
 .candidate-detail h4 span {
   margin-left: 8px;
-  font-size: 12px;
+  font-size: var(--font-control);
   color: #aab8c7;
 }
 .candidate-detail h5 {
   margin: 14px 0 6px;
-  font-size: 12px;
+  font-size: var(--font-control);
 }
 .detail-note,
 .kv small {
   color: var(--muted);
-  font-size: 11px;
+  font-size: var(--font-secondary);
 }
 .kv dd {
   min-width: 0;

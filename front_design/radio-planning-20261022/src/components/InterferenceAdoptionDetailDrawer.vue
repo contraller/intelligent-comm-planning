@@ -124,7 +124,7 @@ onBeforeUnmount(invalidate);
 .adoption-fields { display: grid; grid-template-columns: minmax(90px, 1fr) minmax(0, 2fr); gap: 10px 12px; }
 dt { color: var(--muted); }
 dd { margin: 0; }
-dt, dd, p { font-size: 12px; line-height: 1.7; overflow-wrap: anywhere; min-width: 0; }
+dt, dd, p { font-size: var(--font-control); line-height: 1.7; overflow-wrap: anywhere; min-width: 0; }
 .error { color: #ffb4b4; }
 @media (max-width: 420px) {
   .adoption-fields { grid-template-columns: minmax(0, 1fr); gap: 4px; }

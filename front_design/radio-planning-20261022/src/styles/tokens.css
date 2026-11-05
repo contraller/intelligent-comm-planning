@@ -15,5 +15,10 @@
   --yellow: #f4bd63;
   --red: #f17684;
   --radius: 7px;
+  --font-body: 15px;
+  --font-control: 14px;
+  --font-secondary: 13px;
+  --font-caption: 12px;
+  --font-section: 16px;
   color-scheme: dark;
 }

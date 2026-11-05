@@ -161,8 +161,8 @@ async function locate(issue: PlanningIssue) {
 </script>
 <style scoped>
 .quick-start-details { margin-bottom: 10px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 5px; background: var(--panel-deep); }
-.quick-start-details > summary { cursor: pointer; color: var(--text); font-size: 12px; font-weight: 600; }
-.quick-start-details > summary small { margin-left: 7px; font-weight: 400; font-size: 10px; color: var(--muted); }
+.quick-start-details > summary { cursor: pointer; color: var(--text); font-size: var(--font-control); font-weight: 600; }
+.quick-start-details > summary small { margin-left: 7px; font-weight: 400; font-size: var(--font-caption); color: var(--muted); }
 .task-panel {
   min-width: 0;
   height: 100%;
@@ -182,7 +182,7 @@ async function locate(issue: PlanningIssue) {
   flex-wrap: wrap;
 }
 .meta {
-  font-size: 10px;
+  font-size: var(--font-caption);
   line-height: 1.8;
   color: var(--muted);
   overflow-wrap: anywhere;
@@ -191,7 +191,7 @@ async function locate(issue: PlanningIssue) {
   margin: 10px 0;
 }
 .muted {
-  font-size: 11px;
+  font-size: var(--font-secondary);
 }
 .task-actions {
   flex: none;
@@ -200,7 +200,7 @@ async function locate(issue: PlanningIssue) {
   background: #102035;
   display: grid;
   gap: 8px;
-  font-size: 11px;
+  font-size: var(--font-secondary);
 }
 .task-actions .toolbar {
   display: grid;
@@ -225,7 +225,7 @@ async function locate(issue: PlanningIssue) {
 }
 .task-meta {
   margin: 8px 0;
-  font-size: 12px;
+  font-size: var(--font-control);
 }
 summary {
   cursor: pointer;

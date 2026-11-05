@@ -548,7 +548,7 @@ header .chip {
   display: flex;
   gap: 8px;
   align-items: center;
-  font-size: 12px;
+  font-size: var(--font-control);
 }
 .login-card {
   max-width: 435px;
@@ -565,7 +565,7 @@ header .chip {
 }
 .login-card-heading > p {
   color: #7892ad;
-  font-size: 12px;
+  font-size: var(--font-control);
   line-height: 1.8;
 }
 .login-card form {
@@ -573,7 +573,7 @@ header .chip {
 }
 .login-card label {
   margin-bottom: 21px;
-  font-size: 12px;
+  font-size: var(--font-control);
 }
 .login-input {
   display: flex;
@@ -589,7 +589,7 @@ header .chip {
   background: transparent;
   border: 0;
   flex: 1;
-  font-size: 12px;
+  font-size: var(--font-control);
 }
 .login-input .icon-btn {
   margin-right: 6px;
@@ -609,7 +609,7 @@ header .chip {
   display: flex;
   gap: 10px;
   margin-top: 25px;
-  font-size: 10px;
+  font-size: var(--font-caption);
   line-height: 1.9;
   color: #6383a0;
 }
@@ -621,7 +621,7 @@ header .chip {
   justify-content: space-between;
   padding: 24px 65px;
   color: #425e7b;
-  font-size: 10px;
+  font-size: var(--font-caption);
   z-index: 1;
 }
 .login-page footer b {

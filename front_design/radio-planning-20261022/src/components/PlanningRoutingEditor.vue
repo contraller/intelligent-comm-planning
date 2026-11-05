@@ -162,7 +162,7 @@ const controls = computed(() => {
 .routing-editor label {
   display: grid;
   gap: 6px;
-  font-size: 12px;
+  font-size: var(--font-control);
 }
 .routing-editor select {
   width: 100%;
@@ -171,7 +171,7 @@ const controls = computed(() => {
   grid-column: 1/-1;
   margin: 0;
   color: var(--muted);
-  font-size: 11px;
+  font-size: var(--font-secondary);
   line-height: 1.7;
 }
 .routing-editor [role='alert'] {

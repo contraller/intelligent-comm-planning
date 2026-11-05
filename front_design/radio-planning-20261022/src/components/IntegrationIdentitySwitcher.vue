@@ -21,5 +21,5 @@ watch(()=>auth.identity?.sessionId,()=>{selected.value=auth.identity?.id??'';});
 onMounted(()=>void load());
 </script>
 <style scoped>
-.integration-identity{display:flex;align-items:center;gap:6px;min-width:0;flex-wrap:wrap}.integration-identity select{max-width:150px;font-size:12px}.integration-identity .btn{display:flex;gap:5px;align-items:center;padding:6px;white-space:nowrap}.knowledge-entry{display:inline-flex;align-items:center;gap:5px;white-space:nowrap}
+.integration-identity{display:flex;align-items:center;gap:6px;min-width:0;flex-wrap:wrap}.integration-identity select{max-width:150px;font-size:var(--font-control)}.integration-identity .btn{display:flex;gap:5px;align-items:center;padding:6px;white-space:nowrap}.knowledge-entry{display:inline-flex;align-items:center;gap:5px;white-space:nowrap}
 </style>

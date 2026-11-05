@@ -195,7 +195,7 @@ label {
   padding: 12px;
   border: 1px solid #2a405a;
   border-radius: 5px;
-  font-size: 12px;
+  font-size: var(--font-control);
 }
 input {
   width: auto;
@@ -208,7 +208,7 @@ small {
   overflow-wrap: anywhere;
 }
 .muted {
-  font-size: 11px;
+  font-size: var(--font-secondary);
 }
 .cost-sort-note {
   margin: 0;

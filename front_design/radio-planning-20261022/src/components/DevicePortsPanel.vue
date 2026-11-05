@@ -80,7 +80,7 @@ function status(id: string) {
 <style scoped>
 .ports-panel {
   margin: 12px 0;
-  font-size: 12px;
+  font-size: var(--font-control);
 }
 .note {
   color: var(--muted);

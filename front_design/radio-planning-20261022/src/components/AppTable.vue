@@ -251,7 +251,7 @@ function cellValue(row: T, field: string) {
   margin: 0;
   padding: 12px;
   background: #14283d;
-  font-size: 12px;
+  font-size: var(--font-control);
 }
 .table-details dt {
   color: var(--muted);

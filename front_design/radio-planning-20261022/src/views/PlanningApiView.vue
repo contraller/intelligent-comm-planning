@@ -1209,13 +1209,13 @@ onBeforeUnmount(() => {
 .analysis-entry p {
   margin: 6px 0;
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--font-control);
 }
 .workflow-summary {
   padding: 10px 12px;
   background: #142b40;
   border: 1px solid var(--line);
-  font-size: 12px;
+  font-size: var(--font-control);
   flex: none;
 }
 .workflow-summary p {
@@ -1228,7 +1228,7 @@ onBeforeUnmount(() => {
 }
 .solution-choices {
   flex: none;
-  font-size: 12px;
+  font-size: var(--font-control);
 }
 .solution-choices > summary {
   cursor: pointer;
@@ -1270,13 +1270,13 @@ onBeforeUnmount(() => {
   border-radius: 5px;
   background: transparent;
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--font-control);
   line-height: 1.4;
   text-align: left;
 }
 .steps button:hover:not(:disabled) { color: var(--blue); background: var(--panel-deep); }
 .steps .active { color: var(--blue); font-weight: 600; }
-.step-number { display: inline-grid; place-items: center; flex: 0 0 22px; width: 22px; height: 22px; border: 1px solid var(--line); border-radius: 50%; font-size: 11px; font-weight: 500; }
+.step-number { display: inline-grid; place-items: center; flex: 0 0 22px; width: 22px; height: 22px; border: 1px solid var(--line); border-radius: 50%; font-size: var(--font-secondary); font-weight: 500; }
 .steps .active .step-number { color: #fff; background: var(--blue); border-color: var(--blue); }
 .planning-layout {
   flex: 1 1 0;
@@ -1293,9 +1293,9 @@ onBeforeUnmount(() => {
 }
 .plan-management, .coverage-summary { padding: 12px; background: #14273b; border: 1px solid var(--line); }
 .plan-management h2 { margin: 0 0 8px; font-size: 16px; }
-.plan-management p, .coverage-summary p { font-size: 12px; line-height: 1.6; }
+.plan-management p, .coverage-summary p { font-size: var(--font-control); line-height: 1.6; }
 .plan-metrics { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
-.plan-metrics dt { color: var(--muted); font-size: 12px; }
+.plan-metrics dt { color: var(--muted); font-size: var(--font-control); }
 .plan-metrics dd { margin: 5px 0; font-size: 19px; color: #9edaff; }
 .planning-layout.input {
   grid-template-columns: clamp(320px, 28vw, 380px) minmax(0, 1fr);
@@ -1314,7 +1314,7 @@ onBeforeUnmount(() => {
 .input-panel :deep(.quick-cards) { grid-template-columns: minmax(0, 1fr); gap: 6px; }
 .input-panel :deep(.quick-card) { padding: 8px; }
 .input-panel :deep(.quick-actions) { margin-top: 6px; }
-.input-panel :deep(.task-quick-start h4) { font-size: 12px; }
+.input-panel :deep(.task-quick-start h4) { font-size: var(--font-control); }
 .planning-api-page :deep(.task-panel .panel-body),
 .planning-api-page .result-content { scrollbar-width: thin; scrollbar-color: var(--line) transparent; }
 .planning-api-page :deep(.task-panel .panel-body::-webkit-scrollbar),
@@ -1365,7 +1365,7 @@ onBeforeUnmount(() => {
 }
 .result-column > .notice {
   margin: 0;
-  font-size: 12px;
+  font-size: var(--font-control);
 }
 .result-content > :deep(.result-panel) {
   flex: none;
@@ -1419,7 +1419,7 @@ onBeforeUnmount(() => {
 }
 .progress-details {
   flex: none;
-  font-size: 12px;
+  font-size: var(--font-control);
 }
 .progress-details > summary {
   padding: 10px 12px;
@@ -1431,11 +1431,11 @@ onBeforeUnmount(() => {
 .map-tools span {
   background: #102035ed;
   padding: 8px;
-  font-size: 11px;
+  font-size: var(--font-secondary);
 }
 .result-details {
   padding: 10px 0;
-  font-size: 12px;
+  font-size: var(--font-control);
 }
 .result-details summary {
   cursor: pointer;
@@ -1458,7 +1458,7 @@ onBeforeUnmount(() => {
   flex: none;
 }
 .submit-hint {
-  font-size: 11px;
+  font-size: var(--font-secondary);
   color: var(--muted);
   line-height: 1.5;
 }
@@ -1470,7 +1470,7 @@ onBeforeUnmount(() => {
   padding: 10px;
   display: flex;
   gap: 10px;
-  font-size: 12px;
+  font-size: var(--font-control);
 }
 .member {
   display: flex;
@@ -1512,7 +1512,7 @@ onBeforeUnmount(() => {
   }
   .steps ol { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
   .steps li:not(:last-child)::after { display: none; }
-  .steps button { width: 100%; gap: 5px; padding: 4px; font-size: 11px; }
+  .steps button { width: 100%; gap: 5px; padding: 4px; font-size: var(--font-secondary); }
   .step-number { flex-basis: 20px; width: 20px; height: 20px; }
 }
 </style>

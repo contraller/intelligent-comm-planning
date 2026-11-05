@@ -152,7 +152,7 @@ async function commit() {
   display: grid;
   gap: 16px;
   color: #aec4dc;
-  font-size: 13px;
+  font-size: var(--font-body);
   line-height: 1.8;
 }
 label {
@@ -177,7 +177,7 @@ select {
   gap: 7px;
 }
 .preview span {
-  font-size: 12px;
+  font-size: var(--font-control);
 }
 .error {
   color: #ffabb8;

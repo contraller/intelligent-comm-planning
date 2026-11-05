@@ -84,5 +84,5 @@ h3, p { margin: 0; }
 label { display: grid; gap: 6px; }
 select { width: 100%; min-width: 0; }
 .toolbar { display: flex; flex-wrap: wrap; gap: 7px; }
-.muted { color: var(--muted); font-size: 11px; overflow-wrap: anywhere; }
+.muted { color: var(--muted); font-size: var(--font-secondary); overflow-wrap: anywhere; }
 </style>

@@ -366,7 +366,7 @@ const detail = computed(() => {
   gap: 7px;
 }
 .network-toolbar small {
-  font-size: 11px;
+  font-size: var(--font-secondary);
   color: #7f9ebc;
 }
 .network-canvas {
@@ -380,7 +380,7 @@ const detail = computed(() => {
   margin: 0;
   padding: 0 12px 8px;
   color: #9bbbc9;
-  font-size: 11px;
+  font-size: var(--font-secondary);
   line-height: 1.7;
   flex-shrink: 0;
 }
@@ -395,7 +395,7 @@ const detail = computed(() => {
   padding: 14px 17px;
   border-top: 1px solid #2f4966;
   color: #acc9e2;
-  font-size: 12px;
+  font-size: var(--font-control);
 }
 .object-detail p {
   line-height: 1.7;
@@ -410,7 +410,7 @@ const detail = computed(() => {
   border-top: 1px solid #2f4966;
   display: grid;
   gap: 10px;
-  font-size: 12px;
+  font-size: var(--font-control);
   max-height: 175px;
   overflow-y: auto;
 }
@@ -450,7 +450,7 @@ const detail = computed(() => {
   flex-wrap: wrap;
   padding: 12px 17px;
   border-top: 1px solid #2f4966;
-  font-size: 11px;
+  font-size: var(--font-secondary);
 }
 .fault-legend small {
   width: 100%;
@@ -462,7 +462,7 @@ const detail = computed(() => {
   display: flex;
   gap: 8px;
   flex-wrap: wrap;
-  font-size: 11px;
+  font-size: var(--font-secondary);
   max-height: 112px;
   overflow-y: auto;
   flex-shrink: 0;

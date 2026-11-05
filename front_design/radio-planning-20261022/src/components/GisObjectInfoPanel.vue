@@ -189,6 +189,10 @@ onBeforeUnmount(() => {
 </script>
 <style scoped>
 .gis-object-info {
+  min-width: 0;
+  font-size: var(--font-body, 15px);
+  line-height: 1.6;
+  overflow-wrap: anywhere;
   padding: 18px;
 }
 .object-summary {
@@ -214,12 +218,12 @@ onBeforeUnmount(() => {
   display: block;
   margin-bottom: 4px;
   color: var(--muted);
-  font-size: 10px;
+  font-size: var(--font-secondary, 13px);
 }
 .object-heading h3 {
   margin: 0;
-  font-size: 15px;
-  line-height: 1.5;
+  font-size: var(--font-section, 16px);
+  line-height: 1.6;
   overflow-wrap: anywhere;
 }
 .object-id {
@@ -229,14 +233,17 @@ onBeforeUnmount(() => {
   gap: 5px;
   margin: 6px 0 0;
   color: var(--muted);
-  font-size: 11px;
+  font-size: var(--font-secondary, 13px);
   overflow-wrap: anywhere;
 }
 .object-id .chip {
   padding: 2px 5px;
-  font-size: 10px;
+  font-size: var(--font-caption, 12px);
 }
 .object-status {
+  min-width: 0;
+  max-width: 100%;
+  font-size: var(--font-secondary, 13px);
   display: flex;
   flex-direction: column;
   align-items: flex-end;
@@ -247,11 +254,15 @@ onBeforeUnmount(() => {
   margin-left: 0;
 }
 .muted {
-  font-size: 11px;
+  font-size: var(--font-secondary, 13px);
   color: var(--muted);
   overflow-wrap: anywhere;
 }
 .member {
+  max-width: 100%;
+  font-size: var(--font-body, 15px);
+  line-height: 1.6;
+  overflow-wrap: anywhere;
   display: block;
   margin: 8px 0;
   border: 0;
@@ -261,6 +272,25 @@ onBeforeUnmount(() => {
 }
 .toolbar {
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
+}
+
+.toolbar button {
+  min-width: 0;
+  max-width: 100%;
+  font-size: var(--font-control, 14px);
+  line-height: 1.6;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.gis-object-info :deep(.kv) {
+  font-size: var(--font-control, 14px);
+  line-height: 1.6;
+}
+.gis-object-info :deep(.kv dt),
+.gis-object-info :deep(.kv dd) {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 </style>

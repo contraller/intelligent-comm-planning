@@ -94,7 +94,7 @@ const deltas = computed(() =>
 .metric-comparison table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 12px;
+  font-size: var(--font-control);
 }
 .metric-comparison th,
 .metric-comparison td {
@@ -106,7 +106,7 @@ const deltas = computed(() =>
 .metric-comparison small {
   display: block;
   margin-top: 4px;
-  font-size: 11px;
+  font-size: var(--font-secondary);
   color: var(--muted);
 }
 .metric-comparison .passed {
@@ -124,16 +124,16 @@ const deltas = computed(() =>
 .preview-hint {
   margin: 12px 16px;
   line-height: 1.6;
-  font-size: 12px;
+  font-size: var(--font-control);
 }
 .muted {
-  font-size: 11px;
+  font-size: var(--font-secondary);
   color: var(--muted);
   overflow-wrap: anywhere;
 }
 .compact > .notice {
   margin: 6px 12px;
-  font-size: 11px;
+  font-size: var(--font-secondary);
 }
 .compact .panel-head {
   padding: 10px 12px;

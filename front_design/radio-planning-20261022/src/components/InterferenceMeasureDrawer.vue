@@ -48,5 +48,5 @@ const capability = computed(() => store.measure ? store.selected?.adoption_capab
 const labels = { PENDING: '等待重算', RUNNING: '规划重算中', CANCEL_REQUESTED: '取消请求中', SUCCESS: '重算结果已保存', FAILED: '重算失败', CANCELLED: '重算已取消' };
 </script>
 <style scoped>
-p{line-height:1.7;overflow-wrap:anywhere}pre{font-size:11px;white-space:pre-wrap;overflow-wrap:anywhere;max-height:300px;overflow:auto}.toolbar{display:flex;flex-wrap:wrap;gap:8px}section{padding:14px 0;border-top:1px solid var(--line)}button{max-width:100%;white-space:normal;margin:4px 4px 4px 0}
+p{line-height:1.7;overflow-wrap:anywhere}pre{font-size:var(--font-secondary);white-space:pre-wrap;overflow-wrap:anywhere;max-height:300px;overflow:auto}.toolbar{display:flex;flex-wrap:wrap;gap:8px}section{padding:14px 0;border-top:1px solid var(--line)}button{max-width:100%;white-space:normal;margin:4px 4px 4px 0}
 </style>

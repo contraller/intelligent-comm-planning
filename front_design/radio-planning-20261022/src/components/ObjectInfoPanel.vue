@@ -319,7 +319,7 @@ watch(
   display: block;
   margin-bottom: 4px;
   color: var(--muted);
-  font-size: 10px;
+  font-size: var(--font-caption);
   font-weight: normal;
 }
 .object-heading h3 {
@@ -340,7 +340,7 @@ watch(
 .object-id {
   color: var(--muted);
   margin: 6px 0 0;
-  font-size: 11px;
+  font-size: var(--font-secondary);
   display: flex;
   flex-wrap: wrap;
   gap: 5px;
@@ -349,7 +349,7 @@ watch(
 }
 .object-id .chip {
   padding: 2px 5px;
-  font-size: 10px;
+  font-size: var(--font-caption);
 }
 .object-status {
   display: flex;

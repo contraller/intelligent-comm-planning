@@ -194,7 +194,7 @@ defineExpose({ requestLeave: () => store.requestLeave(), stopReading: () => stor
 .frequency-source { color: var(--muted); overflow-wrap: anywhere; }
 .frequency-error { color: var(--danger, #f29b9b); }
 .frequency-filters fieldset { display: flex; flex-wrap: wrap; align-items: end; gap: 12px; border: 0; padding: 12px 0; margin: 0; }
-.frequency-panel label { display: grid; gap: 5px; font-size: 13px; min-width: 0; }
+.frequency-panel label { display: grid; gap: 5px; font-size: var(--font-body); min-width: 0; }
 .frequency-panel input:not([type='checkbox']), .frequency-panel select { width: 100%; max-width: 220px; min-width: 0; }
 .frequency-selection { justify-content: flex-start; padding: 10px 0; }
 .frequency-selection label { display: flex; align-items: center; }

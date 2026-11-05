@@ -294,10 +294,10 @@ watch(
 .menu-close { display: grid; place-items: center; flex: 0 0 auto; width: 28px; height: 28px; border: 1px solid #42677e; border-radius: 5px; background: #142c40; color: #c7dfef; cursor: pointer; }
 .menu-close:hover { border-color: #86b7d3; background: #24465e; }
 .application-menu nav { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
-.application-menu nav a { padding: 10px 8px; border: 1px solid #2b465b; border-radius: 5px; font-size: 12px; justify-content: flex-start; }
+.application-menu nav a { padding: 10px 8px; border: 1px solid #2b465b; border-radius: 5px; font-size: var(--font-control); justify-content: flex-start; }
 .application-menu nav a.active { border-color: #6ca5c5; background: #23465d; }
-.menu-identity { display: flex; align-items: center; justify-content: space-between; gap: 8px; color: #92acc1; font-size: 11px; margin-top: 12px; }
-.runtime-notice { color: #d6b987; font-size: 11px; }
+.menu-identity { display: flex; align-items: center; justify-content: space-between; gap: 8px; color: #92acc1; font-size: var(--font-secondary); margin-top: 12px; }
+.runtime-notice { color: #d6b987; font-size: var(--font-secondary); }
 .situation-home-shell .app-content { overflow: hidden; scrollbar-gutter: auto; }
 .app-shell:not(.situation-home-shell):not(.embedded-business-shell) .app-content { padding-top: 56px; box-sizing: border-box; }
 .embedded-business-shell { height: 100%; min-height: 0; display: flex; flex-direction: column; }
@@ -306,13 +306,13 @@ watch(
   padding: 10px 28px;
   color: #ffb4b4;
   background: #392333;
-  font-size: 12px;
+  font-size: var(--font-control);
 }
 .reset-notice {
   padding: 10px 28px;
   color: #a1e9d9;
   background: #163d37;
-  font-size: 12px;
+  font-size: var(--font-control);
 }
 .app-shell {
   height: 100vh;
@@ -374,7 +374,7 @@ nav a {
   padding: 0 20px;
   color: #8fa4bf;
   border-bottom: 3px solid transparent;
-  font-size: 13px;
+  font-size: var(--font-body);
   position: relative;
   white-space: nowrap;
 }
@@ -396,7 +396,7 @@ nav a:hover {
   display: flex;
   align-items: center;
   gap: 9px;
-  font-size: 12px;
+  font-size: var(--font-control);
   white-space: nowrap;
   min-width: 0;
   max-width: 260px;
@@ -420,7 +420,7 @@ nav a:hover {
   border-radius: 50%;
   display: grid;
   place-items: center;
-  font-size: 11px;
+  font-size: var(--font-secondary);
   color: #93c8f1;
 }
 b {
@@ -445,7 +445,7 @@ b {
   border-top: 1px solid #1d2d43;
   padding: 7px 26px;
   color: #637b96;
-  font-size: 10px;
+  font-size: var(--font-caption);
 }
 .app-footer .pi {
   font-size: 9px;

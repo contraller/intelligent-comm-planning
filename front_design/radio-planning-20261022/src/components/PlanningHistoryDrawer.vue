@@ -269,7 +269,7 @@ const jobSummaryColumns = jobColumns.filter((column) =>
 .cell-secondary {
   display: block;
   color: var(--muted);
-  font-size: 11px;
+  font-size: var(--font-secondary);
   margin-top: 4px;
   overflow-wrap: anywhere;
 }
@@ -295,6 +295,6 @@ const jobSummaryColumns = jobColumns.filter((column) =>
 }
 .muted {
   margin: 10px 0;
-  font-size: 12px;
+  font-size: var(--font-control);
 }
 </style>

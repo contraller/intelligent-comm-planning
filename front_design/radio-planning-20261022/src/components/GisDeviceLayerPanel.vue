@@ -236,7 +236,7 @@ function updateFrequency(patch: Partial<DeviceFrequencyInput>) {
   margin-top: 10px;
   padding-top: 10px;
   border-top: 1px solid #2a405a;
-  font-size: 12px;
+  font-size: var(--font-control);
 }
 /* 筛选和说明按需展开，常用显隐与透明度保持直接可用。 */
 .device-filters > :not(summary) {
@@ -247,7 +247,7 @@ function updateFrequency(patch: Partial<DeviceFrequencyInput>) {
   color: #a6bfd7;
 }
 .device-layer-panel h3 {
-  font-size: 13px;
+  font-size: var(--font-body);
 }
 .device-layer-panel label {
   display: flex;

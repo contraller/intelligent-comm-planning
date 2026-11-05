@@ -507,7 +507,7 @@ onBeforeUnmount(() => {
 .support-details,
 .version-library {
   margin: 14px 0;
-  font-size: 12px;
+  font-size: var(--font-control);
 }
 .support-details summary,
 .version-library summary {
@@ -521,7 +521,7 @@ onBeforeUnmount(() => {
 .cell-secondary {
   display: block;
   color: var(--muted);
-  font-size: 11px;
+  font-size: var(--font-secondary);
   margin-top: 4px;
 }
 .toolbar {
@@ -529,7 +529,7 @@ onBeforeUnmount(() => {
   gap: 8px;
   align-items: center;
   flex-wrap: wrap;
-  font-size: 12px;
+  font-size: var(--font-control);
 }
 .save-fields {
   display: grid;
@@ -541,7 +541,7 @@ onBeforeUnmount(() => {
   display: flex;
   flex-direction: column;
   gap: 5px;
-  font-size: 12px;
+  font-size: var(--font-control);
 }
 .plan-choice {
   display: flex;
@@ -569,7 +569,7 @@ onBeforeUnmount(() => {
   margin: 0;
 }
 .muted {
-  font-size: 11px;
+  font-size: var(--font-secondary);
 }
 .comparison-panel {
   position: fixed;

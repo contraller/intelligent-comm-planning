@@ -126,7 +126,7 @@ const bridgeSummaryColumns = bridgeColumns.filter((column) =>
 <style scoped>
 .optimization-panel {
   padding: 16px;
-  font-size: 12px;
+  font-size: var(--font-control);
   line-height: 1.8;
 }
 .optimization-panel h4 {

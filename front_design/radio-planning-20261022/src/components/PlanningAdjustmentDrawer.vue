@@ -482,7 +482,7 @@ function fill(example: PlanningAdjustmentExample) {
 .object-choice {
   display: grid;
   gap: 6px;
-  font-size: 12px;
+  font-size: var(--font-control);
 }
 .object-choice select {
   min-width: 0;
@@ -490,7 +490,7 @@ function fill(example: PlanningAdjustmentExample) {
 }
 .inline-editor > details {
   margin: 12px 0;
-  font-size: 12px;
+  font-size: var(--font-control);
 }
 .inline-editor summary {
   cursor: pointer;
@@ -521,12 +521,12 @@ function fill(example: PlanningAdjustmentExample) {
 .device-row label {
   display: grid;
   gap: 6px;
-  font-size: 12px;
+  font-size: var(--font-control);
 }
 .device-row small,
 .muted {
   color: var(--muted);
-  font-size: 11px;
+  font-size: var(--font-secondary);
   line-height: 1.6;
 }
 .route-row ol {
@@ -568,7 +568,7 @@ h3 {
   margin: 8px 0;
 }
 .parent-details {
-  font-size: 11px;
+  font-size: var(--font-secondary);
   color: var(--muted);
   overflow-wrap: anywhere;
   margin: 8px 0;

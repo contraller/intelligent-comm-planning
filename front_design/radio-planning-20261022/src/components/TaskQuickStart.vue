@@ -61,12 +61,12 @@ const start = (id: string) => perform(id, 'start'), download = (id: string) => p
 <style scoped>
 .task-quick-start { padding: 12px; margin-bottom: 16px; border: 1px solid #315a73; border-radius: 8px; background: #112b3e; }
 h4 { margin: 0 0 6px; color: #c9e8f7; font-size: 14px; }
-p { margin: 6px 0; color: var(--muted); font-size: 11px; line-height: 1.6; }
+p { margin: 6px 0; color: var(--muted); font-size: var(--font-secondary); line-height: 1.6; }
 .quick-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 190px), 1fr)); gap: 8px; margin-top: 10px; }
 .quick-card { padding: 10px; background: #0d2032; border: 1px solid #29495f; border-radius: 6px; }
 .quick-card > div:first-child { display: flex; gap: 8px; justify-content: space-between; align-items: baseline; }
-strong { color: #d5eaf7; font-size: 12px; }
-small { color: #9ab7cc; font-size: 10px; }
+strong { color: #d5eaf7; font-size: var(--font-control); }
+small { color: #9ab7cc; font-size: var(--font-caption); }
 .quick-actions { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
 .quick-guide { margin-top: 10px; color: #b9d8e7; }
 </style>

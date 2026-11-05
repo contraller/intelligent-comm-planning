@@ -30,5 +30,5 @@ const link = computed(() => store.network?.links.find(row => row.id === store.se
 const station = computed(() => store.network ? configuredStations(store.network.stations, store.network.configuration).find(row => row.id === store.selectedStationId) : null);
 </script>
 <style scoped>
-.monitor-detail{display:grid;gap:12px;padding:16px;min-width:0}h4{margin:0;font-size:14px}.muted{font-size:12px;line-height:1.7;overflow-wrap:anywhere}dl{display:grid;grid-template-columns:100px minmax(0,1fr);gap:8px;font-size:12px}dd{margin:0;overflow-wrap:anywhere}.btn{text-align:left;white-space:normal}
+.monitor-detail{display:grid;gap:12px;padding:16px;min-width:0}h4{margin:0;font-size:14px}.muted{font-size:var(--font-control);line-height:1.7;overflow-wrap:anywhere}dl{display:grid;grid-template-columns:100px minmax(0,1fr);gap:8px;font-size:var(--font-control)}dd{margin:0;overflow-wrap:anywhere}.btn{text-align:left;white-space:normal}
 </style>

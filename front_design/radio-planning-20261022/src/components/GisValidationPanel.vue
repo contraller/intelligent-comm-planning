@@ -56,7 +56,7 @@ defineEmits<{ locate: [issue: GisValidationIssue] }>();
   padding: 10px 16px;
   background: #351f2b;
   color: #ffb4b4;
-  font-size: 12px;
+  font-size: var(--font-control);
   max-height: 180px;
   overflow: auto;
 }

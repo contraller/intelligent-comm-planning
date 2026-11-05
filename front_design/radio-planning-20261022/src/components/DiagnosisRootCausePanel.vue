@@ -50,7 +50,7 @@ const root = computed(() => diagnosisRootDisplay(props.conclusion, props.symptom
 </script>
 <style scoped>
 .root-cause {
-  font-size: 12px;
+  font-size: var(--font-control);
   line-height: 1.8;
   overflow-wrap: anywhere;
 }
@@ -78,7 +78,7 @@ const root = computed(() => diagnosisRootDisplay(props.conclusion, props.symptom
 .root-stages h4 {
   margin: 0 0 6px;
   color: #a1d6f7;
-  font-size: 12px;
+  font-size: var(--font-control);
 }
 .root-stages p {
   margin: 0;

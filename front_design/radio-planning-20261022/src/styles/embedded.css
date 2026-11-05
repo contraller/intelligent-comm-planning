@@ -47,8 +47,8 @@ body.agent-embed-mode {
   color-scheme: light;
   color: var(--text);
   background: var(--bg);
-  font-size: 13px;
-  line-height: 1.5;
+  font-size: var(--font-body);
+  line-height: 1.6;
 }
 .agent-embed {
   width: 100%;
@@ -113,7 +113,7 @@ body.agent-embed-mode {
   padding-left: 10px;
   border-left: 4px solid var(--blue);
   color: #1d3048;
-  font-size: 18px;
+  font-size: 20px;
   line-height: 1.35;
   letter-spacing: 0;
 }
@@ -150,7 +150,9 @@ body.agent-embed-mode {
 body.agent-embed-mode :is(input, select, textarea, .p-inputtext, .p-select) {
   max-width: 100%;
   min-width: 0;
-  min-height: 34px;
+  min-height: 38px;
+  font-size: var(--font-body);
+  line-height: 1.5;
   border-color: #cbd5e1;
   background: #ffffff;
   color: #24354b;
@@ -173,14 +175,15 @@ body.agent-embed-mode label { min-width: 0; color: #455b73; gap: 5px; }
 .agent-embed .embed-content :is(.toolbar, .frequency-filters):has(> label) { align-items: flex-end; }
 .agent-embed .embed-content .form-grid { gap: 14px 16px; }
 body.agent-embed-mode :is(.btn, .p-button) {
-  min-height: 34px;
+  min-height: 36px;
+  font-size: var(--font-control);
   padding: 7px 12px;
   border: 1px solid #cbd5e1;
   border-radius: 5px;
   color: #354b64;
   background: #ffffff;
   box-shadow: none;
-  line-height: 1.3;
+  line-height: 1.5;
 }
 body.agent-embed-mode :is(.btn, .p-button):hover:not(:disabled) { color: #1d4ed8; background: #f0f5ff; border-color: #9ab7ed; }
 body.agent-embed-mode :is(.btn.primary, .p-button:not(.p-button-secondary):not(.p-button-text):not(.p-button-outlined):not(.p-button-danger):not(.p-button-icon-only)) { color: #ffffff; background: #2563eb; border-color: #2563eb; }
@@ -253,8 +256,8 @@ body.agent-embed-mode .p-paginator {
 .agent-embed .embed-map-content > .embedded-business-shell > .app-content { overflow: hidden; scrollbar-gutter: auto; }
 .agent-embed .embed-content .situation-page { height: 100%; min-height: 0; padding: 0 12px 12px; }
 .agent-embed .embed-content .situation-toolbar { padding: 8px 0; min-height: 48px; }
-.agent-embed .embed-content .situation-left { flex-basis: 280px; }
-.agent-embed .embed-content .situation-right { flex-basis: 300px; }
+.agent-embed .embed-content .situation-left { flex-basis: 300px; }
+.agent-embed .embed-content .situation-right { flex-basis: 340px; }
 .agent-embed .embed-content :is(.situation-main, .situation-center, .map-frame, .gis-situation) { min-height: 0; }
 
 /* 地形内容保持原计算与颜色；地图外围及工具统一使用浅色页面主题。 */
@@ -381,7 +384,7 @@ body.agent-embed-mode :is(.agent-embed, .p-dialog, .p-drawer) .bandwidth-editor 
 .agent-embed .embed-content .map-error { background: #fff8eb; }
 .agent-embed .embed-content .progress-details > summary { color: #52677f; background: #f7f9fc; border-color: #dce4ef; }
 .agent-embed .embed-content :is(.embedded-map-settings h2, .situation-coverage-legend strong) { color: #24354b; }
-.agent-embed .embed-content .embedded-map-settings > summary { padding: 8px 12px; font-size: 13px; }
+.agent-embed .embed-content .embedded-map-settings > summary { padding: 8px 12px; font-size: var(--font-control); }
 .agent-embed .embed-content .embedded-map-settings .situation-controls { gap: 10px; }
 .agent-embed .embed-content .embedded-map-settings :is(label, .source-note, .frame-label span) { color: #52677f; }
 .agent-embed .embed-content .plan-picker summary { color: #335d8a; }
@@ -395,7 +398,7 @@ body.agent-embed-mode :is(.agent-embed, .p-dialog, .p-drawer) .bandwidth-editor 
 .agent-embed .embed-content .ol-attribution a { color: #335d8a; }
 .agent-embed .embed-content .ledger-tree .tree-row.active { color: #1d4ed8; background: #eaf1ff; }
 .agent-embed .embed-content .ledger-tree .tree-row.active small { color: #526b87; }
-body.agent-embed-mode :is(.p-drawer-title, .p-dialog-title) { font-size: 18px; line-height: 1.5; }
+body.agent-embed-mode :is(.p-drawer-title, .p-dialog-title) { font-size: 20px; line-height: 1.5; }
 .agent-embed .embed-content .gis-resource-tree :is(.browse-switch, .category-nav, .pager) button {
   color: #52677f; background: #f7f9fc; border-color: #d7e1ec;
 }
@@ -412,7 +415,7 @@ body.agent-embed-mode :is(.p-drawer-title, .p-dialog-title) { font-size: 18px; l
 .agent-embed .embed-content .gis-resource-tree :is(.station-item.selected, .link-item.selected) { color: #1d4ed8; background: #eaf1ff; border-color: #a8c4ff; }
 .agent-embed .embed-content .gis-resource-tree .device-children button.active { color: #1d4ed8; }
 .agent-embed .embed-content .gis-resource-tree :is(.link-item small, .alert-icon) { color: #8c641e; }
-body.agent-embed-mode input[type='file'] { padding: 5px 7px; font-size: 12px; }
+body.agent-embed-mode input[type='file'] { padding: 6px 9px; font-size: var(--font-control); }
 body.agent-embed-mode input[type='file']::file-selector-button { padding: 4px 8px; margin-right: 8px; border: 1px solid #cbd7e4; border-radius: 4px; color: #354b64; background: #f7f9fc; font: inherit; }
 
 /* 保留内容可达性，滚动仅在需要的区域出现且不再形成粗深色边栏。 */

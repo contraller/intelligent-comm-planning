@@ -125,13 +125,13 @@ const rows = computed(
   padding: 12px;
   border: 1px solid var(--line);
   border-radius: 5px;
-  font-size: 12px;
+  font-size: var(--font-control);
   line-height: 1.8;
   overflow-wrap: anywhere;
 }
 .assessment h5 {
   margin: 0 0 8px;
-  font-size: 13px;
+  font-size: var(--font-body);
 }
 .assessment p {
   margin: 8px 0;
@@ -139,7 +139,7 @@ const rows = computed(
 }
 .source {
   color: var(--muted);
-  font-size: 11px;
+  font-size: var(--font-secondary);
 }
 .warning {
   color: #f2cf5b;

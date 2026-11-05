@@ -63,12 +63,12 @@ const emit = defineEmits<{ select: [id: string]; close: [] }>();
   justify-content: space-between;
 }
 .device-cluster-panel h3 {
-  font-size: 13px;
+  font-size: var(--font-body);
 }
 .device-cluster-panel p {
   margin: 10px 0;
   line-height: 1.7;
-  font-size: 12px;
+  font-size: var(--font-control);
 }
 .cluster-members {
   display: grid;
@@ -85,7 +85,7 @@ const emit = defineEmits<{ select: [id: string]; close: [] }>();
   background: #0c1b2d;
   border: 1px solid #2a405a;
   border-radius: 4px;
-  font-size: 11px;
+  font-size: var(--font-secondary);
   overflow-wrap: anywhere;
 }
 .cluster-device:hover,

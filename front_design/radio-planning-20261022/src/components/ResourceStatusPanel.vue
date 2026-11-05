@@ -217,7 +217,7 @@ defineExpose({ requestLeave, canRefreshDirectoryInBackground, refreshDirectoryIn
 onScopeDispose(() => { disposed = true; fileSerial++; discardDirectoryRefresh(); });
 </script>
 <style scoped>
-.resource-status-panel { padding: 12px 0; font-size: 12px; border-top: 1px solid var(--line, #d5d9de); }
+.resource-status-panel { padding: 12px 0; font-size: var(--font-control); border-top: 1px solid var(--line, #d5d9de); }
 .toolbar { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin: 8px 0; }
 label { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 8px 0; }
 fieldset { border: 0; padding: 0; min-width: 0; }

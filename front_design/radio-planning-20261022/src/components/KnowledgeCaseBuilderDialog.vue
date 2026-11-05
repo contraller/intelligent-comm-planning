@@ -469,7 +469,7 @@ const entityName = (id: string) =>
 <style scoped>
 .intro,
 .boundary {
-  font-size: 12px;
+  font-size: var(--font-control);
   color: #9fb6cb;
   line-height: 1.7;
 }
@@ -486,7 +486,7 @@ const entityName = (id: string) =>
   display: flex;
   flex-direction: column;
   gap: 6px;
-  font-size: 12px;
+  font-size: var(--font-control);
 }
 .wide {
   grid-column: 1/-1;
@@ -508,7 +508,7 @@ const entityName = (id: string) =>
   gap: 18px;
 }
 .file-picker {
-  font-size: 12px;
+  font-size: var(--font-control);
 }
 .file-picker input {
   display: block;
@@ -530,7 +530,7 @@ const entityName = (id: string) =>
   flex-wrap: wrap;
   align-items: center;
   color: #b7d4e8;
-  font-size: 12px;
+  font-size: var(--font-control);
 }
 .entity-list {
   display: flex;
@@ -545,17 +545,17 @@ const entityName = (id: string) =>
   background: #132c43;
   padding: 5px 8px;
   border-radius: 4px;
-  font-size: 11px;
+  font-size: var(--font-secondary);
 }
 .preview details {
-  font-size: 12px;
+  font-size: var(--font-control);
 }
 .preview li {
   margin: 6px 0;
 }
 table {
   width: 100%;
-  font-size: 12px;
+  font-size: var(--font-control);
   margin-top: 12px;
   text-align: left;
 }
@@ -568,7 +568,7 @@ th {
   color: #f9a8b5;
 }
 .footer-note {
-  font-size: 11px;
+  font-size: var(--font-secondary);
   color: #9fb0c0;
   margin-right: auto;
 }
